@@ -39,7 +39,13 @@ echo -e "${YELLOW}提交: $MESSAGE${NC}"
 git commit -m "$MESSAGE"
 
 # 推送
-echo -e "${YELLOW}推送到远程...${NC}"
-git push
+if git remote -v | grep -q "push"; then
+    echo -e "${YELLOW}推送到远程...${NC}"
+    git push
+else
+    echo -e "${YELLOW}未配置远程仓库，跳过推送${NC}"
+    echo -e "${YELLOW}如需推送，请先添加远程仓库:${NC}"
+    echo -e "  git remote add origin <你的仓库地址>"
+fi
 
 echo -e "${${GREEN}完成!${NC}"
