@@ -19,7 +19,11 @@
       "Bash(chmod +x /Users/yoin/bdsync/program/honghuanghou/git-auto.sh)",
       "Bash(./git-auto.sh \"添加自动提交脚本\")",
       "Bash(./git-auto.sh \"测试自动提交\")",
-      "Bash(./git-auto.sh \"修复脚本错误\")"
+      "Bash(./git-auto.sh \"修复脚本错误\")",
+      "Bash(lsof -ti:14600 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true; lsof -ti:3333 | xargs kill -9 2>/dev/null || true)",
+      "Bash(lsof -ti:3333 | xargs kill -9 2>/dev/null; sleep 1 && npm run build 2>&1 | tail -5)",
+      "Bash(git ls-tree:*)",
+      "Bash(git submodule:*)"
     ]
   }
 }
