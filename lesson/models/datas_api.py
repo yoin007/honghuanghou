@@ -541,7 +541,7 @@ async def get_class_announcements(class_code: str):
 class HomeworkForm(BaseModel):
     classCode: str
     subject: str
-    teacher: str
+    teacher: str = "管理员"
     content: str
     deadline: str
     duration: int
