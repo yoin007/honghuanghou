@@ -206,7 +206,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 def verify_password(plain_password, stored_password):
     """
     验证密码
-    安全修复: 只支持 bcrypt 哈希验证，移除明文密码比较
+    支持 bcrypt 哈希和明文密码验证
     """
     # 检查是否为有效的 bcrypt 哈希格式 (以 $2a$, $2b$, $2y$ 开头)
     if stored_password and stored_password.startswith(('$2a$', '$2b$', '$2y$')):
@@ -215,6 +215,12 @@ def verify_password(plain_password, stored_password):
         except Exception as e:
             print(f"Password verification failed: {e}")
             return False
+
+    # 支持明文密码验证（兼容旧数据）
+    if stored_password and plain_password == stored_password:
+        return True
+
+    return False
 
     # 不再支持明文密码比较 - 这是安全风险
     # 如果需要迁移旧数据，请在管理员界面手动将密码哈希后存储
@@ -293,6 +299,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         )
 
     user = authenticate_user(form_data.username, form_data.password)
+    logger.info(f"Login attempt: username={form_data.username}, success={bool(user)}")
     if not user:
         raise HTTPException(
             status_code=401,
