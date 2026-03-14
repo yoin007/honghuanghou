@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>艺术类综合分计算器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: '微软雅黑', sans-serif;
+        }
+
+        body {
+            background-color: #f0f2f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            flex: 1;
+        }
+
+        input {
+            flex: 2; /* 使输入框自适应宽度 */
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-right: 10px; /* Add margin for the button */
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #1677ff;
+            box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.1);
+        }
+
+        .button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            background: #1677ff;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .notice {
+            color: #666;
+            font-size: 14px;
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .instructions {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #e7f3fe;
+            border: 1px solid #b3d4fc;
+            border-radius: 5px;
+            color: #31708f;
+        }
+
+        /* 手机端自适应样式 */
+        @media (max-width: 600px) {
+            .input-group {
+                flex-direction: column; /* 使输入框和按钮垂直排列 */
+                align-items: stretch; /* 使输入框和按钮宽度一致 */
+            }
+
+            input {
+                margin-right: 0; /* 移除右边距 */
+                margin-bottom: 10px; /* 添加底部间距 */
+            }
+
+            .button {
+                width: 100%; /* 按钮宽度100% */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="instructions">
+            <h3>使用说明</h3>
+            <p>1. 选择您要计算的类型（美术/设计/音乐/舞蹈/表导、书法、播音主持）。</p>
+            <p>2. 输入文化成绩和专业成绩，或综合成绩。</p>
+            <p>3. 点击相应的“计算”按钮，系统将自动计算出缺失的成绩。</p>
+            <p>4. 确保输入的成绩有效，系统会在输入不完整时给出提示。</p>
+        </div>
+
+        <div class="input-group">
+            <label for="typeSelect">选择类型</label>
+            <select id="typeSelect">
+                <option value="art">美术/设计/音乐/舞蹈/表导</option>
+                <option value="calligraphy">书法</option>
+                <option value="broadcast">播音主持</option>
+            </select>
+        </div>
+
+        <div class="input-group">
+            <label>文化成绩（含加分）</label>
+            <input type="number" id="culture" placeholder="请输入文化成绩">
+            <button class="button" id="calculateCulture">计算</button>
+        </div>
+
+        <div class="input-group">
+            <label>专业成绩</label>
+            <input type="number" id="professional" placeholder="请输入专业成绩">
+            <button class="button" id="calculateProfessional">计算</button>
+        </div>
+
+        <div class="input-group">
+            <label>综合成绩</label>
+            <input type="number" id="comprehensive" placeholder="自动计算结果">
+            <button class="button" id="calculateComprehensive">计算</button>
+        </div>
+
+        <div class="notice" id="notice">
+            * 专业成绩会自动按750/300系数进行换算
+        </div>
+    </div>
+
+    <script>
+        const typeSelect = document.getElementById('typeSelect');
+        const inputs = {
+            culture: document.getElementById('culture'),
+            professional: document.getElementById('professional'),
+            comprehensive: document.getElementById('comprehensive')
+        };
+        const notice = document.getElementById('notice');
+
+        let currentType = 'art'; // 当前选择的类型
+
+        // 选择类型变化监听
+        typeSelect.addEventListener('change', () => {
+            currentType = typeSelect.value;
+            updateNotice();
+        });
+
+        // 计算按钮监听
+        document.getElementById('calculateCulture').addEventListener('click', () => {
+            calculateAndUpdate('culture');
+        });
+
+        document.getElementById('calculateProfessional').addEventListener('click', () => {
+            calculateAndUpdate('professional');
+        });
+
+        document.getElementById('calculateComprehensive').addEventListener('click', () => {
+            calculateAndUpdate('comprehensive');
+        });
+
+        function calculateAndUpdate(target) {
+            const culture = parseFloat(inputs.culture.value);
+            const professional = parseFloat(inputs.professional.value);
+            const comprehensive = parseFloat(inputs.comprehensive.value);
+
+            if (target === 'culture') {
+                if (isNaN(professional) || isNaN(comprehensive)) {
+                    alert('请确保专业成绩和综合成绩均已输入。');
+                    return;
+                }
+                inputs.culture.value = getCultureScore(professional, comprehensive).toFixed(1);
+            } else if (target === 'professional') {
+                if (isNaN(culture) || isNaN(comprehensive)) {
+                    alert('请确保文化成绩和综合成绩均已输入。');
+                    return;
+                }
+                inputs.professional.value = getProfessionalScore(culture, comprehensive).toFixed(1);
+            } else if (target === 'comprehensive') {
+                if (isNaN(culture) || isNaN(professional)) {
+                    alert('请确保文化成绩和专业成绩均已输入。');
+                    return;
+                }
+                inputs.comprehensive.value = getComprehensiveScore(culture, professional).toFixed(1);
+            }
+        }
+
+        function getComprehensiveScore(culture, professional) {
+            const ratio = getCurrentRatio();
+            return culture * ratio.culture + professional * 2.5 * ratio.professional;
+        }
+
+        function getProfessionalScore(culture, comprehensive) {
+            const ratio = getCurrentRatio();
+            return (comprehensive - culture * ratio.culture) / (2.5 * ratio.professional);
+        }
+
+        function getCultureScore(professional, comprehensive) {
+            const ratio = getCurrentRatio();
+            return (comprehensive - professional * 2.5 * ratio.professional) / ratio.culture;
+        }
+
+        function getCurrentRatio() {
+            switch(currentType) {
+                case 'art': 
+                    return { culture: 0.5, professional: 0.5 };
+                case 'calligraphy':
+                    return { culture: 0.6, professional: 0.4 };
+                case 'broadcast':
+                    return { culture: 0.7, professional: 0.3 };
+                default:
+                    return { culture: 0.5, professional: 0.5 };
+            }
+        }
+
+        function updateNotice() {
+            switch(currentType) {
+                case 'art':
+                    notice.innerHTML = '综合分 = 文化成绩 * 0.5 + 专业成绩 * 2.5 * 0.5';
+                    break;
+                case 'calligraphy':
+                    notice.innerHTML = '综合分 = 文化成绩 * 0.6 + 专业成绩 * 2.5 * 0.4';
+                    break;
+                case 'broadcast':
+                    notice.innerHTML = '综合分 = 文化成绩 * 0.7 + 专业成绩 * 2.5 * 0.3';
+                    break;
+                default:
+                    notice.innerHTML = '专业成绩会自动按750/300系数进行换算';
+            }
+        }
+
+        // 初始化 notice
+        updateNotice();
+    </script>
+</body>
+</html>
