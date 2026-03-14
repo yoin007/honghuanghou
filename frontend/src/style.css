@@ -326,4 +326,47 @@ button:focus-visible {
     color: #fff;
     box-shadow: 0 4px 12px rgba(64, 158, 255, 0.4);
   }
+
+  /* 移动端按钮放大 */
+  .el-button {
+    min-height: 40px;
+    min-width: 80px;
+    font-size: 15px;
+  }
+
+  .el-button--small {
+    min-height: 36px;
+    min-width: 70px;
+    font-size: 14px;
+  }
+
+  /* 移动端输入框 */
+  .el-input__wrapper {
+    min-height: 42px;
+  }
+
+  /* 移动端表格单元格 */
+  .el-table .el-table__cell {
+    padding: 8px 4px;
+    font-size: 13px;
+  }
+
+  /* 移动端表单标签 */
+  .el-form-item__label {
+    font-size: 14px;
+  }
+
+  /* 移动端对话框 */
+  .el-dialog {
+    width: 90% !important;
+    max-width: 500px;
+  }
+
+  .el-dialog__header {
+    padding: 15px;
+  }
+
+  .el-dialog__body {
+    padding: 15px;
+  }
 }
