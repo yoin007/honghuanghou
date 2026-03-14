@@ -548,11 +548,14 @@ class HomeworkForm(BaseModel):
     type: str
 
 
-@router.post("/homework/")
+@router.post("/homework/", dependencies=[Depends(get_current_user)])
 async def create_homework(homework: HomeworkForm, current_user: User = Depends(get_current_user)):
-    """发布作业"""
-    # 使用登录用户名作为老师，默认值为空字符串
-    teacher_name = homework.teacher or (current_user.username if current_user else "管理员")
+    """发布作业（需要登录）"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="请先登录")
+
+    # 使用登录用户名作为老师
+    teacher_name = homework.teacher or current_user.username
 
     try:
         n = Homework()
