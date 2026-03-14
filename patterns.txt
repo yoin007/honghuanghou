@@ -1,8 +1,0 @@
-token.yaml
-wechat.yaml
-config.yaml
-application.yaml
-network.yaml
-.env
-*.db
-lesson/logs/
