@@ -565,7 +565,44 @@ async def create_homework(homework: HomeworkForm):
         )
         result = {"id": n.cursor.lastrowid, "message": "作业发布成功"}
         n.__exit__(None, None, None)
+
+        # WebSocket 通知
+        try:
+            from websocket import notify_homework_update
+            await notify_homework_update(homework.classCode, {"action": "create", "subject": homework.subject})
+        except Exception as ws_err:
+            logger.warning(f"WebSocket notification failed: {ws_err}")
+
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class HomeworkIds(BaseModel):
+    ids: list[int]
+    classCode: str
+
+
+@router.delete("/homework/batch")
+async def delete_homework_batch(homework_ids: HomeworkIds):
+    """批量删除作业"""
+    try:
+        n = Homework()
+        n.__enter__()
+        deleted_count = 0
+        for hw_id in homework_ids.ids:
+            n.delete_homework(hw_id)
+            deleted_count += 1
+        n.__exit__(None, None, None)
+
+        # WebSocket 通知
+        try:
+            from websocket import notify_homework_update
+            await notify_homework_update(homework_ids.classCode, {"action": "delete", "count": deleted_count})
+        except Exception as ws_err:
+            logger.warning(f"WebSocket notification failed: {ws_err}")
+
+        return {"message": f"成功删除 {deleted_count} 条作业"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -765,6 +802,63 @@ async def get_students(class_code: str):
     students_df = l.get_cache_data("students")
     students = students_df[students_df["cname"] == class_code]["name"].tolist()
     return {"students": students}
+
+
+@router.get("/students/export/{class_code}")
+async def export_students_excel(class_code: str):
+    """导出班级学生 Excel"""
+    l = Lesson()
+    students_df = l.get_cache_data("students")
+    if students_df is None or students_df.empty:
+        raise HTTPException(status_code=404, detail="暂无学生数据")
+
+    class_students = students_df[students_df["cname"] == class_code].copy()
+    if class_students.empty:
+        raise HTTPException(status_code=404, detail=f"未找到班级 {class_code} 的学生")
+
+    # 选择需要导出的列
+    export_cols = ["sid", "name", "sex", "phone", "roomid", "rpid"]
+    available_cols = [col for col in export_cols if col in class_students.columns]
+    export_df = class_students[available_cols].copy()
+
+    # 生成 Excel
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        export_df.to_excel(writer, index=False, sheet_name=f"{class_code}")
+
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={class_code}_students.xlsx"}
+    )
+
+
+@router.post("/students/import/{class_code}")
+async def import_students_excel(class_code: str, file: UploadFile = File(...)):
+    """导入学生 Excel"""
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="只允许上传 .xlsx 或 .xls 格式的文件")
+
+    try:
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents))
+
+        # 验证必要列
+        required_cols = ["sid", "name"]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            raise HTTPException(status_code=400, detail=f"缺少必要列: {missing_cols}")
+
+        # 这里只返回预览数据，实际更新需要管理员确认
+        preview = df.head(10).to_dict(orient="records")
+        return {
+            "message": f"成功读取 {len(df)} 条学生数据",
+            "preview": preview,
+            "total": len(df)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
 
 
 @router.get("/periods")

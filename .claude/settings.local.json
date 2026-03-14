@@ -26,7 +26,11 @@
       "Bash(git submodule:*)",
       "Bash(lsof -ti:14600 | xargs kill -9 2>/dev/null; cd /Users/yoin/bdsync/program/honghuanghou/lesson && timeout 5 python main.py 2>&1 || true)",
       "Bash(python -c \"import main; print\\('Backend imports OK'\\)\" 2>&1)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git rm:*)",
+      "Bash(lsof -ti:14600 | xargs kill -9 2>/dev/null; lsof -ti:3333 | xargs kill -9 2>/dev/null; sleep 1)",
+      "Bash(pip show:*)"
     ]
   }
 }

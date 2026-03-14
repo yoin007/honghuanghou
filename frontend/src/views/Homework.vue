@@ -17,11 +17,21 @@
         />
       </div>
 
-      <el-tabs v-model="activeTab" class="homework-tabs">
+      <div v-if="isAdmin && hasHomework(activeTab)" class="batch-actions">
+          <el-checkbox v-model="selectAll" :indeterminate="isIndeterminate" @change="handleSelectAll">
+            全选
+          </el-checkbox>
+          <el-button v-if="selectedIds.length > 0" type="danger" size="small" @click="handleBatchDelete">
+            批量删除 ({{ selectedIds.length }})
+          </el-button>
+        </div>
+
+<el-tabs v-model="activeTab" class="homework-tabs">
         <el-tab-pane label="日常作业" name="日常">
           <el-empty v-if="!hasHomework('日常')" description="暂无日常作业" />
           <div v-else class="table-container">
-            <el-table :data="getAllHomeworkList('日常')" stripe style="width: 100%" :max-height="tableMaxHeight">
+            <el-table ref="tableRef" :data="getAllHomeworkList('日常')" stripe style="width: 100%" :max-height="tableMaxHeight" @selection-change="handleSelectionChange">
+              <el-table-column v-if="isAdmin" type="selection" width="50" />
               <el-table-column prop="subject" label="学科" width="80" fixed>
                 <template #default="scope">
                   <div class="cell-content">
@@ -75,7 +85,8 @@
         <el-tab-pane label="周末作业" name="周末">
           <el-empty v-if="!hasHomework('周末')" description="暂无周末作业" />
           <div v-else class="table-container">
-            <el-table :data="getAllHomeworkList('周末')" stripe style="width: 100%" :max-height="tableMaxHeight">
+            <el-table ref="weekendTableRef" :data="getAllHomeworkList('周末')" stripe style="width: 100%" :max-height="tableMaxHeight" @selection-change="handleSelectionChange">
+              <el-table-column v-if="isAdmin" type="selection" width="50" />
               <el-table-column prop="subject" label="学科" width="80" fixed>
                 <template #default="scope">
                   <div class="cell-content">
@@ -195,6 +206,44 @@ const editForm = ref({
   type: '日常'
 })
 const updating = ref(false)
+const selectedIds = ref([])
+const tableRef = ref(null)
+const weekendTableRef = ref(null)
+const selectAll = ref(false)
+
+const isIndeterminate = computed(() => {
+  const list = getAllHomeworkList(activeTab.value)
+  return selectedIds.value.length > 0 && selectedIds.value.length < list.length
+})
+
+const handleSelectionChange = (selection) => {
+  selectedIds.value = selection.map(item => item.id)
+}
+
+const handleSelectAll = (checked) => {
+  if (checked) {
+    const list = getAllHomeworkList(activeTab.value)
+    selectedIds.value = list.map(item => item.id)
+  } else {
+    selectedIds.value = []
+  }
+}
+
+const handleBatchDelete = async () => {
+  if (selectedIds.value.length === 0) return
+  try {
+    await api.delete('/api/homework/batch', {
+      data: { ids: selectedIds.value, classCode: classCode.value }
+    })
+    ElMessage.success(`成功删除 ${selectedIds.value.length} 条作业`)
+    selectedIds.value = []
+    selectAll.value = false
+    fetchHomework()
+  } catch (error) {
+    console.error('Batch delete error:', error)
+    ElMessage.error('批量删除失败')
+  }
+}
 
 const subjects = ["语文", "数学", "英语", "物理", "化学", "生物", "地理", "历史", "政治", "美术", "技术", "班级"]
 
@@ -416,6 +465,16 @@ onMounted(() => {
   height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 10px;
+  padding: 10px;
+  background: #f5f7fa;
+  border-radius: 4px;
 }
 
 .homework-container h2 {
