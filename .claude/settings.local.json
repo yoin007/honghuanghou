@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /Users/yoin/bdsync/program/honghuanghou/frontend && npm install unplugin-vue-components unplugin-auto-import)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(cd /Users/yoin/bdsync/program/honghuanghou/lesson && python main.py)",
+      "Bash(curl -s http://localhost:14600/api/ws/status)",
+      "Bash(sleep 5 && curl -s http://localhost:14600/api/health)",
+      "Bash(curl -s -k https://localhost:3334/ | head -20)",
+      "Bash(curl -s -k https://localhost:3334/ | head -5)",
+      "Bash(sleep 5 && curl -s -k https://localhost:3334/ | head -10)",
+      "Bash(lsof -ti:14600 | xargs kill -9 2>/dev/null || echo \"No process on port 14600\")",
+      "Bash(curl -s http://localhost:14600/api/health)",
+      "Bash(curl -s \"http://localhost:14600/api/class-codes/\" | python3 -m json.tool)",
+      "Bash(git add:*)"
+    ]
+  }
+}
