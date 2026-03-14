@@ -48,4 +48,4 @@ else
     echo -e "  git remote add origin <你的仓库地址>"
 fi
 
-echo -e "${${GREEN}完成!${NC}"
+echo -e "${GREEN}完成!${NC}"

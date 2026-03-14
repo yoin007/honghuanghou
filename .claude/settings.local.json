@@ -18,7 +18,8 @@
       "Bash(git config:*)",
       "Bash(chmod +x /Users/yoin/bdsync/program/honghuanghou/git-auto.sh)",
       "Bash(./git-auto.sh \"添加自动提交脚本\")",
-      "Bash(./git-auto.sh \"测试自动提交\")"
+      "Bash(./git-auto.sh \"测试自动提交\")",
+      "Bash(./git-auto.sh \"修复脚本错误\")"
     ]
   }
 }
