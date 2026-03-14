@@ -23,7 +23,10 @@
       "Bash(lsof -ti:14600 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true; lsof -ti:3333 | xargs kill -9 2>/dev/null || true)",
       "Bash(lsof -ti:3333 | xargs kill -9 2>/dev/null; sleep 1 && npm run build 2>&1 | tail -5)",
       "Bash(git ls-tree:*)",
-      "Bash(git submodule:*)"
+      "Bash(git submodule:*)",
+      "Bash(lsof -ti:14600 | xargs kill -9 2>/dev/null; cd /Users/yoin/bdsync/program/honghuanghou/lesson && timeout 5 python main.py 2>&1 || true)",
+      "Bash(python -c \"import main; print\\('Backend imports OK'\\)\" 2>&1)",
+      "Bash(pip install:*)"
     ]
   }
 }
