@@ -24,6 +24,7 @@ from models import datas_api
 from models.lesson.lound import router as loud_router
 from websocket import websocket_endpoint, manager
 from utils.database import init_db_optimization
+from utils.monitor import init_monitor
 
 log = LogConfig().get_logger()
 config = Config()
@@ -45,6 +46,8 @@ async def consume_queue():
 async def lifespan(app: FastAPI):
     # 启动时初始化数据库优化
     init_db_optimization()
+    # 启动时初始化监控
+    init_monitor()
 
     # 启动时启动队列消费任务
     tasks = [
@@ -134,15 +137,9 @@ async def ws_status():
 # 添加健康检查端点
 @app.get("/api/health")
 async def health_check():
-    import psutil
-    return {
-        "status": "healthy",
-        "system": {
-            "cpu_percent": psutil.cpu_percent(),
-            "memory_percent": psutil.virtual_memory().percent,
-            "disk_percent": psutil.disk_usage('/').percent
-        }
-    }
+    from utils.monitor import get_system_status
+    status = get_system_status()
+    return status
 
 
 # 配置静态文件目录

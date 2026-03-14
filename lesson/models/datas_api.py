@@ -22,6 +22,7 @@ from models.parking import get_parking_records
 from models.manage.member import Member
 from utils.rate_limit import rate_limiter
 from utils.cache import cache
+from utils.operation_log import operation_logger
 
 # 获取日志记录器
 logger = logging.getLogger(__name__)
@@ -566,6 +567,17 @@ async def create_homework(homework: HomeworkForm):
         result = {"id": n.cursor.lastrowid, "message": "作业发布成功"}
         n.__exit__(None, None, None)
 
+        # 记录操作日志
+        operation_logger.info(
+            "发布作业",
+            username=homework.teacher,
+            details={
+                "class_code": homework.classCode,
+                "subject": homework.subject,
+                "type": homework.type
+            }
+        )
+
         # WebSocket 通知
         try:
             from websocket import notify_homework_update
@@ -594,6 +606,16 @@ async def delete_homework_batch(homework_ids: HomeworkIds):
             n.delete_homework(hw_id)
             deleted_count += 1
         n.__exit__(None, None, None)
+
+        # 记录操作日志
+        operation_logger.info(
+            "批量删除作业",
+            details={
+                "class_code": homework_ids.classCode,
+                "deleted_ids": homework_ids.ids,
+                "count": deleted_count
+            }
+        )
 
         # WebSocket 通知
         try:
@@ -1470,7 +1492,17 @@ async def upload_schedule(file: UploadFile = File(...), current_user: User = Dep
         # 触发课表更新逻辑
         from models.lesson.lesson import manual_update_schedule
         update_result = await manual_update_schedule()
-        
+
+        # 记录操作日志
+        operation_logger.info(
+            "上传课表",
+            username=current_user.username if current_user else None,
+            details={
+                "filename": file.filename,
+                "result": "success" if update_result else "partial_success"
+            }
+        )
+
         if update_result:
             return {"status": "success", "message": "文件上传并更新成功", "filename": file.filename}
         else:
