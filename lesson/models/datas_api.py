@@ -549,15 +549,18 @@ class HomeworkForm(BaseModel):
 
 
 @router.post("/homework/")
-async def create_homework(homework: HomeworkForm):
+async def create_homework(homework: HomeworkForm, current_user: User = Depends(get_current_user)):
     """发布作业"""
+    # 使用登录用户名作为老师，默认值为空字符串
+    teacher_name = homework.teacher or (current_user.username if current_user else "管理员")
+
     try:
         n = Homework()
         n.__enter__()
         n.add_homework(
             class_code=homework.classCode,
             subject=homework.subject,
-            teacher=homework.teacher,
+            teacher=teacher_name,
             content=homework.content,
             deadline=homework.deadline,
             duration=homework.duration,
@@ -570,11 +573,12 @@ async def create_homework(homework: HomeworkForm):
         # 记录操作日志
         operation_logger.info(
             "发布作业",
-            username=homework.teacher,
+            username=teacher_name,
             details={
                 "class_code": homework.classCode,
                 "subject": homework.subject,
-                "type": homework.type
+                "type": homework.type,
+                "teacher": teacher_name
             }
         )
 
