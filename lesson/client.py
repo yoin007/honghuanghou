@@ -66,7 +66,6 @@ class Client:
         except requests.exceptions.RequestException as e:
             error_message = f"HTTP Request failed: {e}"
             self.LOG.error(error_message)
-            print(error_message)
             return error_message
 
     def send_text(self, content: str, receiver: str, aters: Optional[str] = ""):
@@ -156,7 +155,7 @@ class Client:
             res = trigger_download_file(msg_id)
             try:
                 res_json = json.loads(res)
-                print(res_json)
+                self.LOG.debug(f"Download response: {res_json}")
                 if res_json.get("success"):
                     sleep(3)
                 elif res_json.get("message") == "这条消息不是文件类型！":
@@ -271,21 +270,21 @@ class Client:
 
                         page_info = page_data.get("page", {})
                         total_page = page_info.get("total_page", 1)
-                        print(f"第 {current_page} 页获取到 {len(members)} 个成员，总 {total_page} 页")
+                        self.LOG.info(f"第 {current_page} 页获取到 {len(members)} 个成员，总 {total_page} 页")
 
                         current_page += 1
                     else:
-                        print(f"请求失败: {result.get('message')}")
+                        self.LOG.error(f"请求失败: {result.get('message')}")
                         return None
                 else:
-                    print(f'请求错误: {response}')
+                    self.LOG.error(f'请求错误: {response}')
                     return None
 
             except requests.exceptions.RequestException as e:
-                print(f'HTTP Request failed: {e}')
+                self.LOG.error(f'HTTP Request failed: {e}')
                 return None
 
-        print(f"共获取到 {len(all_members)} 个成员")
+        self.LOG.info(f"共获取到 {len(all_members)} 个成员")
         return all_members
 
 
@@ -308,4 +307,4 @@ if __name__ == "__main__":
     c = Client()
     r = c.send_text("今天好热啊", "57477785315@chatroom", "yoin007")
 
-    print(r)
+    logging.info(f"Send result: {r}")

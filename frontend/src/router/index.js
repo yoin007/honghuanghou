@@ -1,44 +1,54 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+// 公开页面，不需要登录
+const publicRoutes = ['/', '/zhf', '']
+
 const routes = [
   {
     path: '/schedule',
     name: 'Schedule',
-    component: () => import('../views/Schedule.vue')
+    component: () => import('../views/Schedule.vue'),
+    meta: { requiresAuth: true, title: '课程表' }
   },
   {
     path: '/announcement',
     name: 'Announcement',
-    component: () => import('../views/Announcement.vue')
+    component: () => import('../views/Announcement.vue'),
+    meta: { requiresAuth: true, title: '公告' }
   },
   {
     path: '/basic-info',
     name: 'BasicInfo',
-    component: () => import('../views/BasicInfo.vue')
+    component: () => import('../views/BasicInfo.vue'),
+    meta: { requiresAuth: true, title: '基本信息' }
   },
   {
     path: '/class-students',
     name: 'ClassStudents',
     component: () => import('../views/ClassStudents.vue'),
     meta: {
+      requiresAuth: true,
       title: '班级学生'
     }
   },
   {
     path: '/teacher-message',
     name: 'TeacherMessage',
-    component: () => import('../views/TeacherMessage.vue')
+    component: () => import('../views/TeacherMessage.vue'),
+    meta: { requiresAuth: true, title: '教师消息' }
   },
   {
     path: '/homework',
     name: 'Homework',
-    component: () => import('../views/Homework.vue')
+    component: () => import('../views/Homework.vue'),
+    meta: { requiresAuth: true, title: '作业' }
   },
   {
     path: '/delay-application',
     name: 'DelayApplication',
     component: () => import('../views/DelayApplication.vue'),
     meta: {
+      requiresAuth: true,
       title: '延时申请'
     }
   },
@@ -47,6 +57,7 @@ const routes = [
     name: 'LeaveRecord',
     component: () => import('../views/LeaveRecord.vue'),
     meta: {
+      requiresAuth: true,
       title: '请假记录'
     }
   },
@@ -55,6 +66,7 @@ const routes = [
     name: 'RoutineRecord',
     component: () => import('../views/RoutineRecord.vue'),
     meta: {
+      requiresAuth: true,
       title: '常规记录'
     }
   },
@@ -63,6 +75,7 @@ const routes = [
     name: 'RoutineQuery',
     component: () => import('../views/RoutineQuery.vue'),
     meta: {
+      requiresAuth: true,
       title: '常规查询'
     }
   },
@@ -71,6 +84,7 @@ const routes = [
     name: 'RandomCall',
     component: () => import('../views/RandomCall.vue'),
     meta: {
+      requiresAuth: true,
       title: '随机点名'
     }
   },
@@ -79,6 +93,7 @@ const routes = [
     name: 'LoudPK',
     component: () => import('../views/LoudPK.vue'),
     meta: {
+      requiresAuth: true,
       title: '大声PK',
       protocol: 'https'
     }
@@ -88,6 +103,7 @@ const routes = [
     name: 'CurrentClasses',
     component: () => import('../views/CurrentClasses.vue'),
     meta: {
+      requiresAuth: true,
       title: '实时课程'
     }
   },
@@ -96,6 +112,7 @@ const routes = [
     name: 'Schedules',
     component: () => import('../views/Schedules.vue'),
     meta: {
+      requiresAuth: true,
       title: '课表文件'
     }
   },
@@ -104,6 +121,7 @@ const routes = [
     name: 'UploadSchedule',
     component: () => import('../views/UploadSchedule.vue'),
     meta: {
+      requiresAuth: true,
       title: '更新课表'
     }
   },
@@ -112,6 +130,7 @@ const routes = [
     name: 'MemberManage',
     component: () => import('../views/MemberManage.vue'),
     meta: {
+      requiresAuth: true,
       title: '会员管理'
     }
   },
@@ -120,6 +139,7 @@ const routes = [
     name: 'PermissionManage',
     component: () => import('../views/PermissionManage.vue'),
     meta: {
+      requiresAuth: true,
       title: '权限管理'
     }
   },
@@ -128,6 +148,7 @@ const routes = [
     name: 'TaskManage',
     component: () => import('../views/TaskManage.vue'),
     meta: {
+      requiresAuth: true,
       title: '任务管理'
     }
   },
@@ -136,6 +157,7 @@ const routes = [
     name: 'PublishHomework',
     component: () => import('../views/PublishHomework.vue'),
     meta: {
+      requiresAuth: true,
       title: '发布作业'
     }
   },
@@ -144,6 +166,7 @@ const routes = [
     name: 'PublishAnnouncement',
     component: () => import('../views/PublishAnnouncement.vue'),
     meta: {
+      requiresAuth: true,
       title: '发布公告'
     }
   },
@@ -152,6 +175,7 @@ const routes = [
     name: 'SystemMonitor',
     component: () => import('../views/SystemMonitor.vue'),
     meta: {
+      requiresAuth: true,
       title: '系统监控'
     }
   },
@@ -160,6 +184,7 @@ const routes = [
     name: 'TeacherManage',
     component: () => import('../views/TeacherManage.vue'),
     meta: {
+      requiresAuth: true,
       title: '教师管理'
     }
   },
@@ -208,12 +233,36 @@ const ensureProtocol = (to) => {
   return url.toString()
 }
 
+// 检查是否需要登录
+const isPublicPath = (path) => {
+  return publicRoutes.some(route => path === route || path.startsWith(route + '/'))
+}
+
 router.beforeEach((to) => {
+  // 协议检查
   const redirectUrl = ensureProtocol(to)
   if (redirectUrl) {
     window.location.replace(redirectUrl)
     return false
   }
+
+  // 登录检查
+  const token = localStorage.getItem('token')
+  const requiresAuth = to.meta.requiresAuth !== false
+
+  // 需要登录但未登录
+  if (requiresAuth && !token) {
+    // 清除过期的 token
+    localStorage.removeItem('token')
+    // 跳转到首页（登录页面），但先让首页加载
+    return true
+  }
+
+  // 已登录但访问公开页面，重定向到首页
+  if (token && isPublicPath(to.path)) {
+    return { path: '/schedules' }
+  }
+
   return true
 })
 

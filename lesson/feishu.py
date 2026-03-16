@@ -1,8 +1,10 @@
 import requests
 import json
+import logging
 import os
 from config.config import Config
 
+logger = logging.getLogger(__name__)
 config = Config()
 feishu_config = config.get_config("feishu", "token.yaml")
 
@@ -83,7 +85,7 @@ def send_file(client: FeishuClient, file_path: str, user_id: str):
         msg_type = "file"
     
     message_id = client.send_message(user_id, msg_type, file_key)
-    print(f"发送成功! message_id: {message_id}")
+    logger.info(f"发送成功! message_id: {message_id}")
 
 if __name__ == "__main__":
     client = FeishuClient(APP_ID, APP_SECRET)

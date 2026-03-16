@@ -443,5 +443,5 @@ if __name__ == "__main__":
     db = QueueDB()
     db.__enter__()
     db.__create_table__()
-    print("Done!")
-    print("队列状态:", db.get_queue_status())
+    log.info("Done!")
+    log.info("队列状态: %s", db.get_queue_status())

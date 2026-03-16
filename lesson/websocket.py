@@ -5,6 +5,9 @@ from typing import Dict, List
 from fastapi import WebSocket
 import json
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
@@ -52,7 +55,7 @@ class ConnectionManager:
             try:
                 await websocket.send_json(message)
             except Exception as e:
-                print(f"Error sending personal message: {e}")
+                logger.error(f"Error sending personal message: {e}")
                 await self.disconnect(websocket, user_id)
 
     async def broadcast(self, message: dict, room: str = None):
@@ -65,7 +68,7 @@ class ConnectionManager:
                     try:
                         await connection.send_json(message)
                     except Exception as e:
-                        print(f"Error broadcasting to room: {e}")
+                        logger.error(f"Error broadcasting to room: {e}")
                         disconnected.append(connection)
                 # 清理断开的连接
                 for conn in disconnected:
@@ -77,7 +80,7 @@ class ConnectionManager:
                 try:
                     await connection.send_json(message)
                 except Exception as e:
-                    print(f"Error broadcasting: {e}")
+                    logger.error(f"Error broadcasting: {e}")
                     disconnected.append(connection)
             for conn in disconnected:
                 await self.disconnect(conn)
@@ -87,7 +90,7 @@ class ConnectionManager:
         try:
             await websocket.send_json(message)
         except Exception as e:
-            print(f"Error sending JSON: {e}")
+            logger.error(f"Error sending JSON: {e}")
 
     def get_connection_count(self) -> int:
         """获取活跃连接数"""
@@ -118,7 +121,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=4001, reason="Timeout waiting for identity")
         return
     except Exception as e:
-        print(f"Error receiving first message: {e}")
+        logger.error(f"Error receiving first message: {e}")
         await websocket.close(code=4002, reason="Invalid first message")
         return
 
@@ -164,7 +167,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        logger.error(f"WebSocket error: {e}")
     finally:
         manager.disconnect(websocket, user_id, room)
 

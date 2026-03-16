@@ -7,15 +7,70 @@ const isHttpsPage =
 const isEnvHttp = /^http:\/\//i.test(envBaseURL)
 const baseURL = import.meta.env.DEV ? '' : (isHttpsPage && isEnvHttp ? '' : envBaseURL)
 
+// 请求重试配置
+const retryConfig = {
+  retries: 3,
+  retryDelay: 1000,
+  retryStatuses: [408, 429, 500, 502, 503, 504]
+}
+
 const api = axios.create({
   baseURL,
-  timeout: 5000,
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json'
   },
   withCredentials: false
 })
+
+// 请求重试拦截器
+api.interceptors.request.use(
+  config => {
+    // 为请求添加唯一标识，用于取消请求
+    config.metadata = { startTime: Date.now() }
+    return config
+  },
+  error => Promise.reject(error)
+)
+
+// 添加重试响应拦截器
+api.interceptors.response.use(
+  response => response,
+  async error => {
+    const config = error.config
+
+    // 如果没有配置或不支持重试，则直接拒绝
+    if (!config || !config.metadata) {
+      return Promise.reject(error)
+    }
+
+    // 检查是否在重试配置的状态码中
+    const shouldRetry =
+      config &&
+      retryConfig.retryStatuses.includes(error.response?.status) &&
+      config.__retryCount < retryConfig.retries
+
+    // 如果需要重试
+    if (shouldRetry) {
+      config.__retryCount = config.__retryCount || 0
+      config.__retryCount++
+
+      // 延迟后再重试
+      const delay = retryConfig.retryDelay * config.__retryCount
+
+      if (import.meta.env.DEV) {
+        console.log(`[API] Retrying request (${config.__retryCount}/${retryConfig.retries}):`, config.url)
+      }
+
+      return new Promise(resolve =>
+        setTimeout(() => resolve(api(config)), delay)
+      )
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 // 请求拦截器 - 开发环境记录日志
 api.interceptors.request.use(

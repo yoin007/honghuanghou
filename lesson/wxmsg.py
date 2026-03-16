@@ -1,9 +1,12 @@
 import json
+import logging
 from datetime import datetime
 import time
 import re
 import sqlite3
 from models.manage.member import Member
+
+logger = logging.getLogger(__name__)
 
 
 def process_nested_dict(d):
@@ -39,7 +42,7 @@ def filter_msg(msg):
             return process_nested_dict(msg)
         return msg
     except Exception as e:
-        print(f"处理消息失败: {e}")
+        logger.error(f"处理消息失败: {e}")
         return None
 
 
