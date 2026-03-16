@@ -20,7 +20,8 @@ export const useAuthStore = defineStore('auth', () => {
         const payload = JSON.parse(window.atob(base64))
         username.value = payload.sub
         role.value = payload.role
-        isAdmin.value = payload.role === 'admin'
+        // 检查是否包含 admin 角色（支持多角色格式如 teacher/admin）
+        isAdmin.value = payload.role === 'admin' || payload.role?.includes('/admin')
       } catch (error) {
         console.error('Failed to parse token:', error)
         logout()
@@ -48,7 +49,8 @@ export const useAuthStore = defineStore('auth', () => {
       const payload = JSON.parse(window.atob(base64))
       username.value = payload.sub
       role.value = payload.role
-      isAdmin.value = payload.role === 'admin'
+      // 检查是否包含 admin 角色（支持多角色格式如 teacher/admin）
+      isAdmin.value = payload.role === 'admin' || payload.role?.includes('/admin')
 
       ElMessage.success('登录成功')
       return true

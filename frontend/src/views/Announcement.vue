@@ -1,12 +1,12 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElTimeline, ElTimelineItem, ElCard, ElEmpty, ElButton, ElDialog, ElForm, ElFormItem, ElInput } from 'element-plus'
 import api from '../utils/api'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
-const username = authStore.username
-const isAdmin = authStore.isAdmin
+const username = computed(() => authStore.username)
+const isAdmin = computed(() => authStore.isAdmin)
 
 const announcements = ref([])
 const loading = ref(false)

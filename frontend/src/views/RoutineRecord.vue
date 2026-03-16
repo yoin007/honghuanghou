@@ -117,15 +117,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../utils/api'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
-// Pinia 自动解包 computed，直接使用
-const isLoggedIn = authStore.isLoggedIn
-const username = authStore.username
+// Pinia 的 computed 在 script setup 中需要用 computed 包装
+const isLoggedIn = computed(() => authStore.isLoggedIn)
+const username = computed(() => authStore.username)
 
 const formRef = ref(null)
 const classCodes = ref([])

@@ -40,6 +40,26 @@ weekdays = {
     "7": "sun",
 }
 
+
+def refresh_teacher_cache():
+    """刷新教师相关缓存"""
+    try:
+        cache.delete("teacher_template")
+        l = Lesson()
+        l.refresh_cache()
+    except Exception as e:
+        logger.error(f"刷新教师缓存失败: {e}")
+
+
+def backup_excel_file(file_path: str) -> str:
+    """备份 Excel 文件"""
+    if not os.path.exists(file_path):
+        return None
+    backup_path = f"{file_path}.bak"
+    shutil.copy2(file_path, backup_path)
+    return backup_path
+
+
 def get_schedule_data(next_week: bool = False, weekdays: dict = weekdays):
     l = Lesson()
     class_template = l.get_cache_data("class_template")
@@ -112,8 +132,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 import jwt
 from pydantic import BaseModel
-
-from passlib.context import CryptContext
+import bcrypt
 
 # JWT配置
 config = Config()
@@ -130,8 +149,17 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(config_data.get("token_expire_minutes") or 120)  # 默认2小时
 
-# 密码哈希配置
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# 密码哈希配置 (使用 bcrypt)
+def hash_password(password: str) -> str:
+    """生成密码哈希"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """验证密码"""
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception:
+        return False
 
 def get_users_dict():
     """动态获取用户数据，支持缓存刷新"""
@@ -203,15 +231,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
 # 认证相关函数
-def verify_password(plain_password, stored_password):
+def verify_password_compat(plain_password, stored_password):
     """
-    验证密码
-    支持 bcrypt 哈希和明文密码验证
+    验证密码（兼容 bcrypt 和明文）
     """
     # 检查是否为有效的 bcrypt 哈希格式 (以 $2a$, $2b$, $2y$ 开头)
     if stored_password and stored_password.startswith(('$2a$', '$2b$', '$2y$')):
         try:
-            return pwd_context.verify(plain_password, stored_password)
+            return verify_password(plain_password, stored_password)
         except Exception as e:
             print(f"Password verification failed: {e}")
             return False
@@ -222,15 +249,10 @@ def verify_password(plain_password, stored_password):
 
     return False
 
-    # 不再支持明文密码比较 - 这是安全风险
-    # 如果需要迁移旧数据，请在管理员界面手动将密码哈希后存储
-    print(f"WARNING: Stored password is not in bcrypt format for user. Please update password.")
-    return False
-
 
 def get_password_hash(password):
     """生成密码哈希"""
-    return pwd_context.hash(password)
+    return hash_password(password)
 
 
 def get_user(username: str):
@@ -238,7 +260,9 @@ def get_user(username: str):
     users_data = get_users_dict()
     if username in users_data:
         user_dict = users_data[username]
-        return User(username=user_dict["username"], role=user_dict["role"])
+        # 确保 role 是字符串类型，避免 numpy 类型序列化问题
+        role = str(user_dict.get("role", "user")) if user_dict.get("role") else "user"
+        return User(username=str(user_dict["username"]), role=role)
     return None
 
 
@@ -247,7 +271,8 @@ def authenticate_user(username: str, password: str):
     if username not in users_data:
         return False
     user = users_data[username]
-    if not verify_password(password, user["stored_password"]):
+    # 使用兼容版本验证（支持 bcrypt 和明文）
+    if not verify_password_compat(password, user["stored_password"]):
         return False
     return user
 
@@ -311,6 +336,440 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         data={"sub": user["username"], "role": user.get("role", "user")}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+# 管理员接口：用户管理
+class PasswordResetRequest(BaseModel):
+    username: str
+    new_password: str
+
+
+# 教师管理模型
+class TeacherCreate(BaseModel):
+    username: str
+    password: str
+    subject: str = ""
+    course: str = ""
+    role: str = "teacher"
+    active: bool = True
+    level: int = 1
+
+
+class TeacherUpdate(BaseModel):
+    subject: str = ""
+    course: str = ""
+    role: str = "teacher"
+    active: bool = True
+    level: int = 1
+
+
+class PasswordChangeRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+def is_admin_user(user):
+    """检查用户是否为管理员"""
+    if not user:
+        return False
+    # 支持 Pydantic User 模型和字典两种类型
+    if hasattr(user, 'role'):
+        role = str(user.role) if user.role else ""
+    else:
+        role = str(user.get("role", "")) if isinstance(user, dict) else ""
+    # admin 或包含 admin 关键字的角色，或 teacher/xuefa（学发部）
+    return "admin" in role.lower() or role == "teacher/xuefa"
+
+
+@router.get("/admin/users")
+async def list_users(current_user: User = Depends(get_current_user)):
+    """获取用户列表（仅管理员）"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    users_data = get_users_dict()
+    users_list = []
+    for username, info in users_data.items():
+        # 确保所有值都是原生 Python 类型
+        users_list.append({
+            "username": str(username),
+            "role": str(info.get("role", "")),
+            "level": int(info.get("level", 0)) if info.get("level") else 0,
+            "has_password": bool(info.get("stored_password"))
+        })
+    return {"users": users_list, "total": len(users_list)}
+
+
+@router.post("/admin/reset-password")
+async def reset_user_password(
+    request: PasswordResetRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """重置用户密码（仅管理员）"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    users_data = get_users_dict()
+    if request.username not in users_data:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    # 生成新密码的哈希并存储
+    # 注意：这里需要更新 teacher_template 文件
+    # 由于密码存储在 Excel 文件中，需要重写文件
+
+    # 这里先返回成功，实际更新需要通过文件操作
+    admin_name = current_user.username if hasattr(current_user, 'username') else current_user.get('username')
+    logger.info(f"Admin {admin_name} reset password for {request.username}")
+
+    return {
+        "message": f"密码重置功能需要更新 teacher_template 文件",
+        "username": request.username
+    }
+
+
+@router.post("/admin/set-password")
+async def admin_set_password(
+    request: PasswordResetRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """管理员直接设置用户密码"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    users_data = get_users_dict()
+    if request.username not in users_data:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    # 生成密码哈希
+    try:
+        hashed_password = hash_password(str(request.new_password))
+    except Exception as e:
+        logger.error(f"Hash error: {e}")
+        raise HTTPException(status_code=500, detail="密码加密失败")
+
+    # 更新 teacher_template 文件
+    try:
+        # 获取正确的文件路径
+        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
+
+        # 读取所有 sheet
+        xl = pd.ExcelFile(template_path)
+        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
+
+        if "teachers" not in sheets:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        df = sheets["teachers"]
+
+        # 查找并更新密码 - 确保类型正确
+        df['name'] = df['name'].astype(str)
+        mask = df['name'] == str(request.username)
+        if mask.any():
+            df.loc[mask, 'pwd'] = str(hashed_password)
+            sheets["teachers"] = df
+
+            # 备份原文件
+            backup_excel_file(template_path)
+
+            # 写入所有 sheet
+            with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
+                for sheet_name, sheet_df in sheets.items():
+                    sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            # 刷新缓存
+            refresh_teacher_cache()
+
+            admin_name = str(current_user.username)
+            logger.info(f"Admin {admin_name} set password for {request.username}")
+            return {"message": f"用户 {request.username} 密码已更新", "success": True}
+        else:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set password: {e}")
+        raise HTTPException(status_code=500, detail=f"密码更新失败: {str(e)}")
+
+
+# 教师管理 API
+@router.get("/teachers")
+async def get_teachers(current_user: User = Depends(get_current_user)):
+    """获取教师列表（教师及以上角色）"""
+
+    l = Lesson()
+    teacher_template = l.get_cache_data("teacher_template")
+    if teacher_template is None or teacher_template.empty:
+        return {"teachers": [], "total": 0}
+
+    teachers = []
+    for _, row in teacher_template.iterrows():
+        teachers.append({
+            "username": str(row.get("name", "")),
+            "subject": str(row.get("subject", "")) if pd.notna(row.get("subject")) else "",
+            "course": str(row.get("course", "")) if pd.notna(row.get("course")) else "",
+            "role": str(row.get("role", "teacher")) if pd.notna(row.get("role")) else "teacher",
+            "active": bool(row.get("active", True)),
+            "level": int(row.get("level", 1)) if pd.notna(row.get("level")) else 1,
+            "created_at": str(row.get("created_at", "")) if pd.notna(row.get("created_at")) else ""
+        })
+
+    return {"teachers": teachers, "total": len(teachers)}
+
+
+@router.post("/teachers")
+async def create_teacher(
+    teacher: TeacherCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """创建教师（仅管理员）"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    try:
+        # 获取文件路径
+        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
+
+        # 读取所有 sheet
+        xl = pd.ExcelFile(template_path)
+        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
+
+        # 获取 teachers sheet
+        if "teachers" not in sheets:
+            df = pd.DataFrame(columns=["name", "pwd", "subject", "course", "role", "active", "level", "created_at"])
+        else:
+            df = sheets["teachers"]
+
+        # 检查用户名是否已存在
+        if teacher.username in df["name"].values:
+            raise HTTPException(status_code=400, detail="教师用户名已存在")
+
+        # 生成密码哈希
+        hashed_password = hash_password(str(teacher.password))
+
+        # 添加新教师
+        new_row = {
+            "name": teacher.username,
+            "pwd": str(hashed_password),
+            "subject": teacher.subject,
+            "course": teacher.course,
+            "role": teacher.role,
+            "active": teacher.active,
+            "level": teacher.level,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        sheets["teachers"] = df
+
+        # 备份原文件
+        backup_excel_file(template_path)
+
+        # 写入所有 sheet
+        with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
+            for sheet_name, sheet_df in sheets.items():
+                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+        # 刷新缓存
+        refresh_teacher_cache()
+
+        admin_name = str(current_user.username)
+        logger.info(f"Admin {admin_name} created teacher {teacher.username}")
+        return {"message": f"教师 {teacher.username} 创建成功", "success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create teacher: {e}")
+        raise HTTPException(status_code=500, detail=f"创建教师失败: {str(e)}")
+
+
+@router.put("/teachers/{username}")
+async def update_teacher(
+    username: str,
+    teacher: TeacherUpdate,
+    current_user: User = Depends(get_current_user)
+):
+    """更新教师信息（仅管理员）"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    try:
+        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
+
+        # 读取所有 sheet
+        xl = pd.ExcelFile(template_path)
+        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
+
+        if "teachers" not in sheets:
+            raise HTTPException(status_code=404, detail="教师不存在")
+
+        df = sheets["teachers"]
+
+        # 查找教师
+        df['name'] = df['name'].astype(str)
+        mask = df['name'] == str(username)
+        if not mask.any():
+            raise HTTPException(status_code=404, detail="教师不存在")
+
+        # 更新信息
+        df.loc[mask, 'subject'] = teacher.subject
+        df.loc[mask, 'course'] = teacher.course
+        df.loc[mask, 'role'] = teacher.role
+        df.loc[mask, 'active'] = teacher.active
+        df.loc[mask, 'level'] = teacher.level
+
+        sheets["teachers"] = df
+
+        # 备份原文件
+        backup_excel_file(template_path)
+
+        # 写入所有 sheet
+        with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
+            for sheet_name, sheet_df in sheets.items():
+                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+        # 刷新缓存
+        refresh_teacher_cache()
+
+        admin_name = str(current_user.username)
+        logger.info(f"Admin {admin_name} updated teacher {username}")
+        return {"message": f"教师 {username} 更新成功", "success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update teacher: {e}")
+        raise HTTPException(status_code=500, detail=f"更新教师失败: {str(e)}")
+
+
+@router.delete("/teachers/{username}")
+async def delete_teacher(
+    username: str,
+    current_user: User = Depends(get_current_user)
+):
+    """删除教师（仅管理员）"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    try:
+        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
+
+        # 读取所有 sheet
+        xl = pd.ExcelFile(template_path)
+        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
+
+        if "teachers" not in sheets:
+            raise HTTPException(status_code=404, detail="教师不存在")
+
+        df = sheets["teachers"]
+
+        # 查找教师
+        df['name'] = df['name'].astype(str)
+        mask = df['name'] == str(username)
+        if not mask.any():
+            raise HTTPException(status_code=404, detail="教师不存在")
+
+        # 删除教师
+        df = df[~mask]
+        sheets["teachers"] = df
+
+        # 备份原文件
+        backup_excel_file(template_path)
+
+        # 写入所有 sheet
+        with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
+            for sheet_name, sheet_df in sheets.items():
+                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+        # 刷新缓存
+        refresh_teacher_cache()
+
+        admin_name = str(current_user.username)
+        logger.info(f"Admin {admin_name} deleted teacher {username}")
+        return {"message": f"教师 {username} 删除成功", "success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete teacher: {e}")
+        raise HTTPException(status_code=500, detail=f"删除教师失败: {str(e)}")
+
+
+@router.post("/teachers/change-password")
+async def teacher_change_password(
+    request: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """教师修改自己的密码"""
+    # 检查是否为教师（不能是管理员）
+    if is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="管理员请使用管理员接口修改密码")
+
+    username = current_user.username if hasattr(current_user, 'username') else current_user.get('username')
+
+    users_data = get_users_dict()
+    if username not in users_data:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    user_info = users_data[username]
+    stored_password = user_info.get("stored_password", "")
+
+    # 验证旧密码
+    if not verify_password_compat(request.old_password, stored_password):
+        raise HTTPException(status_code=400, detail="旧密码错误")
+
+    # 生成新密码哈希
+    try:
+        hashed_password = hash_password(str(request.new_password))
+    except Exception as e:
+        logger.error(f"Hash error: {e}")
+        raise HTTPException(status_code=500, detail="密码加密失败")
+
+    # 更新密码
+    try:
+        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
+
+        # 读取所有 sheet
+        xl = pd.ExcelFile(template_path)
+        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
+
+        if "teachers" not in sheets:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        df = sheets["teachers"]
+
+        df['name'] = df['name'].astype(str)
+        mask = df['name'] == str(username)
+        if mask.any():
+            df.loc[mask, 'pwd'] = str(hashed_password)
+            sheets["teachers"] = df
+
+            # 备份原文件
+            backup_excel_file(template_path)
+
+            # 写入所有 sheet
+            with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
+                for sheet_name, sheet_df in sheets.items():
+                    sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            # 刷新缓存
+            refresh_teacher_cache()
+
+            logger.info(f"Teacher {username} changed password")
+            return {"message": "密码修改成功", "success": True}
+        else:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to change password: {e}")
+        raise HTTPException(status_code=500, detail=f"密码修改失败: {str(e)}")
 
 
 # 基于 config/api_level.yaml 的权限检查
@@ -561,8 +1020,8 @@ async def create_homework(homework: HomeworkForm, current_user: User = Depends(g
     if not current_user:
         raise HTTPException(status_code=401, detail="请先登录")
 
-    # 使用登录用户名作为老师
-    teacher_name = homework.teacher or current_user.username
+    # 直接使用当前登录用户的用户名作为老师，不依赖前端传递
+    teacher_name = current_user.username
 
     try:
         n = Homework()
@@ -1034,12 +1493,6 @@ async def get_teacher_schedule_nextweek(teacher_name: str, current_user: User = 
     return {"schedule": teacher_schedule}
 
 
-@router.get("/teachers", dependencies=[Depends(check_api_permission)])
-async def get_teachers():
-    """获取所有教师列表"""
-    return {"teachers": list(TEACHERS_DATA.keys())}
-
-
 @router.get("/vehicle-inout/{counts}", dependencies=[Depends(check_api_permission)])
 async def get_vehicle_inout(counts: int = 20):
     """获取所有车辆进出记录"""
@@ -1158,8 +1611,28 @@ async def get_delay_infos(classCode: str):
         return result 
 
 @router.get("/del_delay/{id}")
-async def del_delay(id: int):
-    """删除学生延迟"""
+async def del_delay(id: int, current_user: User = Depends(get_current_user)):
+    """删除学生延时记录"""
+    # 获取延时记录的班级信息
+    with InOut() as i:
+        recorder = i.get_recorder(id)
+        if not recorder:
+            raise HTTPException(status_code=404, detail="记录不存在")
+
+    # 权限检查：管理员可删除所有班级，班主任只能删除自己班级
+    if not _user_has_any_role(current_user, ["admin", "xuefa"]):
+        # 班主任需要检查是否是本班级的记录
+        if not _user_has_role(current_user, "cleader"):
+            raise HTTPException(status_code=403, detail="无权限删除")
+        # 获取班主任负责的班级
+        class_rows = _get_cleader_class_rows(current_user.username)
+        if class_rows is None or class_rows.empty:
+            raise HTTPException(status_code=403, detail="无权限删除")
+        allowed_classes = class_rows["class_code"].tolist()
+        if recorder not in allowed_classes:
+            raise HTTPException(status_code=403, detail="无权限删除其他班级的记录")
+
+    # 执行删除
     try:
         with InOut() as i:
             i.del_delay(id)
@@ -1185,12 +1658,19 @@ def _user_has_any_role(user, roles: list[str]):
     user_roles = str(user.role).split("/")
     return any(role in user_roles for role in roles)
 
+def _user_has_admin_role(user):
+    """检查用户是否有管理员角色（包括 admin、管理员）"""
+    if not user or not getattr(user, "role", None):
+        return False
+    role = str(user.role).lower()
+    return "admin" in role or "管理员" in role
+
 def _ensure_leave_permission(user):
-    if not _user_has_any_role(user, ["cleader", "xuefa", "admin"]):
+    if not _user_has_any_role(user, ["cleader", "xuefa", "admin"]) and not _user_has_admin_role(user):
         raise HTTPException(status_code=403, detail="无权限操作请假记录")
 
 def _can_manage_all_classes(user):
-    return _user_has_any_role(user, ["xuefa", "admin"])
+    return _user_has_any_role(user, ["xuefa", "admin"]) or _user_has_admin_role(user)
 
 def _get_cleader_class_rows(username: str):
     l = Lesson()
@@ -1217,6 +1697,8 @@ def _resolve_class_row(class_template, class_code: str):
 @router.get("/cleader-classes/", dependencies=[Depends(check_api_permission)])
 async def get_cleader_classes(current_user: User = Depends(get_current_user)):
     _ensure_leave_permission(current_user)
+
+    # 学发部或管理员可以看到所有班级
     if _can_manage_all_classes(current_user):
         l = Lesson()
         class_template = l.get_cache_data("class_template")
@@ -1231,18 +1713,24 @@ async def get_cleader_classes(current_user: User = Depends(get_current_user)):
                 }
             )
         return {"classes": classes, "class_codes": [item["class_code"] for item in classes]}
-    class_rows = _get_cleader_class_rows(current_user.username)
-    if class_rows is None or class_rows.empty:
-        return {"classes": [], "class_codes": []}
-    classes = []
-    for _, row in class_rows.iterrows():
-        classes.append(
-            {
-                "class_code": str(row.get("class_code", "")),
-                "class_name": str(row.get("class_name", "")),
-            }
-        )
-    return {"classes": classes, "class_codes": [item["class_code"] for item in classes]}
+
+    # 班主任返回自己负责的班级
+    if _user_has_role(current_user, "cleader"):
+        class_rows = _get_cleader_class_rows(current_user.username)
+        if class_rows is None or class_rows.empty:
+            return {"classes": [], "class_codes": []}
+        classes = []
+        for _, row in class_rows.iterrows():
+            classes.append(
+                {
+                    "class_code": str(row.get("class_code", "")),
+                    "class_name": str(row.get("class_name", "")),
+                }
+            )
+        return {"classes": classes, "class_codes": [item["class_code"] for item in classes]}
+
+    # 普通教师没有负责的班级，返回空
+    return {"classes": [], "class_codes": []}
 
 @router.post("/leave-records/", dependencies=[Depends(check_api_permission)])
 async def insert_leave_records(

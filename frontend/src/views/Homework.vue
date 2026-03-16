@@ -31,7 +31,7 @@
           <el-empty v-if="!hasHomework('日常')" description="暂无日常作业" />
           <div v-else class="table-container">
             <el-table ref="tableRef" :data="getAllHomeworkList('日常')" stripe style="width: 100%" :max-height="tableMaxHeight" @selection-change="handleSelectionChange">
-              <el-table-column v-if="isAdmin" type="selection" width="50" />
+              <el-table-column v-if="isAdmin || (role.value && role.value.includes('teacher'))" type="selection" width="50" />
               <el-table-column prop="subject" label="学科" width="80" fixed>
                 <template #default="scope">
                   <div class="cell-content">
@@ -70,9 +70,9 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="100" align="center" fixed="right" v-if="isAdmin">
+              <el-table-column label="操作" width="100" align="center" fixed="right">
                 <template #default="scope">
-                  <div class="cell-content action-cell">
+                  <div v-if="canModifyHomework(scope.row)" class="cell-content action-cell">
                     <el-button size="small" type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
                     <el-button size="small" type="danger" @click="handleDelete(scope.row.id)">删除</el-button>
                   </div>
@@ -86,7 +86,7 @@
           <el-empty v-if="!hasHomework('周末')" description="暂无周末作业" />
           <div v-else class="table-container">
             <el-table ref="weekendTableRef" :data="getAllHomeworkList('周末')" stripe style="width: 100%" :max-height="tableMaxHeight" @selection-change="handleSelectionChange">
-              <el-table-column v-if="isAdmin" type="selection" width="50" />
+              <el-table-column v-if="isAdmin || (role.value && role.value.includes('teacher'))" type="selection" width="50" />
               <el-table-column prop="subject" label="学科" width="80" fixed>
                 <template #default="scope">
                   <div class="cell-content">
@@ -125,9 +125,9 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="100" align="center" fixed="right" v-if="isAdmin">
+              <el-table-column label="操作" width="100" align="center" fixed="right">
                 <template #default="scope">
-                  <div class="cell-content action-cell">
+                  <div v-if="canModifyHomework(scope.row)" class="cell-content action-cell">
                     <el-button size="small" type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
                     <el-button size="small" type="danger" @click="handleDelete(scope.row.id)">删除</el-button>
                   </div>
@@ -186,8 +186,19 @@ import api from '../utils/api'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
-const username = authStore.username
-const isAdmin = authStore.isAdmin
+const username = computed(() => authStore.username)
+const isAdmin = computed(() => authStore.isAdmin)
+const role = computed(() => authStore.role)
+
+// 检查是否可以编辑/删除作业（管理员或作业发布者）
+const canModifyHomework = (row) => {
+  if (!row) return false
+  if (isAdmin.value) return true
+
+  // 非管理员：只能操作自己发布的作业
+  const currentUsername = username.value || username || ''
+  return row.teacher === currentUsername
+}
 
 const loading = ref(false)
 const activeTab = ref('日常')
@@ -609,5 +620,69 @@ onMounted(() => {
 .action-cell {
   display: flex;
   gap: 4px;
+}
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .homework-container {
+    padding: 5px;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .homework-tabs :deep(.el-tabs__header) {
+    margin-bottom: 10px;
+  }
+
+  .homework-tabs :deep(.el-tabs__nav-wrap) {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .homework-tabs :deep(.el-tabs__item) {
+    font-size: 14px;
+    padding: 0 12px;
+  }
+
+  .batch-actions {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .table-container {
+    overflow-x: auto;
+  }
+
+  :deep(.el-table) {
+    overflow-x: scroll;
+    display: block;
+  }
+
+  :deep(.el-table__inner-wrapper) {
+    overflow-x: scroll;
+  }
+
+  :deep(.el-table__header-wrapper),
+  :deep(.el-table__body-wrapper) {
+    overflow-x: scroll;
+  }
+
+  :deep(.el-table__header),
+  :deep(.el-table__body) {
+    min-width: 100%;
+  }
+
+  /* 显示滚动条 */
+  :deep(.el-scrollbar__bar.is-horizontal) {
+    display: block !important;
+    opacity: 1;
+  }
+
+  /* 移除固定列 */
+  :deep(.el-table__fixed),
+  :deep(.el-table__fixed-right) {
+    display: none !important;
+  }
 }
 </style>

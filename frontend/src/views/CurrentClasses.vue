@@ -191,9 +191,9 @@ import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
 const authStore = useAuthStore()
-// Pinia 自动解包 computed，直接使用
-const isLoggedIn = authStore.isLoggedIn
-const username = authStore.username
+// Pinia 的 computed 在 script setup 中需要用 computed 包装
+const isLoggedIn = computed(() => authStore.isLoggedIn)
+const username = computed(() => authStore.username)
 
 // 数据定义
 const currentClasses = ref({})
@@ -347,7 +347,8 @@ const fetchTeachers = async () => {
     const response = await api.get('/api/teachers', {
       params: { _ts: Date.now() }
     })
-    teachers.value = response.data.teachers
+    // 新API返回对象数组，提取username字段
+    teachers.value = response.data.teachers.map(t => t.username)
   } catch (error) {
     handleApiError(error)
     ElMessage.error('获取教师列表失败')

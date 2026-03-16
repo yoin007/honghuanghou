@@ -51,16 +51,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../utils/api'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
+const username = computed(() => authStore.username)
 
 const formRef = ref(null)
 const submitting = ref(false)
-const username = authStore.username
 const classCodes = ref([])
 
 const announcementForm = reactive({
