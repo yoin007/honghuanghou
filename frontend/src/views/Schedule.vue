@@ -270,11 +270,51 @@ const getClassCode = () => {
 .schedule-container {
   width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .schedule-table {
   width: 100%;
   min-width: 800px;  /* 确保在小屏幕上可以水平滚动 */
+}
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .schedule-container {
+    width: 100vw;
+    overflow-x: scroll !important;
+    padding: 0;
+    margin: 0;
+  }
+
+  .schedule-table {
+    min-width: 100vw;
+  }
+
+  .schedule-table :deep(.el-table) {
+    overflow-x: scroll !important;
+    display: block !important;
+  }
+
+  .schedule-table :deep(.el-table__inner-wrapper) {
+    overflow-x: scroll !important;
+  }
+
+  .schedule-table :deep(.el-table__body-wrapper) {
+    overflow-x: scroll !important;
+  }
+
+  /* 显示滚动条 */
+  .schedule-table :deep(.el-scrollbar__bar.is-horizontal) {
+    display: block !important;
+    opacity: 1 !important;
+  }
+
+  /* 隐藏固定列 */
+  .schedule-table :deep(.el-table__fixed),
+  .schedule-table :deep(.el-table__fixed-right) {
+    display: none !important;
+  }
 }
 
 .schedule-table :deep(.el-table__header) {

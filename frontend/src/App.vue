@@ -73,6 +73,8 @@
               <el-menu-item index="/member-manage">会员管理</el-menu-item>
               <el-menu-item index="/permission-manage">权限管理</el-menu-item>
               <el-menu-item index="/task-manage">任务管理</el-menu-item>
+              <el-menu-item index="/system-monitor">系统监控</el-menu-item>
+              <el-menu-item index="/teacher-manage">教师管理</el-menu-item>
             </el-sub-menu>
           </el-menu>
         </div>
@@ -205,6 +207,24 @@ onMounted(() => {
 })
 </script>
 
+<style>
+/* 全局移动端 table 适配 */
+@media screen and (max-width: 768px) {
+  * {
+    box-sizing: border-box;
+  }
+
+  .el-table {
+    width: 100% !important;
+    max-width: 100vw;
+    table-layout: auto !important;
+  }
+
+  .el-table__inner-wrapper {
+    width: auto !important;
+  }
+}
+</style>
 <style scoped>
 .app-container {
   min-height: 100vh;
@@ -404,8 +424,85 @@ onMounted(() => {
   }
 }
 
+/* 移动端 Table 全局适配 */
+@media screen and (max-width: 768px) {
+  .app-main {
+    overflow-x: hidden;
+    width: 100%;
+  }
+
+  /* Table 横向滚动 - 全局 */
+  .el-table {
+    width: 100% !important;
+    overflow-x: auto !important;
+    display: block !important;
+  }
+
+  .el-table__inner-wrapper {
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  .el-table__body-wrapper,
+  .el-table__header-wrapper {
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  .el-table__body,
+  .el-table__header {
+    width: auto !important;
+    min-width: 100%;
+  }
+
+  /* 表格列 */
+  .el-table .el-table__cell {
+    white-space: nowrap;
+  }
+
+  /* 显示滚动条 */
+  .el-scrollbar__bar.is-horizontal {
+    display: block !important;
+    opacity: 1 !important;
+  }
+
+  /* 隐藏固定列 */
+  .el-table__fixed,
+  .el-table__fixed-right,
+  .el-table__fixed-column-placeholder {
+    display: none !important;
+  }
+
+  /* 确保表格父容器可以滚动 */
+  .el-table__body-container {
+    overflow-x: auto;
+  }
+}
+
 .menu-link {
   text-decoration: none;
   color: inherit;
+}
+
+/* 移动端 el-tabs 全局适配 */
+@media screen and (max-width: 768px) {
+  .el-tabs__header {
+    margin-bottom: 10px;
+  }
+
+  .el-tabs__nav-wrap {
+    overflow-x: auto !important;
+    overflow-y: hidden;
+  }
+
+  .el-tabs__item {
+    font-size: 14px !important;
+    padding: 0 12px !important;
+    white-space: nowrap;
+  }
+
+  .el-tabs__nav {
+    white-space: nowrap;
+  }
 }
 </style>

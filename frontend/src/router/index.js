@@ -148,6 +148,22 @@ const routes = [
     }
   },
   {
+    path: '/system-monitor',
+    name: 'SystemMonitor',
+    component: () => import('../views/SystemMonitor.vue'),
+    meta: {
+      title: '系统监控'
+    }
+  },
+  {
+    path: '/teacher-manage',
+    name: 'TeacherManage',
+    component: () => import('../views/TeacherManage.vue'),
+    meta: {
+      title: '教师管理'
+    }
+  },
+  {
     path: '/',
     redirect: '/schedules'
   },

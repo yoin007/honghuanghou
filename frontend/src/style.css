@@ -239,56 +239,6 @@ button:focus-visible {
   }
 }
 
-/* 移动端表格优化 - 卡片视图 */
-@media (max-width: 768px) {
-  .el-table {
-    display: none;
-  }
-
-  .mobile-card-view {
-    display: block !important;
-  }
-
-  .mobile-card {
-    background: #fff;
-    border-radius: 8px;
-    padding: 12px;
-    margin-bottom: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  }
-
-  .mobile-card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 8px;
-    border-bottom: 1px solid #eee;
-    margin-bottom: 8px;
-  }
-
-  .mobile-card-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 4px 0;
-    font-size: 13px;
-  }
-
-  .mobile-card-label {
-    color: #909399;
-  }
-
-  .mobile-card-value {
-    color: #303133;
-    font-weight: 500;
-  }
-}
-
-/* 桌面端隐藏卡片视图 */
-@media (min-width: 769px) {
-  .mobile-card-view {
-    display: none !important;
-  }
-}
 
 /* 移动端表单优化 */
 @media (max-width: 576px) {

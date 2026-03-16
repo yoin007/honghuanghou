@@ -2,7 +2,9 @@
 # 系统监控与告警工具
 
 import os
+import sys
 import time
+import platform
 import logging
 from datetime import datetime
 from functools import wraps
@@ -16,6 +18,20 @@ ALERT_THRESHOLDS = {
     "memory_percent": 85,   # 内存使用率超过 85% 告警
     "disk_percent": 90,     # 磁盘使用率超过 90% 告警
 }
+
+
+def _get_disk_path():
+    """根据操作系统获取磁盘路径"""
+    system = platform.system()
+    if system == "Windows":
+        # Windows 上尝试多个可能的盘符
+        for letter in ["C:", "D:", "E:"]:
+            if os.path.exists(letter + "\\"):
+                return letter + "\\"
+        return "C:\\"
+    else:
+        # Linux/macOS 使用根目录
+        return "/"
 
 
 class SystemMonitor:
@@ -35,37 +51,72 @@ class SystemMonitor:
         self._initialized = False
         self._last_alert_time = {}
         self._alert_cooldown = 300  # 告警冷却时间（秒）
+        self._disk_path = _get_disk_path()
 
     def initialize(self):
         """初始化监控器"""
         if self._initialized:
             return
         self._initialized = True
-        logger.info("System monitor initialized")
+        logger.info(f"System monitor initialized (platform: {platform.system()}, python: {sys.version_info.major}.{sys.version_info.minor})")
 
     def get_system_metrics(self):
         """获取系统指标"""
         try:
             import psutil
 
+            # CPU 使用率
             cpu = psutil.cpu_percent(interval=0.1)
-            memory = psutil.virtual_memory()
-            disk = psutil.disk_usage('/')
 
-            # 获取进程信息
+            # 内存信息
+            memory = psutil.virtual_memory()
+
+            # 磁盘信息 - 使用跨平台路径
+            disk = psutil.disk_usage(self._disk_path)
+
+            # 获取当前进程信息
             process = psutil.Process()
             process_info = {
                 "pid": process.pid,
+                "name": process.name(),
                 "memory_mb": process.memory_info().rss / 1024 / 1024,
-                "num_threads": process.num_threads()
+                "num_threads": process.num_threads(),
+                "status": process.status()
             }
+
+            # 获取系统运行时间
+            boot_time = psutil.boot_time()
+            uptime_seconds = time.time() - boot_time
+            uptime_str = self._format_uptime(uptime_seconds)
+
+            # 获取 CPU 核心数
+            cpu_count = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
+
+            # 获取负载平均值 (Linux/macOS)
+            load_avg = None
+            if platform.system() != "Windows":
+                try:
+                    load_avg = os.getloadavg() if hasattr(os, 'getloadavg') else None
+                except Exception:
+                    pass
 
             return {
                 "cpu_percent": cpu,
+                "cpu_count": cpu_count,
+                "load_avg": load_avg,
                 "memory_percent": memory.percent,
+                "memory_total_mb": memory.total / 1024 / 1024,
                 "memory_available_mb": memory.available / 1024 / 1024,
+                "memory_used_mb": memory.used / 1024 / 1024,
                 "disk_percent": disk.percent,
+                "disk_total_gb": disk.total / 1024 / 1024 / 1024,
                 "disk_free_gb": disk.free / 1024 / 1024 / 1024,
+                "disk_used_gb": disk.used / 1024 / 1024 / 1024,
+                "platform": platform.system(),
+                "platform_version": platform.version(),
+                "hostname": platform.node(),
+                "uptime": uptime_str,
+                "uptime_seconds": uptime_seconds,
                 "process": process_info,
                 "timestamp": datetime.now().isoformat()
             }
@@ -76,12 +127,26 @@ class SystemMonitor:
             logger.error(f"Failed to get system metrics: {e}")
             return self._get_basic_metrics()
 
+    def _format_uptime(self, seconds):
+        """格式化运行时间"""
+        days = int(seconds // 86400)
+        hours = int((seconds % 86400) // 3600)
+        minutes = int((seconds % 3600) // 60)
+        if days > 0:
+            return f"{days}天 {hours}小时"
+        elif hours > 0:
+            return f"{hours}小时 {minutes}分钟"
+        else:
+            return f"{minutes}分钟"
+
     def _get_basic_metrics(self):
         """获取基础指标（无 psutil 时）"""
         return {
             "cpu_percent": 0,
             "memory_percent": 0,
             "disk_percent": 0,
+            "platform": platform.system(),
+            "hostname": platform.node(),
             "timestamp": datetime.now().isoformat()
         }
 
@@ -90,7 +155,7 @@ class SystemMonitor:
         alerts = []
 
         for key, threshold in ALERT_THRESHOLDS.items():
-            if key in metrics and metrics[key] > threshold:
+            if key in metrics and metrics[key] is not None and metrics[key] > threshold:
                 # 检查冷却时间
                 alert_key = f"{key}_{threshold}"
                 now = time.time()
@@ -118,7 +183,7 @@ class SystemMonitor:
         # 判断健康状态
         is_healthy = len(alerts) == 0
         for key, threshold in ALERT_THRESHOLDS.items():
-            if key in metrics and metrics[key] > threshold:
+            if key in metrics and metrics[key] is not None and metrics[key] > threshold:
                 is_healthy = False
                 break
 

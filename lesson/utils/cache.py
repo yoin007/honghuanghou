@@ -100,6 +100,92 @@ class RedisCache:
             logger.error(f"Redis clear error: {e}")
         return 0
 
+    def refresh(self, key: str, value: Any = None, expire: int = 3600) -> bool:
+        """
+        细粒度刷新：刷新指定 key 的缓存
+
+        Args:
+            key: 缓存键
+            value: 新值，如果为 None 则删除该缓存（下次访问时重新生成）
+            expire: 过期时间（秒）
+
+        Returns:
+            bool: 操作是否成功
+        """
+        if not self._client:
+            return False
+
+        try:
+            # 先删除旧缓存
+            self._client.delete(key)
+
+            # 如果提供了新值，设置新缓存
+            if value is not None:
+                self._client.setex(key, expire, json.dumps(value))
+
+            return True
+        except Exception as e:
+            logger.error(f"Redis refresh error: {e}")
+            return False
+
+    def refresh_keys(self, keys: list, values: dict = None) -> int:
+        """
+        批量刷新指定 keys 的缓存
+
+        Args:
+            keys: 缓存键列表
+            values: 新值字典，key -> value，如果为 None 则删除这些缓存
+
+        Returns:
+            int: 成功刷新的数量
+        """
+        if not self._client:
+            return 0
+
+        count = 0
+        try:
+            # 删除指定的 keys
+            if keys:
+                self._client.delete(*keys)
+                count = len(keys)
+
+            # 设置新值
+            if values:
+                for key, value in values.items():
+                    if value is not None:
+                        self._client.setex(key, 3600, json.dumps(value))
+                        count += 1
+
+        except Exception as e:
+            logger.error(f"Redis refresh_keys error: {e}")
+        return count
+
+    def get_or_set(self, key: str, factory: Callable, expire: int = 3600) -> Any:
+        """
+        获取缓存，如果不存在则调用 factory 生成并缓存
+
+        Args:
+            key: 缓存键
+            factory: 当缓存不存在时调用的函数
+            expire: 过期时间（秒）
+
+        Returns:
+            Any: 缓存值或 factory 的返回值
+        """
+        # 尝试获取缓存
+        cached_value = self.get(key)
+        if cached_value is not None:
+            return cached_value
+
+        # 调用 factory 生成值
+        value = factory()
+
+        # 存入缓存
+        if value is not None:
+            self.set(key, value, expire)
+
+        return value
+
 
 # 全局缓存实例
 cache = RedisCache()

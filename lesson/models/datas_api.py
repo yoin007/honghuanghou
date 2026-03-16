@@ -179,6 +179,8 @@ def get_users_dict():
     # print(admin_names)
     has_role = "role" in subject_teacher.columns
     has_level = "level" in subject_teacher.columns
+    has_is_password_changed = "is_password_changed" in subject_teacher.columns
+    has_logined = "logined" in subject_teacher.columns
 
     for teacher in subject_teacher["name"].tolist():
         users_data[teacher] = {}
@@ -188,6 +190,22 @@ def get_users_dict():
         users_data[teacher]["stored_password"] = str(
             teacher_row["pwd"].values[0]
         )
+
+        # 读取 is_password_changed 字段（默认为 0，未修改密码）
+        is_password_changed = 0
+        if has_is_password_changed:
+            val = teacher_row["is_password_changed"].values[0]
+            if pd.notna(val):
+                is_password_changed = int(val)
+        users_data[teacher]["is_password_changed"] = is_password_changed
+
+        # 读取 logined 字段（默认为 1，表示已登录）
+        logined = 1
+        if has_logined:
+            val = teacher_row["logined"].values[0]
+            if pd.notna(val):
+                logined = int(val)
+        users_data[teacher]["logined"] = logined
         
         # 确定角色
         role = "teacher"
@@ -231,19 +249,23 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
 # 认证相关函数
-def verify_password_compat(plain_password, stored_password):
+def verify_password_compat(plain_password, stored_password, is_password_changed=0):
     """
-    验证密码（兼容 bcrypt 和明文）
+    验证密码，根据 is_password_changed 决定验证方式
+    - is_password_changed=1: 使用 bcrypt 验证
+    - is_password_changed=0: 使用明文验证
     """
-    # 检查是否为有效的 bcrypt 哈希格式 (以 $2a$, $2b$, $2y$ 开头)
-    if stored_password and stored_password.startswith(('$2a$', '$2b$', '$2y$')):
-        try:
-            return verify_password(plain_password, stored_password)
-        except Exception as e:
-            print(f"Password verification failed: {e}")
-            return False
+    # 已修改密码：使用 bcrypt 验证
+    if is_password_changed == 1:
+        if stored_password and stored_password.startswith(('$2a$', '$2b$', '$2y$')):
+            try:
+                return verify_password(plain_password, stored_password)
+            except Exception as e:
+                print(f"Password verification failed: {e}")
+                return False
+        return False
 
-    # 支持明文密码验证（兼容旧数据）
+    # 未修改密码：使用明文验证
     if stored_password and plain_password == stored_password:
         return True
 
@@ -271,8 +293,15 @@ def authenticate_user(username: str, password: str):
     if username not in users_data:
         return False
     user = users_data[username]
-    # 使用兼容版本验证（支持 bcrypt 和明文）
-    if not verify_password_compat(password, user["stored_password"]):
+
+    # 检查是否允许登录
+    logined = user.get("logined", 1)
+    if logined == 0:
+        return False
+
+    # 使用兼容版本验证，根据 is_password_changed 决定验证方式
+    is_password_changed = user.get("is_password_changed", 0)
+    if not verify_password_compat(password, user["stored_password"], is_password_changed):
         return False
     return user
 
@@ -308,8 +337,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     return user
 
 
+# =============================================================================
+# 认证接口 - 登录
+# =============================================================================
+
 # 登录接口（带限流）
-@router.post("/token")
+@router.post("/token", summary="用户登录", description="使用用户名和密码登录，获取访问令牌")
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     # 限流检查：每个用户名每分钟最多 5 次登录尝试
     rate_key = f"login:{form_data.username}"
@@ -381,7 +414,11 @@ def is_admin_user(user):
     return "admin" in role.lower() or role == "teacher/xuefa"
 
 
-@router.get("/admin/users")
+# =============================================================================
+# 认证接口 - 用户管理
+# =============================================================================
+
+@router.get("/admin/users", summary="获取用户列表", description="获取所有用户列表（需要管理员权限）")
 async def list_users(current_user: User = Depends(get_current_user)):
     """获取用户列表（仅管理员）"""
     if not is_admin_user(current_user):
@@ -399,6 +436,10 @@ async def list_users(current_user: User = Depends(get_current_user)):
         })
     return {"users": users_list, "total": len(users_list)}
 
+
+# =============================================================================
+# 认证接口 - 密码重置/设置
+# =============================================================================
 
 @router.post("/admin/reset-password")
 async def reset_user_password(
@@ -467,6 +508,12 @@ async def admin_set_password(
         mask = df['name'] == str(request.username)
         if mask.any():
             df.loc[mask, 'pwd'] = str(hashed_password)
+            # 同时更新 raw_pwd (明文密码)
+            if 'raw_pwd' in df.columns:
+                df.loc[mask, 'raw_pwd'] = str(request.new_password)
+            # 管理员设置密码后，使用 bcrypt 验证
+            if 'is_password_changed' in df.columns:
+                df.loc[mask, 'is_password_changed'] = 1
             sheets["teachers"] = df
 
             # 备份原文件
@@ -493,8 +540,11 @@ async def admin_set_password(
         raise HTTPException(status_code=500, detail=f"密码更新失败: {str(e)}")
 
 
-# 教师管理 API
-@router.get("/teachers")
+# =============================================================================
+# 教师管理接口
+# =============================================================================
+
+@router.get("/teachers", summary="获取教师列表", description="获取所有教师列表（教师及以上角色）")
 async def get_teachers(current_user: User = Depends(get_current_user)):
     """获取教师列表（教师及以上角色）"""
 
@@ -538,7 +588,7 @@ async def create_teacher(
 
         # 获取 teachers sheet
         if "teachers" not in sheets:
-            df = pd.DataFrame(columns=["name", "pwd", "subject", "course", "role", "active", "level", "created_at"])
+            df = pd.DataFrame(columns=["name", "pwd", "raw_pwd", "subject", "course", "role", "active", "level", "created_at"])
         else:
             df = sheets["teachers"]
 
@@ -553,6 +603,7 @@ async def create_teacher(
         new_row = {
             "name": teacher.username,
             "pwd": str(hashed_password),
+            "raw_pwd": str(teacher.password),  # 存储明文密码
             "subject": teacher.subject,
             "course": teacher.course,
             "role": teacher.role,
@@ -717,9 +768,10 @@ async def teacher_change_password(
 
     user_info = users_data[username]
     stored_password = user_info.get("stored_password", "")
+    is_password_changed = user_info.get("is_password_changed", 0)
 
     # 验证旧密码
-    if not verify_password_compat(request.old_password, stored_password):
+    if not verify_password_compat(request.old_password, stored_password, is_password_changed):
         raise HTTPException(status_code=400, detail="旧密码错误")
 
     # 生成新密码哈希
@@ -747,6 +799,12 @@ async def teacher_change_password(
         mask = df['name'] == str(username)
         if mask.any():
             df.loc[mask, 'pwd'] = str(hashed_password)
+            # 同时更新 raw_pwd (明文密码)
+            if 'raw_pwd' in df.columns:
+                df.loc[mask, 'raw_pwd'] = str(request.new_password)
+            # 设置 is_password_changed = 1（表示密码已修改，使用 bcrypt 验证）
+            if 'is_password_changed' in df.columns:
+                df.loc[mask, 'is_password_changed'] = 1
             sheets["teachers"] = df
 
             # 备份原文件
@@ -770,6 +828,67 @@ async def teacher_change_password(
     except Exception as e:
         logger.error(f"Failed to change password: {e}")
         raise HTTPException(status_code=500, detail=f"密码修改失败: {str(e)}")
+
+
+class ResetPasswordChangeRequest(BaseModel):
+    """管理员重置用户密码状态请求"""
+    username: str
+
+
+@router.post("/admin/reset-password-changed")
+async def admin_reset_password_changed(
+    request: ResetPasswordChangeRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """管理员重置用户的密码修改状态为未修改（is_password_changed=0），使用明文验证"""
+    # 检查是否为管理员
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="只有管理员可以执行此操作")
+
+    username = request.username
+
+    try:
+        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
+
+        # 读取所有 sheet
+        xl = pd.ExcelFile(template_path)
+        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
+
+        if "teachers" not in sheets:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        df = sheets["teachers"]
+
+        df['name'] = df['name'].astype(str)
+        mask = df['name'] == str(username)
+        if mask.any():
+            # 重置 is_password_changed = 0（使用明文验证）
+            if 'is_password_changed' in df.columns:
+                df.loc[mask, 'is_password_changed'] = 0
+            sheets["teachers"] = df
+
+            # 备份原文件
+            backup_excel_file(template_path)
+
+            # 写入所有 sheet
+            with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
+                for sheet_name, sheet_df in sheets.items():
+                    sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            # 刷新缓存
+            refresh_teacher_cache()
+
+            logger.info(f"Admin reset password_changed to 0 for user {username}")
+            return {"message": f"用户 {username} 的密码状态已重置为未修改", "success": True}
+        else:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reset password_changed: {e}")
+        raise HTTPException(status_code=500, detail=f"重置失败: {str(e)}")
 
 
 # 基于 config/api_level.yaml 的权限检查
@@ -835,7 +954,12 @@ async def check_api_permission(request: Request):
     return
 
 
+# =============================================================================
+# 课程表接口
+# =============================================================================
+
 # 获取所有班级代码
+@router.get("/class-codes/", summary="获取班级代码列表", description="获取所有班级的代码列表")
 @router.get("/class-codes/")
 async def get_class_codes(request: Request, ip: str = None):
     """获取所有可用的班级代码"""
@@ -870,7 +994,7 @@ async def get_class_codes(request: Request, ip: str = None):
     return result
 
 
-@router.get("/schedule/{class_name}")
+@router.get("/schedule/{class_name}", summary="获取班级课表", description="获取指定班级的本周课表")
 async def get_class_schedule(class_name: str):
     """获取指定班级的课程表"""
     # 尝试从缓存获取
@@ -974,7 +1098,11 @@ async def get_schedules():
     return [replace_url(current), replace_url(week_next)]
 
 
-@router.get("/homework/{class_code}")
+# =============================================================================
+# 作业和公告接口
+# =============================================================================
+
+@router.get("/homework/{class_code}", summary="获取班级作业", description="获取指定班级的所有作业列表")
 async def get_homework(class_code: str):
     """获取作业列表，按类型分类，按学科和老师分组"""
     n = Homework()
@@ -1290,7 +1418,11 @@ async def get_class_info(class_code: str):
     return {"class_info": class_info}
 
 
-@router.get("/students/{class_code}")
+# =============================================================================
+# 学生管理接口
+# =============================================================================
+
+@router.get("/students/{class_code}", summary="获取学生列表", description="获取指定班级的学生列表")
 async def get_students(class_code: str):
     """获取指定班级的学生名单"""
     l = Lesson()
@@ -1732,7 +1864,7 @@ async def get_cleader_classes(current_user: User = Depends(get_current_user)):
     # 普通教师没有负责的班级，返回空
     return {"classes": [], "class_codes": []}
 
-@router.post("/leave-records/", dependencies=[Depends(check_api_permission)])
+@router.post("/leave-records/", dependencies=[Depends(check_api_permission)], summary="提交请假记录", description="提交学生请假/外出记录")
 async def insert_leave_records(
     request: LeaveRecordRequest, current_user: User = Depends(get_current_user)
 ):
@@ -1765,6 +1897,10 @@ async def insert_leave_records(
             )
             record_ids.append(did)
     return {"inout_ids": record_ids, "status": "已提交"}
+
+# =============================================================================
+# 请假记录接口
+# =============================================================================
 
 @router.get("/leave-records/", dependencies=[Depends(check_api_permission)])
 async def get_leave_records(
@@ -1885,6 +2021,10 @@ class DailyInfoRequest(BaseModel):
     event: str
     remark: str = ""
     recorder: str = ""
+
+# =============================================================================
+# 日常记录接口
+# =============================================================================
 
 @router.post("/insert_daily/", dependencies=[Depends(check_api_permission)])
 async def insert_daily(request: DailyInfoRequest):
@@ -2126,7 +2266,11 @@ class PermissionUpdate(BaseModel):
     balance: Optional[int] = None
     notes: Optional[str] = None
 
-@router.get("/members", dependencies=[Depends(check_api_permission)])
+# =============================================================================
+# 成员和权限管理接口
+# =============================================================================
+
+@router.get("/members", dependencies=[Depends(check_api_permission)], summary="获取成员列表", description="获取所有成员列表")
 async def get_members(
     page: int = 1, 
     page_size: int = 10, 
@@ -2391,6 +2535,10 @@ def get_tasks_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+
+# =============================================================================
+# 任务管理接口
+# =============================================================================
 
 @router.get("/tasks/funcs", dependencies=[Depends(check_api_permission)])
 async def get_available_funcs(current_user: User = Depends(get_current_user)):

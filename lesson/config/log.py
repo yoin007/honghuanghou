@@ -2,11 +2,76 @@
 
 import os
 import json
+import uuid
 import logging
 import logging.config
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from logging import Formatter
+from contextvars import ContextVar
+from typing import Optional
+
+# 请求追踪 ID 上下文变量
+request_id_ctx: ContextVar[Optional[str]] = ContextVar('request_id', default=None)
+
+
+def get_request_id() -> str:
+    """获取当前请求的追踪 ID"""
+    return request_id_ctx.get() or str(uuid.uuid4())[:8]
+
+
+def set_request_id(request_id: str = None) -> str:
+    """设置当前请求的追踪 ID"""
+    if request_id is None:
+        request_id = str(uuid.uuid4())[:8]
+    request_id_ctx.set(request_id)
+    return request_id
+
+
+class RequestIdFormatter(Formatter):
+    """带请求追踪 ID 的 formatter"""
+
+    def __init__(self, fmt=None, datefmt=None, style='%', use_json=False):
+        super().__init__(fmt, datefmt, style)
+        self.use_json = use_json
+
+    def format(self, record):
+        # 添加请求 ID
+        request_id = get_request_id()
+        record.request_id = request_id
+
+        if self.use_json:
+            return self._format_json(record)
+        else:
+            return self._format_text(record)
+
+    def _format_json(self, record):
+        log_data = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+            "request_id": record.request_id
+        }
+
+        # 添加异常信息
+        if record.exc_info:
+            log_data["exception"] = self.formatException(record.exc_info)
+
+        # 添加额外字段
+        if hasattr(record, "extra"):
+            log_data.update(record.extra)
+
+        return json.dumps(log_data, ensure_ascii=False)
+
+    def _format_text(self, record):
+        # 自定义格式添加 request_id
+        original_msg = record.getMessage()
+        record.msg = f"[{record.request_id}] {original_msg}"
+        return super().format(record)
 
 
 class JsonFormatter(Formatter):
@@ -22,6 +87,10 @@ class JsonFormatter(Formatter):
             "function": record.funcName,
             "line": record.lineno
         }
+
+        # 添加请求 ID（如果存在）
+        if hasattr(record, 'request_id'):
+            log_data["request_id"] = record.request_id
 
         # 添加异常信息
         if record.exc_info:

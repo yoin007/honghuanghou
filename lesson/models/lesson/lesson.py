@@ -1460,11 +1460,19 @@ def lesson_pwd(record):
         send_text("教师模板不存在", record.roomid, "", "lesson")
         return
     name = l.get_alias(record.sender)
-    pwd = teachers[teachers['name'] == name]['pwd'].values[0]
-    if pwd:
-        send_text(f"{name}的密码为：{pwd}", record.sender, "", "lesson")
+    # 优先使用 raw_pwd (明文密码)，如果不存在则使用 pwd
+    if 'raw_pwd' in teachers.columns:
+        pwd_list = teachers[teachers['name'] == name]['raw_pwd'].values
     else:
-        send_text(f"{name}的密码不存在", record.sender, "", "lesson")
+        pwd_list = teachers[teachers['name'] == name]['pwd'].values
+    if len(pwd_list) > 0:
+        pwd = pwd_list[0]
+        if pwd:
+            send_text(f"{name}的密码为：{pwd}", record.sender, "", "lesson")
+        else:
+            send_text(f"{name}的密码不存在", record.sender, "", "lesson")
+    else:
+        send_text(f"未找到教师 {name}", record.sender, "", "lesson")
 
 async def manual_update_schedule():
     """手动更新课程表"""
