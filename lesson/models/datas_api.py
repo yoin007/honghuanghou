@@ -138,7 +138,8 @@ import bcrypt
 config = Config()
 try:
     config_data = config.get_config("auth", "token.yaml")
-except:
+except (FileNotFoundError, yaml.YAMLError, Exception) as e:
+    logging.warning(f"Failed to load token.yaml config: {e}")
     config_data = {}
 
 # 安全修复: 强制要求设置 JWT 密钥，不允许默认值
@@ -1038,7 +1039,8 @@ async def get_todays_schedule(date: str = None):
                 now = l.get_cache_data("now")
                 target_day = now.day
                 target_weekday = now.weekday() + 1
-        except:
+        except (ValueError, TypeError, KeyError) as e:
+            logging.warning(f"Failed to parse target_date: {e}")
             now = l.get_cache_data("now")
             target_day = now.day
             target_weekday = now.weekday() + 1
@@ -1647,7 +1649,8 @@ async def get_students_status(class_code: str):
             if isinstance(x, (int, float)):
                 return str(int(x))
             return str(x)
-        except:
+        except (ValueError, TypeError) as e:
+            logging.warning(f"safe_int_str conversion error: {e}")
             return str(x)
 
     for col in ['roomid', 'rpid', 'sid']:
@@ -1681,7 +1684,8 @@ def get_stu_dict(sid):
             if isinstance(x, (int, float)):
                 return str(int(x))
             return str(x)
-        except:
+        except (ValueError, TypeError) as e:
+            logging.warning(f"safe_int_str conversion error: {e}")
             return str(x)
 
     for col in ['roomid', 'rpid', 'sid']:

@@ -4,6 +4,7 @@
 
 import asyncio
 import hashlib
+import logging
 import os
 import re
 import shutil
@@ -13,6 +14,8 @@ import time
 import warnings
 from datetime import datetime, timedelta
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
 from openpyxl import load_workbook
