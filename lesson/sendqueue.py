@@ -20,6 +20,14 @@ base_url = config.get_config("base_url", "wechat.yaml")
 static_url = config.get_config("static_url", "wechat.yaml")
 admin_wxid = config.get_config("admin", "wechat.yaml")
 
+# 调试模式开关 (从配置文件读取)
+try:
+    DEBUG_MODE = config.get_config("debug_mode", "wechat.yaml")
+except (KeyError, TypeError):
+    DEBUG_MODE = False
+if isinstance(DEBUG_MODE, str):
+    DEBUG_MODE = DEBUG_MODE.lower() in ("true", "1", "yes")
+
 
 class QueueDB:
     _instance = None
@@ -367,56 +375,74 @@ class QueueDB:
                 return None
 
 
-def send_text(content: str, receiver: str, aters: str = "", producer: str = "main"):
-    """发送文本消息"""
-    data = {
-        "friend_id": receiver,
-        "message": content,
-        "remark": aters,
-        "content_type": 1,
-    }
-    with QueueDB() as queue:
-        queue.__produce__(data, base_url + "send_message_250514.html", producer)
+def _debug_send(func_name: str, *args, **kwargs):
+    """调试模式下的打印函数"""
+    print(f"[DEBUG] {func_name}:", *args, kwargs if kwargs else "")
 
 
-def send_image(path: str = "", receiver: str = "", producer: str = "main"):
-    """发送图片消息"""
-    if not (path.startswith("http://") or path.startswith("https://")):
-        path = static_url + path
-    data = {"friend_id": receiver, "message": path, "content_type": 2}
-    with QueueDB() as queue:
-        queue.__produce__(data, base_url + "send_message_250514.html", producer)
+if DEBUG_MODE:
+    # 调试模式：发送函数变为打印
+    def send_text(content: str, receiver: str, aters: str = "", producer: str = "main"):
+        _debug_send("send_text", content=content, receiver=receiver, aters=aters, producer=producer)
 
+    def send_image(path: str = "", receiver: str = "", producer: str = "main"):
+        _debug_send("send_image", path=path, receiver=receiver, producer=producer)
 
-def send_file(file_dict, receiver: str = "", producer: str = "main"):
-    """发送文件消息"""
-    if isinstance(file_dict, str):
-        file_path = file_dict
-        file_name = file_path.split("/")[-1]
-        file_dict = {"name": file_name, "url": file_path}
-    if not (
-        file_dict.get("url", "").startswith("http://")
-        or file_dict.get("url", "").startswith("https://")
-    ):
-        file_dict["url"] = static_url + file_dict.get("url")
-    data = {
-        "friend_id": receiver,
-        "content_type": "8",
-        "message": json.dumps(file_dict),
-    }
-    with QueueDB() as queue:
-        queue.__produce__(data, base_url + "send_message_250514.html", producer)
+    def send_file(file_dict, receiver: str = "", producer: str = "main"):
+        _debug_send("send_file", file_dict=file_dict, receiver=receiver, producer=producer)
 
+    def send_app_msg(xml_dict: dict, receiver: str, type: int = 13, producer: str = "main"):
+        _debug_send("send_app_msg", xml_dict=xml_dict, receiver=receiver, type=type, producer=producer)
 
-def send_app_msg(xml_dict: dict, receiver: str, type: int = 13, producer: str = "main"):
-    """发送应用消息"""
-    data = {
-        "friend_id": receiver,
-        "content_type": type,
-        "message": json.dumps(xml_dict),
-    }
-    with QueueDB() as queue:
-        queue.__produce__(data, base_url + "send_message_250514.html", producer)
+else:
+    # 正常模式：实际发送消息
+    def send_text(content: str, receiver: str, aters: str = "", producer: str = "main"):
+        """发送文本消息"""
+        data = {
+            "friend_id": receiver,
+            "message": content,
+            "remark": aters,
+            "content_type": 1,
+        }
+        with QueueDB() as queue:
+            queue.__produce__(data, base_url + "send_message_250514.html", producer)
+
+    def send_image(path: str = "", receiver: str = "", producer: str = "main"):
+        """发送图片消息"""
+        if not (path.startswith("http://") or path.startswith("https://")):
+            path = static_url + path
+        data = {"friend_id": receiver, "message": path, "content_type": 2}
+        with QueueDB() as queue:
+            queue.__produce__(data, base_url + "send_message_250514.html", producer)
+
+    def send_file(file_dict, receiver: str = "", producer: str = "main"):
+        """发送文件消息"""
+        if isinstance(file_dict, str):
+            file_path = file_dict
+            file_name = file_path.split("/")[-1]
+            file_dict = {"name": file_name, "url": file_path}
+        if not (
+            file_dict.get("url", "").startswith("http://")
+            or file_dict.get("url", "").startswith("https://")
+        ):
+            file_dict["url"] = static_url + file_dict.get("url")
+        data = {
+            "friend_id": receiver,
+            "content_type": "8",
+            "message": json.dumps(file_dict),
+        }
+        with QueueDB() as queue:
+            queue.__produce__(data, base_url + "send_message_250514.html", producer)
+
+    def send_app_msg(xml_dict: dict, receiver: str, type: int = 13, producer: str = "main"):
+        """发送应用消息"""
+        data = {
+            "friend_id": receiver,
+            "content_type": type,
+            "message": json.dumps(xml_dict),
+        }
+        with QueueDB() as queue:
+            queue.__produce__(data, base_url + "send_message_250514.html", producer)
 
 
 async def get_queue_info(msg=None):
