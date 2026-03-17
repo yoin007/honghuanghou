@@ -1,0 +1,40 @@
+# =============================================================================
+# HongHuangHou 项目依赖
+# 安装: pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# =============================================================================
+
+# Web 框架
+uvicorn>=0.24.0
+fastapi>=0.104.0
+python-multipart>=0.0.6
+
+# 配置文件
+pyyaml>=6.0
+
+# 数据处理
+pandas>=2.0.0
+openpyxl>=3.1.0
+
+# 图表绘制
+matplotlib>=3.7.0
+
+# HTTP 请求
+requests>=2.31.0
+
+# JWT 认证
+pyjwt>=2.8.0
+
+# 定时任务
+apscheduler>=3.10.0
+
+# AI API
+openai>=1.0.0
+
+# 数据库
+mysql-connector-python>=8.0.0
+
+# 系统监控
+psutil>=5.9.0
+
+# 网络设备 (可选，如不需要可注释)
+netmiko>=4.2.0
