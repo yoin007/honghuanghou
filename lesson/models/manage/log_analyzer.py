@@ -11,8 +11,6 @@ from models.lesson.lesson import Lesson
 
 admin = Config().get_config("admin", "wechat.yaml")
 
-today = datetime.now().strftime("%Y%m%d")
-LOG_FILE = f'logs/bot_{today}.log'
 DB_PATH = 'databases/member.db'
 
 MESSAGE_TYPE_MAP = {
@@ -129,8 +127,8 @@ def get_solutions_for_errors(unique_errors, error_details):
         prompt = f"我的机器人日志中出现了以下错误（共出现 {count} 次），请帮我分析原因并给出解决方案：\n\n{detail_map.get(err_msg, err_msg)}"
         print(f"请求大模型分析错误: {err_msg}")
         try:
-            solution = bailian_req(prompt)
-            # solution = f"test"
+            # solution = bailian_req(prompt)
+            solution = f"test"
         except Exception as e:
             solution = f"获取解决方案失败: {str(e)}"
         solutions[err_msg] = solution
@@ -250,7 +248,7 @@ def perform_nlp_analysis(corpus):
     results["highlights"] = extract_highlights(filtered)
     return results
 
-def generate_report(stats, sorted_groups, solutions, target_group_ids=None, nlp_results_map=None):
+def generate_report(stats, sorted_groups, target_group_ids=None, nlp_results_map=None):
     m = Member()
     report = ["# 🤖 机器人运行日志分析报告", f"**日期**: {datetime.now().strftime('%Y-%m-%d')}"]
 
@@ -259,14 +257,17 @@ def generate_report(stats, sorted_groups, solutions, target_group_ids=None, nlp_
     report.append(f"- 📥 收到消息总数: `{stats['received']}`")
     report.append(f"- 📤 发送消息总数: `{stats['sent']}`")
 
-    # 2. 错误日志
-    report.append("\n## 2. 错误日志汇总与解决方案")
+    # 2. 错误日志汇总（只统计，不查找解决方案）
+    report.append("\n## 2. 错误日志汇总")
     if not stats['unique_errors']:
         report.append("✅ 未发现错误日志。")
     else:
-        for err_msg, count in stats['unique_errors'].items():
-            report.append(f"### ❌ 错误: {err_msg} (出现 {count} 次)")
-            report.append(f"**大模型分析建议**:\n{solutions.get(err_msg, '暂无建议')}")
+        total_errors = sum(stats['unique_errors'].values())
+        report.append(f"- **错误种类**: `{len(stats['unique_errors'])}`")
+        report.append(f"- **错误总数**: `{total_errors}`")
+        report.append("\n**错误详情**:")
+        for err_msg, count in list(stats['unique_errors'].items())[:10]:
+            report.append(f"- `{err_msg}` (出现 {count} 次)")
 
     # 3. 群聊活跃度排名
     report.append("\n## 3. 群聊消息活跃度排名")
@@ -274,11 +275,11 @@ def generate_report(stats, sorted_groups, solutions, target_group_ids=None, nlp_
     for i, (gid, g_stats) in enumerate(sorted_groups, 1):
         active_users = len(g_stats['senders'])
         total_msgs = g_stats['total_msgs']
-        # 简单的活跃度算法
         stars = '⭐' * min(5, (total_msgs // 20) + (active_users // 5))
         table.append(f"| {i} | {g_stats['group_name']} (`{gid}`) | {total_msgs} | {active_users} | {stars or '⭐'} |")
     report.extend(table)
 
+    # 4. 目标群聊深度分析
     if target_group_ids:
         group_map = dict(sorted_groups)
         report.append("\n## 4. 目标群聊深度分析")
@@ -286,37 +287,10 @@ def generate_report(stats, sorted_groups, solutions, target_group_ids=None, nlp_
             target_stats = group_map.get(target_group_id)
             if not target_stats:
                 continue
-            report.append(f"\n### (`{target_stats['group_name']}`)")
-            top_n = 5
-            sorted_senders = sorted(target_stats['senders'].items(), key=lambda x: x[1], reverse=True)
-            top_senders_msgs = sum(count for _, count in sorted_senders[:top_n])
-            total_group_msgs = target_stats['total_msgs']
-            concentration = (top_senders_msgs / total_group_msgs * 100) if total_group_msgs > 0 else 0
-            report.append(f"- **消息集中度**: Top {top_n} 发言者贡献了 `{concentration:.2f}%` 的消息。")
-
-            high_freq_users = []
-            for sender, count in sorted_senders:
-                if count < 10:
-                    continue
-                if sender == "SYSTEM/BOT":
-                    display_name = "SYSTEM/BOT"
-                else:
-                    name = m.query_member_name(target_group_id, sender)
-                    display_name = name if name else sender
-                high_freq_users.append(f"{display_name} (`{count}`条)")
-            report.append(f"- **高频发言者 (≥10条)**: {', '.join(high_freq_users) or '无'}")
-
-            types_dist = ", ".join([f"{t}: {c}" for t, c in target_stats['types'].items()])
-            report.append(f"- **消息类型分布**: {types_dist}")
-
-            hourly_dist = ", ".join([f"{h}点({c}条)" for h, c in sorted(target_stats['hourly'].items())])
-            report.append(f"- **活跃时段**: {hourly_dist}")
-
+            
             group_nlp = (nlp_results_map or {}).get(target_group_id, {})
-            highlights = group_nlp.get("highlights", [])
-            if highlights:
-                report.append("\n##### ✅ 群聊精华")
-                report.extend(highlights)
+            group_report = generate_single_group_report(target_stats, group_nlp, target_group_id)
+            report.append(f"\n{group_report}")
 
     return "\n".join(report)
 
@@ -330,8 +304,8 @@ def generate_single_group_report(group_stats, nlp_results=None, group_id=None):
     report.append(f"- **消息总数**: `{group_stats['total_msgs']}`")
     report.append(f"- **发言人数**: `{len(group_stats['senders'])}`")
     
-    report.append("\n## 2. 发言排行 (Top 20)")
-    sorted_senders = sorted(group_stats['senders'].items(), key=lambda x: x[1], reverse=True)[:20]
+    report.append("\n## 2. 发言排行 (Top 5)")
+    sorted_senders = sorted(group_stats['senders'].items(), key=lambda x: x[1], reverse=True)[:5]
     table = ["| 排名 | 用户 | 消息数 |", "|:---:|:---|:---:|"]
     for i, (sender, count) in enumerate(sorted_senders, 1):
         if sender == "SYSTEM/BOT":
@@ -372,13 +346,14 @@ def generate_error_report(stats, solutions):
     report.append(f"- **错误总数**: `{total_errors}`")
     
     report.append("\n## 详细错误列表")
+    error_details_list = stats.get('error_details', [])
     for err_msg, count in stats['unique_errors'].items():
         report.append(f"### ❌ {err_msg} (出现 {count} 次)")
         
-        error_details = stats['error_details'].get(err_msg, [])
-        if error_details:
+        matching_details = [d['detail'] for d in error_details_list if d.get('message') == err_msg][:5]
+        if matching_details:
             report.append("**最近错误记录**:")
-            for detail in error_details[:5]:
+            for detail in matching_details:
                 report.append(f"- `{detail}`")
         
         report.append(f"\n**大模型分析建议**:\n{solutions.get(err_msg, '暂无建议')}")
@@ -386,14 +361,14 @@ def generate_error_report(stats, solutions):
     
     return "\n".join(report)
 
-def analyze_log_file():
+def analyze_log_file(today=None):
+    if not today:
+        today = datetime.now().strftime("%Y%m%d")
+    LOG_FILE = f'logs/bot_{today}.log'
     print("🚀 开始分析日志文件...")
     stats = analyze_log(LOG_FILE)
     lesson = Lesson()
     lesson_dir = lesson.lesson_dir
-    
-    # 自动提交大模型分析错误
-    solutions = get_solutions_for_errors(stats['unique_errors'], stats['error_details'])
     
     # 分析群聊统计数据
     sorted_groups = analyze_group_stats(stats['all_messages'])
@@ -408,35 +383,14 @@ def analyze_log_file():
         if target_group_stats:
             nlp_results_map[gid] = perform_nlp_analysis(target_group_stats['content_corpus'])
 
-    report_content = generate_report(stats, sorted_groups, solutions, target_group_ids, nlp_results_map)
+    # 生成汇总报告
+    report_content = generate_report(stats, sorted_groups, target_group_ids, nlp_results_map)
+    
     report_dir = os.path.join(lesson_dir, "reports")
     os.makedirs(report_dir, exist_ok=True)
     report_filename = f"{report_dir}/analysis_report_{datetime.now().strftime('%Y%m%d')}.md" 
     with open(report_filename, "w", encoding="utf-8") as f:
         f.write(report_content)
-    # send_text(f"\n✅ 分析完成！报告已生成: {report_filename}", admin)
-    send_file(report_filename[len(lesson_dir):].replace("\\", "/"), admin)
-    
-    # 为配置中的目标群单独生成报告
-    group_map = dict(sorted_groups)
-    for gid in target_group_ids:
-        group_stats = group_map.get(gid)
-        if group_stats:
-            group_report = generate_single_group_report(group_stats, nlp_results_map.get(gid, {}), gid)
-            group_name = group_stats.get('group_name', gid)
-            safe_group_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in group_name)
-            group_report_filename = f"{report_dir}/group_{safe_group_name}_report_{datetime.now().strftime('%Y%m%d')}.md"
-            with open(group_report_filename, "w", encoding="utf-8") as f:
-                f.write(group_report)
-            # send_text(f"\n✅ 群报告已生成: {group_report_filename}", admin)
-            send_file(group_report_filename[len(lesson_dir):].replace("\\", "/"), admin)
-    
-    # 单独生成错误报告（如果没有错误则不生成）
-    if stats['unique_errors']:
-        error_report = generate_error_report(stats, solutions)
-        error_report_filename = f"{report_dir}/error_report_{datetime.now().strftime('%Y%m%d')}.md"
-        with open(error_report_filename, "w", encoding="utf-8") as f:
-            f.write(error_report)
-        # send_text(f"\n✅ 错误报告已生成: {error_report_filename}", admin)
-        send_file(error_report_filename[len(lesson_dir):].replace("\\", "/"), admin)
+    static_url= Config().get_config("static_url", "wechat.yaml")
+    send_text(static_url + report_filename[len(lesson_dir):].replace("\\", "/"), admin)
     
