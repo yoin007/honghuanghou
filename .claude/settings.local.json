@@ -30,7 +30,25 @@
       "Bash(git check-ignore:*)",
       "Bash(git rm:*)",
       "Bash(lsof -ti:14600 | xargs kill -9 2>/dev/null; lsof -ti:3333 | xargs kill -9 2>/dev/null; sleep 1)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(curl -s -X POST http://localhost:14600/api/token --data-urlencode \"username=王彬\" --data-urlencode \"password=test123\")",
+      "Bash(curl -s \"http://localhost:14600/api/cleader-classes/\" 2>&1)",
+      "Bash(xargs kill:*)",
+      "Bash(/dev/null ps:*)",
+      "Bash(/dev/null echo:*)",
+      "Bash(python3 -c \"import pandas as pd; df = pd.read_excel\\('/Users/yoin/bdsync/temp/lesson/checkTemplate.xlsx', sheet_name='teachers'\\); print\\('Columns:', list\\(df.columns\\)\\); print\\('Sample:'\\); print\\(df.head\\(3\\)\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('models/datas_api/utils.py'\\).read\\(\\)\\); print\\('utils.py syntax OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('utils/cache.py'\\).read\\(\\)\\); print\\('cache.py syntax OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('config/log.py'\\).read\\(\\)\\); print\\('log.py syntax OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('models/datas_api.py'\\).read\\(\\)\\); print\\('datas_api.py syntax OK'\\)\")",
+      "Bash(curl -s -X POST \"http://localhost:14600/api/token\" \\\\\n  -H \"Content-Type: application/x-www-form-urlencoded\" \\\\\n  -d \"username=admin&password=admin123\" | python3 -m json.tool)",
+      "Bash(python3 -m py_compile /Users/yoin/bdsync/program/honghuanghou/lesson/models/datas_api.py && echo \"Python syntax OK\")",
+      "Bash(cd /Users/yoin/bdsync/program/honghuanghou/frontend && node -c src/router/index.js 2>&1 || echo \"Syntax check\")",
+      "Bash(cd /Users/yoin/bdsync/program/honghuanghou/lesson && python3 -m py_compile main.py client.py wxmsg.py sendqueue.py feishu.py websocket.py && echo \"Python syntax OK\")",
+      "Bash(cd /Users/yoin/bdsync/program/honghuanghou/frontend && node -c src/utils/api.js 2>&1 || echo \"Syntax check failed\")",
+      "Bash(cd /Users/yoin/bdsync/program/honghuanghou/lesson && python3 -c \"from models import datas_api_legacy; print\\('Import successful'\\); print\\('Routes:', len\\([r for r in datas_api_legacy.router.routes]\\)\\)\")",
+      "Bash(ls -la /Users/yoin/bdsync/program/honghuanghou/*.md /Users/yoin/bdsync/program/honghuanghou/README* 2>/dev/null || echo \"No README files found\")",
+      "Bash(git push:*)"
     ]
   }
 }

@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 // 公开页面，不需要登录
-const publicRoutes = ['/', '/zhf', '']
+const publicRoutes = ['/', '/zhf']
 
 const routes = [
   {
@@ -235,7 +235,7 @@ const ensureProtocol = (to) => {
 
 // 检查是否需要登录
 const isPublicPath = (path) => {
-  return publicRoutes.some(route => path === route || path.startsWith(route + '/'))
+  return publicRoutes.includes(path)
 }
 
 router.beforeEach((to) => {
