@@ -210,12 +210,15 @@ const ensureProtocol = (to) => {
   const isDev = import.meta.env.DEV
   const devHttpPort = isDev ? import.meta.env.VITE_DEV_HTTP_PORT : ''
   const devHttpsPort = isDev ? import.meta.env.VITE_DEV_HTTPS_PORT : ''
+  const devUseHttps = isDev && import.meta.env.VITE_DEV_HTTPS === 'true'
   const isHttps = window.location.protocol === 'https:'
   const matched = Array.isArray(to.matched) ? to.matched : []
   const matchedProtocol =
     matched.length > 0 ? matched[matched.length - 1]?.meta?.protocol : undefined
   const isLoudPk = to.name === 'LoudPK' || to.path === '/loud-pk' || to.path === '/loud-pk/'
-  const protocol = matchedProtocol || (isLoudPk ? 'https' : 'http')
+  // 开发环境 HTTPS 模式下默认使用 HTTPS
+  const defaultProtocol = devUseHttps ? 'https' : 'http'
+  const protocol = matchedProtocol || (isLoudPk ? 'https' : defaultProtocol)
   const shouldUseHttps = protocol === 'https'
   if (shouldUseHttps === isHttps) return null
   const targetProtocol = shouldUseHttps ? 'https:' : 'http:'
