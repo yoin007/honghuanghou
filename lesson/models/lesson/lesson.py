@@ -63,7 +63,7 @@ class Lesson:
         if hasattr(self, "_initialized"):
             return
         self._initialized = True
-        self.lesson_dir = config.get_config("lesson_dir", "lesson.yaml")
+        self.lesson_dir = config.get_cross_platform_path("lesson_dir", "lesson.yaml")
         self.admin = config.get_config("lesson_admin", "lesson.yaml")
         self.week_change = config.get_config("week_change", "lesson.yaml")
         self.create_c_month_dir(notify=True)

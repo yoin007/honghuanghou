@@ -104,7 +104,7 @@ def gk_countdown():
 
 def ju_pai(words):
     timestamp = int(time.time())
-    static_dir = Config().get_config("lesson_dir", "lesson.yaml")
+    static_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
     pic = os.path.join(static_dir, "temp", f"{timestamp}.png")
     headers = {
         "authority": "api.ahfi.cn",

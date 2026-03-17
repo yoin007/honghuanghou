@@ -76,7 +76,7 @@ async def admin_reset_password(
     new_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
     try:
-        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
         template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
 
         xl = pd.ExcelFile(template_path)
@@ -129,7 +129,7 @@ async def admin_set_password(
         raise HTTPException(status_code=403, detail="只有管理员可以执行此操作")
 
     try:
-        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
         template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
 
         xl = pd.ExcelFile(template_path)
@@ -184,7 +184,7 @@ async def admin_reset_password_changed(
     username = request.username
 
     try:
-        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
         template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
 
         xl = pd.ExcelFile(template_path)

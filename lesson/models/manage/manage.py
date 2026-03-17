@@ -86,7 +86,7 @@ async def say_hi_qun(record: any):
     if alias:
         img = ju_pai(alias)
         if img:
-            pic_path = img[len(Config().get_config("lesson_dir", "lesson.yaml")) :].replace("\\", "/")
+            pic_path = img[len(Config().get_cross_platform_path("lesson_dir", "lesson.yaml")) :].replace("\\", "/")
             send_image(pic_path, record.roomid, "manage")
             return True
 

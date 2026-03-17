@@ -77,7 +77,7 @@ async def create_teacher(
         raise HTTPException(status_code=403, detail="只有管理员可以创建教师")
 
     try:
-        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
         template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
 
         xl = pd.ExcelFile(template_path)
@@ -140,7 +140,7 @@ async def update_teacher(
         raise HTTPException(status_code=403, detail="只有管理员可以更新教师")
 
     try:
-        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
         template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
 
         xl = pd.ExcelFile(template_path)
@@ -197,7 +197,7 @@ async def delete_teacher(
         raise HTTPException(status_code=403, detail="只有管理员可以删除教师")
 
     try:
-        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
         template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
 
         xl = pd.ExcelFile(template_path)
@@ -263,7 +263,7 @@ async def teacher_change_password(
         raise HTTPException(status_code=500, detail="密码加密失败")
 
     try:
-        lesson_dir = Config().get_config("lesson_dir", "lesson.yaml")
+        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
         template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
 
         xl = pd.ExcelFile(template_path)

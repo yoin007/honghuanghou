@@ -23,7 +23,7 @@ from utils.fonts import setup_matplotlib_chinese_font
 setup_matplotlib_chinese_font()
 
 config = Config()
-lesson_dir = config.get_config("lesson_dir", "lesson.yaml")
+lesson_dir = config.get_cross_platform_path("lesson_dir", "lesson.yaml")
 admin_list = Config().get_config("admin_list", "wechat.yaml")
 
 

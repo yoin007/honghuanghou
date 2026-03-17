@@ -173,7 +173,7 @@ def push_qrcode():
         commit_message = f"自动提交 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         remote_name = "origin"
         proxy = Config().get_config("proxy", "wechat.yaml")
-        root_path = Config().get_config("lesson_dir", "lesson.yaml")
+        root_path = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
         for name, roomid in qrcode_git.items():
             repo_path = os.path.join(root_path, 'qrcode', name)
             png_path = os.path.join(repo_path, "1.png")

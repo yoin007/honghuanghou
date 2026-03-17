@@ -176,7 +176,7 @@ async def health_check():
 
 # 配置静态文件目录
 # 确保static目录存在
-static_dir = config.get_config("lesson_dir", "lesson.yaml")
+static_dir = config.get_cross_platform_path("lesson_dir", "lesson.yaml")
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
