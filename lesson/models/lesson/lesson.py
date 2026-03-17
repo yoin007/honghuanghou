@@ -24,6 +24,7 @@ from config.log import LogConfig
 from client import down_file
 from models.manage.member import Member, check_permission
 from sendqueue import send_app_msg, send_text, send_image, send_file
+from utils.fonts import get_cached_chinese_font
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -100,6 +101,8 @@ class Lesson:
             log.info(msg)
         elif log_level == "error":
             log.error(msg)
+        elif log_level == "warning":
+            log.warning(msg)
 
     def load_excel_file(self, file_path, sheet_name=0, index_col=None):
         """加载Excel文件"""
@@ -756,7 +759,7 @@ class Lesson:
             row, col = key
             cell.set_edgecolor('#000000')  # 边框颜色：黑色
             cell.set_linewidth(0.5)          # 边框宽度：1px
-            cell.set_text_props(fontfamily='Microsoft YaHei')  # 中文字体
+            cell.set_text_props(fontfamily=get_cached_chinese_font())  # 中文字体
             
             if row == 0:
                 # 表头样式：蓝色背景，白色粗体文字
@@ -1244,7 +1247,9 @@ def today_teachers():
             if k not in "早读, -, 专业课, 英语, 活动, 自习, 校本":
                 errors.append(k)
     if errors:
-        l.notify_admins(f"以下教师没有微信ID：{', '.join(errors)}", log_level="error")
+        l.notify_admins(f"以下教师没有微信ID：{', '.join(errors)}", log_level="warning")
+    else:
+        l.notify_admins(f"今日上课老师已经通知", log_level="info")
 
 @check_permission
 async def current_week_info(record: any):

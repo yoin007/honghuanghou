@@ -17,10 +17,10 @@ from functools import lru_cache
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
-import matplotlib
+from utils.fonts import setup_matplotlib_chinese_font
+
 # 设置 Matplotlib 的字体为支持中文的字体
-matplotlib.rcParams["font.sans-serif"] = ["SimHei"]  # 指定默认字体为黑体
-matplotlib.rcParams["axes.unicode_minus"] = False  # 用来正常显示负号
+setup_matplotlib_chinese_font()
 
 config = Config()
 lesson_dir = config.get_config("lesson_dir", "lesson.yaml")
