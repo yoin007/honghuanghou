@@ -116,7 +116,7 @@ def get_users_dict():
         if has_level:
             l_val = teacher_row["level"].values[0]
             if pd.notna(l_val):
-                level = l_val
+                level = int(l_val)
         users_data[teacher]["level"] = level
 
     return users_data
@@ -160,6 +160,10 @@ def get_user(username: str):
 
 def authenticate_user(username: str, password: str):
     """验证用户登录"""
+    # 只刷新教师模板缓存，确保用户数据是最新的
+    l = Lesson()
+    l.cache_datas["teacher_template"] = l.teacher_template
+
     users_data = get_users_dict()
     if username not in users_data:
         return False
@@ -243,10 +247,10 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username, "role": user.role}, expires_delta=access_token_expires
+        data={"sub": user["username"], "role": user.get("role", "user")}, expires_delta=access_token_expires
     )
 
     # 记录登录日志
-    logger.info(f"User {user.username} logged in successfully")
+    logger.info(f"User {user['username']} logged in successfully")
 
     return {"access_token": access_token, "token_type": "bearer"}

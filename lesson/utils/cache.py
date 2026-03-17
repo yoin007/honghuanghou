@@ -7,8 +7,22 @@ import redis
 from functools import wraps
 from typing import Any, Optional, Callable
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """处理 numpy 类型的 JSON 编码器"""
+
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
 
 
 class RedisCache:
@@ -69,7 +83,7 @@ class RedisCache:
             return False
 
         try:
-            self._client.setex(key, expire, json.dumps(value))
+            self._client.setex(key, expire, json.dumps(value, cls=NumpyEncoder))
             return True
         except Exception as e:
             logger.error(f"Redis set error: {e}")
@@ -121,7 +135,7 @@ class RedisCache:
 
             # 如果提供了新值，设置新缓存
             if value is not None:
-                self._client.setex(key, expire, json.dumps(value))
+                self._client.setex(key, expire, json.dumps(value, cls=NumpyEncoder))
 
             return True
         except Exception as e:
@@ -153,7 +167,7 @@ class RedisCache:
             if values:
                 for key, value in values.items():
                     if value is not None:
-                        self._client.setex(key, 3600, json.dumps(value))
+                        self._client.setex(key, 3600, json.dumps(value, cls=NumpyEncoder))
                         count += 1
 
         except Exception as e:

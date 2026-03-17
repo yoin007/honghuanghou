@@ -70,7 +70,7 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="100" align="center" fixed="right">
+              <el-table-column label="操作" width="140" align="center" fixed="right">
                 <template #default="scope">
                   <div v-if="canModifyHomework(scope.row)" class="cell-content action-cell">
                     <el-button size="small" type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
@@ -125,7 +125,7 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="100" align="center" fixed="right">
+              <el-table-column label="操作" width="140" align="center" fixed="right">
                 <template #default="scope">
                   <div v-if="canModifyHomework(scope.row)" class="cell-content action-cell">
                     <el-button size="small" type="primary" @click="openEditDialog(scope.row)">编辑</el-button>

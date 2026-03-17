@@ -5,9 +5,12 @@
 
 import uvicorn
 import os
+import json
+import numpy as np
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import models
 import re
 from wxmsg import WxMsg, MessageDB
@@ -29,6 +32,32 @@ from utils.monitor import init_monitor
 log = LogConfig().get_logger()
 config = Config()
 timer_random = config.get_config("queue_timer_random", "wechat.yaml")
+
+
+class NumpyJSONResponse(JSONResponse):
+    """处理 numpy 类型的 JSON 响应"""
+
+    def render(self, content) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+            default=self._numpy_encoder
+        ).encode("utf-8")
+
+    @staticmethod
+    def _numpy_encoder(obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
 def _consume_queue_once():
@@ -64,7 +93,7 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, default_response_class=NumpyJSONResponse)
 
 # 配置CORS - 从环境变量读取允许的域名
 # 用逗号分隔多个域名，如: http://localhost:3333,https://example.com
@@ -73,7 +102,7 @@ if cors_origins:
     allowed_origins = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
 else:
     # 开发环境默认允许的源
-    allowed_origins = ["http://localhost:3333", "https://localhost:3334", "http://localhost:14600"]
+    allowed_origins = ["http://localhost:3333", "https://localhost:3334", "http://localhost:14600", "http://172.31.24.235:3333"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -108,7 +137,10 @@ async def https_redirect(request, call_next):
 async def global_exception_handler(request: Request, exc: Exception):
     """全局异常处理器"""
     log.error(f"Unhandled exception: {exc}", exc_info=True)
-    return {"detail": "Internal server error", "error": str(exc)[:100]}, 500
+    return NumpyJSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "error": str(exc)[:100]}
+    )
 
 
 # 注册路由

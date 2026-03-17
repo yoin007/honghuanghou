@@ -51,6 +51,10 @@ from .utils import (
     WEEKDAYS,
 )
 
+# 导入旧模块中尚未迁移的路由
+from models import datas_api_legacy
+legacy_router = datas_api_legacy.router
+
 # 创建主路由聚合器
 router = APIRouter()
 
@@ -58,6 +62,8 @@ router = APIRouter()
 router.include_router(auth_router)
 router.include_router(admin_router)
 router.include_router(teachers_router)
+# 包含旧模块中尚未迁移的路由
+router.include_router(legacy_router)
 
 # 导出所有需要的内容
 __all__ = [
