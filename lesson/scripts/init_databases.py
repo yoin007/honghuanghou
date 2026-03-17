@@ -5,10 +5,18 @@
 
 """
 初始化数据库脚本
-用法: python scripts/init_databases.py [--reset]
+用法: python scripts/init_databases.py [选项]
 
 选项:
-  --reset  删除现有数据库并重新创建
+  --reset       删除现有数据库并重新创建
+  --clear       清空所有表数据（保留数据库文件）
+  --db <name>   只操作指定的数据库
+
+示例:
+  python scripts/init_databases.py              # 初始化所有数据库
+  python scripts/init_databases.py --reset      # 删除并重建所有数据库
+  python scripts/init_databases.py --clear      # 清空所有表数据
+  python scripts/init_databases.py --db queues.db --clear  # 只清空 queues.db
 """
 
 import os
@@ -149,6 +157,54 @@ DATABASES = {
 }
 
 
+def clear_tables(db_name: str, db_config: dict) -> bool:
+    """
+    清空数据库中的所有表数据（不删除数据库文件）
+
+    Args:
+        db_name: 数据库文件名
+        db_config: 数据库配置
+
+    Returns:
+        bool: 是否成功
+    """
+    db_path = os.path.join(DB_DIR, db_name)
+
+    if not os.path.exists(db_path):
+        log.info(f"数据库不存在: {db_name}")
+        return True
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        for table_name in db_config.get("tables", {}).keys():
+            try:
+                cursor.execute(f"DELETE FROM {table_name}")
+                log.info(f"  清空表: {table_name}")
+            except sqlite3.OperationalError as e:
+                log.warning(f"  清空表失败 {table_name}: {e}")
+
+        # 重置自增 ID
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = cursor.fetchall()
+        for (table_name,) in tables:
+            try:
+                cursor.execute(f"DELETE FROM sqlite_sequence WHERE name='{table_name}'")
+            except:
+                pass
+
+        conn.commit()
+        conn.close()
+
+        log.info(f"清空数据库成功: {db_name}")
+        return True
+
+    except Exception as e:
+        log.error(f"清空数据库失败 {db_name}: {e}")
+        return False
+
+
 def init_database(db_name: str, db_config: dict, reset: bool = False) -> bool:
     """
     初始化单个数据库
@@ -249,10 +305,19 @@ def init_all_databases(reset: bool = False) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="初始化数据库")
     parser.add_argument("--reset", action="store_true", help="删除现有数据库并重新创建")
-    parser.add_argument("--db", type=str, help="只初始化指定的数据库")
+    parser.add_argument("--clear", action="store_true", help="清空所有表数据（保留数据库文件）")
+    parser.add_argument("--db", type=str, help="只操作指定的数据库")
     args = parser.parse_args()
 
-    if args.db:
+    if args.clear:
+        # 清空所有表数据
+        log.info("清空所有表数据...")
+        for db_name, db_config in DATABASES.items():
+            if args.db and args.db != db_name:
+                continue
+            log.info(f"\n处理数据库: {db_name}")
+            clear_tables(db_name, db_config)
+    elif args.db:
         # 只初始化指定的数据库
         if args.db in DATABASES:
             log.info(f"只初始化数据库: {args.db}")
