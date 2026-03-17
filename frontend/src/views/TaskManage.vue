@@ -5,6 +5,17 @@
         <div class="card-header">
           <span>任务管理</span>
           <div class="header-actions">
+            <el-select
+              v-model="statusFilter"
+              placeholder="状态筛选"
+              class="status-select"
+              clearable
+              @change="handleStatusChange"
+            >
+              <el-option label="全部" value="" />
+              <el-option label="待执行" value="pending" />
+              <el-option label="已执行" value="done" />
+            </el-select>
             <el-input
               v-model="searchQuery"
               placeholder="搜索任务(函数名/描述)"
@@ -162,6 +173,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const searchQuery = ref('')
+const statusFilter = ref('')
 const funcOptions = ref([])
 
 const dialogVisible = ref(false)
@@ -210,7 +222,8 @@ const fetchData = async () => {
     const params = {
       page: currentPage.value,
       page_size: pageSize.value,
-      search: searchQuery.value || undefined
+      search: searchQuery.value || undefined,
+      consumed: statusFilter.value || undefined
     }
     const res = await api.get('/api/tasks', { params })
     tableData.value = res.data.data
@@ -221,6 +234,11 @@ const fetchData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleStatusChange = () => {
+  currentPage.value = 1
+  fetchData()
 }
 
 const handleSearch = () => {
@@ -351,6 +369,10 @@ onMounted(() => {
 .header-actions {
   display: flex;
   gap: 15px;
+}
+
+.status-select {
+  width: 120px;
 }
 
 .search-input {

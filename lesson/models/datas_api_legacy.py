@@ -2116,28 +2116,44 @@ async def get_tasks(
     page: int = 1,
     page_size: int = 10,
     search: str = None,
+    consumed: str = None,  # 状态筛选: "all" 或 None=全部, "pending"=待执行, "done"=已执行
     current_user: User = Depends(get_current_user)
 ):
     """获取任务列表"""
     try:
         conn = get_tasks_connection()
         cursor = conn.cursor()
-        
-        cursor.execute("SELECT COUNT(*) FROM tasks")
-        total = cursor.fetchone()[0]
-        
-        sql = "SELECT * FROM tasks"
+
+        # 构建基础查询条件
+        where_conditions = []
         params = []
+
+        # 搜索条件
         if search:
-            sql += " WHERE func LIKE ? OR description LIKE ?"
+            where_conditions.append("(func LIKE ? OR description LIKE ?)")
             params.extend([f"%{search}%", f"%{search}%"])
-            cursor.execute("SELECT COUNT(*) FROM tasks WHERE func LIKE ? OR description LIKE ?", 
-                         tuple(params))
-            total = cursor.fetchone()[0]
-        
-        sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+
+        # 状态筛选
+        if consumed == "pending":
+            where_conditions.append("consumed = 0")
+        elif consumed == "done":
+            where_conditions.append("consumed = 1")
+
+        # 构建 WHERE 子句
+        where_clause = ""
+        count_params = []
+        if where_conditions:
+            where_clause = " WHERE " + " AND ".join(where_conditions)
+            count_params = params.copy()
+
+        # 获取总数
+        cursor.execute(f"SELECT COUNT(*) FROM tasks{where_clause}", tuple(count_params))
+        total = cursor.fetchone()[0]
+
+        # 获取数据
+        sql = f"SELECT * FROM tasks{where_clause} ORDER BY id DESC LIMIT ? OFFSET ?"
         params.extend([page_size, (page - 1) * page_size])
-        
+
         cursor.execute(sql, tuple(params))
         rows = cursor.fetchall()
         conn.close()
