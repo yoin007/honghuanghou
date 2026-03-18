@@ -21,6 +21,11 @@
           style="width: 250px"
           @keyup.enter="handleSearch"
         />
+        <el-select v-model="activeFilter" placeholder="通知筛选" clearable style="width: 120px" @change="handleSearch">
+          <el-option label="全部" value="" />
+          <el-option label="启用" :value="1" />
+          <el-option label="禁用" :value="0" />
+        </el-select>
         <el-button type="primary" @click="handleSearch" :icon="Search">搜索</el-button>
         <el-button @click="handleReset">重置</el-button>
       </div>
@@ -46,11 +51,6 @@
             <el-tag :type="scope.row.active ? 'success' : 'danger'">
               {{ scope.row.active ? '启用' : '禁用' }}
             </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" align="center">
-          <template #default="scope">
-            {{ formatDate(scope.row.created_at) }}
           </template>
         </el-table-column>
         <el-table-column label="操作" width="240" fixed="right" align="center" v-if="isAdmin">
@@ -211,6 +211,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const searchKeyword = ref('')
+const activeFilter = ref('')
 const submitLoading = ref(false)
 
 // 添加对话框
@@ -346,11 +347,15 @@ const updatePagination = () => {
   let filteredData = allTeachers.value
   if (searchKeyword.value) {
     const keyword = searchKeyword.value.toLowerCase()
-    filteredData = allTeachers.value.filter(teacher =>
+    filteredData = filteredData.filter(teacher =>
       teacher.username.toLowerCase().includes(keyword) ||
       (teacher.subject && teacher.subject.toLowerCase().includes(keyword)) ||
       (teacher.course && teacher.course.toLowerCase().includes(keyword))
     )
+  }
+  // 通知状态筛选
+  if (activeFilter.value !== '') {
+    filteredData = filteredData.filter(teacher => teacher.active === activeFilter.value)
   }
   // 分页
   const start = (currentPage.value - 1) * pageSize.value
@@ -397,6 +402,7 @@ const handleSearch = () => {
 // 重置搜索
 const handleReset = () => {
   searchKeyword.value = ''
+  activeFilter.value = ''
   currentPage.value = 1
   updatePagination()
 }

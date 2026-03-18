@@ -1834,9 +1834,10 @@ class PermissionUpdate(BaseModel):
 
 @router.get("/members", dependencies=[Depends(check_api_permission)], summary="获取成员列表", description="获取所有成员列表")
 async def get_members(
-    page: int = 1, 
-    page_size: int = 10, 
+    page: int = 1,
+    page_size: int = 10,
     search: str = None,
+    active: int = None,
     current_user: User = Depends(get_current_user)
 ):
     """获取会员列表"""
@@ -1844,21 +1845,28 @@ async def get_members(
         with Member() as m:
             m.__cursor__.execute("SELECT COUNT(*) FROM member")
             total = m.__cursor__.fetchone()[0]
-            
+
             sql = "SELECT * FROM member"
             params = []
+            conditions = []
+
             if search:
-                sql += " WHERE alias LIKE ? OR wxid LIKE ? OR uuid LIKE ?"
+                conditions.append("(alias LIKE ? OR wxid LIKE ? OR uuid LIKE ?)")
                 params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
-                
-                # Update total count for search
-                count_sql = "SELECT COUNT(*) FROM member WHERE alias LIKE ? OR wxid LIKE ? OR uuid LIKE ?"
+
+            if active is not None:
+                conditions.append("active = ?")
+                params.append(active)
+
+            if conditions:
+                sql += " WHERE " + " AND ".join(conditions)
+                count_sql = "SELECT COUNT(*) FROM member WHERE " + " AND ".join(conditions)
                 m.__cursor__.execute(count_sql, tuple(params))
                 total = m.__cursor__.fetchone()[0]
-            
+
             sql += " ORDER BY id ASC LIMIT ? OFFSET ?"
             params.extend([page_size, (page - 1) * page_size])
-            
+
             m.__cursor__.execute(sql, tuple(params))
             rows = m.__cursor__.fetchall()
             columns = m.member_columns()
@@ -1949,9 +1957,10 @@ async def delete_member(uuid: str, current_user: User = Depends(get_current_user
 
 @router.get("/permissions", dependencies=[Depends(check_api_permission)])
 async def get_permissions(
-    page: int = 1, 
-    page_size: int = 10, 
+    page: int = 1,
+    page_size: int = 10,
     search: str = None,
+    activate: int = None,
     current_user: User = Depends(get_current_user)
 ):
     """获取权限列表"""
@@ -1959,20 +1968,28 @@ async def get_permissions(
         with Member() as m:
             m.__cursor__.execute("SELECT COUNT(*) FROM permission")
             total = m.__cursor__.fetchone()[0]
-            
+
             sql = "SELECT * FROM permission"
             params = []
+            conditions = []
+
             if search:
-                sql += " WHERE func LIKE ? OR func_name LIKE ? OR module LIKE ?"
+                conditions.append("(func LIKE ? OR func_name LIKE ? OR module LIKE ?)")
                 params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
-                
-                count_sql = "SELECT COUNT(*) FROM permission WHERE func LIKE ? OR func_name LIKE ? OR module LIKE ?"
+
+            if activate is not None:
+                conditions.append("activate = ?")
+                params.append(activate)
+
+            if conditions:
+                sql += " WHERE " + " AND ".join(conditions)
+                count_sql = "SELECT COUNT(*) FROM permission WHERE " + " AND ".join(conditions)
                 m.__cursor__.execute(count_sql, tuple(params))
                 total = m.__cursor__.fetchone()[0]
-            
+
             sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
             params.extend([page_size, (page - 1) * page_size])
-            
+
             m.__cursor__.execute(sql, tuple(params))
             rows = m.__cursor__.fetchall()
             # Get columns from cursor description

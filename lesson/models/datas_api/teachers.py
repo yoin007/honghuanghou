@@ -60,8 +60,11 @@ async def get_teachers(current_user: User = Depends(get_current_user)):
     for username, user_info in users_data.items():
         teachers_list.append({
             "username": str(username),
+            "subject": str(user_info.get("subject", "")) if user_info.get("subject") else "",
+            "course": str(user_info.get("course", "")) if user_info.get("course") else "",
             "role": str(user_info.get("role", "teacher")),
-            "level": int(user_info.get("level", 0)) if user_info.get("level") is not None else 0
+            "level": int(user_info.get("level", 0)) if user_info.get("level") is not None else 0,
+            "active": int(user_info.get("active", 1)) if user_info.get("active") is not None else 1
         })
 
     return {"teachers": teachers_list, "total": len(teachers_list)}

@@ -17,6 +17,11 @@
                 <el-button :icon="Search" @click="handleSearch" />
               </template>
             </el-input>
+            <el-select v-model="statusFilter" placeholder="状态筛选" clearable style="width: 120px" @change="handleSearch">
+              <el-option label="全部" value="" />
+              <el-option label="启用" :value="1" />
+              <el-option label="禁用" :value="0" />
+            </el-select>
             <el-button type="primary" @click="handleAdd">新增权限</el-button>
           </div>
         </div>
@@ -199,6 +204,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const searchQuery = ref('')
+const statusFilter = ref('')
 
 const dialogVisible = ref(false)
 const dialogType = ref('add')
@@ -240,7 +246,8 @@ const fetchData = async () => {
     const params = {
       page: currentPage.value,
       page_size: pageSize.value,
-      search: searchQuery.value || undefined
+      search: searchQuery.value || undefined,
+      activate: statusFilter.value !== '' ? statusFilter.value : undefined
     }
     const res = await api.get('/api/permissions', { params })
     tableData.value = res.data.data
