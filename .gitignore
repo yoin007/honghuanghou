@@ -31,4 +31,5 @@ Thumbs.db
 # Project specific
 lesson/logs/
 *.db
+*.zip
 .env
