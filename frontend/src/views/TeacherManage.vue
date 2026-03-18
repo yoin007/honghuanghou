@@ -21,10 +21,15 @@
           style="width: 250px"
           @keyup.enter="handleSearch"
         />
-        <el-select v-model="activeFilter" placeholder="通知筛选" clearable style="width: 120px" @change="handleSearch">
+        <el-select v-model="noticeFilter" placeholder="通知筛选" clearable style="width: 120px" @change="handleSearch">
           <el-option label="全部" value="" />
           <el-option label="启用" :value="1" />
           <el-option label="禁用" :value="0" />
+        </el-select>
+        <el-select v-model="activeFilter" placeholder="登录权限筛选" clearable style="width: 130px" @change="handleSearch">
+          <el-option label="全部" value="" />
+          <el-option label="允许" :value="1" />
+          <el-option label="禁止" :value="0" />
         </el-select>
         <el-button type="primary" @click="handleSearch" :icon="Search">搜索</el-button>
         <el-button @click="handleReset">重置</el-button>
@@ -46,10 +51,17 @@
             {{ scope.row.level || 1 }}
           </template>
         </el-table-column>
-        <el-table-column prop="active" label="通知" width="80" align="center">
+        <el-table-column prop="active" label="登录权限" width="90" align="center">
           <template #default="scope">
             <el-tag :type="scope.row.active ? 'success' : 'danger'">
-              {{ scope.row.active ? '启用' : '禁用' }}
+              {{ scope.row.active ? '允许' : '禁止' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="notice" label="通知" width="80" align="center">
+          <template #default="scope">
+            <el-tag :type="scope.row.notice ? 'success' : 'danger'">
+              {{ scope.row.notice ? '启用' : '禁用' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -101,8 +113,8 @@
         <el-form-item label="等级" prop="level">
           <el-input-number v-model="teacherForm.level" :min="0" :max="10" />
         </el-form-item>
-        <el-form-item label="状态" prop="active">
-          <el-switch v-model="teacherForm.active" />
+        <el-form-item label="通知" prop="notice">
+          <el-switch v-model="teacherForm.notice" :active-value="1" :inactive-value="0" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -136,8 +148,11 @@
         <el-form-item label="等级" prop="level">
           <el-input-number v-model="editForm.level" :min="0" :max="10" />
         </el-form-item>
-        <el-form-item label="状态" prop="active">
-          <el-switch v-model="editForm.active" />
+        <el-form-item label="通知" prop="notice">
+          <el-switch v-model="editForm.notice" :active-value="1" :inactive-value="0" />
+        </el-form-item>
+        <el-form-item label="登录权限" prop="active">
+          <el-switch v-model="editForm.active" :active-value="1" :inactive-value="0" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -211,6 +226,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const searchKeyword = ref('')
+const noticeFilter = ref('')
 const activeFilter = ref('')
 const submitLoading = ref(false)
 
@@ -223,7 +239,7 @@ const teacherForm = reactive({
   subject: '',
   course: '',
   role: 'teacher',
-  active: true,
+  notice: 1,
   level: 1
 })
 
@@ -243,7 +259,8 @@ const editForm = reactive({
   subject: '',
   course: '',
   role: 'teacher',
-  active: true,
+  notice: 1,
+  active: 1,
   level: 1
 })
 
@@ -354,6 +371,10 @@ const updatePagination = () => {
     )
   }
   // 通知状态筛选
+  if (noticeFilter.value !== '') {
+    filteredData = filteredData.filter(teacher => teacher.notice === noticeFilter.value)
+  }
+  // 登录权限筛选
   if (activeFilter.value !== '') {
     filteredData = filteredData.filter(teacher => teacher.active === activeFilter.value)
   }
@@ -402,6 +423,7 @@ const handleSearch = () => {
 // 重置搜索
 const handleReset = () => {
   searchKeyword.value = ''
+  noticeFilter.value = ''
   activeFilter.value = ''
   currentPage.value = 1
   updatePagination()
@@ -414,7 +436,7 @@ const handleAdd = () => {
   teacherForm.subject = ''
   teacherForm.course = ''
   teacherForm.role = ['teacher']
-  teacherForm.active = true
+  teacherForm.notice = 1
   teacherForm.level = 1
   addDialogVisible.value = true
 }
@@ -431,7 +453,7 @@ const handleAddSubmit = async () => {
           subject: teacherForm.subject,
           course: teacherForm.course,
           role: teacherForm.role.join('/'), // 将数组连接为字符串
-          active: teacherForm.active,
+          notice: teacherForm.notice,
           level: teacherForm.level
         })
         ElMessage.success('添加成功')
@@ -454,7 +476,8 @@ const handleEdit = (row) => {
   editForm.course = row.course || ''
   // 将角色字符串拆分为数组（支持多角色如 "teacher/cleader"）
   editForm.role = row.role ? row.role.split('/') : ['teacher']
-  editForm.active = row.active !== false
+  editForm.notice = row.notice !== undefined ? row.notice : 1
+  editForm.active = row.active !== undefined ? row.active : 1
   editForm.level = row.level || 1
   editDialogVisible.value = true
 }
@@ -469,6 +492,7 @@ const handleEditSubmit = async () => {
           subject: editForm.subject,
           course: editForm.course,
           role: editForm.role.join('/'), // 将数组连接为字符串
+          notice: editForm.notice,
           active: editForm.active,
           level: editForm.level
         })
