@@ -28,6 +28,7 @@ from models.lesson.lound import router as loud_router
 from websocket import websocket_endpoint, manager
 from utils.database import init_db_optimization
 from utils.monitor import init_monitor
+from models.api import bailian_req
 
 log = LogConfig().get_logger()
 config = Config()
@@ -220,7 +221,7 @@ def trigger(msg):
             head = msg.content[:4].replace("！","!")
             if head == "!!!!":
                 content = msg.content[4:]
-                ai_pattern = ai_content(content, rules)
+                ai_pattern = ai_content(content)
                 msg.content = ai_pattern
             for rule in rules:
                 acitvate = rule[3]  # 是否禁用
@@ -260,7 +261,61 @@ def trigger(msg):
     return None, None, msg
 
 
-def ai_content(content, rules):
+def ai_content(content):
+    """
+    使用 LLM 将自然语言翻译为规则格式
+    从数据库读取 ai_flag=1 的规则，让 LLM 智能匹配并翻译
+    """
+    # 1. 从数据库读取所有 ai_flag=1 的规则
+    with Member() as m:
+        m.__cursor__.execute(
+            "SELECT func, func_name, module, example FROM permission WHERE ai_flag = 1 AND activate = 1"
+        )
+        ai_rules = m.__cursor__.fetchall()
+
+    if not ai_rules:
+        return content
+
+    # 2. 构建规则描述
+    rules_desc = []
+    for rule in ai_rules:
+        func, func_name, module, example = rule
+        rules_desc.append(f"【{func}】({func_name})\n{example}")
+
+    # 3. 构建 prompt
+    prompt = f"""你是一个指令翻译助手。请将用户的自然语言指令翻译为系统可识别的命令格式。
+
+## 可用规则列表
+
+{chr(10).join(rules_desc)}
+
+## 翻译要求
+
+1. 根据用户输入识别意图，选择最匹配的规则
+2. 从用户输入中提取相应字段信息（班级、姓名、手机号、IP等）
+3. 严格按照规则的格式输出翻译结果
+4. 只输出翻译后的命令，不要输出任何解释或多余内容
+5. 如果无法匹配任何规则，输出：无法识别的指令
+6. 班级格式规范：高X Y班，其中X为年级（阿拉伯数字转汉字：1→一、2→二、3→三），Y为班号（汉字数字转阿拉伯数字：一→1、二→2等），其他汉字如"日"、"走"等保持不变。例如：高1班→高一1班、高二3班、高三10班、高一日语班
+
+## 用户输入
+{content}"""
+
+    # 4. 调用 LLM
+    try:
+        result = bailian_req(prompt)
+        if result and len(result) < 500:
+            result = result.strip()
+            # 检查是否为有效翻译（不是错误提示）
+            if "无法识别" not in result:
+                log.info(f"AI翻译成功: {content} -> {result}")
+                return result
+            else:
+                log.warning(f"AI无法识别指令: {content}")
+                return f"无法识别指令，请使用 ?指令 查看可用命令"
+    except Exception as e:
+        log.error(f"AI translation error: {e}")
+
     return content
 
 if __name__ == "__main__":
