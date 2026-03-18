@@ -30,7 +30,7 @@ class TeacherCreate(BaseModel):
     username: str
     subject: str
     course: str
-    active: int = 1
+    notice: int = 1  # 通知开关（原 active）
     password: str
     role: str = "teacher"
     level: int = 5
@@ -39,7 +39,8 @@ class TeacherCreate(BaseModel):
 class TeacherUpdate(BaseModel):
     subject: Optional[str] = None
     course: Optional[str] = None
-    active: Optional[int] = None
+    notice: Optional[int] = None  # 通知开关
+    active: Optional[int] = None  # 登录权限
     role: Optional[str] = None
     level: Optional[int] = None
 
@@ -64,6 +65,7 @@ async def get_teachers(current_user: User = Depends(get_current_user)):
             "course": str(user_info.get("course", "")) if user_info.get("course") else "",
             "role": str(user_info.get("role", "teacher")),
             "level": int(user_info.get("level", 0)) if user_info.get("level") is not None else 0,
+            "notice": int(user_info.get("notice", 1)) if user_info.get("notice") is not None else 1,
             "active": int(user_info.get("active", 1)) if user_info.get("active") is not None else 1
         })
 
@@ -102,12 +104,12 @@ async def create_teacher(
             'name': teacher.username,
             'subject': teacher.subject,
             'course': teacher.course,
-            'active': teacher.active,
+            'notice': teacher.notice,  # 通知开关
             'pwd': str(hashed_password),
             'role': teacher.role,
             'level': teacher.level,
             'raw_pwd': teacher.password,
-            'logined': 1,
+            'active': 1,  # 登录权限，默认允许
             'is_password_changed': 1
         }
 
@@ -163,6 +165,8 @@ async def update_teacher(
             df.loc[mask, 'subject'] = teacher.subject
         if teacher.course is not None:
             df.loc[mask, 'course'] = teacher.course
+        if teacher.notice is not None:
+            df.loc[mask, 'notice'] = teacher.notice
         if teacher.active is not None:
             df.loc[mask, 'active'] = teacher.active
         if teacher.role is not None:

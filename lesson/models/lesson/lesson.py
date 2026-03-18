@@ -408,16 +408,16 @@ class Lesson:
         return '' if not wxid else wxid[0]
 
     @error_handler
-    def get_wxids(self, name, active: bool = True):
+    def get_wxids(self, name, notice: bool = True):
         wxids = []
         class_template = self.get_cache_data("class_template")
         teacher_template = self.get_cache_data("teacher_template")
         if class_template is None or teacher_template is None:
             return wxids
-        
-        if active:
-            teacher_template["active"] = teacher_template["active"].astype(int)
-            teacher_template = teacher_template[teacher_template["active"] == 1]
+
+        if notice:
+            teacher_template["notice"] = teacher_template["notice"].astype(int)
+            teacher_template = teacher_template[teacher_template["notice"] == 1]
 
         if name in class_template["class_name"].tolist():
             class_leaders = dict(zip(class_template["class_name"], class_template["leaders"]))
@@ -1026,7 +1026,7 @@ async def update_schedule_all(record: any):
         return False
     teacher_template = l.get_cache_data("teacher_template")
     class_template = l.get_cache_data("class_template")
-    teachers = teacher_template[teacher_template["active"] == True]["name"].tolist()
+    teachers = teacher_template[teacher_template["notice"] == True]["name"].tolist()
     classes = class_template[class_template["active"] == True]["class_name"].tolist()
     tasks = []
     for t in teachers:

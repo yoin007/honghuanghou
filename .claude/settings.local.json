@@ -48,7 +48,10 @@
       "Bash(cd /Users/yoin/bdsync/program/honghuanghou/frontend && node -c src/utils/api.js 2>&1 || echo \"Syntax check failed\")",
       "Bash(cd /Users/yoin/bdsync/program/honghuanghou/lesson && python3 -c \"from models import datas_api_legacy; print\\('Import successful'\\); print\\('Routes:', len\\([r for r in datas_api_legacy.router.routes]\\)\\)\")",
       "Bash(ls -la /Users/yoin/bdsync/program/honghuanghou/*.md /Users/yoin/bdsync/program/honghuanghou/README* 2>/dev/null || echo \"No README files found\")",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(sqlite3 /Users/yoin/bdsync/program/honghuanghou/lesson/databases/member.db \"SELECT id, func, activate FROM permission WHERE id >= 88;\")",
+      "Bash(git ls-files:*)",
+      "Bash(sqlite3 /Users/yoin/bdsync/program/honghuanghou/lesson/databases/member.db \"SELECT COUNT\\(*\\) as total, SUM\\(CASE WHEN ai_flag = 1 THEN 1 ELSE 0 END\\) as ai_count FROM permission WHERE activate = 1;\")"
     ]
   }
 }

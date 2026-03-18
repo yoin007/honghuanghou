@@ -79,7 +79,10 @@ def get_users_dict():
     has_role = "role" in subject_teacher.columns
     has_level = "level" in subject_teacher.columns
     has_is_password_changed = "is_password_changed" in subject_teacher.columns
-    has_logined = "logined" in subject_teacher.columns
+    has_active = "active" in subject_teacher.columns  # 登录权限
+    has_notice = "notice" in subject_teacher.columns  # 通知开关
+    has_subject = "subject" in subject_teacher.columns
+    has_course = "course" in subject_teacher.columns
 
     for teacher in subject_teacher["name"].tolist():
         users_data[teacher] = {}
@@ -95,13 +98,37 @@ def get_users_dict():
                 is_password_changed = int(val)
         users_data[teacher]["is_password_changed"] = is_password_changed
 
-        # 读取 logined 字段
-        logined = 1
-        if has_logined:
-            val = teacher_row["logined"].values[0]
+        # 读取 active 字段（登录权限，原 logined）
+        active = 1
+        if has_active:
+            val = teacher_row["active"].values[0]
             if pd.notna(val):
-                logined = int(val)
-        users_data[teacher]["logined"] = logined
+                active = int(val)
+        users_data[teacher]["active"] = active
+
+        # 读取 notice 字段（通知开关，原 active）
+        notice = 1
+        if has_notice:
+            val = teacher_row["notice"].values[0]
+            if pd.notna(val):
+                notice = int(val)
+        users_data[teacher]["notice"] = notice
+
+        # 读取 subject 字段
+        subject = ""
+        if has_subject:
+            val = teacher_row["subject"].values[0]
+            if pd.notna(val):
+                subject = str(val)
+        users_data[teacher]["subject"] = subject
+
+        # 读取 course 字段
+        course = ""
+        if has_course:
+            val = teacher_row["course"].values[0]
+            if pd.notna(val):
+                course = str(val)
+        users_data[teacher]["course"] = course
 
         # 角色
         role = "teacher"
@@ -170,8 +197,8 @@ def authenticate_user(username: str, password: str):
     user = users_data[username]
 
     # 检查是否允许登录
-    logined = user.get("logined", 1)
-    if logined == 0:
+    active = user.get("active", 1)
+    if active == 0:
         return False
 
     is_password_changed = user.get("is_password_changed", 0)
