@@ -39,6 +39,7 @@ from .auth import (
 
 from .admin import router as admin_router
 from .teachers import router as teachers_router
+from .filegather import router as filegather_router
 
 # 导入工具函数
 from .utils import (
@@ -62,6 +63,7 @@ router = APIRouter()
 router.include_router(auth_router)
 router.include_router(admin_router)
 router.include_router(teachers_router)
+router.include_router(filegather_router)
 # 包含旧模块中尚未迁移的路由
 router.include_router(legacy_router)
 
@@ -72,6 +74,7 @@ __all__ = [
     'auth_router',
     'admin_router',
     'teachers_router',
+    'filegather_router',
     # 认证相关
     'Token',
     'TokenData',

@@ -8,6 +8,7 @@ export const useAuthStore = defineStore('auth', () => {
   const username = ref('')
   const role = ref('')
   const isAdmin = ref(false)
+  const isJiaowu = ref(false)
   const isLoggedIn = computed(() => !!token.value)
 
   // 初始化时解析 token
@@ -22,6 +23,8 @@ export const useAuthStore = defineStore('auth', () => {
         role.value = payload.role
         // 检查是否包含 admin 角色（支持多角色格式如 teacher/admin）
         isAdmin.value = payload.role === 'admin' || payload.role?.includes('/admin')
+        // 检查是否为教务角色
+        isJiaowu.value = payload.role === 'jiaowu' || payload.role?.includes('jiaowu') || isAdmin.value
       } catch (error) {
         console.error('Failed to parse token:', error)
         logout()
@@ -63,6 +66,7 @@ export const useAuthStore = defineStore('auth', () => {
     username.value = ''
     role.value = ''
     isAdmin.value = false
+    isJiaowu.value = false
     localStorage.removeItem('token')
     delete api.defaults.headers.common['Authorization']
     ElMessage.success('已退出登录')
@@ -76,6 +80,7 @@ export const useAuthStore = defineStore('auth', () => {
     username,
     role,
     isAdmin,
+    isJiaowu,
     isLoggedIn,
     login,
     logout,

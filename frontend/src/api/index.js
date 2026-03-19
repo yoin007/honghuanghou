@@ -51,6 +51,7 @@ export { authApi } from './modules/auth'
 export { userApi } from './modules/user'
 export { homeworkApi } from './modules/homework'
 export { scheduleApi } from './modules/schedule'
+export { filegatherApi } from './modules/filegather'
 
 // 默认导出
 export default api

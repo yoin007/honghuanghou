@@ -64,9 +64,13 @@
               <template #title>教师</template>
               <el-menu-item index="/publish-homework">发布作业</el-menu-item>
               <el-menu-item index="/publish-announcement">发布公告</el-menu-item>
-              <a href="http://172.27.60.120:9595" target="_blank" class="menu-link">
-                <el-menu-item index="xuean">学案打印</el-menu-item>
-              </a>
+              <el-menu-item index="/file-upload">文件上传</el-menu-item>
+              <el-menu-item index="/my-files">我的文件</el-menu-item>
+            </el-sub-menu>
+            <el-sub-menu v-if="isJiaowu" index="jiaowu">
+              <template #title>教务</template>
+              <el-menu-item index="/admin-files">文件管理</el-menu-item>
+              <el-menu-item index="/admin-files-done">已查阅文件</el-menu-item>
             </el-sub-menu>
             <el-sub-menu v-if="isAdmin" index="system">
               <template #title>系统管理</template>
@@ -143,6 +147,7 @@ const loginRules = {
 const isLoggedIn = computed(() => authStore.isLoggedIn)
 const username = computed(() => authStore.username)
 const isAdmin = computed(() => authStore.isAdmin)
+const isJiaowu = computed(() => authStore.isJiaowu)
 const classCode = computed(() => appStore.classCode)
 const classCodes = computed(() => appStore.classCodes)
 

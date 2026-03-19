@@ -189,6 +189,44 @@ const routes = [
     }
   },
   {
+    path: '/file-upload',
+    name: 'FileUpload',
+    component: () => import('../views/FileUpload.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '文件上传'
+    }
+  },
+  {
+    path: '/my-files',
+    name: 'MyFiles',
+    component: () => import('../views/MyFiles.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '我的文件'
+    }
+  },
+  {
+    path: '/admin-files',
+    name: 'AdminFiles',
+    component: () => import('../views/AdminFiles.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '文件管理',
+      requiresJiaowu: true
+    }
+  },
+  {
+    path: '/admin-files-done',
+    name: 'AdminFilesDone',
+    component: () => import('../views/AdminFilesDone.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '已查阅文件',
+      requiresJiaowu: true
+    }
+  },
+  {
     path: '/',
     redirect: '/schedules'
   },

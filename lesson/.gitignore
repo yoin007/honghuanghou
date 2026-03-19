@@ -15,6 +15,7 @@ temp/
 *.xls
 inout.html
 *.zip
+storage/
 
 # C extensions
 *.so
