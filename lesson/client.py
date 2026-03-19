@@ -158,6 +158,8 @@ class Client:
                 self.LOG.debug(f"Download response: {res_json}")
                 if res_json.get("success"):
                     sleep(3)
+                elif "不存在" in res_json.get("message"):
+                    sleep(3)
                 elif res_json.get("message") == "这条消息不是文件类型！":
                     return ""
                 elif res_json.get("message") == "文件已下载":
