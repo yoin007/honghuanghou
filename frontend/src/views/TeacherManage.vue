@@ -106,7 +106,8 @@
           <el-select v-model="teacherForm.role" multiple placeholder="请选择角色（可多选）">
             <el-option label="教师" value="teacher" />
             <el-option label="班主任" value="cleader" />
-            <el-option label="学发部" value="xuefa" />
+            <el-option label="教务" value="jiaowu" />
+            <el-option label="学发" value="xuefa" />
             <el-option label="管理员" value="admin" />
           </el-select>
         </el-form-item>
@@ -141,7 +142,8 @@
           <el-select v-model="editForm.role" multiple placeholder="请选择角色（可多选）">
             <el-option label="教师" value="teacher" />
             <el-option label="班主任" value="cleader" />
-            <el-option label="学发部" value="xuefa" />
+            <el-option label="教务" value="jiaowu" />
+            <el-option label="学发" value="xuefa" />
             <el-option label="管理员" value="admin" />
           </el-select>
         </el-form-item>
@@ -238,7 +240,7 @@ const teacherForm = reactive({
   password: '',
   subject: '',
   course: '',
-  role: 'teacher',
+  role: ['teacher'],
   notice: 1,
   level: 1
 })
@@ -258,7 +260,7 @@ const editForm = reactive({
   username: '',
   subject: '',
   course: '',
-  role: 'teacher',
+  role: ['teacher'],
   notice: 1,
   active: 1,
   level: 1
@@ -335,6 +337,7 @@ const getRoleType = (role) => {
     admin: 'danger',
     teacher: 'success',
     cleader: 'warning',
+    jiaowu: 'primary',
     xuefa: 'warning'
   }
   return roleMap[role] || 'info'
@@ -345,7 +348,8 @@ const getRoleText = (role) => {
     admin: '管理员',
     teacher: '教师',
     cleader: '班主任',
-    xuefa: '学发部'
+    jiaowu: '教务',
+    xuefa: '学发'
   }
   if (!role) return '-'
   // 支持多角色显示（如 "teacher/cleader" -> "教师/班主任"）
