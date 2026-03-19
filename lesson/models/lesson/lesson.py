@@ -991,7 +991,7 @@ async def update_schedule(record: any):
     l = Lesson()
     temp_file = os.path.join(l.lesson_dir, "temp", new_name)
     # 下载课表文件 到 临时文件夹
-    response = down_file(msg_id, temp_file)
+    response = await asyncio.to_thread(down_file, msg_id, temp_file)
     if not response:
         l.notify_admins(f"下载课表失败: {title}", log_level="error")
         return False
@@ -1314,7 +1314,7 @@ async def mass_message(record: any):
         title = re.sub(r"\d+", "", title)
         notify_file = f"{title}-{time.strftime('%Y%m%d%H%M%S', time.localtime())}.xlsx"
         new_file = os.path.join(l.lesson_dir, "notice", notify_file)
-        rsp_path = down_file(record.msg_id, new_file)
+        rsp_path = await asyncio.to_thread(down_file, record.msg_id, new_file)
         if rsp_path == "":
             send_text("通知文件下载失败，请重新发送！", record.roomid)
             return
