@@ -423,10 +423,10 @@ class Lesson:
             class_leaders = dict(zip(class_template["class_name"], class_template["leaders"]))
             leaders = class_leaders[name].split("/")
             for leader in leaders:
-                wxids.append(self.member_wxid(leader, active=active, notify=True))
+                wxids.append(self.member_wxid(leader, active=True, notify=True))
             return wxids
         elif name in teacher_template["name"].tolist():
-            wxids.append(self.member_wxid(name, active=active, notify=True))
+            wxids.append(self.member_wxid(name, active=True, notify=True))
             return wxids
         else:
             return wxids
