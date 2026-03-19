@@ -137,7 +137,7 @@ async def view_rules(record):
     - 规则 AI：只显示 AI 规则
     - 规则 模块：显示所有模块列表
     - 规则 模块名：按模块筛选
-    - 规则-func名：显示单条规则详情
+    - 规则-id：显示单条规则详情
     """
     content = record.content.strip()
 
@@ -152,11 +152,11 @@ async def view_rules(record):
     with Member() as m:
         # 获取所有激活的规则
         m.__cursor__.execute("""
-            SELECT func, func_name, module, pattern, keywords,
+            SELECT id, func, func_name, module, pattern, keywords,
                    ai_flag, level, example, notes
             FROM permission
             WHERE activate = 1
-            ORDER BY module, func
+            ORDER BY module, id
         """)
         rules = m.__cursor__.fetchall()
 
@@ -171,10 +171,10 @@ async def view_rules(record):
     elif content.upper() == "AI":
         # 规则 AI：只显示 AI 规则
         _send_rules_list(record.roomid, rules, ai_only=True)
-    elif content.startswith("-"):
-        # 规则-func名：显示详情
-        func_name = content[1:]
-        _send_rule_detail(record.roomid, rules, func_name)
+    elif content.startswith("-") and content[1:].isdigit():
+        # 规则-id：显示详情
+        rule_id = int(content[1:])
+        _send_rule_detail(record.roomid, rules, rule_id)
     else:
         # 规则 模块名：按模块筛选
         _send_rules_list(record.roomid, rules, module=content)
@@ -185,12 +185,12 @@ def _send_rules_list(roomid, rules, ai_only=False, module=None):
     # 按模块分组
     grouped = defaultdict(list)
     for rule in rules:
-        func, func_name, mod, _, _, ai_flag, _, _, _ = rule
+        rule_id, func, func_name, mod, _, _, ai_flag, _, _, _ = rule
         if ai_only and ai_flag != 1:
             continue
         if module and mod != module:
             continue
-        grouped[mod].append((func, func_name, ai_flag))
+        grouped[mod].append((rule_id, func, func_name, ai_flag))
 
     # 构建输出
     if ai_only:
@@ -214,23 +214,23 @@ def _send_rules_list(roomid, rules, ai_only=False, module=None):
         mod_rules = grouped[mod]
         mod_name = MODULE_NAMES.get(mod, mod)
         lines.append(f"【{mod}】{mod_name}")
-        for func, func_name, ai_flag in mod_rules:
+        for rule_id, func, func_name, ai_flag in mod_rules:
             ai_mark = "🤖" if ai_flag == 1 else "  "
-            lines.append(f"  {ai_mark} {func} | {func_name}")
+            lines.append(f"  {ai_mark} [{rule_id}] {func} | {func_name}")
         lines.append("")
 
-    lines.append("💡 输入 \"规则-func名\" 查看详情")
+    lines.append("💡 输入 \"规则-id\" 查看详情")
     if not ai_only:
         lines.append("💡 输入 \"规则 AI\" 查看 AI 规则")
 
     send_text("\n".join(lines), roomid)
 
 
-def _send_rule_detail(roomid, rules, func_name):
+def _send_rule_detail(roomid, rules, rule_id):
     """发送规则详情"""
     for rule in rules:
-        func, func_name_cn, module, pattern, keywords, ai_flag, level, example, notes = rule
-        if func == func_name:
+        r_id, func, func_name_cn, module, pattern, keywords, ai_flag, level, example, notes = rule
+        if r_id == rule_id:
             ai_text = "✅" if ai_flag == 1 else "❌"
             kw_text = keywords if keywords else "(无)"
             ex_text = example if example else "(无)"
@@ -238,7 +238,7 @@ def _send_rule_detail(roomid, rules, func_name):
             mod_name = MODULE_NAMES.get(module, module)
 
             lines = [
-                f"📌 规则详情: {func}",
+                f"📌 规则详情: [{r_id}] {func}",
                 "",
                 f"功能名称：{func_name_cn}",
                 f"所属模块：{module} ({mod_name})",
@@ -256,7 +256,7 @@ def _send_rule_detail(roomid, rules, func_name):
             send_text("\n".join(lines), roomid)
             return
 
-    send_text(f"未找到规则: {func_name}", roomid)
+    send_text(f"未找到规则: {rule_id}", roomid)
 
 
 def _send_modules_list(roomid):

@@ -218,9 +218,9 @@ def trigger(msg):
     with Member() as m:
         rules = m.permission_info()
         if rules:
-            head = msg.content[:4].replace("！","!")
-            if head == "!!!!":
-                content = msg.content[4:]
+            head = msg.content[:2].replace("！","!")
+            if head == "!!":
+                content = msg.content[2:]
                 ai_pattern = ai_content(content)
                 msg.content = ai_pattern
             for rule in rules:
