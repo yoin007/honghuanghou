@@ -49,7 +49,7 @@
         </el-form-item>
 
         <el-form-item label="打印份数" prop="copies">
-          <el-input-number v-model="form.copies" :min="1" :max="100" style="width: 200px" />
+          <el-input-number v-model="form.copies" :min="1" :max="5000" style="width: 200px" />
         </el-form-item>
 
         <el-form-item label="使用日期" prop="useDate">
@@ -67,7 +67,7 @@
           <el-input
             v-model="form.note"
             type="textarea"
-            placeholder="请输入备注（可选）"
+            placeholder="打印要求(单双面打印等)"
             :rows="3"
             style="max-width: 400px"
           />

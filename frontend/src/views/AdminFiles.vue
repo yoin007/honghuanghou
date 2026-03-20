@@ -119,7 +119,16 @@ const stats = ref({})
 
 const formatDateTime = (dt) => {
   if (!dt) return ''
-  return dt.replace('T', ' ').slice(0, 16)
+  // 将 UTC 时间转换为东八区时间
+  const date = new Date(dt)
+  // 加8小时转换为东八区
+  date.setHours(date.getHours() + 8)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
 const getStatusType = (status) => {

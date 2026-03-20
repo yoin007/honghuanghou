@@ -46,7 +46,6 @@
               <el-menu-item index="/schedule">课程表</el-menu-item>
               <el-menu-item index="/current-classes">实时课程</el-menu-item>
               <el-menu-item index="/schedules">总课表</el-menu-item>
-              <el-menu-item index="/upload-schedule">更新课表</el-menu-item>
             </el-sub-menu>
             <el-sub-menu index="routine">
               <template #title>常规</template>
@@ -71,6 +70,7 @@
               <template #title>教务</template>
               <el-menu-item index="/admin-files">文件管理</el-menu-item>
               <el-menu-item index="/admin-files-done">已查阅文件</el-menu-item>
+              <el-menu-item index="/upload-schedule">更新课表</el-menu-item>
             </el-sub-menu>
             <el-sub-menu v-if="isAdmin" index="system">
               <template #title>系统管理</template>
