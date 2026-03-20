@@ -18,7 +18,7 @@ cd lesson
 
 :: 设置环境变量
 set CORS_ORIGINS=http://localhost:3333,https://localhost:3333
-set FORCE_HTTPS=false
+set FORCE_HTTPS=true
 
 echo ========================================
 echo  启动后端服务 (端口 14600)

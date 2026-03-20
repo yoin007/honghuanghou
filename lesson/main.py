@@ -201,7 +201,7 @@ async def root(request: Request):
                 send_text(reply, msg.roomid, aters)
 
         if func:
-            trigger_func = getattr(models, func)
+            trigger_func = getattr(models, func, None)
             if trigger_func:
                 log.info(f"触发函数 {func}")
                 asyncio.create_task(trigger_func(msg))
