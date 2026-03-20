@@ -22,7 +22,7 @@ cd lesson
 
 # 设置环境变量
 export CORS_ORIGINS="http://localhost:3333,https://localhost:3333"
-export FORCE_HTTPS=true
+export FORCE_HTTPS=false
 
 echo "========================================"
 echo " 启动后端服务 (端口 14600)"

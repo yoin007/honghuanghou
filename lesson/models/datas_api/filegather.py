@@ -19,6 +19,8 @@ from pydantic import BaseModel
 
 from models.datas_api.auth import User, get_current_user, is_admin_user
 from models.filegather_db import FileGatherDB, MAX_FILE_SIZE
+from sendqueue import send_text
+from models.lesson.lesson import Lesson
 
 logger = logging.getLogger(__name__)
 
@@ -252,8 +254,31 @@ async def admin_mark_done(
         )
 
     try:
+        # 获取文件信息（在标记完成前）
+        file_info = db.get_file_by_id(file_id)
+        if not file_info:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件不存在")
+
         result = db.mark_done(file_id)
         logger.info(f"File marked done: id={file_id}, admin={current_user.username}")
+
+        # 发送微信消息通知上传者
+        try:
+            username = file_info.get("username", "")
+            original_name = file_info.get("original_name", "")
+
+            if username:
+                l = Lesson()
+                wxid = l.member_wxid(username, active=True, notify=True)
+                if wxid:
+                    msg = f"【文件打印完成通知】\n文件「{original_name}」已经打印完成，请及时领取。"
+                    send_text(msg, wxid, producer="filegather")
+                    logger.info(f"Notification sent to {username} ({wxid})")
+                else:
+                    logger.warning(f"User {username} has no wxid, notification not sent")
+        except Exception as e:
+            logger.error(f"Failed to send notification: {e}")
+
         return result
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
