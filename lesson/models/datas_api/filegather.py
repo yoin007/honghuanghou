@@ -269,7 +269,7 @@ async def admin_mark_done(
 
             if username:
                 l = Lesson()
-                wxid = l.member_wxid(username, active=True, notify=True)
+                wxid = l.member_wxid(username, active=True)
                 if wxid:
                     msg = f"【文件打印完成通知】\n文件「{original_name}」已经打印完成，请及时领取。"
                     send_text(msg, wxid, producer="filegather")
