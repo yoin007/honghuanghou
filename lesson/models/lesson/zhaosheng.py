@@ -5,7 +5,7 @@ import asyncio
 from sendqueue import send_app_msg, send_image, send_text
 from config.config import Config
 from models.lesson.lesson import Lesson
-from models.lesson.generate_qr import create_qr_code_v2
+from models.lesson.generate_qr import create_qr_code
 
 
 async def zhaosheng_dengji(record=None):
@@ -37,7 +37,7 @@ def gen_qrcode(url: str, title: str, subtitle: str = None) -> str:
     logo_path = os.path.join(l.lesson_dir, "template", "logo.jpg")
 
     # 生成二维码
-    create_qr_code_v2(
+    create_qr_code(
         url=url,
         title=title,
         subtitle=subtitle,
