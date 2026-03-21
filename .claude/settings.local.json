@@ -52,7 +52,8 @@
       "Bash(sqlite3 /Users/yoin/bdsync/program/honghuanghou/lesson/databases/member.db \"SELECT id, func, activate FROM permission WHERE id >= 88;\")",
       "Bash(git ls-files:*)",
       "Bash(sqlite3 /Users/yoin/bdsync/program/honghuanghou/lesson/databases/member.db \"SELECT COUNT\\(*\\) as total, SUM\\(CASE WHEN ai_flag = 1 THEN 1 ELSE 0 END\\) as ai_count FROM permission WHERE activate = 1;\")",
-      "Bash(find lesson/models/datas_api -type d -empty -delete)"
+      "Bash(find lesson/models/datas_api -type d -empty -delete)",
+      "Bash(cd /Users/yoin/bdsync/program/honghuanghou/frontend && rm -rf node_modules && rm -f package-lock.json && npm install)"
     ]
   }
 }
