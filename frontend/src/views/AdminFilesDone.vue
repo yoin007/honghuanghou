@@ -19,6 +19,13 @@
                 :value="month"
               />
             </el-select>
+            <el-input
+              v-model="searchKeyword"
+              placeholder="搜索文件名/上传者"
+              clearable
+              style="width: 200px"
+              @input="handleSearch"
+            />
             <el-button size="small" @click="fetchFiles" :loading="loading">刷新</el-button>
           </div>
         </div>
@@ -42,9 +49,9 @@
         </el-result>
       </div>
 
-      <el-empty v-else-if="!loading && files.length === 0" description="暂无已完成文件" />
+      <el-empty v-else-if="!loading && allFiles.length === 0" description="暂无已完成文件" />
 
-      <el-table v-else :data="files" v-loading="loading" border stripe style="width: 100%">
+      <el-table v-else :data="paginatedFiles" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="uploaded_at" label="上传时间" width="160">
           <template #default="{ row }">
             {{ formatDateTime(row.uploaded_at) }}
@@ -72,6 +79,17 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-container">
+        <el-pagination
+          background
+          layout="prev, pager, next, jumper, ->, total"
+          :total="total"
+          :page-size="pageSize"
+          :current-page="currentPage"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
   </div>
 </template>
@@ -93,8 +111,26 @@ const hasPermission = computed(() => {
 
 const loading = ref(false)
 const files = ref([])
+const allFiles = ref([])
 const months = ref([])
 const selectedMonth = ref('')
+const searchKeyword = ref('')
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = computed(() => filteredFiles.value.length)
+const filteredFiles = computed(() => {
+  if (!searchKeyword.value) return allFiles.value
+  const keyword = searchKeyword.value.toLowerCase()
+  return allFiles.value.filter(f => 
+    f.original_name?.toLowerCase().includes(keyword) || 
+    f.username?.toLowerCase().includes(keyword)
+  )
+})
+const paginatedFiles = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return filteredFiles.value.slice(start, end)
+})
 
 // 生成最近12个月
 const generateMonths = () => {
@@ -115,7 +151,14 @@ const formatMonth = (month) => {
 
 const formatDateTime = (dt) => {
   if (!dt) return ''
-  return dt.replace('T', ' ').slice(0, 16)
+  const date = new Date(dt)
+  date.setHours(date.getHours() + 8)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
 const fetchFiles = async () => {
@@ -123,7 +166,8 @@ const fetchFiles = async () => {
   loading.value = true
   try {
     const response = await filegatherApi.getDoneFiles(selectedMonth.value)
-    files.value = response.data?.items || []
+    allFiles.value = response.data?.items || []
+    currentPage.value = 1
   } catch (error) {
     if (error?.response?.status === 403) {
       ElMessage.error('无权限访问')
@@ -137,6 +181,14 @@ const fetchFiles = async () => {
 
 const handleMonthChange = () => {
   fetchFiles()
+}
+
+const handleSearch = () => {
+  currentPage.value = 1
+}
+
+const handlePageChange = (page) => {
+  currentPage.value = page
 }
 
 const handleDownload = async (row) => {
@@ -158,7 +210,7 @@ watch(() => authStore.isLoggedIn, (val) => {
   if (val && hasPermission.value) {
     fetchFiles()
   } else {
-    files.value = []
+    allFiles.value = []
   }
 })
 
@@ -209,5 +261,11 @@ onMounted(() => {
     width: 100%;
     justify-content: space-between;
   }
+}
+
+.pagination-container {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>
