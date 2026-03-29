@@ -75,6 +75,7 @@
               <el-menu-item index="/moral/evaluation">评价查询</el-menu-item>
               <el-menu-item index="/moral/profile">学生画像</el-menu-item>
               <el-menu-item index="/moral/birthday">生日提醒</el-menu-item>
+              <el-menu-item v-if="isAdmin || isJiaowu" index="/moral/config">德育配置</el-menu-item>
             </el-sub-menu>
             <el-sub-menu v-if="isJiaowu" index="jiaowu">
               <template #title>教务</template>

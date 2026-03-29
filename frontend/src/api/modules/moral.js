@@ -3,7 +3,7 @@
  * 提供所有德育相关的 API 调用函数
  */
 
-import request from '../request'
+import request from '../index'
 
 // =============================================================================
 // 日常表现记录 API
@@ -17,6 +17,27 @@ import request from '../request'
  */
 export function getDailyEventTypes(params = {}) {
   return request.get('/moral/daily-records/types', { params })
+}
+
+/**
+ * 创建日常事件类型
+ */
+export function createDailyEventType(data) {
+  return request.post('/moral/daily-records/types', data)
+}
+
+/**
+ * 更新日常事件类型
+ */
+export function updateDailyEventType(typeId, data) {
+  return request.put(`/moral/daily-records/types/${typeId}`, data)
+}
+
+/**
+ * 删除日常事件类型
+ */
+export function deleteDailyEventType(typeId) {
+  return request.delete(`/moral/daily-records/types/${typeId}`)
 }
 
 /**
@@ -80,6 +101,27 @@ export function getStudentDailyStatistics(studentId, semesterId = null) {
  */
 export function getSchoolEventTypes(params = {}) {
   return request.get('/moral/school-records/types', { params })
+}
+
+/**
+ * 创建校级事件类型
+ */
+export function createSchoolEventType(data) {
+  return request.post('/moral/school-records/types', data)
+}
+
+/**
+ * 更新校级事件类型
+ */
+export function updateSchoolEventType(typeId, data) {
+  return request.put(`/moral/school-records/types/${typeId}`, data)
+}
+
+/**
+ * 删除校级事件类型
+ */
+export function deleteSchoolEventType(typeId) {
+  return request.delete(`/moral/school-records/types/${typeId}`)
 }
 
 /**
@@ -362,6 +404,17 @@ export function closeConsultation(consultationId, outcome = null) {
 }
 
 // =============================================================================
+// 教师信息 API
+// =============================================================================
+
+/**
+ * 获取教师列表
+ */
+export function getTeachers() {
+  return request.get('/teachers')
+}
+
+// =============================================================================
 // 系统管理 API
 // =============================================================================
 
@@ -405,6 +458,13 @@ export function createClass(data) {
  */
 export function updateClass(classId, data) {
   return request.put(`/moral/admin/classes/${classId}`, data)
+}
+
+/**
+ * 删除班级
+ */
+export function deleteClass(classId) {
+  return request.delete(`/moral/admin/classes/${classId}`)
 }
 
 /**
@@ -463,6 +523,27 @@ export function updateStudentStatus(studentId, status) {
   return request.put(`/moral/admin/students/${studentId}/status`, null, {
     params: { status }
   })
+}
+
+/**
+ * 获取操作日志
+ */
+export function getOperationLogs(params = {}) {
+  return request.get('/moral/admin/logs', { params })
+}
+
+/**
+ * 获取系统配置
+ */
+export function getSystemConfig() {
+  return request.get('/moral/admin/config')
+}
+
+/**
+ * 更新系统配置
+ */
+export function updateSystemConfig(data) {
+  return request.put('/moral/admin/config', data)
 }
 
 // 导出所有 API
@@ -526,6 +607,9 @@ export default {
   addConsultationMessage,
   closeConsultation,
 
+  // 教师信息
+  getTeachers,
+
   // 系统管理
   getGrades,
   createGrade,
@@ -533,6 +617,7 @@ export default {
   getClasses,
   createClass,
   updateClass,
+  deleteClass,
   getSchoolYears,
   createSchoolYear,
   getSemesters,
@@ -541,4 +626,15 @@ export default {
   getStudents,
   createStudent,
   updateStudentStatus,
+  getOperationLogs,
+  getSystemConfig,
+  updateSystemConfig,
+
+  // 事件类型管理
+  createDailyEventType,
+  updateDailyEventType,
+  deleteDailyEventType,
+  createSchoolEventType,
+  updateSchoolEventType,
+  deleteSchoolEventType,
 }

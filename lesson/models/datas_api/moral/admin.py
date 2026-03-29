@@ -248,6 +248,32 @@ async def update_class(
         return {"success": True, "message": "班级更新成功"}
 
 
+@router.delete("/classes/{class_id}", summary="删除班级")
+async def delete_class(
+    class_id: int,
+    request: Request,
+    user: User = Depends(require_permission('class_manage'))
+):
+    """删除班级"""
+    with get_moral_db() as db:
+        # 检查是否有学生
+        student_count = db.query_value(
+            "SELECT COUNT(*) FROM student WHERE class_id = %s AND status = '在校'",
+            (class_id,)
+        )
+        if student_count > 0:
+            raise HTTPException(400, f"该班级下有 {student_count} 名在校生，无法删除")
+
+        db.execute("DELETE FROM class WHERE class_id = %s", (class_id,))
+
+        log_operation(
+            db, user.username, user.role, 'DELETE', 'class', class_id,
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {"success": True, "message": "班级已删除"}
+
+
 # =============================================================================
 # API 路由 - 学年学期管理
 # =============================================================================
@@ -535,3 +561,181 @@ async def update_student_status(
         )
 
         return {"success": True, "message": f"学生状态已更新为 {status}"}
+
+
+# =============================================================================
+# API 路由 - 操作日志查询
+# =============================================================================
+
+@router.get("/logs", summary="获取操作日志列表")
+async def get_operation_logs(
+    operator: Optional[str] = Query(None, description="操作人"),
+    operation: Optional[str] = Query(None, description="操作类型：INSERT/UPDATE/DELETE"),
+    table_name: Optional[str] = Query(None, description="表名"),
+    start_date: Optional[date] = Query(None, description="开始日期"),
+    end_date: Optional[date] = Query(None, description="结束日期"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user: User = Depends(require_permission('report_view_all'))
+):
+    """
+    获取操作日志列表
+
+    权限要求：admin/jiaowu/xuefa
+    """
+    with get_moral_db() as db:
+        conditions = ["1=1"]
+        params = []
+
+        if operator:
+            conditions.append("operator LIKE %s")
+            params.append(f"%{operator}%")
+
+        if operation:
+            conditions.append("operation = %s")
+            params.append(operation)
+
+        if table_name:
+            conditions.append("table_name = %s")
+            params.append(table_name)
+
+        if start_date:
+            conditions.append("DATE(created_at) >= %s")
+            params.append(start_date)
+
+        if end_date:
+            conditions.append("DATE(created_at) <= %s")
+            params.append(end_date)
+
+        where_clause = " AND ".join(conditions)
+
+        # 查询总数
+        count_query = f"SELECT COUNT(*) FROM moral_operation_log WHERE {where_clause}"
+        total = db.query_value(count_query, tuple(params))
+
+        # 分页查询
+        offset = (page - 1) * page_size
+        data_query = f"""
+            SELECT * FROM moral_operation_log
+            WHERE {where_clause}
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """
+        params.extend([page_size, offset])
+        logs = db.query_all(data_query, tuple(params))
+
+        return {
+            "success": True,
+            "data": {
+                "items": logs,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": (total + page_size - 1) // page_size
+            }
+        }
+
+
+# =============================================================================
+# API 路由 - 系统配置
+# =============================================================================
+
+# 默认系统配置
+DEFAULT_CONFIG = {
+    "evaluation_base_score": 100,
+    "evaluation_weights": {
+        "daily": 0.3,
+        "school_event": 0.3,
+        "task": 0.2,
+        "punishment": -0.2
+    },
+    "birthday_reminder_days": 7,
+    "semester_start_month": 9
+}
+
+
+@router.get("/config", summary="获取系统配置")
+async def get_system_config(
+    user: User = Depends(require_permission('report_view_all'))
+):
+    """
+    获取系统配置
+
+    权限要求：admin/jiaowu/xuefa
+    """
+    with get_moral_db() as db:
+        # 查询配置表
+        configs = db.query_all(
+            "SELECT config_key, config_value FROM moral_config"
+        )
+
+        if configs:
+            config_dict = {c['config_key']: c['config_value'] for c in configs}
+            # 解析JSON配置
+            import json
+            result = {}
+            for key, value in DEFAULT_CONFIG.items():
+                if key in config_dict:
+                    try:
+                        result[key] = json.loads(config_dict[key])
+                    except:
+                        result[key] = config_dict[key]
+                else:
+                    result[key] = value
+            return {"success": True, "data": result}
+        else:
+            return {"success": True, "data": DEFAULT_CONFIG}
+
+
+class ConfigUpdate(BaseModel):
+    """更新系统配置"""
+    evaluation_base_score: Optional[int] = Field(None, description="评价基础分", ge=0, le=200)
+    evaluation_weights: Optional[dict] = Field(None, description="评价权重配置")
+    birthday_reminder_days: Optional[int] = Field(None, description="生日提前提醒天数", ge=1, le=30)
+    semester_start_month: Optional[int] = Field(None, description="学期开始月份", ge=1, le=12)
+
+
+@router.put("/config", summary="更新系统配置")
+async def update_system_config(
+    config: ConfigUpdate,
+    request: Request,
+    user: User = Depends(require_permission('semester_manage'))
+):
+    """
+    更新系统配置
+
+    权限要求：admin/jiaowu
+    """
+    import json
+
+    with get_moral_db() as db:
+        update_data = config.dict(exclude_unset=True)
+
+        for key, value in update_data.items():
+            if value is not None:
+                json_value = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
+
+                # 检查是否存在
+                existing = db.query_one(
+                    "SELECT config_id FROM moral_config WHERE config_key = %s",
+                    (key,)
+                )
+
+                if existing:
+                    db.execute(
+                        "UPDATE moral_config SET config_value = %s, updated_at = NOW() WHERE config_key = %s",
+                        (json_value, key)
+                    )
+                else:
+                    db.execute(
+                        "INSERT INTO moral_config (config_key, config_value) VALUES (%s, %s)",
+                        (key, json_value)
+                    )
+
+        log_operation(
+            db, user.username, user.role, 'UPDATE', 'moral_config', None,
+            new_data=update_data,
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {"success": True, "message": "配置更新成功"}

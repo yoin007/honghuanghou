@@ -290,6 +290,61 @@ const routes = [
       title: '生日提醒'
     }
   },
+  // 德育配置管理路由
+  {
+    path: '/moral/config',
+    name: 'MoralConfig',
+    component: () => import('../views/moral/config/Index.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '德育配置'
+    }
+  },
+  {
+    path: '/moral/config/grade',
+    name: 'MoralConfigGrade',
+    component: () => import('../views/moral/config/GradeManage.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '级号管理'
+    }
+  },
+  {
+    path: '/moral/config/class',
+    name: 'MoralConfigClass',
+    component: () => import('../views/moral/config/ClassManage.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '班级管理'
+    }
+  },
+  {
+    path: '/moral/config/student',
+    name: 'MoralConfigStudent',
+    component: () => import('../views/moral/config/StudentManage.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '学生管理'
+    }
+  },
+  {
+    path: '/moral/config/semester',
+    name: 'MoralConfigSemester',
+    component: () => import('../views/moral/config/SemesterManage.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '学年学期管理'
+    }
+  },
+  {
+    path: '/moral/config/event-type',
+    name: 'MoralConfigEventType',
+    component: () => import('../views/moral/config/EventTypeManage.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '事件类型管理'
+    }
+  },
   {
     path: '/',
     redirect: '/schedules'

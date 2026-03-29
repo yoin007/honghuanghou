@@ -66,6 +66,22 @@ class DailyRecordResponse(BaseModel):
     created_at: datetime
 
 
+class DailyEventTypeCreate(BaseModel):
+    """创建日常事件类型"""
+    event_name: str = Field(..., description="事件名称", max_length=50)
+    event_type: int = Field(..., description="事件类型：1=积极，2=消极", ge=1, le=2)
+    score: int = Field(..., description="分值（正数加分，负数扣分）")
+    description: Optional[str] = Field(None, description="描述", max_length=200)
+
+
+class DailyEventTypeUpdate(BaseModel):
+    """更新日常事件类型"""
+    event_name: Optional[str] = Field(None, description="事件名称", max_length=50)
+    score: Optional[int] = Field(None, description="分值")
+    description: Optional[str] = Field(None, description="描述", max_length=200)
+    is_active: Optional[int] = Field(None, description="是否启用：1=启用，0=禁用")
+
+
 # =============================================================================
 # API 路由
 # =============================================================================
@@ -506,3 +522,168 @@ async def get_student_daily_statistics(
                 "by_event": event_stats
             }
         }
+
+
+# =============================================================================
+# 事件类型管理 API
+# =============================================================================
+
+@router.post("/types", summary="创建日常事件类型")
+async def create_daily_event_type(
+    event_type: DailyEventTypeCreate,
+    request: Request,
+    user: User = Depends(require_permission('event_type_manage'))
+):
+    """
+    创建日常事件类型
+
+    权限要求：xuefa/jiaowu/admin
+    """
+    with get_moral_db() as db:
+        # 检查是否已存在同名事件
+        existing = db.query_one(
+            "SELECT event_id FROM daily_event_type WHERE event_name = %s",
+            (event_type.event_name,)
+        )
+        if existing:
+            raise HTTPException(400, f"事件类型 '{event_type.event_name}' 已存在")
+
+        # 根据事件类型确定分值正负
+        score = abs(event_type.score) if event_type.event_type == 1 else -abs(event_type.score)
+
+        db.execute(
+            """INSERT INTO daily_event_type (event_name, event_type, score, description, is_active)
+            VALUES (%s, %s, %s, %s, 1)""",
+            (event_type.event_name, event_type.event_type, score, event_type.description)
+        )
+
+        event_id = db.lastrowid()
+
+        log_operation(
+            db, user.username, user.role, 'INSERT', 'daily_event_type', event_id,
+            new_data={'event_name': event_type.event_name, 'score': score},
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {"success": True, "message": "事件类型创建成功", "data": {"event_id": event_id}}
+
+
+@router.put("/types/{type_id}", summary="更新日常事件类型")
+async def update_daily_event_type(
+    type_id: int,
+    update_data: DailyEventTypeUpdate,
+    request: Request,
+    user: User = Depends(require_permission('event_type_manage'))
+):
+    """
+    更新日常事件类型
+
+    权限要求：xuefa/jiaowu/admin
+    """
+    with get_moral_db() as db:
+        # 获取原记录
+        old_type = db.query_one(
+            "SELECT * FROM daily_event_type WHERE event_id = %s",
+            (type_id,)
+        )
+        if not old_type:
+            raise HTTPException(404, "事件类型不存在")
+
+        # 构建更新语句
+        updates = []
+        params = []
+
+        if update_data.event_name is not None:
+            # 检查名称是否重复
+            existing = db.query_one(
+                "SELECT event_id FROM daily_event_type WHERE event_name = %s AND event_id != %s",
+                (update_data.event_name, type_id)
+            )
+            if existing:
+                raise HTTPException(400, f"事件类型 '{update_data.event_name}' 已存在")
+            updates.append("event_name = %s")
+            params.append(update_data.event_name)
+
+        if update_data.score is not None:
+            # 保持分值正负与事件类型一致
+            score = abs(update_data.score) if old_type['event_type'] == 1 else -abs(update_data.score)
+            updates.append("score = %s")
+            params.append(score)
+
+        if update_data.description is not None:
+            updates.append("description = %s")
+            params.append(update_data.description)
+
+        if update_data.is_active is not None:
+            updates.append("is_active = %s")
+            params.append(update_data.is_active)
+
+        if not updates:
+            return {"success": True, "message": "无更新内容"}
+
+        params.append(type_id)
+        db.execute(
+            f"UPDATE daily_event_type SET {', '.join(updates)} WHERE event_id = %s",
+            tuple(params)
+        )
+
+        log_operation(
+            db, user.username, user.role, 'UPDATE', 'daily_event_type', type_id,
+            old_data={'event_name': old_type['event_name']},
+            new_data=update_data.dict(exclude_unset=True),
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {"success": True, "message": "事件类型更新成功"}
+
+
+@router.delete("/types/{type_id}", summary="删除日常事件类型")
+async def delete_daily_event_type(
+    type_id: int,
+    request: Request,
+    user: User = Depends(require_permission('event_type_manage'))
+):
+    """
+    删除日常事件类型（软删除，设为禁用状态）
+
+    权限要求：xuefa/jiaowu/admin
+    """
+    with get_moral_db() as db:
+        # 获取原记录
+        old_type = db.query_one(
+            "SELECT * FROM daily_event_type WHERE event_id = %s",
+            (type_id,)
+        )
+        if not old_type:
+            raise HTTPException(404, "事件类型不存在")
+
+        # 检查是否有关联记录
+        record_count = db.query_value(
+            "SELECT COUNT(*) FROM student_daily_record WHERE event_id = %s",
+            (type_id,)
+        )
+
+        if record_count > 0:
+            # 有关联记录，只禁用不删除
+            db.execute(
+                "UPDATE daily_event_type SET is_active = 0 WHERE event_id = %s",
+                (type_id,)
+            )
+            log_operation(
+                db, user.username, user.role, 'DISABLE', 'daily_event_type', type_id,
+                old_data={'event_name': old_type['event_name']},
+                ip_address=request.client.host if request.client else None
+            )
+            return {"success": True, "message": f"该事件类型有 {record_count} 条关联记录，已禁用"}
+        else:
+            # 无关联记录，直接删除
+            db.execute(
+                "DELETE FROM daily_event_type WHERE event_id = %s",
+                (type_id,)
+            )
+            log_operation(
+                db, user.username, user.role, 'DELETE', 'daily_event_type', type_id,
+                old_data={'event_name': old_type['event_name']},
+                ip_address=request.client.host if request.client else None
+            )
+            return {"success": True, "message": "事件类型已删除"}

@@ -48,6 +48,24 @@ class SchoolRecordUpdate(BaseModel):
     is_deleted: Optional[int] = None
 
 
+class SchoolEventTypeCreate(BaseModel):
+    """创建校级事件类型"""
+    event_name: str = Field(..., description="事件名称", max_length=50)
+    event_type: int = Field(..., description="事件类型：1=荣誉，2=处分", ge=1, le=2)
+    event_level: Optional[str] = Field(None, description="事件级别：国家级/省级/市级/校级", max_length=20)
+    score: int = Field(..., description="分值（正数加分，负数扣分）")
+    description: Optional[str] = Field(None, description="描述", max_length=200)
+
+
+class SchoolEventTypeUpdate(BaseModel):
+    """更新校级事件类型"""
+    event_name: Optional[str] = Field(None, description="事件名称", max_length=50)
+    event_level: Optional[str] = Field(None, description="事件级别", max_length=20)
+    score: Optional[int] = Field(None, description="分值")
+    description: Optional[str] = Field(None, description="描述", max_length=200)
+    is_active: Optional[int] = Field(None, description="是否启用：1=启用，0=禁用")
+
+
 # =============================================================================
 # API 路由
 # =============================================================================
@@ -311,3 +329,167 @@ async def delete_school_record(
         )
 
         return {"success": True, "message": "记录已删除"}
+
+
+# =============================================================================
+# 事件类型管理 API
+# =============================================================================
+
+@router.post("/types", summary="创建校级事件类型")
+async def create_school_event_type(
+    event_type: SchoolEventTypeCreate,
+    request: Request,
+    user: User = Depends(require_permission('event_type_manage'))
+):
+    """
+    创建校级事件类型
+
+    权限要求：xuefa/jiaowu/admin
+    """
+    with get_moral_db() as db:
+        # 检查是否已存在同名事件
+        existing = db.query_one(
+            "SELECT event_id FROM school_event_type WHERE event_name = %s",
+            (event_type.event_name,)
+        )
+        if existing:
+            raise HTTPException(400, f"事件类型 '{event_type.event_name}' 已存在")
+
+        # 根据事件类型确定分值正负
+        score = abs(event_type.score) if event_type.event_type == 1 else -abs(event_type.score)
+
+        db.execute(
+            """INSERT INTO school_event_type (event_name, event_type, event_level, score, description, is_active)
+            VALUES (%s, %s, %s, %s, %s, 1)""",
+            (event_type.event_name, event_type.event_type, event_type.event_level, score, event_type.description)
+        )
+
+        event_id = db.lastrowid()
+
+        log_operation(
+            db, user.username, user.role, 'INSERT', 'school_event_type', event_id,
+            new_data={'event_name': event_type.event_name, 'score': score},
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {"success": True, "message": "事件类型创建成功", "data": {"event_id": event_id}}
+
+
+@router.put("/types/{type_id}", summary="更新校级事件类型")
+async def update_school_event_type(
+    type_id: int,
+    update_data: SchoolEventTypeUpdate,
+    request: Request,
+    user: User = Depends(require_permission('event_type_manage'))
+):
+    """
+    更新校级事件类型
+
+    权限要求：xuefa/jiaowu/admin
+    """
+    with get_moral_db() as db:
+        # 获取原记录
+        old_type = db.query_one(
+            "SELECT * FROM school_event_type WHERE event_id = %s",
+            (type_id,)
+        )
+        if not old_type:
+            raise HTTPException(404, "事件类型不存在")
+
+        # 构建更新语句
+        updates = []
+        params = []
+
+        if update_data.event_name is not None:
+            existing = db.query_one(
+                "SELECT event_id FROM school_event_type WHERE event_name = %s AND event_id != %s",
+                (update_data.event_name, type_id)
+            )
+            if existing:
+                raise HTTPException(400, f"事件类型 '{update_data.event_name}' 已存在")
+            updates.append("event_name = %s")
+            params.append(update_data.event_name)
+
+        if update_data.event_level is not None:
+            updates.append("event_level = %s")
+            params.append(update_data.event_level)
+
+        if update_data.score is not None:
+            score = abs(update_data.score) if old_type['event_type'] == 1 else -abs(update_data.score)
+            updates.append("score = %s")
+            params.append(score)
+
+        if update_data.description is not None:
+            updates.append("description = %s")
+            params.append(update_data.description)
+
+        if update_data.is_active is not None:
+            updates.append("is_active = %s")
+            params.append(update_data.is_active)
+
+        if not updates:
+            return {"success": True, "message": "无更新内容"}
+
+        params.append(type_id)
+        db.execute(
+            f"UPDATE school_event_type SET {', '.join(updates)} WHERE event_id = %s",
+            tuple(params)
+        )
+
+        log_operation(
+            db, user.username, user.role, 'UPDATE', 'school_event_type', type_id,
+            old_data={'event_name': old_type['event_name']},
+            new_data=update_data.dict(exclude_unset=True),
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {"success": True, "message": "事件类型更新成功"}
+
+
+@router.delete("/types/{type_id}", summary="删除校级事件类型")
+async def delete_school_event_type(
+    type_id: int,
+    request: Request,
+    user: User = Depends(require_permission('event_type_manage'))
+):
+    """
+    删除校级事件类型（软删除，设为禁用状态）
+
+    权限要求：xuefa/jiaowu/admin
+    """
+    with get_moral_db() as db:
+        old_type = db.query_one(
+            "SELECT * FROM school_event_type WHERE event_id = %s",
+            (type_id,)
+        )
+        if not old_type:
+            raise HTTPException(404, "事件类型不存在")
+
+        # 检查是否有关联记录
+        record_count = db.query_value(
+            "SELECT COUNT(*) FROM student_school_record WHERE event_id = %s",
+            (type_id,)
+        )
+
+        if record_count > 0:
+            db.execute(
+                "UPDATE school_event_type SET is_active = 0 WHERE event_id = %s",
+                (type_id,)
+            )
+            log_operation(
+                db, user.username, user.role, 'DISABLE', 'school_event_type', type_id,
+                old_data={'event_name': old_type['event_name']},
+                ip_address=request.client.host if request.client else None
+            )
+            return {"success": True, "message": f"该事件类型有 {record_count} 条关联记录，已禁用"}
+        else:
+            db.execute(
+                "DELETE FROM school_event_type WHERE event_id = %s",
+                (type_id,)
+            )
+            log_operation(
+                db, user.username, user.role, 'DELETE', 'school_event_type', type_id,
+                old_data={'event_name': old_type['event_name']},
+                ip_address=request.client.host if request.client else None
+            )
+            return {"success": True, "message": "事件类型已删除"}

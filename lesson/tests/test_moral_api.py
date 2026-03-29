@@ -12,6 +12,14 @@ import os
 # 添加 lesson 目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 在导入任何模块之前 mock Task 类的初始化
+@pytest.fixture(scope="module", autouse=True)
+def mock_task_init():
+    """Mock Task 类的初始化，避免在测试中连接真实数据库"""
+    with patch('models.task.Task.__init__', return_value=None):
+        with patch('models.task.task_scheduler', None):
+            yield
+
 
 def create_mock_user(role='teacher', username='test_user'):
     """创建模拟用户"""
