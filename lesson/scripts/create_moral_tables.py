@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS semester (
     end_date DATE NOT NULL,
     status TINYINT DEFAULT 1 COMMENT '1=当前学期 0=已结束',
     FOREIGN KEY (year_id) REFERENCES school_year(year_id),
-    INDEX idx_year (year_id)
+    INDEX idx_year (year_id),
+    UNIQUE KEY uk_semester_name_year (semester_name, year_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='学期配置表';
 """,
     # 3. 级号表
