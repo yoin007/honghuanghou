@@ -192,6 +192,7 @@ def authenticate_user(username: str, password: str):
     l.cache_datas["teacher_template"] = l.teacher_template
 
     users_data = get_users_dict()
+
     if username not in users_data:
         return False
     user = users_data[username]
