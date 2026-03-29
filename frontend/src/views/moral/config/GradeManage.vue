@@ -119,8 +119,12 @@ const handleSubmit = async () => {
       ElMessage.success('创建成功')
       dialogVisible.value = false
       fetchGrades()
+    } else {
+      ElMessage.error(res.message || '创建失败')
     }
   } catch (error) {
+    const msg = error.response?.data?.detail || error.response?.data?.message || error.message || '创建失败'
+    ElMessage.error(msg)
     console.error('创建失败:', error)
   }
 }

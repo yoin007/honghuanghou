@@ -30,14 +30,14 @@ export function createDailyEventType(data) {
  * 更新日常事件类型
  */
 export function updateDailyEventType(typeId, data) {
-  return request.put(`/moral/daily-records/types/${typeId}`, data)
+  return request.put(`/api/moral/daily-records/types/${typeId}`, data)
 }
 
 /**
  * 删除日常事件类型
  */
 export function deleteDailyEventType(typeId) {
-  return request.delete(`/moral/daily-records/types/${typeId}`)
+  return request.delete(`/api/moral/daily-records/types/${typeId}`)
 }
 
 /**
@@ -78,7 +78,7 @@ export function batchCreateDailyRecords(records) {
  * @param {Object} data - 更新数据
  */
 export function updateDailyRecord(recordId, data) {
-  return request.put(`/moral/daily-records/${recordId}`, data)
+  return request.put(`/api/moral/daily-records/${recordId}`, data)
 }
 
 /**
@@ -86,7 +86,7 @@ export function updateDailyRecord(recordId, data) {
  * @param {number} recordId - 记录ID
  */
 export function deleteDailyRecord(recordId) {
-  return request.delete(`/moral/daily-records/${recordId}`)
+  return request.delete(`/api/moral/daily-records/${recordId}`)
 }
 
 /**
@@ -95,7 +95,7 @@ export function deleteDailyRecord(recordId) {
  * @param {number} semesterId - 学期ID
  */
 export function getStudentDailyStatistics(studentId, semesterId = null) {
-  return request.get(`/moral/daily-records/statistics/student/${studentId}`, {
+  return request.get(`/api/moral/daily-records/statistics/student/${studentId}`, {
     params: { semester_id: semesterId }
   })
 }
@@ -122,14 +122,14 @@ export function createSchoolEventType(data) {
  * 更新校级事件类型
  */
 export function updateSchoolEventType(typeId, data) {
-  return request.put(`/moral/school-records/types/${typeId}`, data)
+  return request.put(`/api/moral/school-records/types/${typeId}`, data)
 }
 
 /**
  * 删除校级事件类型
  */
 export function deleteSchoolEventType(typeId) {
-  return request.delete(`/moral/school-records/types/${typeId}`)
+  return request.delete(`/api/moral/school-records/types/${typeId}`)
 }
 
 /**
@@ -158,14 +158,14 @@ export function createSchoolRecord(data) {
  * 更新校级事件记录
  */
 export function updateSchoolRecord(recordId, data) {
-  return request.put(`/moral/school-records/${recordId}`, data)
+  return request.put(`/api/moral/school-records/${recordId}`, data)
 }
 
 /**
  * 删除校级事件记录
  */
 export function deleteSchoolRecord(recordId) {
-  return request.delete(`/moral/school-records/${recordId}`)
+  return request.delete(`/api/moral/school-records/${recordId}`)
 }
 
 // =============================================================================
@@ -190,14 +190,14 @@ export function createMoralTask(data) {
  * 更新德育任务
  */
 export function updateMoralTask(taskId, data) {
-  return request.put(`/moral/tasks/${taskId}`, data)
+  return request.put(`/api/moral/tasks/${taskId}`, data)
 }
 
 /**
  * 删除德育任务
  */
 export function deleteMoralTask(taskId) {
-  return request.delete(`/moral/tasks/${taskId}`)
+  return request.delete(`/api/moral/tasks/${taskId}`)
 }
 
 /**
@@ -244,14 +244,14 @@ export function createPunishment(data) {
  * 更新处分记录
  */
 export function updatePunishment(recordId, data) {
-  return request.put(`/moral/punishments/${recordId}`, data)
+  return request.put(`/api/moral/punishments/${recordId}`, data)
 }
 
 /**
  * 撤销处分
  */
 export function revokePunishment(recordId, reason) {
-  return request.post(`/moral/punishments/${recordId}/revoke`, { revoke_reason: reason })
+  return request.post(`/api/moral/punishments/${recordId}/revoke`, { revoke_reason: reason })
 }
 
 // =============================================================================
@@ -262,7 +262,7 @@ export function revokePunishment(recordId, reason) {
  * 获取学生德育评价
  */
 export function getStudentEvaluation(studentId, semesterId = null) {
-  return request.get(`/moral/evaluations/student/${studentId}`, {
+  return request.get(`/api/moral/evaluations/student/${studentId}`, {
     params: { semester_id: semesterId }
   })
 }
@@ -271,7 +271,7 @@ export function getStudentEvaluation(studentId, semesterId = null) {
  * 获取班级德育评价汇总
  */
 export function getClassEvaluation(classId, semesterId = null) {
-  return request.get(`/moral/evaluations/class/${classId}`, {
+  return request.get(`/api/moral/evaluations/class/${classId}`, {
     params: { semester_id: semesterId }
   })
 }
@@ -280,7 +280,7 @@ export function getClassEvaluation(classId, semesterId = null) {
  * 获取年级德育评价汇总
  */
 export function getGradeEvaluation(gradeId, semesterId = null) {
-  return request.get(`/moral/evaluations/grade/${gradeId}`, {
+  return request.get(`/api/moral/evaluations/grade/${gradeId}`, {
     params: { semester_id: semesterId }
   })
 }
@@ -300,14 +300,14 @@ export function calculateEvaluation(params = {}) {
  * 获取学生画像
  */
 export function getStudentProfile(studentId) {
-  return request.get(`/moral/profiles/student/${studentId}`)
+  return request.get(`/api/moral/profiles/student/${studentId}`)
 }
 
 /**
  * 生成学生画像
  */
 export function generateStudentProfile(studentId) {
-  return request.post(`/moral/profiles/student/${studentId}/generate`)
+  return request.post(`/api/moral/profiles/student/${studentId}/generate`)
 }
 
 /**
@@ -362,7 +362,7 @@ export function createBirthdayReminder(data) {
  * 发送生日提醒
  */
 export function sendBirthdayReminder(reminderId) {
-  return request.post(`/moral/birthdays/reminders/${reminderId}/send`)
+  return request.post(`/api/moral/birthdays/reminders/${reminderId}/send`)
 }
 
 /**
@@ -401,28 +401,28 @@ export function createConsultation(data) {
  * 获取诊疗会话详情
  */
 export function getConsultation(consultationId) {
-  return request.get(`/moral/consultations/${consultationId}`)
+  return request.get(`/api/moral/consultations/${consultationId}`)
 }
 
 /**
  * 更新诊疗会话
  */
 export function updateConsultation(consultationId, data) {
-  return request.put(`/moral/consultations/${consultationId}`, data)
+  return request.put(`/api/moral/consultations/${consultationId}`, data)
 }
 
 /**
  * 添加诊疗消息
  */
 export function addConsultationMessage(consultationId, data) {
-  return request.post(`/moral/consultations/${consultationId}/messages`, data)
+  return request.post(`/api/moral/consultations/${consultationId}/messages`, data)
 }
 
 /**
  * 关闭诊疗会话
  */
 export function closeConsultation(consultationId, outcome = null) {
-  return request.post(`/moral/consultations/${consultationId}/close`, null, {
+  return request.post(`/api/moral/consultations/${consultationId}/close`, null, {
     params: { outcome }
   })
 }
@@ -435,7 +435,7 @@ export function closeConsultation(consultationId, outcome = null) {
  * 获取教师列表
  */
 export function getTeachers() {
-  return request.get('/teachers')
+  return request.get('/api/teachers')
 }
 
 // =============================================================================
@@ -460,7 +460,7 @@ export function createGrade(data) {
  * 删除级号
  */
 export function deleteGrade(gradeId) {
-  return request.delete(`/moral/admin/grades/${gradeId}`)
+  return request.delete(`/api/moral/admin/grades/${gradeId}`)
 }
 
 /**
@@ -481,14 +481,14 @@ export function createClass(data) {
  * 更新班级
  */
 export function updateClass(classId, data) {
-  return request.put(`/moral/admin/classes/${classId}`, data)
+  return request.put(`/api/moral/admin/classes/${classId}`, data)
 }
 
 /**
  * 删除班级
  */
 export function deleteClass(classId) {
-  return request.delete(`/moral/admin/classes/${classId}`)
+  return request.delete(`/api/moral/admin/classes/${classId}`)
 }
 
 /**
@@ -523,7 +523,7 @@ export function createSemester(data) {
  * 设置当前学期
  */
 export function setCurrentSemester(semesterId) {
-  return request.post(`/moral/admin/semesters/${semesterId}/set-current`)
+  return request.post(`/api/moral/admin/semesters/${semesterId}/set-current`)
 }
 
 /**
@@ -544,7 +544,7 @@ export function createStudent(data) {
  * 更新学生状态
  */
 export function updateStudentStatus(studentId, status) {
-  return request.put(`/moral/admin/students/${studentId}/status`, null, {
+  return request.put(`/api/moral/admin/students/${studentId}/status`, null, {
     params: { status }
   })
 }

@@ -1,7 +1,8 @@
 /**
  * 用户相关 API
+ * 使用带认证的 axios 实例
  */
-import api from '../index'
+import api from '@/utils/api'
 
 export const userApi = {
   /**

@@ -96,18 +96,25 @@ api.interceptors.response.use(
 
     const res = response.data
 
-    // 支持两种响应格式:
-    // 1. 统一格式: { code, message, data }
-    // 2. 原始格式: 直接返回数据 (兼容旧接口)
+    // 支持多种响应格式:
+    // 1. FastAPI 格式: { success: true, data: [...] }
+    // 2. 统一格式: { code: 200, message, data }
+    // 3. 原始格式: 直接返回数据 (兼容旧接口)
 
-    // 如果是统一响应格式
+    // FastAPI 格式 (success 字段)
+    if (res !== undefined && 'success' in res) {
+      if (res.success) {
+        return res
+      } else {
+        ElMessage.error(res.message || '操作失败')
+        return Promise.reject(new Error(res.message || '操作失败'))
+      }
+    }
+
+    // 统一响应格式 (code 字段)
     if (res !== undefined && 'code' in res) {
       // 业务层面的成功 (code >= 200 && code < 300)
       if (res.code >= 200 && res.code < 300) {
-        // 可选: 显示成功消息 (避免频繁提示)
-        // if (res.message) {
-        //   ElMessage.success(res.message)
-        // }
         return res
       }
 
@@ -127,7 +134,8 @@ api.interceptors.response.use(
   error => {
     // 统一处理错误
     const status = error.response?.status
-    const message = error.response?.data?.message || error.message
+    // FastAPI HTTPException 返回 detail 字段，后端自定义返回 message 字段
+    const message = error.response?.data?.detail || error.response?.data?.message || error.message
 
     switch (status) {
       case 401:

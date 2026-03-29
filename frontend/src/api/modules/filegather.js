@@ -1,7 +1,8 @@
 /**
  * 文件收集系统 API 模块
+ * 使用带认证的 axios 实例
  */
-import api from '../../utils/api'
+import api from '@/utils/api'
 
 export const filegatherApi = {
   // ==================== 教师端 ====================
