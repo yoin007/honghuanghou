@@ -226,6 +226,43 @@ const routes = [
       requiresJiaowu: true
     }
   },
+  // 德育评价系统路由
+  {
+    path: '/moral/daily-record',
+    name: 'MoralDailyRecord',
+    component: () => import('../views/moral/DailyRecord.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '日常表现记录'
+    }
+  },
+  {
+    path: '/moral/evaluation',
+    name: 'MoralEvaluation',
+    component: () => import('../views/moral/Evaluation.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '德育评价'
+    }
+  },
+  {
+    path: '/moral/profile',
+    name: 'MoralProfile',
+    component: () => import('../views/moral/StudentProfile.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '学生画像'
+    }
+  },
+  {
+    path: '/moral/birthday',
+    name: 'MoralBirthday',
+    component: () => import('../views/moral/Birthday.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '生日提醒'
+    }
+  },
   {
     path: '/',
     redirect: '/schedules'

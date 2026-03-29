@@ -6,9 +6,11 @@ DataS API 模块
 - 认证相关: auth 模块
 - 管理员管理: admin 模块
 - 教师管理: teachers 模块
+- 德育评价: moral 模块
 - 其他功能: 暂在主模块中
 
 从 v2.0 开始逐步迁移到独立模块
+v3.0 新增德育评价模块
 """
 
 import logging
@@ -41,6 +43,9 @@ from .admin import router as admin_router
 from .teachers import router as teachers_router
 from .filegather import router as filegather_router
 
+# 导入德育评价模块
+from .moral import router as moral_router
+
 # 导入工具函数
 from .utils import (
     refresh_teacher_cache,
@@ -64,6 +69,8 @@ router.include_router(auth_router)
 router.include_router(admin_router)
 router.include_router(teachers_router)
 router.include_router(filegather_router)
+# 包含德育评价路由
+router.include_router(moral_router)
 # 包含旧模块中尚未迁移的路由
 router.include_router(legacy_router)
 
@@ -75,6 +82,7 @@ __all__ = [
     'admin_router',
     'teachers_router',
     'filegather_router',
+    'moral_router',
     # 认证相关
     'Token',
     'TokenData',
