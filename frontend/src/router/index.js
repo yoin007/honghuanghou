@@ -237,6 +237,33 @@ const routes = [
     }
   },
   {
+    path: '/moral/school-event',
+    name: 'MoralSchoolEvent',
+    component: () => import('../views/moral/SchoolEvent.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '校级事件'
+    }
+  },
+  {
+    path: '/moral/task',
+    name: 'MoralTask',
+    component: () => import('../views/moral/TaskManage.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '德育任务'
+    }
+  },
+  {
+    path: '/moral/punishment',
+    name: 'MoralPunishment',
+    component: () => import('../views/moral/Punishment.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '处分管理'
+    }
+  },
+  {
     path: '/moral/evaluation',
     name: 'MoralEvaluation',
     component: () => import('../views/moral/Evaluation.vue'),
