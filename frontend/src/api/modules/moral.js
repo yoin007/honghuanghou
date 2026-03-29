@@ -16,14 +16,14 @@ import request from '../index'
  * @param {number} params.is_active - 是否启用
  */
 export function getDailyEventTypes(params = {}) {
-  return request.get('/moral/daily-records/types', { params })
+  return request.get('/api/moral/daily-records/types', { params })
 }
 
 /**
  * 创建日常事件类型
  */
 export function createDailyEventType(data) {
-  return request.post('/moral/daily-records/types', data)
+  return request.post('/api/moral/daily-records/types', data)
 }
 
 /**
@@ -45,7 +45,7 @@ export function deleteDailyEventType(typeId) {
  * @param {Array} items - 事件类型数组
  */
 export function batchImportDailyEventTypes(items) {
-  return request.post('/moral/daily-records/types/batch-import', items)
+  return request.post('/api/moral/daily-records/types/batch-import', items)
 }
 
 /**
@@ -53,7 +53,7 @@ export function batchImportDailyEventTypes(items) {
  * @param {Object} params - 查询参数
  */
 export function getDailyRecords(params = {}) {
-  return request.get('/moral/daily-records', { params })
+  return request.get('/api/moral/daily-records', { params })
 }
 
 /**
@@ -61,7 +61,7 @@ export function getDailyRecords(params = {}) {
  * @param {Object} data - 记录数据
  */
 export function createDailyRecord(data) {
-  return request.post('/moral/daily-records', data)
+  return request.post('/api/moral/daily-records', data)
 }
 
 /**
@@ -69,7 +69,7 @@ export function createDailyRecord(data) {
  * @param {Array} records - 记录数组
  */
 export function batchCreateDailyRecords(records) {
-  return request.post('/moral/daily-records/batch', records)
+  return request.post('/api/moral/daily-records/batch', records)
 }
 
 /**
@@ -108,14 +108,14 @@ export function getStudentDailyStatistics(studentId, semesterId = null) {
  * 获取校级事件类型列表
  */
 export function getSchoolEventTypes(params = {}) {
-  return request.get('/moral/school-records/types', { params })
+  return request.get('/api/moral/school-records/types', { params })
 }
 
 /**
  * 创建校级事件类型
  */
 export function createSchoolEventType(data) {
-  return request.post('/moral/school-records/types', data)
+  return request.post('/api/moral/school-records/types', data)
 }
 
 /**
@@ -137,21 +137,21 @@ export function deleteSchoolEventType(typeId) {
  * @param {Array} items - 事件类型数组
  */
 export function batchImportSchoolEventTypes(items) {
-  return request.post('/moral/school-records/types/batch-import', items)
+  return request.post('/api/moral/school-records/types/batch-import', items)
 }
 
 /**
  * 获取校级事件记录列表
  */
 export function getSchoolRecords(params = {}) {
-  return request.get('/moral/school-records', { params })
+  return request.get('/api/moral/school-records', { params })
 }
 
 /**
  * 创建校级事件记录
  */
 export function createSchoolRecord(data) {
-  return request.post('/moral/school-records', data)
+  return request.post('/api/moral/school-records', data)
 }
 
 /**
@@ -176,14 +176,14 @@ export function deleteSchoolRecord(recordId) {
  * 获取德育任务列表
  */
 export function getMoralTasks(params = {}) {
-  return request.get('/moral/tasks', { params })
+  return request.get('/api/moral/tasks', { params })
 }
 
 /**
  * 创建德育任务
  */
 export function createMoralTask(data) {
-  return request.post('/moral/tasks', data)
+  return request.post('/api/moral/tasks', data)
 }
 
 /**
@@ -204,14 +204,14 @@ export function deleteMoralTask(taskId) {
  * 获取任务完成记录列表
  */
 export function getTaskFinishRecords(params = {}) {
-  return request.get('/moral/tasks/finish', { params })
+  return request.get('/api/moral/tasks/finish', { params })
 }
 
 /**
  * 记录任务完成
  */
 export function finishTask(data) {
-  return request.post('/moral/tasks/finish', data)
+  return request.post('/api/moral/tasks/finish', data)
 }
 
 /**
@@ -219,7 +219,7 @@ export function finishTask(data) {
  * @param {Array} items - 任务数组
  */
 export function batchImportMoralTasks(items) {
-  return request.post('/moral/tasks/batch-import', items)
+  return request.post('/api/moral/tasks/batch-import', items)
 }
 
 // =============================================================================
@@ -230,14 +230,14 @@ export function batchImportMoralTasks(items) {
  * 获取处分记录列表
  */
 export function getPunishments(params = {}) {
-  return request.get('/moral/punishments', { params })
+  return request.get('/api/moral/punishments', { params })
 }
 
 /**
  * 创建处分记录
  */
 export function createPunishment(data) {
-  return request.post('/moral/punishments', data)
+  return request.post('/api/moral/punishments', data)
 }
 
 /**
@@ -289,7 +289,7 @@ export function getGradeEvaluation(gradeId, semesterId = null) {
  * 计算德育评价
  */
 export function calculateEvaluation(params = {}) {
-  return request.post('/moral/evaluations/calculate', null, { params })
+  return request.post('/api/moral/evaluations/calculate', null, { params })
 }
 
 // =============================================================================
@@ -314,14 +314,14 @@ export function generateStudentProfile(studentId) {
  * 批量生成学生画像
  */
 export function batchGenerateProfiles(params = {}) {
-  return request.post('/moral/profiles/batch-generate', null, { params })
+  return request.post('/api/moral/profiles/batch-generate', null, { params })
 }
 
 /**
  * 获取画像配置
  */
 export function getProfileConfig() {
-  return request.get('/moral/profiles/config')
+  return request.get('/api/moral/profiles/config')
 }
 
 // =============================================================================
@@ -332,7 +332,7 @@ export function getProfileConfig() {
  * 获取即将到来的生日
  */
 export function getUpcomingBirthdays(days = 7, classId = null) {
-  return request.get('/moral/birthdays/upcoming', {
+  return request.get('/api/moral/birthdays/upcoming', {
     params: { days, class_id: classId }
   })
 }
@@ -341,21 +341,21 @@ export function getUpcomingBirthdays(days = 7, classId = null) {
  * 获取今日过生日的学生
  */
 export function getTodayBirthdays() {
-  return request.get('/moral/birthdays/today')
+  return request.get('/api/moral/birthdays/today')
 }
 
 /**
  * 获取生日提醒列表
  */
 export function getBirthdayReminders(params = {}) {
-  return request.get('/moral/birthdays/reminders', { params })
+  return request.get('/api/moral/birthdays/reminders', { params })
 }
 
 /**
  * 创建生日提醒
  */
 export function createBirthdayReminder(data) {
-  return request.post('/moral/birthdays/reminders', data)
+  return request.post('/api/moral/birthdays/reminders', data)
 }
 
 /**
@@ -369,14 +369,14 @@ export function sendBirthdayReminder(reminderId) {
  * 生成本月生日提醒
  */
 export function generateMonthlyReminders() {
-  return request.post('/moral/birthdays/generate')
+  return request.post('/api/moral/birthdays/generate')
 }
 
 /**
  * 获取生日提醒配置
  */
 export function getBirthdayConfig() {
-  return request.get('/moral/birthdays/config')
+  return request.get('/api/moral/birthdays/config')
 }
 
 // =============================================================================
@@ -387,14 +387,14 @@ export function getBirthdayConfig() {
  * 获取诊疗会话列表
  */
 export function getConsultations(params = {}) {
-  return request.get('/moral/consultations', { params })
+  return request.get('/api/moral/consultations', { params })
 }
 
 /**
  * 创建诊疗会话
  */
 export function createConsultation(data) {
-  return request.post('/moral/consultations', data)
+  return request.post('/api/moral/consultations', data)
 }
 
 /**
@@ -446,14 +446,14 @@ export function getTeachers() {
  * 获取级号列表
  */
 export function getGrades() {
-  return request.get('/moral/admin/grades')
+  return request.get('/api/moral/admin/grades')
 }
 
 /**
  * 创建级号
  */
 export function createGrade(data) {
-  return request.post('/moral/admin/grades', data)
+  return request.post('/api/moral/admin/grades', data)
 }
 
 /**
@@ -467,14 +467,14 @@ export function deleteGrade(gradeId) {
  * 获取班级列表
  */
 export function getClasses(params = {}) {
-  return request.get('/moral/admin/classes', { params })
+  return request.get('/api/moral/admin/classes', { params })
 }
 
 /**
  * 创建班级
  */
 export function createClass(data) {
-  return request.post('/moral/admin/classes', data)
+  return request.post('/api/moral/admin/classes', data)
 }
 
 /**
@@ -495,28 +495,28 @@ export function deleteClass(classId) {
  * 获取学年列表
  */
 export function getSchoolYears() {
-  return request.get('/moral/admin/school-years')
+  return request.get('/api/moral/admin/school-years')
 }
 
 /**
  * 创建学年
  */
 export function createSchoolYear(data) {
-  return request.post('/moral/admin/school-years', data)
+  return request.post('/api/moral/admin/school-years', data)
 }
 
 /**
  * 获取学期列表
  */
 export function getSemesters(params = {}) {
-  return request.get('/moral/admin/semesters', { params })
+  return request.get('/api/moral/admin/semesters', { params })
 }
 
 /**
  * 创建学期
  */
 export function createSemester(data) {
-  return request.post('/moral/admin/semesters', data)
+  return request.post('/api/moral/admin/semesters', data)
 }
 
 /**
@@ -530,14 +530,14 @@ export function setCurrentSemester(semesterId) {
  * 获取学生列表
  */
 export function getStudents(params = {}) {
-  return request.get('/moral/admin/students', { params })
+  return request.get('/api/moral/admin/students', { params })
 }
 
 /**
  * 创建学生
  */
 export function createStudent(data) {
-  return request.post('/moral/admin/students', data)
+  return request.post('/api/moral/admin/students', data)
 }
 
 /**
@@ -553,21 +553,21 @@ export function updateStudentStatus(studentId, status) {
  * 获取操作日志
  */
 export function getOperationLogs(params = {}) {
-  return request.get('/moral/admin/logs', { params })
+  return request.get('/api/moral/admin/logs', { params })
 }
 
 /**
  * 获取系统配置
  */
 export function getSystemConfig() {
-  return request.get('/moral/admin/config')
+  return request.get('/api/moral/admin/config')
 }
 
 /**
  * 更新系统配置
  */
 export function updateSystemConfig(data) {
-  return request.put('/moral/admin/config', data)
+  return request.put('/api/moral/admin/config', data)
 }
 
 // 导出所有 API
