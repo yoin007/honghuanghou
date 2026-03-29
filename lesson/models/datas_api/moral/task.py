@@ -291,3 +291,95 @@ async def finish_task(
             )
 
         return {"success": True, "message": "任务完成记录已更新"}
+
+
+class MoralTaskImportItem(BaseModel):
+    """批量导入德育任务项"""
+    grade_name: str  # 级号名称，如 "2023级"
+    task_name: str
+    task_desc: Optional[str] = ""
+    score: int
+    deadline_type: str  # "学期截止"/"学年截止"/"无截止"
+    is_required: str  # "是"/"否"
+
+
+@router.post("/batch-import", summary="批量导入德育任务")
+async def batch_import_moral_tasks(
+    items: List[MoralTaskImportItem],
+    request: Request,
+    user: User = Depends(require_permission('event_type_manage'))
+):
+    """
+    批量导入德育任务
+
+    权限要求：xuefa/jiaowu/admin
+
+    CSV格式：
+    级号名称,任务名称,任务描述,分值,截止类型,是否必修
+    2023级,志愿服务,参加志愿服务活动,5,学年截止,是
+    """
+    with get_moral_db() as db:
+        success_count = 0
+        skip_count = 0
+        errors = []
+
+        # 获取级号映射
+        grades = db.query_all("SELECT grade_id, grade_name FROM grade")
+        grade_map = {g['grade_name']: g['grade_id'] for g in grades}
+
+        for i, item in enumerate(items):
+            try:
+                # 查找级号ID
+                grade_id = grade_map.get(item.grade_name)
+                if not grade_id:
+                    errors.append(f"第{i+1}条: 级号 '{item.grade_name}' 不存在")
+                    continue
+
+                # 转换截止类型
+                deadline_map = {
+                    "学期截止": "semester",
+                    "学年截止": "year",
+                    "无截止": "open"
+                }
+                deadline_type = deadline_map.get(item.deadline_type, "year")
+
+                # 转换是否必修
+                is_required = 1 if item.is_required == "是" else 0
+
+                # 检查是否已存在相同任务
+                existing = db.query_one(
+                    """SELECT task_id FROM grade_moral_task
+                    WHERE grade_id = %s AND task_name = %s AND is_active = 1""",
+                    (grade_id, item.task_name)
+                )
+                if existing:
+                    skip_count += 1
+                    continue
+
+                db.execute(
+                    """INSERT INTO grade_moral_task
+                    (grade_id, task_name, task_desc, score, deadline_type, is_required, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s, 1)""",
+                    (grade_id, item.task_name, item.task_desc or "", item.score, deadline_type, is_required)
+                )
+                success_count += 1
+
+            except Exception as e:
+                errors.append(f"第{i+1}条: {str(e)}")
+
+        log_operation(
+            db, user.username, user.role, 'BATCH_IMPORT', 'grade_moral_task', None,
+            new_data={'success_count': success_count, 'skip_count': skip_count},
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {
+            "success": True,
+            "message": f"成功导入 {success_count} 条，跳过 {skip_count} 条已存在记录",
+            "data": {
+                "success_count": success_count,
+                "skip_count": skip_count,
+                "error_count": len(errors),
+                "errors": errors[:10]
+            }
+        }

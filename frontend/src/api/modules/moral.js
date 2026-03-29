@@ -41,6 +41,14 @@ export function deleteDailyEventType(typeId) {
 }
 
 /**
+ * 批量导入日常事件类型
+ * @param {Array} items - 事件类型数组
+ */
+export function batchImportDailyEventTypes(items) {
+  return request.post('/moral/daily-records/types/batch-import', items)
+}
+
+/**
  * 获取日常表现记录列表
  * @param {Object} params - 查询参数
  */
@@ -125,6 +133,14 @@ export function deleteSchoolEventType(typeId) {
 }
 
 /**
+ * 批量导入校级事件类型
+ * @param {Array} items - 事件类型数组
+ */
+export function batchImportSchoolEventTypes(items) {
+  return request.post('/moral/school-records/types/batch-import', items)
+}
+
+/**
  * 获取校级事件记录列表
  */
 export function getSchoolRecords(params = {}) {
@@ -196,6 +212,14 @@ export function getTaskFinishRecords(params = {}) {
  */
 export function finishTask(data) {
   return request.post('/moral/tasks/finish', data)
+}
+
+/**
+ * 批量导入德育任务
+ * @param {Array} items - 任务数组
+ */
+export function batchImportMoralTasks(items) {
+  return request.post('/moral/tasks/batch-import', items)
 }
 
 // =============================================================================

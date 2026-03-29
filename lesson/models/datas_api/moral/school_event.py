@@ -493,3 +493,77 @@ async def delete_school_event_type(
                 ip_address=request.client.host if request.client else None
             )
             return {"success": True, "message": "事件类型已删除"}
+
+
+class SchoolEventImportItem(BaseModel):
+    """批量导入校级事件类型项"""
+    event_name: str
+    event_type: str  # "荣誉奖励" or "违纪处分"
+    event_level: str  # "国家级"/"省级"/"市级"/"校级"
+    score: int
+    description: Optional[str] = ""
+
+
+@router.post("/types/batch-import", summary="批量导入校级事件类型")
+async def batch_import_school_event_types(
+    items: List[SchoolEventImportItem],
+    request: Request,
+    user: User = Depends(require_permission('event_type_manage'))
+):
+    """
+    批量导入校级事件类型
+
+    权限要求：xuefa/jiaowu/admin
+
+    CSV格式：
+    事件名称,事件类型,事件级别,分值,描述
+    三好学生,荣誉奖励,校级,10,校级三好学生称号
+    """
+    with get_moral_db() as db:
+        success_count = 0
+        skip_count = 0
+        errors = []
+
+        for i, item in enumerate(items):
+            try:
+                # 转换事件类型
+                event_type_num = 1 if "荣誉" in item.event_type else 2
+
+                # 检查是否已存在
+                existing = db.query_one(
+                    "SELECT event_id FROM school_event_type WHERE event_name = %s",
+                    (item.event_name,)
+                )
+                if existing:
+                    skip_count += 1
+                    continue
+
+                # 根据事件类型确定分值正负
+                score = abs(item.score) if event_type_num == 1 else -abs(item.score)
+
+                db.execute(
+                    """INSERT INTO school_event_type (event_name, event_type, event_level, score, description, is_active)
+                    VALUES (%s, %s, %s, %s, %s, 1)""",
+                    (item.event_name, event_type_num, item.event_level, score, item.description or "")
+                )
+                success_count += 1
+
+            except Exception as e:
+                errors.append(f"第{i+1}条: {str(e)}")
+
+        log_operation(
+            db, user.username, user.role, 'BATCH_IMPORT', 'school_event_type', None,
+            new_data={'success_count': success_count, 'skip_count': skip_count},
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {
+            "success": True,
+            "message": f"成功导入 {success_count} 条，跳过 {skip_count} 条已存在记录",
+            "data": {
+                "success_count": success_count,
+                "skip_count": skip_count,
+                "error_count": len(errors),
+                "errors": errors[:10]
+            }
+        }

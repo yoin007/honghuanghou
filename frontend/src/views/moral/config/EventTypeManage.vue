@@ -10,7 +10,11 @@
               <el-radio-button :label="1">积极事件</el-radio-button>
               <el-radio-button :label="2">消极事件</el-radio-button>
             </el-radio-group>
-            <el-button type="primary" @click="handleAddDaily">新增事件类型</el-button>
+            <div>
+              <el-button @click="downloadTemplate('daily')">下载模板</el-button>
+              <el-button type="warning" @click="handleImport('daily')">批量导入</el-button>
+              <el-button type="primary" @click="handleAddDaily">新增事件类型</el-button>
+            </div>
           </div>
 
           <el-table :data="dailyTypes" v-loading="dailyLoading" stripe>
@@ -60,7 +64,11 @@
               <el-radio-button :label="1">荣誉奖励</el-radio-button>
               <el-radio-button :label="2">违纪处分</el-radio-button>
             </el-radio-group>
-            <el-button type="primary" @click="handleAddSchool">新增事件类型</el-button>
+            <div>
+              <el-button @click="downloadTemplate('school')">下载模板</el-button>
+              <el-button type="warning" @click="handleImport('school')">批量导入</el-button>
+              <el-button type="primary" @click="handleAddSchool">新增事件类型</el-button>
+            </div>
           </div>
 
           <el-table :data="schoolTypes" v-loading="schoolLoading" stripe>
@@ -164,6 +172,47 @@
         <el-button type="primary" @click="handleSubmitSchool">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量导入对话框 -->
+    <el-dialog v-model="importDialogVisible" title="批量导入" width="600px">
+      <el-alert
+        type="info"
+        :closable="false"
+        style="margin-bottom: 15px"
+      >
+        <template #title>
+          请先下载模板，按模板格式填写数据后粘贴到下方文本框
+        </template>
+      </el-alert>
+
+      <el-input
+        v-model="importData"
+        type="textarea"
+        :rows="10"
+        placeholder="粘贴CSV数据，格式：
+事件名称,事件类型,分值,描述
+拾金不昧,积极,3,主动上交拾得物品"
+      />
+
+      <el-alert
+        v-if="importResult"
+        :type="importResult.error_count > 0 ? 'warning' : 'success'"
+        :closable="false"
+        style="margin-top: 15px"
+      >
+        <template #title>
+          导入结果：成功 {{ importResult.success_count }} 条，跳过 {{ importResult.skip_count }} 条
+        </template>
+        <div v-if="importResult.errors && importResult.errors.length > 0">
+          <div v-for="(err, idx) in importResult.errors" :key="idx">{{ err }}</div>
+        </div>
+      </el-alert>
+
+      <template #footer>
+        <el-button @click="importDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="importLoading" @click="handleImportSubmit">导入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -175,10 +224,12 @@ import {
   createDailyEventType,
   updateDailyEventType,
   deleteDailyEventType,
+  batchImportDailyEventTypes,
   getSchoolEventTypes,
   createSchoolEventType,
   updateSchoolEventType,
-  deleteSchoolEventType
+  deleteSchoolEventType,
+  batchImportSchoolEventTypes
 } from '@/api/modules/moral'
 
 // Tab
@@ -225,6 +276,13 @@ const schoolRules = {
   event_level: [{ required: true, message: '请选择事件级别', trigger: 'change' }],
   score: [{ required: true, message: '请输入分值', trigger: 'blur' }]
 }
+
+// 批量导入
+const importDialogVisible = ref(false)
+const importLoading = ref(false)
+const importType = ref('daily') // 'daily' or 'school'
+const importData = ref('')
+const importResult = ref(null)
 
 // 方法
 const fetchDailyTypes = async () => {
@@ -388,6 +446,96 @@ const handleToggleSchool = async (row) => {
     }
   } catch (error) {
     if (error !== 'cancel') console.error('操作失败:', error)
+  }
+}
+
+// 模板下载
+const downloadTemplate = (type) => {
+  const templates = {
+    daily: '/templates/daily_events.csv',
+    school: '/templates/school_events.csv'
+  }
+  const link = document.createElement('a')
+  link.href = templates[type]
+  link.download = type === 'daily' ? '日常事件类型模板.csv' : '校级事件类型模板.csv'
+  link.click()
+  ElMessage.success('模板下载中...')
+}
+
+// 批量导入
+const handleImport = (type) => {
+  importType.value = type
+  importData.value = ''
+  importResult.value = null
+  importDialogVisible.value = true
+}
+
+const parseCSV = (csvText, type) => {
+  const lines = csvText.trim().split('\n')
+  const items = []
+
+  // 跳过标题行
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(col => col.trim())
+    if (cols.length < 3) continue
+
+    if (type === 'daily') {
+      items.push({
+        event_name: cols[0],
+        event_type: cols[1],
+        score: parseInt(cols[2]) || 0,
+        description: cols[3] || ''
+      })
+    } else {
+      items.push({
+        event_name: cols[0],
+        event_type: cols[1],
+        event_level: cols[2] || '校级',
+        score: parseInt(cols[3]) || 0,
+        description: cols[4] || ''
+      })
+    }
+  }
+  return items
+}
+
+const handleImportSubmit = async () => {
+  if (!importData.value.trim()) {
+    ElMessage.warning('请粘贴CSV数据')
+    return
+  }
+
+  importLoading.value = true
+  importResult.value = null
+
+  try {
+    const items = parseCSV(importData.value, importType.value)
+    if (items.length === 0) {
+      ElMessage.warning('未解析到有效数据，请检查格式')
+      return
+    }
+
+    let res
+    if (importType.value === 'daily') {
+      res = await batchImportDailyEventTypes(items)
+    } else {
+      res = await batchImportSchoolEventTypes(items)
+    }
+
+    if (res.success) {
+      importResult.value = res.data
+      ElMessage.success(res.message)
+      if (importType.value === 'daily') {
+        fetchDailyTypes()
+      } else {
+        fetchSchoolTypes()
+      }
+    }
+  } catch (error) {
+    console.error('导入失败:', error)
+    ElMessage.error('导入失败，请检查数据格式')
+  } finally {
+    importLoading.value = false
   }
 }
 

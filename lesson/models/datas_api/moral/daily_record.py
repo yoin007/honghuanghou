@@ -687,3 +687,76 @@ async def delete_daily_event_type(
                 ip_address=request.client.host if request.client else None
             )
             return {"success": True, "message": "事件类型已删除"}
+
+
+class DailyEventImportItem(BaseModel):
+    """批量导入日常事件类型项"""
+    event_name: str
+    event_type: str  # "积极" or "消极"
+    score: int
+    description: Optional[str] = ""
+
+
+@router.post("/types/batch-import", summary="批量导入日常事件类型")
+async def batch_import_daily_event_types(
+    items: List[DailyEventImportItem],
+    request: Request,
+    user: User = Depends(require_permission('event_type_manage'))
+):
+    """
+    批量导入日常事件类型
+
+    权限要求：xuefa/jiaowu/admin
+
+    CSV格式：
+    事件名称,事件类型,分值,描述
+    拾金不昧,积极,3,主动上交拾得物品
+    """
+    with get_moral_db() as db:
+        success_count = 0
+        skip_count = 0
+        errors = []
+
+        for i, item in enumerate(items):
+            try:
+                # 转换事件类型
+                event_type_num = 1 if item.event_type == "积极" else 2
+
+                # 检查是否已存在
+                existing = db.query_one(
+                    "SELECT event_id FROM daily_event_type WHERE event_name = %s",
+                    (item.event_name,)
+                )
+                if existing:
+                    skip_count += 1
+                    continue
+
+                # 根据事件类型确定分值正负
+                score = abs(item.score) if event_type_num == 1 else -abs(item.score)
+
+                db.execute(
+                    """INSERT INTO daily_event_type (event_name, event_type, score, description, is_active)
+                    VALUES (%s, %s, %s, %s, 1)""",
+                    (item.event_name, event_type_num, score, item.description or "")
+                )
+                success_count += 1
+
+            except Exception as e:
+                errors.append(f"第{i+1}条: {str(e)}")
+
+        log_operation(
+            db, user.username, user.role, 'BATCH_IMPORT', 'daily_event_type', None,
+            new_data={'success_count': success_count, 'skip_count': skip_count},
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {
+            "success": True,
+            "message": f"成功导入 {success_count} 条，跳过 {skip_count} 条已存在记录",
+            "data": {
+                "success_count": success_count,
+                "skip_count": skip_count,
+                "error_count": len(errors),
+                "errors": errors[:10]
+            }
+        }
