@@ -1,7 +1,7 @@
 # 班级管理系统 - 系统功能架构文档
 
 ## 版本信息
-- 当前版本：v3.0.0
+- 当前版本：v3.1.1
 - 更新日期：2026-03-29
 
 ---
@@ -24,18 +24,18 @@
 | 模块 | 端点数量 | 说明 |
 |------|----------|------|
 | 认证模块 | 1 | 用户登录认证 |
-| 德育-基础管理 | 14 | 级号/班级/学生/学年学期 |
-| 德育-日常表现 | 5 | 日常事件记录管理 |
-| 德育-校级事件 | 3 | 校级事件记录管理 |
-| 德育-德育任务 | 4 | 任务管理与完成记录 |
-| 德育-处分管理 | 2 | 处分记录与撤销 |
+| 德育-基础管理 | 15 | 级号/班级/学生/学年学期/日志/配置 |
+| 德育-日常表现 | 7 | 日常事件类型与记录管理 |
+| 德育-校级事件 | 7 | 校级事件类型与记录管理 |
+| 德育-德育任务 | 6 | 任务管理与完成记录 |
+| 德育-处分管理 | 4 | 处分记录与撤销 |
 | 德育-评价查询 | 4 | 德育评价计算与查询 |
 | 德育-学生画像 | 4 | 学生画像生成与管理 |
 | 德育-生日提醒 | 7 | 生日提醒管理 |
-| 德育-AI诊疗 | 4 | 学生问题诊疗 |
+| 德育-AI诊疗 | 6 | 学生问题诊疗 |
 | 用户管理 | 7 | 用户CRUD与密码管理 |
 | 文件管理 | 9 | 文件上传下载管理 |
-| **总计** | **64** | - |
+| **总计** | **77** | - |
 
 ### 2.2 认证模块
 
@@ -55,6 +55,7 @@
 | GET | `/classes` | 获取班级列表 | 登录用户 |
 | POST | `/classes` | 创建班级 | class_manage |
 | PUT | `/classes/{id}` | 更新班级 | class_manage |
+| DELETE | `/classes/{id}` | 删除班级 | class_manage |
 | GET | `/school-years` | 获取学年列表 | 登录用户 |
 | POST | `/school-years` | 创建学年 | semester_manage |
 | GET | `/semesters` | 获取学期列表 | 登录用户 |
@@ -63,12 +64,18 @@
 | GET | `/students` | 获取学生列表 | 登录用户 |
 | POST | `/students` | 创建学生 | student_manage |
 | PUT | `/students/{id}/status` | 更新学生状态 | student_manage |
+| GET | `/logs` | 获取操作日志 | report_view_all |
+| GET | `/config` | 获取系统配置 | report_view_all |
+| PUT | `/config` | 更新系统配置 | semester_manage |
 
 #### 2.3.2 日常表现 `/api/moral/daily-records`
 
 | 方法 | 端点 | 说明 | 权限 |
 |------|------|------|------|
 | GET | `/types` | 获取事件类型列表 | 登录用户 |
+| POST | `/types` | 创建事件类型 | event_type_manage |
+| PUT | `/types/{id}` | 更新事件类型 | event_type_manage |
+| DELETE | `/types/{id}` | 删除事件类型 | event_type_manage |
 | GET | `/` | 获取记录列表 | 登录用户 |
 | POST | `/` | 创建记录 | moral_record_input |
 | POST | `/batch` | 批量创建记录 | moral_record_input |
@@ -81,6 +88,9 @@
 | 方法 | 端点 | 说明 | 权限 |
 |------|------|------|------|
 | GET | `/types` | 获取事件类型列表 | 登录用户 |
+| POST | `/types` | 创建事件类型 | event_type_manage |
+| PUT | `/types/{id}` | 更新事件类型 | event_type_manage |
+| DELETE | `/types/{id}` | 删除事件类型 | event_type_manage |
 | GET | `/` | 获取记录列表 | 登录用户 |
 | POST | `/` | 创建记录 | moral_record_manage |
 | PUT | `/{id}` | 更新记录 | moral_record_manage |
@@ -187,8 +197,8 @@
 | 教师模块 | 4 | 发布作业/公告/文件上传/我的文件 |
 | 教务模块 | 3 | 文件管理/已查阅/更新课表 |
 | 系统管理 | 5 | 会员/权限/任务/系统监控/教师管理 |
-| 德育评价 | 7 | 日常表现/校级事件/任务/处分/评价/画像/生日 |
-| **总计** | **32** | - |
+| 德育评价 | 13 | 日常表现/校级事件/任务/处分/评价/画像/生日/配置管理 |
+| **总计** | **38** | - |
 
 ### 3.2 页面清单
 
@@ -255,6 +265,12 @@
 | `/moral/evaluation` | Evaluation.vue | 评价查询 |
 | `/moral/profile` | StudentProfile.vue | 学生画像 |
 | `/moral/birthday` | Birthday.vue | 生日提醒 |
+| `/moral/config` | config/Index.vue | 德育配置入口 |
+| `/moral/config/grade` | config/GradeManage.vue | 级号管理 |
+| `/moral/config/class` | config/ClassManage.vue | 班级管理 |
+| `/moral/config/student` | config/StudentManage.vue | 学生管理 |
+| `/moral/config/semester` | config/SemesterManage.vue | 学年学期管理 |
+| `/moral/config/event-type` | config/EventTypeManage.vue | 事件类型管理 |
 
 ---
 
@@ -279,6 +295,7 @@
 | all | ✅ | - | - | - | - | - | - |
 | moral_record_manage | ✅ | ✅ | ✅ | - | - | - | - |
 | punishment_manage | ✅ | - | ✅ | - | - | - | - |
+| event_type_manage | ✅ | ✅ | ✅ | - | - | - | - |
 | student_manage | ✅ | ✅ | ✅ | - | - | - | - |
 | class_manage | ✅ | ✅ | - | - | - | - | - |
 | grade_manage | ✅ | ✅ | - | - | - | - | - |
@@ -287,25 +304,29 @@
 | moral_record_input | ✅ | - | - | - | ✅ | - | - |
 | moral_self_view | ✅ | - | - | - | - | ✅ | - |
 | moral_child_view | ✅ | - | - | - | - | - | ✅ |
-| student_profile | ✅ | ✅ | ✅ | - | - | - | - |
+| student_profile | ✅ | ✅ | ✅ | ✅ | - | - | - |
 | ai_consultation | ✅ | - | ✅ | ✅ | - | - | - |
-| birthday_reminder | ✅ | ✅ | ✅ | - | - | - | - |
+| birthday_reminder | ✅ | ✅ | ✅ | ✅ | - | - | - |
+| report_view_all | ✅ | ✅ | ✅ | - | - | - | - |
 
 ---
 
 ## 五、数据库表结构
 
-### 5.1 表清单
+### 5.1 表清单（共35张）
 
 | 分类 | 表名 | 说明 |
 |------|------|------|
-| 基础数据 | grade | 级号表 |
+| 基础数据 | school_year | 学年表 |
+| | semester | 学期表 |
+| | grade | 级号表 |
+| | grade_level_config | 年级等级配置 |
 | | class | 班级表 |
 | | student | 学生表 |
 | | teacher | 教师表 |
+| | role | 角色配置表 |
 | | student_class_history | 班级履历表 |
-| | school_year | 学年表 |
-| | semester | 学期表 |
+| | student_status_change | 学籍变动表 |
 | 德育核心 | daily_event_type | 日常事件类型 |
 | | school_event_type | 校级事件类型 |
 | | grade_moral_task | 德育任务 |
@@ -313,365 +334,106 @@
 | | student_school_record | 校级事件记录 |
 | | student_task_finish | 任务完成记录 |
 | | punishment_record | 处分记录 |
+| | collective_event | 集体事件 |
+| | collective_event_distribution | 集体事件分配 |
 | | moral_evaluation | 德育评价 |
 | 扩展功能 | student_profile | 学生画像 |
+| | student_profile_history | 画像历史 |
+| | profile_config | 画像配置 |
 | | ai_consultation | AI诊疗会话 |
-| | consultation_message | 诊疗消息 |
+| | ai_consultation_message | 诊疗消息 |
 | | birthday_reminder | 生日提醒 |
+| | birthday_reminder_config | 生日提醒配置 |
+| 配置管理 | violation_escalation_rule | 违纪累进规则 |
+| | semester_carryover_config | 学期结转配置 |
+| | data_visibility_config | 数据可见性配置 |
+| | warning_config | 预警配置 |
+| | warning_log | 预警日志 |
+| | task_carryover_log | 任务结转日志 |
 | | moral_operation_log | 操作日志 |
-| **总计** | **20+** | - |
+| | moral_config | 系统配置 |
+
+### 5.2 当前数据统计
+
+| 数据项 | 数量 |
+|--------|------|
+| 级号 | 4 |
+| 班级 | 16 |
+| 学生 | 591 |
+| 教师 | 61 |
+| 学期 | 6 |
 
 ---
 
-## 六、可视化配置方案
+## 六、配置管理状态
 
-### 6.1 现有配置能力
+### 6.1 配置能力总览
 
 | 配置项 | 前端页面 | 后端API | 状态 |
 |--------|----------|---------|------|
-| 级号管理 | ❌ | ✅ CRUD | 需前端 |
-| 班级管理 | ❌ | ✅ CRUD | 需前端 |
-| 学生管理 | ❌ | ✅ CRUD | 需前端 |
-| 学年学期 | ❌ | ✅ CRUD | 需前端 |
-| 日常事件类型 | ❌ | ✅ GET | 需完善 |
-| 校级事件类型 | ❌ | ✅ GET | 需完善 |
-| 德育任务 | ✅ | ✅ CRUD | 已完成 |
-| 处分类型 | - | - | 需新增 |
-
-### 6.2 缺失功能清单
-
-#### 后端API缺失
-1. **事件类型管理API**
-   - POST/PUT/DELETE `/api/moral/daily-records/types`
-   - POST/PUT/DELETE `/api/moral/school-records/types`
-
-2. **系统配置API**
-   - GET/POST `/api/moral/config/settings` - 系统参数
-   - GET `/api/moral/config/permissions` - 权限配置
-
-3. **操作日志API**
-   - GET `/api/moral/logs` - 操作日志查询
-
-#### 前端页面缺失
-1. **系统配置模块**
-   - 级号管理页面
-   - 班级管理页面
-   - 学生管理页面
-   - 学年学期管理页面
-   - 事件类型配置页面
-
-### 6.3 实施计划
+| 级号管理 | ✅ GradeManage.vue | ✅ CRUD | ✅ 已完成 |
+| 班级管理 | ✅ ClassManage.vue | ✅ CRUD | ✅ 已完成 |
+| 学生管理 | ✅ StudentManage.vue | ✅ CRUD | ✅ 已完成 |
+| 学年学期 | ✅ SemesterManage.vue | ✅ CRUD | ✅ 已完成 |
+| 日常事件类型 | ✅ EventTypeManage.vue | ✅ CRUD | ✅ 已完成 |
+| 校级事件类型 | ✅ EventTypeManage.vue | ✅ CRUD | ✅ 已完成 |
+| 操作日志 | ✅ Index.vue | ✅ GET | ✅ 已完成 |
+| 系统配置 | ✅ Index.vue | ✅ GET/PUT | ✅ 已完成 |
 
 ---
 
-## 七、功能补充详细计划
-
-### 7.1 后端API补充计划
-
-#### 7.1.1 日常事件类型管理API
-
-**文件**：`models/datas_api/moral/daily_record.py`
-
-| 任务 | 方法 | 端点 | 请求体 | 说明 |
-|------|------|------|--------|------|
-| 新增类型 | POST | `/types` | `{event_name, event_type, score, description}` | 创建事件类型 |
-| 更新类型 | PUT | `/types/{type_id}` | `{event_name, score, is_active}` | 更新事件类型 |
-| 删除类型 | DELETE | `/types/{type_id}` | - | 删除事件类型 |
-
-**Pydantic模型**：
-```python
-class DailyEventTypeCreate(BaseModel):
-    event_name: str
-    event_type: int  # 1=积极, 2=消极
-    score: int
-    description: Optional[str] = None
-
-class DailyEventTypeUpdate(BaseModel):
-    event_name: Optional[str]
-    score: Optional[int]
-    is_active: Optional[int]
-```
-
-#### 7.1.2 校级事件类型管理API
-
-**文件**：`models/datas_api/moral/school_event.py`
-
-| 任务 | 方法 | 端点 | 请求体 | 说明 |
-|------|------|------|--------|------|
-| 新增类型 | POST | `/types` | `{event_name, event_type, score, description}` | 创建事件类型 |
-| 更新类型 | PUT | `/types/{type_id}` | `{event_name, score, is_active}` | 更新事件类型 |
-| 删除类型 | DELETE | `/types/{type_id}` | - | 删除事件类型 |
-
-#### 7.1.3 操作日志查询API
-
-**文件**：`models/datas_api/moral/admin.py`（新增路由）
-
-| 任务 | 方法 | 端点 | 参数 | 说明 |
-|------|------|------|------|------|
-| 查询日志 | GET | `/logs` | `operator, operation, table_name, start_date, end_date, page` | 分页查询操作日志 |
-
-**响应格式**：
-```json
-{
-  "success": true,
-  "data": {
-    "items": [
-      {
-        "log_id": 1,
-        "operator": "张三",
-        "operator_role": "xuefa",
-        "operation": "INSERT",
-        "table_name": "student_daily_record",
-        "record_id": 123,
-        "old_data": null,
-        "new_data": {"event_name": "拾金不昧"},
-        "created_at": "2026-03-29 10:00:00"
-      }
-    ],
-    "total": 100,
-    "page": 1,
-    "page_size": 20
-  }
-}
-```
-
-#### 7.1.4 系统配置API
-
-**文件**：`models/datas_api/moral/admin.py`（新增路由）
-
-| 任务 | 方法 | 端点 | 说明 |
-|------|------|------|------|
-| 获取配置 | GET | `/config` | 获取系统配置项 |
-| 更新配置 | PUT | `/config` | 更新系统配置项 |
-
-**配置项**：
-```json
-{
-  "evaluation_base_score": 100,
-  "evaluation_weights": {
-    "daily": 0.3,
-    "school_event": 0.3,
-    "task": 0.2,
-    "punishment": -0.2
-  },
-  "birthday_reminder_days": 7,
-  "semester_start_month": 9
-}
-```
-
----
-
-### 7.2 前端页面补充计划
-
-#### 7.2.1 页面结构规划
-
-```
-frontend/src/views/moral/
-├── config/
-│   ├── Index.vue           # 配置入口页面（Tab导航）
-│   ├── GradeManage.vue     # 级号管理
-│   ├── ClassManage.vue     # 班级管理
-│   ├── StudentManage.vue   # 学生管理
-│   ├── SemesterManage.vue  # 学年学期管理
-│   └── EventTypeManage.vue # 事件类型配置
-```
-
-#### 7.2.2 各页面功能设计
-
-##### GradeManage.vue - 级号管理
-| 功能 | 说明 |
-|------|------|
-| 列表展示 | 级号名称、入学年份、班级数、学生数 |
-| 新增级号 | 级号名称、入学年份 |
-| 删除级号 | 二次确认，检查关联数据 |
-| 查看详情 | 查看该级号下所有班级 |
-
-##### ClassManage.vue - 班级管理
-| 功能 | 说明 |
-|------|------|
-| 筛选条件 | 按级号筛选 |
-| 列表展示 | 班级代码、名称、班主任、学生数 |
-| 新增班级 | 级号、班号、班主任信息 |
-| 编辑班级 | 修改班主任、微信群等 |
-| 查看学生 | 跳转到学生列表 |
-
-##### StudentManage.vue - 学生管理
-| 功能 | 说明 |
-|------|------|
-| 筛选条件 | 按级号/班级/状态筛选 |
-| 列表展示 | 学号、姓名、班级、出生日期、状态 |
-| 新增学生 | 学号、姓名、班级、出生日期 |
-| 状态变更 | 在校/休学/转出/毕业 |
-| 导入学生 | Excel批量导入 |
-| 导出学生 | 导出Excel |
-
-##### SemesterManage.vue - 学年学期管理
-| 功能 | 说明 |
-|------|------|
-| 学年列表 | 学年名称、开始/结束日期、是否当前 |
-| 学期列表 | 学期名称、所属学年、是否当前 |
-| 新增学年 | 学年名称、日期范围 |
-| 新增学期 | 学期名称、所属学年、日期范围 |
-| 设为当前 | 设置当前学期 |
-
-##### EventTypeManage.vue - 事件类型配置
-| 功能 | 说明 |
-|------|------|
-| Tab切换 | 日常事件类型 / 校级事件类型 |
-| 列表展示 | 事件名称、类型、分值、状态 |
-| 新增类型 | 名称、类型（积极/消极）、分值 |
-| 编辑类型 | 修改名称、分值 |
-| 启用/禁用 | 切换类型状态 |
-
----
-
-### 7.3 路由配置补充
-
-**文件**：`frontend/src/router/index.js`
-
-```javascript
-// 新增路由
-{
-  path: '/moral/config',
-  name: 'MoralConfig',
-  component: () => import('../views/moral/config/Index.vue'),
-  meta: { requiresAuth: true, title: '系统配置' },
-  children: [
-    { path: 'grades', name: 'GradeManage', component: GradeManage },
-    { path: 'classes', name: 'ClassManage', component: ClassManage },
-    { path: 'students', name: 'StudentManage', component: StudentManage },
-    { path: 'semesters', name: 'SemesterManage', component: SemesterManage },
-    { path: 'event-types', name: 'EventTypeManage', component: EventTypeManage },
-  ]
-}
-```
-
----
-
-### 7.4 前端API模块补充
-
-**文件**：`frontend/src/api/modules/moral.js`
-
-```javascript
-// 事件类型管理
-export function createDailyEventType(data) {
-  return request.post('/moral/daily-records/types', data)
-}
-export function updateDailyEventType(typeId, data) {
-  return request.put(`/moral/daily-records/types/${typeId}`, data)
-}
-export function deleteDailyEventType(typeId) {
-  return request.delete(`/moral/daily-records/types/${typeId}`)
-}
-
-// 校级事件类型管理
-export function createSchoolEventType(data) {
-  return request.post('/moral/school-records/types', data)
-}
-export function updateSchoolEventType(typeId, data) {
-  return request.put(`/moral/school-records/types/${typeId}`, data)
-}
-export function deleteSchoolEventType(typeId) {
-  return request.delete(`/moral/school-records/types/${typeId}`)
-}
-
-// 操作日志
-export function getOperationLogs(params) {
-  return request.get('/moral/admin/logs', { params })
-}
-
-// 系统配置
-export function getSystemConfig() {
-  return request.get('/moral/admin/config')
-}
-export function updateSystemConfig(data) {
-  return request.put('/moral/admin/config', data)
-}
-```
-
----
-
-### 7.5 导航菜单更新
-
-**文件**：`frontend/src/App.vue`
-
-```html
-<!-- 德育评价菜单更新 -->
-<el-sub-menu v-if="isLoggedIn" index="moral">
-  <template #title>德育评价</template>
-  <el-menu-item index="/moral/daily-record">日常表现</el-menu-item>
-  <el-menu-item index="/moral/school-event">校级事件</el-menu-item>
-  <el-menu-item index="/moral/task">德育任务</el-menu-item>
-  <el-menu-item index="/moral/punishment">处分管理</el-menu-item>
-  <el-menu-item index="/moral/evaluation">评价查询</el-menu-item>
-  <el-menu-item index="/moral/profile">学生画像</el-menu-item>
-  <el-menu-item index="/moral/birthday">生日提醒</el-menu-item>
-  <!-- 新增：系统配置（仅管理员/xuefa可见） -->
-  <el-menu-item v-if="isAdmin || isXuefa" index="/moral/config">系统配置</el-menu-item>
-</el-sub-menu>
-```
-
----
-
-### 7.6 实施进度表
-
-| 阶段 | 任务 | 优先级 | 预计工时 | 依赖 |
-|------|------|--------|----------|------|
-| **后端** | | | | |
-| 1.1 | 日常事件类型管理API | 高 | 2h | - |
-| 1.2 | 校级事件类型管理API | 高 | 2h | - |
-| 1.3 | 操作日志查询API | 中 | 2h | - |
-| 1.4 | 系统配置API | 中 | 2h | - |
-| **前端** | | | | |
-| 2.1 | EventTypeManage.vue | 高 | 3h | 1.1, 1.2 |
-| 2.2 | GradeManage.vue | 高 | 2h | - |
-| 2.3 | ClassManage.vue | 高 | 2h | 2.2 |
-| 2.4 | StudentManage.vue | 高 | 3h | 2.3 |
-| 2.5 | SemesterManage.vue | 中 | 2h | - |
-| 2.6 | Index.vue（配置入口） | 中 | 1h | 2.1-2.5 |
-| **集成** | | | | |
-| 3.1 | 路由配置 | 中 | 0.5h | 2.6 |
-| 3.2 | API模块更新 | 中 | 0.5h | 1.1-1.4 |
-| 3.3 | 导航菜单更新 | 中 | 0.5h | 3.1 |
-| 3.4 | 测试验证 | 高 | 2h | 3.1-3.3 |
-| **总计** | | | **22h** | |
-
----
-
-### 7.7 验收标准
-
-| 功能 | 验收标准 |
-|------|----------|
-| 事件类型管理 | 可增删改查日常/校级事件类型 |
-| 级号管理 | 可创建、删除级号，显示班级/学生统计 |
-| 班级管理 | 可增删改班级，关联班主任信息 |
-| 学生管理 | 可增删改学生，支持状态变更 |
-| 学期管理 | 可创建学年学期，设置当前学期 |
-| 操作日志 | 可按条件查询操作日志 |
-| 系统配置 | 可查看和修改系统参数 |
-
----
-
-## 九、系统访问信息
+## 七、系统访问信息
 
 ### 7.1 开发环境
 - **前端**：https://localhost:3333/
-- **后端**：http://localhost:14600/
-- **API文档**：http://localhost:14600/docs
+- **后端**：http://localhost:8000/
+- **API文档**：http://localhost:8000/docs
 
-### 7.2 测试账号
-| 用户名 | 密码 | 角色 |
-|--------|------|------|
-| 陈明 | 888888 | teacher/xuefa |
-| 李伟刚 | zX9cV7bN | admin |
+### 7.2 数据库
+- **MySQL**：172.31.25.228:3306
+- **数据库**：moral_evaluation
+
+### 7.3 测试账号
+| 用户名 | 角色 |
+|--------|------|
+| 管理员 | admin |
+| 教发部 | jiaowu |
+| 学发部 | xuefa |
+| 张班主任 | cleader |
+| 李老师 | teacher |
 
 ---
 
-## 十、更新日志
+## 八、测试状态
+
+### 8.1 测试统计
+| 类型 | 数量 | 状态 |
+|------|------|------|
+| 后端单元测试 | 139 | ✅ 全部通过 |
+| API端点测试 | 6 | ✅ 全部通过 |
+| 前端构建 | - | ✅ 成功 |
+
+---
+
+## 九、更新日志
+
+### v3.1.1 (2026-03-29)
+- 新增 moral_config 系统配置表（共35张表）
+- 添加数据库连接测试脚本
+- 添加 API 端点测试脚本
+- 验证前后端联调正常
+
+### v3.1.0 (2026-03-29)
+- 完善德育评价系统配置管理功能
+- 新增前端配置管理页面（级号/班级/学生/学期/事件类型）
+- 新增事件类型管理 API（CRUD）
+- 新增操作日志查询 API
+- 新增系统配置 API
+- 新增删除班级 API
 
 ### v3.0.0 (2026-03-29)
 - 新增德育评价系统完整功能
-- 新增10个后端API模块，41个API端点
+- 新增10个后端API模块，45个API端点
 - 新增7个前端页面组件
 - 新增MySQL连接池管理
 - 新增数据迁移脚本
