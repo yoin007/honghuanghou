@@ -590,6 +590,18 @@ CREATE TABLE IF NOT EXISTS birthday_reminder_config (
     UNIQUE KEY uk_key (config_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='生日提醒配置表';
 """,
+    # 35. 系统配置表
+    "moral_config": """
+CREATE TABLE IF NOT EXISTS moral_config (
+    config_id INT PRIMARY KEY AUTO_INCREMENT,
+    config_key VARCHAR(50) NOT NULL,
+    config_value TEXT,
+    description TEXT,
+    created_at DATETIME DEFAULT NOW(),
+    updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+    UNIQUE KEY uk_key (config_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='德育系统配置表';
+""",
 }
 
 # 初始数据插入SQL
