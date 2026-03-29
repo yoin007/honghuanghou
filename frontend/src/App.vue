@@ -66,6 +66,16 @@
               <el-menu-item index="/file-upload">文件上传</el-menu-item>
               <el-menu-item index="/my-files">我的文件</el-menu-item>
             </el-sub-menu>
+            <el-sub-menu v-if="isLoggedIn" index="moral">
+              <template #title>德育评价</template>
+              <el-menu-item index="/moral/daily-record">日常表现</el-menu-item>
+              <el-menu-item index="/moral/school-event">校级事件</el-menu-item>
+              <el-menu-item index="/moral/task">德育任务</el-menu-item>
+              <el-menu-item index="/moral/punishment">处分管理</el-menu-item>
+              <el-menu-item index="/moral/evaluation">评价查询</el-menu-item>
+              <el-menu-item index="/moral/profile">学生画像</el-menu-item>
+              <el-menu-item index="/moral/birthday">生日提醒</el-menu-item>
+            </el-sub-menu>
             <el-sub-menu v-if="isJiaowu" index="jiaowu">
               <template #title>教务</template>
               <el-menu-item index="/admin-files">文件管理</el-menu-item>
