@@ -40,19 +40,14 @@
               <el-menu-item index="/basic-info">班级信息</el-menu-item>
               <el-menu-item index="/class-students">班级学生</el-menu-item>
               <el-menu-item index="/announcement">班级公告</el-menu-item>
+              <el-menu-item index="/delay-application">延时申请</el-menu-item>
+              <el-menu-item index="/leave-record">请假记录</el-menu-item>
             </el-sub-menu>
             <el-sub-menu index="schedule">
               <template #title>课表</template>
               <el-menu-item index="/schedule">课程表</el-menu-item>
               <el-menu-item index="/current-classes">实时课程</el-menu-item>
               <el-menu-item index="/schedules">总课表</el-menu-item>
-            </el-sub-menu>
-            <el-sub-menu index="routine">
-              <template #title>常规</template>
-              <el-menu-item index="/delay-application">延时申请</el-menu-item>
-              <el-menu-item index="/leave-record">请假记录</el-menu-item>
-              <el-menu-item index="/routine-record">常规记录</el-menu-item>
-              <el-menu-item index="/routine-query">常规查询</el-menu-item>
             </el-sub-menu>
             <el-sub-menu index="fun">
               <template #title>趣味</template>

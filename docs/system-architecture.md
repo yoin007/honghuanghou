@@ -190,15 +190,14 @@
 
 | 分类 | 页面数 | 说明 |
 |------|--------|------|
-| 班级模块 | 4 | 班级作业/信息/学生/公告 |
+| 班级模块 | 6 | 班级作业/信息/学生/公告/延时申请/请假记录 |
 | 课表模块 | 3 | 课程表/实时课程/课表文件 |
-| 常规模块 | 4 | 延时申请/请假记录/常规记录/查询 |
 | 趣味模块 | 2 | 随机点名/大声PK |
 | 教师模块 | 4 | 发布作业/公告/文件上传/我的文件 |
 | 教务模块 | 3 | 文件管理/已查阅/更新课表 |
 | 系统管理 | 5 | 会员/权限/任务/系统监控/教师管理 |
 | 德育评价 | 13 | 日常表现/校级事件/任务/处分/评价/画像/生日/配置管理 |
-| **总计** | **38** | - |
+| **总计** | **36** | - |
 
 ### 3.2 页面清单
 
@@ -209,6 +208,8 @@
 | `/basic-info` | BasicInfo.vue | 班级信息 |
 | `/class-students` | ClassStudents.vue | 班级学生 |
 | `/announcement` | Announcement.vue | 班级公告 |
+| `/delay-application` | DelayApplication.vue | 延时申请 |
+| `/leave-record` | LeaveRecord.vue | 请假记录 |
 
 #### 课表模块
 | 路由 | 页面 | 说明 |
@@ -216,14 +217,6 @@
 | `/schedule` | Schedule.vue | 课程表 |
 | `/current-classes` | CurrentClasses.vue | 实时课程 |
 | `/schedules` | Schedules.vue | 课表文件 |
-
-#### 常规模块
-| 路由 | 页面 | 说明 |
-|------|------|------|
-| `/delay-application` | DelayApplication.vue | 延时申请 |
-| `/leave-record` | LeaveRecord.vue | 请假记录 |
-| `/routine-record` | RoutineRecord.vue | 常规记录 |
-| `/routine-query` | RoutineQuery.vue | 常规查询 |
 
 #### 趣味模块
 | 路由 | 页面 | 说明 |

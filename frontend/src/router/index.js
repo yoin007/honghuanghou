@@ -62,24 +62,6 @@ const routes = [
     }
   },
   {
-    path: '/routine-record',
-    name: 'RoutineRecord',
-    component: () => import('../views/RoutineRecord.vue'),
-    meta: {
-      requiresAuth: true,
-      title: '常规记录'
-    }
-  },
-  {
-    path: '/routine-query',
-    name: 'RoutineQuery',
-    component: () => import('../views/RoutineQuery.vue'),
-    meta: {
-      requiresAuth: true,
-      title: '常规查询'
-    }
-  },
-  {
     path: '/random-call',
     name: 'RandomCall',
     component: () => import('../views/RandomCall.vue'),
