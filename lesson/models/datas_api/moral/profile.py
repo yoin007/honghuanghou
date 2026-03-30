@@ -8,6 +8,7 @@
 import logging
 from datetime import datetime
 from typing import Optional, List
+from decimal import Decimal
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -25,6 +26,14 @@ from models.datas_api.auth import User, get_current_user
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/profiles", tags=["学生画像"])
+
+
+class DecimalEncoder(json.JSONEncoder):
+    """自定义JSON编码器，处理Decimal类型"""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
 
 
 # =============================================================================
@@ -173,15 +182,15 @@ async def generate_student_profile(
                 student_id,
                 new_version,
                 profile_summary,
-                json.dumps(profile_tags, ensure_ascii=False),
-                json.dumps(strength_tags, ensure_ascii=False),
-                json.dumps(improvement_tags, ensure_ascii=False),
+                json.dumps(profile_tags, ensure_ascii=False, cls=DecimalEncoder),
+                json.dumps(strength_tags, ensure_ascii=False, cls=DecimalEncoder),
+                json.dumps(improvement_tags, ensure_ascii=False, cls=DecimalEncoder),
                 risk_level,
                 moral_score,
                 attitude_score,
                 social_score,
                 growth_score,
-                json.dumps(analysis, ensure_ascii=False)
+                json.dumps(analysis, ensure_ascii=False, cls=DecimalEncoder)
             )
         )
 
@@ -204,7 +213,7 @@ async def generate_student_profile(
             """INSERT INTO student_profile_history
             (student_id, profile_version, profile_data)
             VALUES (%s, %s, %s)""",
-            (student_id, new_version, json.dumps(profile_data, ensure_ascii=False))
+            (student_id, new_version, json.dumps(profile_data, ensure_ascii=False, cls=DecimalEncoder))
         )
 
         return {
