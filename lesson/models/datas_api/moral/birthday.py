@@ -31,6 +31,7 @@ router = APIRouter(prefix="/birthdays", tags=["生日提醒"])
 class BirthdayReminderCreate(BaseModel):
     """创建生日提醒"""
     student_id: str = Field(..., description="学号")
+    student_name: Optional[str] = Field(None, description="学生姓名（可选）")
     reminder_date: date = Field(..., description="提醒日期")
     message: Optional[str] = Field(None, description="祝福内容")
     recipient_type: Optional[str] = Field("student", description="接收人类型")

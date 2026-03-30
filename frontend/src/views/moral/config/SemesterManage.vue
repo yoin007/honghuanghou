@@ -27,7 +27,6 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button

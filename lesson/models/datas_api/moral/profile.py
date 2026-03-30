@@ -221,9 +221,21 @@ async def generate_student_profile(
             "message": "画像生成成功",
             "data": {
                 "profile_id": profile_id,
+                "student_id": student_id,
+                "student_name": student.get('name', ''),
+                "class_name": student.get('class_name', ''),
+                "grade_name": student.get('grade_name', ''),
                 "profile_summary": profile_summary,
                 "profile_tags": profile_tags,
-                "risk_level": risk_level
+                "strength_tags": strength_tags,
+                "improvement_tags": improvement_tags,
+                "risk_level": risk_level,
+                "scores": {
+                    "moral": moral_score,
+                    "attitude": attitude_score,
+                    "social": social_score,
+                    "growth": growth_score
+                }
             }
         }
 

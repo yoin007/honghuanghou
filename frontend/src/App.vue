@@ -61,6 +61,12 @@
               <el-menu-item index="/file-upload">文件上传</el-menu-item>
               <el-menu-item index="/my-files">我的文件</el-menu-item>
             </el-sub-menu>
+            <el-sub-menu v-if="isJiaowu" index="jiaowu">
+              <template #title>教务</template>
+              <el-menu-item index="/admin-files">文件管理</el-menu-item>
+              <el-menu-item index="/admin-files-done">已查阅文件</el-menu-item>
+              <el-menu-item index="/upload-schedule">更新课表</el-menu-item>
+            </el-sub-menu>
             <el-sub-menu v-if="isLoggedIn" index="moral">
               <template #title>德育评价</template>
               <el-menu-item index="/moral/daily-record">日常表现</el-menu-item>
@@ -72,12 +78,7 @@
               <el-menu-item index="/moral/birthday">生日提醒</el-menu-item>
               <el-menu-item v-if="isAdmin || isJiaowu" index="/moral/config">德育配置</el-menu-item>
             </el-sub-menu>
-            <el-sub-menu v-if="isJiaowu" index="jiaowu">
-              <template #title>教务</template>
-              <el-menu-item index="/admin-files">文件管理</el-menu-item>
-              <el-menu-item index="/admin-files-done">已查阅文件</el-menu-item>
-              <el-menu-item index="/upload-schedule">更新课表</el-menu-item>
-            </el-sub-menu>
+            
             <el-sub-menu v-if="isAdmin" index="system">
               <template #title>系统管理</template>
               <el-menu-item index="/member-manage">会员管理</el-menu-item>
