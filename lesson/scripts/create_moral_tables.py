@@ -1214,7 +1214,9 @@ INITIAL_DATA_SQL = [
     """INSERT IGNORE INTO profile_config VALUES
     (1, 'tag_definitions', '["责任担当", "诚实守信", "乐于助人", "勤奋刻苦", "积极进取", "团结协作", "遵纪守法", "文明礼貌", "关爱他人", "勇于创新"]', '画像标签定义'),
     (2, 'update_frequency', '{"type": "semester", "min_records": 5}', '更新频率配置'),
-    (3, 'risk_thresholds', '{"high": {"negative_count": 10, "score_below": 50}, "medium": {"negative_count": 5, "score_below": 60}}', '风险阈值配置');""",
+    (3, 'risk_thresholds', '{"high": {"negative_count": 10, "punishment_count": 2}, "medium": {"negative_count": 5, "punishment_count": 1}}', '风险阈值配置'),
+    (4, 'scoring_weights', '{"moral": {"base": 80, "positive_weight": 2, "negative_weight": 3}, "attitude": {"base": 80, "completion_weight": 40}, "social": {"base": 75, "collective_weight": 2}, "growth": {"base": 75, "honor_weight": 5}}', '评分权重配置'),
+    (5, 'tag_rules', '{"积极进取": {"positive_count_min": 5}, "遵纪守法": {"negative_count_max": 2}, "勤奋刻苦": {"positive_negative_ratio_min": 2}, "责任担当": {"task_completion_rate_min": 0.8}, "诚实守信": {"negative_count_max": 0}, "乐于助人": {"collective_count_min": 3}, "团结协作": {"collective_count_min": 5}, "文明礼貌": {"positive_rate_min": 0.8}}', '标签生成规则');""",
     # 生日提醒配置
     """INSERT IGNORE INTO birthday_reminder_config VALUES
     (1, 'reminder_days_before', '3', '提前多少天提醒'),
@@ -1349,7 +1351,9 @@ SQLite_INITIAL_DATA_SQL = [
     """INSERT OR IGNORE INTO profile_config VALUES
     (1, 'tag_definitions', '["责任担当", "诚实守信", "乐于助人", "勤奋刻苦", "积极进取", "团结协作", "遵纪守法", "文明礼貌", "关爱他人", "勇于创新"]', '画像标签定义'),
     (2, 'update_frequency', '{"type": "semester", "min_records": 5}', '更新频率配置'),
-    (3, 'risk_thresholds', '{"high": {"negative_count": 10, "score_below": 50}, "medium": {"negative_count": 5, "score_below": 60}}', '风险阈值配置');""",
+    (3, 'risk_thresholds', '{"high": {"negative_count": 10, "punishment_count": 2}, "medium": {"negative_count": 5, "punishment_count": 1}}', '风险阈值配置'),
+    (4, 'scoring_weights', '{"moral": {"base": 80, "positive_weight": 2, "negative_weight": 3}, "attitude": {"base": 80, "completion_weight": 40}, "social": {"base": 75, "collective_weight": 2}, "growth": {"base": 75, "honor_weight": 5}}', '评分权重配置'),
+    (5, 'tag_rules', '{"积极进取": {"positive_count_min": 5}, "遵纪守法": {"negative_count_max": 2}, "勤奋刻苦": {"positive_negative_ratio_min": 2}, "责任担当": {"task_completion_rate_min": 0.8}, "诚实守信": {"negative_count_max": 0}, "乐于助人": {"collective_count_min": 3}, "团结协作": {"collective_count_min": 5}, "文明礼貌": {"positive_rate_min": 0.8}}', '标签生成规则');""",
     # 生日提醒配置
     """INSERT OR IGNORE INTO birthday_reminder_config VALUES
     (1, 'reminder_days_before', '3', '提前多少天提醒'),
