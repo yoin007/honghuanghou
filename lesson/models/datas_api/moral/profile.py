@@ -342,8 +342,8 @@ def generate_profile_summary(analysis: dict) -> str:
     if honor_count > 0:
         parts.append(f"获得{honor_count}项荣誉")
 
-    task_finished = analysis.get('task_stats', {}).get('finished', 0)
-    task_total = analysis.get('task_stats', {}).get('total', 0)
+    task_finished = analysis.get('task_stats', {}).get('finished', 0) or 0
+    task_total = analysis.get('task_stats', {}).get('total', 0) or 0
     if task_total > 0:
         rate = task_finished / task_total * 100
         if rate >= 80:
@@ -370,8 +370,8 @@ def generate_profile_tags(analysis: dict) -> List[str]:
     if positive_count > negative_count * 2:
         tags.append("勤奋刻苦")
 
-    task_finished = analysis.get('task_stats', {}).get('finished', 0)
-    task_total = analysis.get('task_stats', {}).get('total', 0)
+    task_finished = analysis.get('task_stats', {}).get('finished', 0) or 0
+    task_total = analysis.get('task_stats', {}).get('total', 0) or 0
     if task_total > 0 and task_finished / task_total >= 0.8:
         tags.append("责任担当")
 
@@ -389,8 +389,10 @@ def calculate_moral_subscore(analysis: dict) -> float:
 def calculate_attitude_subscore(analysis: dict) -> float:
     """计算态度评分"""
     base = 80.0
-    task_finished = analysis.get('task_stats', {}).get('finished', 0)
+    task_finished = analysis.get('task_stats', {}).get('finished', 0) or 0
     task_total = analysis.get('task_stats', {}).get('total', 0) or 1
+    if task_total == 0:
+        task_total = 1
     return min(100, max(0, base + (task_finished / task_total - 0.5) * 40))
 
 
