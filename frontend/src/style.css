@@ -189,20 +189,20 @@ button:focus-visible {
 
 /* 筛选区域下拉框自适应宽度 */
 .filter-form .el-select {
-  min-width: 120px;
-  max-width: 280px;
-  width: auto;
+  min-width: 120px !important;
+  max-width: 280px !important;
+  width: auto !important;
 }
 
 .filter-form .el-select .el-input__wrapper {
-  width: auto;
-  min-width: 80px;
+  width: auto !important;
+  min-width: 80px !important;
 }
 
 .filter-form .el-input {
-  min-width: 100px;
-  max-width: 200px;
-  width: auto;
+  min-width: 100px !important;
+  max-width: 200px !important;
+  width: auto !important;
 }
 
 /* 内联表单项自适应 */
