@@ -1,7 +1,7 @@
 <template>
   <div class="birthday-page">
     <el-card class="filter-card">
-      <el-form :inline="true" :model="filterForm">
+      <el-form :inline="true" :model="filterForm" class="filter-form">
         <el-form-item label="提前天数">
           <el-select v-model="filterForm.days" @change="fetchBirthdays">
             <el-option :value="7" label="7天内" />
