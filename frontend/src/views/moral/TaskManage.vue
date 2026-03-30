@@ -6,7 +6,7 @@
         <el-card class="filter-card">
           <el-form :inline="true" :model="taskFilterForm" class="filter-form">
             <el-form-item label="级号">
-              <el-select v-model="taskFilterForm.grade_id" placeholder="选择级号" clearable style="width: 150px">
+              <el-select v-model="taskFilterForm.grade_id" placeholder="选择级号" clearable>
                 <el-option
                   v-for="grade in gradeList"
                   :key="grade.grade_id"
@@ -16,7 +16,7 @@
               </el-select>
             </el-form-item>
             <el-form-item label="状态">
-              <el-select v-model="taskFilterForm.status" placeholder="选择状态" clearable style="width: 120px">
+              <el-select v-model="taskFilterForm.status" placeholder="选择状态" clearable>
                 <el-option label="进行中" :value="1" />
                 <el-option label="已结束" :value="0" />
               </el-select>
@@ -72,10 +72,10 @@
         <el-card class="filter-card">
           <el-form :inline="true" :model="finishFilterForm" class="filter-form">
             <el-form-item label="学生学号">
-              <el-input v-model="finishFilterForm.student_id" placeholder="输入学号" clearable style="width: 150px" />
+              <el-input v-model="finishFilterForm.student_id" placeholder="输入学号" clearable />
             </el-form-item>
             <el-form-item label="任务">
-              <el-select v-model="finishFilterForm.task_id" placeholder="选择任务" clearable style="width: 200px">
+              <el-select v-model="finishFilterForm.task_id" placeholder="选择任务" clearable>
                 <el-option
                   v-for="task in taskList"
                   :key="task.task_id"

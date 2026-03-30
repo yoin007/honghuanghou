@@ -3,10 +3,10 @@
     <el-card class="filter-card">
       <el-form :inline="true" :model="filterForm" class="filter-form">
         <el-form-item label="学生学号">
-          <el-input v-model="filterForm.student_id" placeholder="输入学号" clearable style="width: 150px" />
+          <el-input v-model="filterForm.student_id" placeholder="输入学号" clearable />
         </el-form-item>
         <el-form-item label="班级">
-          <el-select v-model="filterForm.class_id" placeholder="选择班级" clearable style="width: 180px">
+          <el-select v-model="filterForm.class_id" placeholder="选择班级" clearable>
             <el-option
               v-for="cls in classList"
               :key="cls.class_id"
@@ -16,7 +16,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="事件类型">
-          <el-select v-model="filterForm.event_type" placeholder="选择类型" clearable style="width: 140px">
+          <el-select v-model="filterForm.event_type" placeholder="选择类型" clearable>
             <el-option label="积极事件" :value="1" />
             <el-option label="消极事件" :value="2" />
           </el-select>

@@ -3,10 +3,10 @@
     <el-card class="filter-card">
       <el-form :inline="true" :model="filterForm" class="filter-form">
         <el-form-item label="学生学号">
-          <el-input v-model="filterForm.student_id" placeholder="输入学号" clearable style="width: 150px" />
+          <el-input v-model="filterForm.student_id" placeholder="输入学号" clearable />
         </el-form-item>
         <el-form-item label="班级">
-          <el-select v-model="filterForm.class_id" placeholder="选择班级" clearable style="width: 180px">
+          <el-select v-model="filterForm.class_id" placeholder="选择班级" clearable>
             <el-option
               v-for="cls in classList"
               :key="cls.class_id"
@@ -16,7 +16,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="处分状态">
-          <el-select v-model="filterForm.status" placeholder="选择状态" clearable style="width: 120px">
+          <el-select v-model="filterForm.status" placeholder="选择状态" clearable>
             <el-option label="生效中" :value="1" />
             <el-option label="已撤销" :value="0" />
           </el-select>
