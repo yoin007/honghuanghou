@@ -157,7 +157,22 @@ const handleGenerate = async () => {
     const res = await generateStudentProfile(filterForm.student_id)
     if (res.success) {
       ElMessage.success('画像生成成功')
-      profile.value = res.data
+      // 设置学生基本信息
+      student.value = {
+        student_id: res.data.student_id,
+        name: res.data.student_name,
+        class_name: res.data.class_name,
+        grade_name: res.data.grade_name
+      }
+      // 设置画像数据，处理评分格式
+      profile.value = {
+        ...res.data,
+        moral_score: res.data.scores?.moral || 0,
+        attitude_score: res.data.scores?.attitude || 0,
+        social_score: res.data.scores?.social || 0,
+        growth_score: res.data.scores?.growth || 0,
+        generated_at: res.data.generated_at || new Date().toISOString()
+      }
     }
   } catch (error) {
     console.error('生成画像失败:', error)

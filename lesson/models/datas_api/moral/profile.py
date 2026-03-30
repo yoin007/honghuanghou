@@ -134,9 +134,13 @@ async def generate_student_profile(
     权限要求：xuefa/jiaowu/admin
     """
     with get_moral_db() as db:
-        # 获取学生信息
+        # 获取学生信息（包含班级和年级名称）
         student = db.query_one(
-            "SELECT * FROM student WHERE student_id = %s",
+            """SELECT s.*, c.class_name, g.grade_name
+            FROM student s
+            LEFT JOIN class c ON s.class_id = c.class_id
+            LEFT JOIN grade g ON s.grade_id = g.grade_id
+            WHERE s.student_id = %s""",
             (student_id,)
         )
         if not student:
