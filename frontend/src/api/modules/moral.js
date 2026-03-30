@@ -534,6 +534,13 @@ export function getStudents(params = {}) {
 }
 
 /**
+ * 批量创建学生
+ */
+export function batchCreateStudents(data) {
+  return request.post('/api/moral/admin/students/batch', data)
+}
+
+/**
  * 创建学生
  */
 export function createStudent(data) {

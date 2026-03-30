@@ -35,16 +35,16 @@ class SchoolRecordCreate(BaseModel):
     """创建校级事件记录"""
     student_id: str = Field(..., description="学号")
     event_id: int = Field(..., description="事件类型ID")
-    get_date: date = Field(..., description="获得日期")
-    proof: Optional[str] = Field(None, description="证书编号")
-    score: Optional[int] = Field(None, description="分值（可选，默认使用事件类型分值）")
+    event_date: date = Field(..., description="事件日期")
+    description: Optional[str] = Field(None, description="事件描述")
+    evidence: Optional[str] = Field(None, description="证明材料")
 
 
 class SchoolRecordUpdate(BaseModel):
     """更新校级事件记录"""
-    get_date: Optional[date] = None
-    proof: Optional[str] = None
-    score: Optional[int] = None
+    event_date: Optional[date] = None
+    description: Optional[str] = None
+    evidence: Optional[str] = None
     is_deleted: Optional[int] = None
 
 
@@ -155,7 +155,10 @@ async def get_school_records(
         # 分页查询
         offset = (page - 1) * page_size
         data_query = f"""
-            SELECT sr.*, s.name as student_name, se.event_name, se.event_type, se.event_level,
+            SELECT sr.record_id, sr.student_id, sr.event_id, sr.semester_id,
+                   sr.get_date as event_date, sr.score, sr.proof as evidence,
+                   sr.proof as description,
+                   s.name as student_name, se.event_name, se.event_type, se.event_level,
                    c.class_name, g.grade_name
             FROM student_school_record sr
             JOIN student s ON sr.student_id = s.student_id
@@ -208,19 +211,21 @@ async def create_school_record(
         if not event:
             raise HTTPException(404, f"事件类型 {record.event_id} 不存在")
 
+        # 组合证明材料：description + evidence
+        proof = record.evidence or ''
+        if record.description:
+            proof = f"{record.description}" if not proof else f"{record.description} | {record.evidence}"
+
         # 检查证书编号唯一性
-        if record.proof:
+        if proof:
             existing = db.query_one(
                 "SELECT record_id FROM student_school_record WHERE proof = %s",
-                (record.proof,)
+                (proof,)
             )
             if existing:
-                raise HTTPException(400, f"证书编号 {record.proof} 已存在")
+                raise HTTPException(400, f"该证明材料已存在")
 
-        # 计算分值
-        score = record.score if record.score is not None else event['score']
-
-        # 插入记录
+        # 插入记录（使用 event_date 映射到 get_date）
         db.execute(
             """INSERT INTO student_school_record
             (student_id, event_id, semester_id, get_date, class_id, grade_id, score, proof)
@@ -229,11 +234,11 @@ async def create_school_record(
                 record.student_id,
                 record.event_id,
                 semester_id,
-                record.get_date,
+                record.event_date,
                 student_info['class_id'],
                 student_info['grade_id'],
-                score,
-                record.proof
+                event['score'],
+                proof or None
             )
         )
 
@@ -268,17 +273,17 @@ async def update_school_record(
         updates = []
         params = []
 
-        if update_data.get_date is not None:
+        if update_data.event_date is not None:
             updates.append("get_date = %s")
-            params.append(update_data.get_date)
+            params.append(update_data.event_date)
 
-        if update_data.proof is not None:
+        # 组合 description 和 evidence 到 proof 字段
+        if update_data.description is not None or update_data.evidence is not None:
+            proof_value = update_data.evidence or ''
+            if update_data.description:
+                proof_value = update_data.description if not proof_value else f"{update_data.description} | {update_data.evidence}"
             updates.append("proof = %s")
-            params.append(update_data.proof)
-
-        if update_data.score is not None:
-            updates.append("score = %s")
-            params.append(update_data.score)
+            params.append(proof_value or None)
 
         if update_data.is_deleted is not None:
             updates.append("is_deleted = %s")

@@ -3,10 +3,10 @@
     <el-card class="filter-card">
       <el-form :inline="true" :model="filterForm" class="filter-form">
         <el-form-item label="学生学号">
-          <el-input v-model="filterForm.student_id" placeholder="输入学号" clearable />
+          <el-input v-model="filterForm.student_id" placeholder="输入学号" clearable style="width: 150px" />
         </el-form-item>
         <el-form-item label="班级">
-          <el-select v-model="filterForm.class_id" placeholder="选择班级" clearable>
+          <el-select v-model="filterForm.class_id" placeholder="选择班级" clearable style="width: 180px">
             <el-option
               v-for="cls in classList"
               :key="cls.class_id"
@@ -16,7 +16,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="事件类型">
-          <el-select v-model="filterForm.event_type" placeholder="选择类型" clearable>
+          <el-select v-model="filterForm.event_type" placeholder="选择类型" clearable style="width: 140px">
             <el-option label="荣誉奖励" :value="1" />
             <el-option label="违纪处分" :value="2" />
           </el-select>
@@ -78,13 +78,41 @@
     </el-card>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="500px">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="600px">
       <el-form :model="recordForm" :rules="rules" ref="formRef" label-width="100px">
-        <el-form-item label="学号" prop="student_id">
-          <el-input v-model="recordForm.student_id" placeholder="输入学号" />
+        <el-form-item label="班级" prop="class_id">
+          <el-select v-model="recordForm.class_id" placeholder="选择班级" style="width: 100%" @change="handleClassChange" filterable>
+            <el-option-group v-for="grade in gradeList" :key="grade.grade_id" :label="grade.grade_name">
+              <el-option
+                v-for="cls in classList.filter(c => c.grade_id === grade.grade_id)"
+                :key="cls.class_id"
+                :label="cls.class_name"
+                :value="cls.class_id"
+              />
+            </el-option-group>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="学生" prop="student_ids">
+          <el-select
+            v-model="recordForm.student_ids"
+            placeholder="选择学生（可多选）"
+            style="width: 100%"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            filterable
+            :disabled="!recordForm.class_id"
+          >
+            <el-option
+              v-for="student in classStudents"
+              :key="student.student_id"
+              :label="`${student.student_id} - ${student.name}`"
+              :value="student.student_id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="事件类型" prop="event_id">
-          <el-select v-model="recordForm.event_id" placeholder="选择事件类型" style="width: 100%">
+          <el-select v-model="recordForm.event_id" placeholder="选择事件类型" style="width: 100%" filterable>
             <el-option-group label="荣誉奖励">
               <el-option
                 v-for="event in honorEvents"
@@ -136,13 +164,17 @@ import {
   createSchoolRecord,
   updateSchoolRecord,
   deleteSchoolRecord,
-  getClasses
+  getClasses,
+  getGrades,
+  getStudents
 } from '@/api/modules/moral'
 
 // 数据
 const loading = ref(false)
 const recordList = ref([])
 const classList = ref([])
+const gradeList = ref([])
+const classStudents = ref([])
 const eventTypes = ref([])
 
 // 筛选表单
@@ -167,7 +199,8 @@ const formRef = ref(null)
 // 记录表单
 const recordForm = reactive({
   record_id: null,
-  student_id: '',
+  class_id: null,
+  student_ids: [],
   event_id: null,
   event_date: '',
   description: '',
@@ -176,7 +209,8 @@ const recordForm = reactive({
 
 // 表单校验规则
 const rules = {
-  student_id: [{ required: true, message: '请输入学号', trigger: 'blur' }],
+  class_id: [{ required: true, message: '请选择班级', trigger: 'change' }],
+  student_ids: [{ required: true, type: 'array', min: 1, message: '请选择至少一名学生', trigger: 'change' }],
   event_id: [{ required: true, message: '请选择事件类型', trigger: 'change' }],
   event_date: [{ required: true, message: '请选择日期', trigger: 'change' }]
 }
@@ -238,6 +272,32 @@ const fetchClassList = async () => {
   }
 }
 
+const fetchGradeList = async () => {
+  try {
+    const res = await getGrades()
+    if (res.success) {
+      gradeList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取级号列表失败:', error)
+  }
+}
+
+const handleClassChange = async (classId) => {
+  recordForm.student_ids = []
+  classStudents.value = []
+  if (!classId) return
+
+  try {
+    const res = await getStudents({ class_id: classId, page_size: 100 })
+    if (res.success) {
+      classStudents.value = res.data.items || res.data || []
+    }
+  } catch (error) {
+    console.error('获取班级学生失败:', error)
+  }
+}
+
 const handleSearch = () => {
   pagination.page = 1
   fetchRecords()
@@ -253,19 +313,38 @@ const handleReset = () => {
 const handleAdd = () => {
   Object.assign(recordForm, {
     record_id: null,
-    student_id: '',
+    class_id: null,
+    student_ids: [],
     event_id: null,
     event_date: new Date().toISOString().split('T')[0],
     description: '',
     evidence: ''
   })
+  classStudents.value = []
   dialogVisible.value = true
 }
 
-const handleEdit = (row) => {
+const handleEdit = async (row) => {
+  // 获取学生所属班级
+  const studentClass = classList.value.find(c => c.class_name === row.class_name)
+  const classId = studentClass?.class_id
+
+  // 加载该班级的学生列表
+  if (classId) {
+    try {
+      const res = await getStudents({ class_id: classId, page_size: 100 })
+      if (res.success) {
+        classStudents.value = res.data.items || res.data || []
+      }
+    } catch (error) {
+      console.error('获取班级学生失败:', error)
+    }
+  }
+
   Object.assign(recordForm, {
     record_id: row.record_id,
-    student_id: row.student_id,
+    class_id: classId,
+    student_ids: [row.student_id],
     event_id: row.event_id,
     event_date: row.event_date,
     description: row.description,
@@ -294,13 +373,37 @@ const handleDelete = async (row) => {
 const handleSubmit = async () => {
   try {
     await formRef.value.validate()
-    const api = recordForm.record_id
-      ? updateSchoolRecord(recordForm.record_id, recordForm)
-      : createSchoolRecord(recordForm)
 
-    const res = await api
-    if (res.success) {
-      ElMessage.success(recordForm.record_id ? '更新成功' : '创建成功')
+    // 编辑模式：只更新
+    if (recordForm.record_id) {
+      const res = await updateSchoolRecord(recordForm.record_id, {
+        event_date: recordForm.event_date,
+        description: recordForm.description,
+        evidence: recordForm.evidence
+      })
+      if (res.success) {
+        ElMessage.success('更新成功')
+        dialogVisible.value = false
+        fetchRecords()
+      }
+      return
+    }
+
+    // 新增模式：批量为每个学生创建记录
+    const results = []
+    for (const studentId of recordForm.student_ids) {
+      const res = await createSchoolRecord({
+        student_id: studentId,
+        event_id: recordForm.event_id,
+        event_date: recordForm.event_date,
+        description: recordForm.description,
+        evidence: recordForm.evidence
+      })
+      results.push(res.success)
+    }
+    const successCount = results.filter(r => r).length
+    if (successCount > 0) {
+      ElMessage.success(`成功创建 ${successCount} 条记录`)
       dialogVisible.value = false
       fetchRecords()
     }
@@ -312,6 +415,7 @@ const handleSubmit = async () => {
 // 生命周期
 onMounted(() => {
   fetchEventTypes()
+  fetchGradeList()
   fetchClassList()
   fetchRecords()
 })

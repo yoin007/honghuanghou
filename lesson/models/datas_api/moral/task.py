@@ -34,10 +34,11 @@ class MoralTaskCreate(BaseModel):
     """创建德育任务"""
     grade_id: int = Field(..., description="级号ID")
     task_name: str = Field(..., description="任务名称")
-    task_desc: Optional[str] = Field(None, description="任务描述")
-    score: int = Field(..., description="完成得分")
-    deadline_type: Optional[str] = Field("year", description="截止类型：semester/year/open")
-    is_required: Optional[int] = Field(1, description="是否必修")
+    task_type: Optional[int] = Field(1, description="任务类型")
+    score: int = Field(5, description="完成得分")
+    start_date: Optional[str] = Field(None, description="开始日期")
+    end_date: Optional[str] = Field(None, description="结束日期")
+    description: Optional[str] = Field(None, description="任务描述")
 
 
 class TaskFinishCreate(BaseModel):
@@ -45,7 +46,7 @@ class TaskFinishCreate(BaseModel):
     student_id: str = Field(..., description="学号")
     task_id: int = Field(..., description="任务ID")
     finish_date: Optional[date] = Field(None, description="完成日期")
-    proof: Optional[str] = Field(None, description="证明材料")
+    remark: Optional[str] = Field(None, description="备注")
 
 
 # =============================================================================
@@ -60,7 +61,10 @@ async def get_moral_tasks(
 ):
     """获取德育任务列表"""
     with get_moral_db() as db:
-        query = "SELECT t.*, g.grade_name FROM grade_moral_task t JOIN grade g ON t.grade_id = g.grade_id WHERE 1=1"
+        query = """SELECT t.task_id, t.grade_id, t.task_name, t.task_desc as description,
+                   t.score, t.deadline_type, t.is_required, t.is_active, t.created_at,
+                   g.grade_name
+                   FROM grade_moral_task t JOIN grade g ON t.grade_id = g.grade_id WHERE 1=1"""
         params = []
 
         if grade_id:
@@ -86,12 +90,17 @@ async def create_moral_task(
 ):
     """创建德育任务"""
     with get_moral_db() as db:
+        # 根据结束日期判断截止类型
+        deadline_type = "open"
+        if task.end_date:
+            deadline_type = "year"
+
         db.execute(
             """INSERT INTO grade_moral_task
             (grade_id, task_name, task_desc, score, deadline_type, is_required)
             VALUES (%s, %s, %s, %s, %s, %s)""",
-            (task.grade_id, task.task_name, task.task_desc, task.score,
-             task.deadline_type, task.is_required)
+            (task.grade_id, task.task_name, task.description, task.score,
+             deadline_type, 1)
         )
 
         task_id = db.lastrowid()
@@ -121,13 +130,18 @@ async def update_moral_task(
         if not old_task:
             raise HTTPException(404, "任务不存在")
 
+        # 根据结束日期判断截止类型
+        deadline_type = "open"
+        if task.end_date:
+            deadline_type = "year"
+
         db.execute(
             """UPDATE grade_moral_task SET
             grade_id = %s, task_name = %s, task_desc = %s, score = %s,
-            deadline_type = %s, is_required = %s
+            deadline_type = %s
             WHERE task_id = %s""",
-            (task.grade_id, task.task_name, task.task_desc, task.score,
-             task.deadline_type, task.is_required, task_id)
+            (task.grade_id, task.task_name, task.description, task.score,
+             deadline_type, task_id)
         )
 
         log_operation(
@@ -272,7 +286,7 @@ async def finish_task(
                 """UPDATE student_task_finish SET
                 status = 1, finish_date = %s, finish_year_id = %s, proof = %s
                 WHERE id = %s""",
-                (finish_date, year_id, record.proof, existing['id'])
+                (finish_date, year_id, record.remark, existing['id'])
             )
 
             log_operation(
@@ -287,7 +301,7 @@ async def finish_task(
                 """INSERT INTO student_task_finish
                 (student_id, task_id, year_id, status, finish_date, finish_year_id, proof, current_score)
                 VALUES (%s, %s, %s, 1, %s, %s, %s, %s)""",
-                (record.student_id, record.task_id, year_id, finish_date, year_id, record.proof, task['score'])
+                (record.student_id, record.task_id, year_id, finish_date, year_id, record.remark, task['score'])
             )
 
         return {"success": True, "message": "任务完成记录已更新"}

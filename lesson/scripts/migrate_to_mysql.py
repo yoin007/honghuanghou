@@ -44,7 +44,8 @@ class DataMigrator:
         """
         self.config = Config()
         self.lesson_dir = self.config.get_cross_platform_path("lesson_dir", "lesson.yaml")
-        self.template_file = os.path.join(self.lesson_dir, "checkTemplate.xlsx")
+        # 使用指定的模板文件路径
+        self.template_file = "/Users/yoin/bdsync/temp/lesson/checkTemplate.xlsx"
         self.dry_run = dry_run
 
         # 统计信息
@@ -120,23 +121,27 @@ class DataMigrator:
             return enrollment_year, class_number
 
         # 模式2: 中文格式 "高一1班", "高二3班", "高三日语班"
-        # 计算当前年份和年级对应关系
+        # 计算当前年份和年级对应关系（2026年3月）
+        # 高一 = 2025年9月入学 = 2025级
+        # 高二 = 2024年9月入学 = 2024级
+        # 高三 = 2023年9月入学 = 2023级
         current_year = datetime.now().year
 
-        # 年级到入学年份的映射
+        # 年级到入学年份的映射（修正后的正确映射）
         grade_level_map = {
-            '高一': current_year,      # 当年的是高一
-            '高二': current_year - 1,  # 去年的是高二
-            '高三': current_year - 2,  # 前年的是高三
+            '高一': current_year - 1,  # 2025级（2025年9月入学）
+            '高二': current_year - 2,  # 2024级（2024年9月入学）
+            '高三': current_year - 3,  # 2023级（2023年9月入学）
         }
 
         for grade_level, enrollment_year in grade_level_map.items():
             if grade_level in class_code:
                 # 提取班号
-                # "高一1班" -> 1, "高二日语班" -> None (特殊班)
-                number_match = re.search(r'(\d+)', class_code)
-                if number_match:
-                    class_number = int(number_match.group(1))
+                # "高一1班" -> 1, "高三日语1" -> 1, "高二日语" -> 99
+                # 先尝试匹配班级末尾的数字（如 "高三日语1" 中的 '1'）
+                end_number_match = re.search(r'(\d+)班?$', class_code)
+                if end_number_match:
+                    class_number = int(end_number_match.group(1))
                 else:
                     # 特殊班级如日语班，使用班级名称作为标识
                     class_number = 99  # 特殊班号
@@ -165,11 +170,12 @@ class DataMigrator:
             return int(match.group(1)), int(match.group(2))
 
         # 模式2: "高一1班", "高二3班"
+        # 修正后的年级-入学年份映射（2026年3月）
         current_year = datetime.now().year
         grade_level_map = {
-            '高一': current_year,
-            '高二': current_year - 1,
-            '高三': current_year - 2,
+            '高一': current_year - 1,  # 2025级
+            '高二': current_year - 2,  # 2024级
+            '高三': current_year - 3,  # 2023级
         }
 
         for grade_level, enrollment_year in grade_level_map.items():
@@ -268,6 +274,7 @@ class DataMigrator:
             for _, row in class_data.iterrows():
                 class_code = row.get("class_code")
                 class_name = row.get("class_name", "")
+                class_en = row.get("class_en", "")  # 班级英文代码，如 G31
                 leaders = row.get("leaders", "")
                 active = row.get("active", 1)
 
@@ -276,6 +283,7 @@ class DataMigrator:
 
                 class_code_str = str(class_code).strip() if pd.notna(class_code) else ""
                 class_name_str = str(class_name).strip() if pd.notna(class_name) else ""
+                class_en_str = str(class_en).strip() if pd.notna(class_en) else ""
 
                 # 尝试从 class_code 或 class_name 解析级号和班号
                 enrollment_year, class_number = self.parse_class_code(class_code_str)
@@ -283,6 +291,14 @@ class DataMigrator:
                 if not enrollment_year:
                     # 尝试从 class_name 解析
                     enrollment_year, class_number = self.parse_class_name(class_name_str)
+
+                # 使用 class_en 字段提取更准确的 class_number（避免日语班冲突）
+                # class_en 格式: Gxy，其中 x 是年级(1-3)，y 是班号
+                # 如 G31 = 高三1班，G37 = 高三日语1
+                if class_en_str and re.match(r'^G\d+$', class_en_str):
+                    class_number_from_en = int(class_en_str[2:])  # 提取 y 部分
+                    if class_number_from_en > 0:
+                        class_number = class_number_from_en
 
                 if not enrollment_year:
                     logger.warning(f"Cannot parse class_code: {class_code_str}")

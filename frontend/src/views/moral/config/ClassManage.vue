@@ -134,13 +134,12 @@ const fetchGrades = async () => {
 const fetchTeachers = async () => {
   try {
     const res = await getTeachers()
-    if (res.teachers) {
-      // Transform teachers data for use in select
-      teacherList.value = res.teachers.map(t => ({
-        teacher_id: t.username,
-        name: t.username
-      }))
-    }
+    // API返回可能是 axios response 对象或直接的 data
+    const teachers = res.data?.teachers || res.teachers || []
+    teacherList.value = teachers.map(t => ({
+      teacher_id: t.username,
+      name: t.username
+    }))
   } catch (error) {
     console.error('获取教师列表失败:', error)
   }
@@ -248,7 +247,10 @@ const handleViewStudents = async (row) => {
   studentLoading.value = true
   try {
     const res = await getStudents({ class_id: row.class_id })
-    if (res.success) studentsByClass.value = res.data
+    if (res.success) {
+      // 后端返回分页数据，取 items 数组
+      studentsByClass.value = res.data.items || res.data || []
+    }
   } catch (error) {
     console.error('获取学生列表失败:', error)
   } finally {

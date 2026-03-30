@@ -3,10 +3,10 @@
     <el-card class="filter-card">
       <el-form :inline="true" :model="filterForm" class="filter-form">
         <el-form-item label="学生学号">
-          <el-input v-model="filterForm.student_id" placeholder="输入学号" clearable />
+          <el-input v-model="filterForm.student_id" placeholder="输入学号" clearable style="width: 150px" />
         </el-form-item>
         <el-form-item label="班级">
-          <el-select v-model="filterForm.class_id" placeholder="选择班级" clearable>
+          <el-select v-model="filterForm.class_id" placeholder="选择班级" clearable style="width: 180px">
             <el-option
               v-for="cls in classList"
               :key="cls.class_id"
@@ -16,7 +16,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="处分状态">
-          <el-select v-model="filterForm.status" placeholder="选择状态" clearable>
+          <el-select v-model="filterForm.status" placeholder="选择状态" clearable style="width: 120px">
             <el-option label="生效中" :value="1" />
             <el-option label="已撤销" :value="0" />
           </el-select>
@@ -86,11 +86,36 @@
     <!-- 新增/编辑对话框 -->
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="600px">
       <el-form :model="recordForm" :rules="rules" ref="formRef" label-width="100px">
-        <el-form-item label="学号" prop="student_id">
-          <el-input v-model="recordForm.student_id" placeholder="输入学号" />
+        <el-form-item label="班级" prop="class_id">
+          <el-select v-model="recordForm.class_id" placeholder="选择班级" style="width: 100%" @change="handleClassChange" filterable>
+            <el-option-group v-for="grade in gradeList" :key="grade.grade_id" :label="grade.grade_name">
+              <el-option
+                v-for="cls in classList.filter(c => c.grade_id === grade.grade_id)"
+                :key="cls.class_id"
+                :label="cls.class_name"
+                :value="cls.class_id"
+              />
+            </el-option-group>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="学生" prop="student_id">
+          <el-select
+            v-model="recordForm.student_id"
+            placeholder="选择学生"
+            style="width: 100%"
+            filterable
+            :disabled="!recordForm.class_id"
+          >
+            <el-option
+              v-for="student in classStudents"
+              :key="student.student_id"
+              :label="`${student.student_id} - ${student.name}`"
+              :value="student.student_id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="处分类型" prop="punishment_type">
-          <el-select v-model="recordForm.punishment_type" placeholder="选择处分类型" style="width: 100%">
+          <el-select v-model="recordForm.punishment_type" placeholder="选择处分类型" style="width: 100%" filterable>
             <el-option label="警告" value="警告" />
             <el-option label="严重警告" value="严重警告" />
             <el-option label="记过" value="记过" />
@@ -171,13 +196,17 @@ import {
   createPunishment,
   updatePunishment,
   revokePunishment,
-  getClasses
+  getClasses,
+  getGrades,
+  getStudents
 } from '@/api/modules/moral'
 
 // 数据
 const loading = ref(false)
 const recordList = ref([])
 const classList = ref([])
+const gradeList = ref([])
+const classStudents = ref([])
 
 // 筛选表单
 const filterForm = reactive({
@@ -201,6 +230,7 @@ const formRef = ref(null)
 // 记录表单
 const recordForm = reactive({
   record_id: null,
+  class_id: null,
   student_id: '',
   punishment_type: '',
   punishment_level: 2,
@@ -212,7 +242,8 @@ const recordForm = reactive({
 
 // 表单校验规则
 const rules = {
-  student_id: [{ required: true, message: '请输入学号', trigger: 'blur' }],
+  class_id: [{ required: true, message: '请选择班级', trigger: 'change' }],
+  student_id: [{ required: true, message: '请选择学生', trigger: 'change' }],
   punishment_type: [{ required: true, message: '请选择处分类型', trigger: 'change' }],
   punishment_level: [{ required: true, message: '请选择处分等级', trigger: 'change' }],
   punishment_date: [{ required: true, message: '请选择处分日期', trigger: 'change' }],
@@ -279,6 +310,32 @@ const fetchClassList = async () => {
   }
 }
 
+const fetchGradeList = async () => {
+  try {
+    const res = await getGrades()
+    if (res.success) {
+      gradeList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取级号列表失败:', error)
+  }
+}
+
+const handleClassChange = async (classId) => {
+  recordForm.student_id = ''
+  classStudents.value = []
+  if (!classId) return
+
+  try {
+    const res = await getStudents({ class_id: classId, page_size: 100 })
+    if (res.success) {
+      classStudents.value = res.data.items || res.data || []
+    }
+  } catch (error) {
+    console.error('获取班级学生失败:', error)
+  }
+}
+
 const handleSearch = () => {
   pagination.page = 1
   fetchRecords()
@@ -294,6 +351,7 @@ const handleReset = () => {
 const handleAdd = () => {
   Object.assign(recordForm, {
     record_id: null,
+    class_id: null,
     student_id: '',
     punishment_type: '',
     punishment_level: 2,
@@ -302,12 +360,30 @@ const handleAdd = () => {
     evidence: '',
     score_deduct: -10
   })
+  classStudents.value = []
   dialogVisible.value = true
 }
 
-const handleEdit = (row) => {
+const handleEdit = async (row) => {
+  // 获取学生所属班级
+  const studentClass = classList.value.find(c => c.class_name === row.class_name)
+  const classId = studentClass?.class_id
+
+  // 加载该班级的学生列表
+  if (classId) {
+    try {
+      const res = await getStudents({ class_id: classId, page_size: 100 })
+      if (res.success) {
+        classStudents.value = res.data.items || res.data || []
+      }
+    } catch (error) {
+      console.error('获取班级学生失败:', error)
+    }
+  }
+
   Object.assign(recordForm, {
     record_id: row.record_id,
+    class_id: classId,
     student_id: row.student_id,
     punishment_type: row.punishment_type,
     punishment_level: row.punishment_level,
@@ -381,6 +457,7 @@ const handleRevokeSubmit = async () => {
 
 // 生命周期
 onMounted(() => {
+  fetchGradeList()
   fetchClassList()
   fetchRecords()
 })

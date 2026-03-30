@@ -52,26 +52,22 @@ class StudentCreate(BaseModel):
     name: str = Field(..., description="姓名")
     gender: Optional[str] = Field(None, description="性别")
     class_id: int = Field(..., description="班级ID")
-    grade_id: int = Field(..., description="级号ID")
     birthday: Optional[date] = Field(None, description="出生日期")
-    enrollment_date: Optional[date] = Field(None, description="入学日期")
 
 
 class SchoolYearCreate(BaseModel):
     """创建学年"""
-    year_name: str = Field(..., description="学年名称，如：2025-2026学年")
-    start_date: date = Field(..., description="开始日期")
-    end_date: date = Field(..., description="结束日期")
-    is_current: Optional[int] = Field(0, description="是否当前学年")
+    school_year_name: str = Field(..., description="学年名称，如：2025-2026学年")
+    start_year: int = Field(..., description="起始年份")
 
 
 class SemesterCreate(BaseModel):
     """创建学期"""
+    school_year_id: int = Field(..., description="学年ID")
+    semester_type: int = Field(1, description="学期类型：1=上学期，2=下学期")
     semester_name: str = Field(..., description="学期名称，如：2025-2026上")
-    year_id: int = Field(..., description="学年ID")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
-    status: Optional[int] = Field(0, description="是否当前学期")
 
 
 # =============================================================================
@@ -234,10 +230,10 @@ async def update_class(
         db.execute(
             """UPDATE class SET
             class_code = %s, grade_id = %s, class_number = %s, class_name = %s,
-            leader_name = %s, leader_wxid = %s, roomid = %s
+            leader_name = %s
             WHERE class_id = %s""",
             (cls.class_code, cls.grade_id, cls.class_number, cls.class_name,
-             cls.leader_name, cls.leader_wxid, cls.roomid, class_id)
+             cls.leader_name, class_id)
         )
 
         log_operation(
@@ -283,7 +279,8 @@ async def get_school_years(user: User = Depends(get_current_user)):
     """获取学年列表"""
     with get_moral_db() as db:
         years = db.query_all(
-            """SELECT sy.*,
+            """SELECT sy.year_id as school_year_id, sy.year_name as school_year_name,
+                sy.start_date, sy.end_date, sy.is_current,
                 (SELECT COUNT(*) FROM semester WHERE year_id = sy.year_id) as semester_count
                 FROM school_year sy
                 ORDER BY sy.start_date DESC"""
@@ -299,22 +296,22 @@ async def create_school_year(
 ):
     """创建学年"""
     with get_moral_db() as db:
-        if year.is_current == 1:
-            # 取消其他学年的当前状态
-            db.execute("UPDATE school_year SET is_current = 0")
+        # 根据起始年份自动计算开始和结束日期
+        start_date = date(year.start_year, 9, 1)
+        end_date = date(year.start_year + 1, 7, 15)
 
         db.execute(
             """INSERT INTO school_year
             (year_name, start_date, end_date, is_current)
             VALUES (%s, %s, %s, %s)""",
-            (year.year_name, year.start_date, year.end_date, year.is_current)
+            (year.school_year_name, start_date, end_date, 0)
         )
 
         year_id = db.lastrowid()
 
         log_operation(
             db, user.username, user.role, 'INSERT', 'school_year', year_id,
-            new_data={'year_name': year.year_name},
+            new_data={'year_name': year.school_year_name},
             ip_address=request.client.host if request.client else None
         )
 
@@ -338,7 +335,15 @@ async def get_semesters(
         where_clause = " AND ".join(conditions)
 
         semesters = db.query_all(
-            f"""SELECT sem.*, sy.year_name
+            f"""SELECT sem.semester_id, sem.semester_name, sem.year_id, sem.start_date, sem.end_date,
+                sem.status,
+                sy.year_name as school_year_name,
+                CASE
+                    WHEN sem.semester_name LIKE '%上%' THEN 1
+                    WHEN sem.semester_name LIKE '%下%' THEN 2
+                    ELSE 1
+                END as semester_type,
+                CASE WHEN sem.status = 1 THEN 1 ELSE 0 END as is_current
                 FROM semester sem
                 JOIN school_year sy ON sem.year_id = sy.year_id
                 WHERE {where_clause}
@@ -357,19 +362,23 @@ async def create_semester(
 ):
     """创建学期"""
     with get_moral_db() as db:
-        if semester.status == 1:
-            # 取消其他学期的当前状态
-            db.execute("UPDATE semester SET status = 0")
+        # 根据学期类型判断是否设为当前学期（下学期默认为当前）
+        status = 1 if semester.semester_type == 2 else 0
 
         db.execute(
             """INSERT INTO semester
             (semester_name, year_id, start_date, end_date, status)
             VALUES (%s, %s, %s, %s, %s)""",
-            (semester.semester_name, semester.year_id, semester.start_date,
-             semester.end_date, semester.status)
+            (semester.semester_name, semester.school_year_id, semester.start_date,
+             semester.end_date, status)
         )
 
         semester_id = db.lastrowid()
+
+        # 如果是当前学期，更新学年的 is_current
+        if status == 1:
+            db.execute("UPDATE semester SET status = 0 WHERE semester_id != %s", (semester_id,))
+            db.execute("UPDATE school_year SET is_current = 1 WHERE year_id = %s", (semester.school_year_id,))
 
         log_operation(
             db, user.username, user.role, 'INSERT', 'semester', semester_id,
@@ -497,15 +506,31 @@ async def create_student(
         if existing:
             raise HTTPException(400, f"学号 {student.student_id} 已存在")
 
-        # 入学日期默认为9月1日
-        enrollment_date = student.enrollment_date or date.today()
+        # 从班级获取年级ID
+        class_info = db.query_one(
+            "SELECT grade_id FROM class WHERE class_id = %s",
+            (student.class_id,)
+        )
+        if not class_info:
+            raise HTTPException(400, "班级不存在")
+
+        grade_id = class_info["grade_id"]
+
+        # 从学号提取入学年份，设置入学日期
+        enrollment_date = date.today()
+        if len(student.student_id) >= 4:
+            try:
+                year = int(student.student_id[:4])
+                enrollment_date = date(year, 9, 1)
+            except ValueError:
+                pass
 
         db.execute(
             """INSERT INTO student
             (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, status)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '在校')""",
             (student.student_id, student.name, student.gender, student.class_id,
-             student.grade_id, student.grade_id, student.birthday, enrollment_date)
+             grade_id, grade_id, student.birthday, enrollment_date)
         )
 
         # 创建班级履历
@@ -513,7 +538,7 @@ async def create_student(
             """INSERT INTO student_class_history
             (student_id, class_id, grade_id, start_date, change_reason)
             VALUES (%s, %s, %s, %s, '入学')""",
-            (student.student_id, student.class_id, student.grade_id, enrollment_date)
+            (student.student_id, student.class_id, grade_id, enrollment_date)
         )
 
         log_operation(

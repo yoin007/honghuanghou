@@ -145,6 +145,48 @@ button:focus-visible {
   --el-table-header-background-color: var(--background-color);
 }
 
+/* 下拉列表选中项显示不全修复 */
+.el-select .el-select__tags {
+  max-width: 100% !important;
+  flex-wrap: wrap !important;
+}
+
+.el-select .el-tag {
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.el-select .el-tag .el-tag__content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* 单选下拉框选中文字显示 */
+.el-select .el-input__inner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 下拉选项文字完整显示 */
+.el-select-dropdown__item {
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.4;
+  padding: 8px 12px;
+}
+
+/* 多选标签折叠时tooltip显示 */
+.el-select__tags-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 响应式工具类 */
 .hidden-mobile {
   @media (max-width: 768px) {

@@ -6,7 +6,7 @@
         <el-card class="filter-card">
           <el-form :inline="true" :model="taskFilterForm" class="filter-form">
             <el-form-item label="级号">
-              <el-select v-model="taskFilterForm.grade_id" placeholder="选择级号" clearable>
+              <el-select v-model="taskFilterForm.grade_id" placeholder="选择级号" clearable style="width: 150px">
                 <el-option
                   v-for="grade in gradeList"
                   :key="grade.grade_id"
@@ -16,7 +16,7 @@
               </el-select>
             </el-form-item>
             <el-form-item label="状态">
-              <el-select v-model="taskFilterForm.status" placeholder="选择状态" clearable>
+              <el-select v-model="taskFilterForm.status" placeholder="选择状态" clearable style="width: 120px">
                 <el-option label="进行中" :value="1" />
                 <el-option label="已结束" :value="0" />
               </el-select>
@@ -72,10 +72,10 @@
         <el-card class="filter-card">
           <el-form :inline="true" :model="finishFilterForm" class="filter-form">
             <el-form-item label="学生学号">
-              <el-input v-model="finishFilterForm.student_id" placeholder="输入学号" clearable />
+              <el-input v-model="finishFilterForm.student_id" placeholder="输入学号" clearable style="width: 150px" />
             </el-form-item>
             <el-form-item label="任务">
-              <el-select v-model="finishFilterForm.task_id" placeholder="选择任务" clearable>
+              <el-select v-model="finishFilterForm.task_id" placeholder="选择任务" clearable style="width: 200px">
                 <el-option
                   v-for="task in taskList"
                   :key="task.task_id"
@@ -185,13 +185,41 @@
     </el-dialog>
 
     <!-- 完成记录对话框 -->
-    <el-dialog v-model="finishDialogVisible" title="记录任务完成" width="500px">
+    <el-dialog v-model="finishDialogVisible" title="记录任务完成" width="600px">
       <el-form :model="finishForm" :rules="finishRules" ref="finishFormRef" label-width="100px">
-        <el-form-item label="学号" prop="student_id">
-          <el-input v-model="finishForm.student_id" placeholder="输入学号" />
+        <el-form-item label="班级" prop="class_id">
+          <el-select v-model="finishForm.class_id" placeholder="选择班级" style="width: 100%" @change="handleClassChange" filterable>
+            <el-option-group v-for="grade in gradeList" :key="grade.grade_id" :label="grade.grade_name">
+              <el-option
+                v-for="cls in classList.filter(c => c.grade_id === grade.grade_id)"
+                :key="cls.class_id"
+                :label="cls.class_name"
+                :value="cls.class_id"
+              />
+            </el-option-group>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="学生" prop="student_ids">
+          <el-select
+            v-model="finishForm.student_ids"
+            placeholder="选择学生（可多选）"
+            style="width: 100%"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            filterable
+            :disabled="!finishForm.class_id"
+          >
+            <el-option
+              v-for="student in classStudents"
+              :key="student.student_id"
+              :label="`${student.student_id} - ${student.name}`"
+              :value="student.student_id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="任务" prop="task_id">
-          <el-select v-model="finishForm.task_id" placeholder="选择任务" style="width: 100%">
+          <el-select v-model="finishForm.task_id" placeholder="选择任务" style="width: 100%" filterable>
             <el-option
               v-for="task in activeTasks"
               :key="task.task_id"
@@ -231,7 +259,9 @@ import {
   deleteMoralTask,
   getTaskFinishRecords,
   finishTask,
-  getGrades
+  getGrades,
+  getClasses,
+  getStudents
 } from '@/api/modules/moral'
 
 // Tab
@@ -241,6 +271,8 @@ const activeTab = ref('tasks')
 const taskLoading = ref(false)
 const taskList = ref([])
 const gradeList = ref([])
+const classList = ref([])
+const classStudents = ref([])
 
 // 任务筛选
 const taskFilterForm = reactive({
@@ -270,9 +302,7 @@ const taskRules = {
   task_name: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
   grade_id: [{ required: true, message: '请选择级号', trigger: 'change' }],
   task_type: [{ required: true, message: '请选择任务类型', trigger: 'change' }],
-  score: [{ required: true, message: '请输入分值', trigger: 'blur' }],
-  start_date: [{ required: true, message: '请选择开始日期', trigger: 'change' }],
-  end_date: [{ required: true, message: '请选择结束日期', trigger: 'change' }]
+  score: [{ required: true, message: '请输入分值', trigger: 'blur' }]
 }
 
 // 完成记录数据
@@ -296,7 +326,8 @@ const finishFormRef = ref(null)
 
 // 完成记录表单
 const finishForm = reactive({
-  student_id: '',
+  class_id: null,
+  student_ids: [],
   task_id: null,
   finish_date: '',
   remark: ''
@@ -304,7 +335,8 @@ const finishForm = reactive({
 
 // 完成记录表单校验
 const finishRules = {
-  student_id: [{ required: true, message: '请输入学号', trigger: 'blur' }],
+  class_id: [{ required: true, message: '请选择班级', trigger: 'change' }],
+  student_ids: [{ required: true, type: 'array', min: 1, message: '请选择至少一名学生', trigger: 'change' }],
   task_id: [{ required: true, message: '请选择任务', trigger: 'change' }],
   finish_date: [{ required: true, message: '请选择完成日期', trigger: 'change' }]
 }
@@ -344,6 +376,33 @@ const fetchGradeList = async () => {
     }
   } catch (error) {
     console.error('获取级号列表失败:', error)
+  }
+}
+
+const fetchClassList = async () => {
+  try {
+    const res = await getClasses()
+    if (res.success) {
+      classList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取班级列表失败:', error)
+  }
+}
+
+const handleClassChange = async (classId) => {
+  // 清空已选学生
+  finishForm.student_ids = []
+  classStudents.value = []
+  if (!classId) return
+
+  try {
+    const res = await getStudents({ class_id: classId, page_size: 100 })
+    if (res.success) {
+      classStudents.value = res.data.items || res.data || []
+    }
+  } catch (error) {
+    console.error('获取班级学生失败:', error)
   }
 }
 
@@ -459,11 +518,13 @@ const handleFinishReset = () => {
 
 const handleAddFinish = () => {
   Object.assign(finishForm, {
-    student_id: '',
+    class_id: null,
+    student_ids: [],
     task_id: null,
     finish_date: new Date().toISOString().split('T')[0],
     remark: ''
   })
+  classStudents.value = []
   finishDialogVisible.value = true
 }
 
@@ -485,9 +546,20 @@ const handleDeleteFinish = async (row) => {
 const handleFinishSubmit = async () => {
   try {
     await finishFormRef.value.validate()
-    const res = await finishTask(finishForm)
-    if (res.success) {
-      ElMessage.success('记录成功')
+    // 批量为每个学生创建完成记录
+    const results = []
+    for (const studentId of finishForm.student_ids) {
+      const res = await finishTask({
+        student_id: studentId,
+        task_id: finishForm.task_id,
+        finish_date: finishForm.finish_date,
+        remark: finishForm.remark
+      })
+      results.push(res.success)
+    }
+    const successCount = results.filter(r => r).length
+    if (successCount > 0) {
+      ElMessage.success(`成功记录 ${successCount} 条`)
       finishDialogVisible.value = false
       fetchFinishRecords()
     }
@@ -499,6 +571,7 @@ const handleFinishSubmit = async () => {
 // 生命周期
 onMounted(() => {
   fetchGradeList()
+  fetchClassList()
   fetchTasks()
   fetchFinishRecords()
 })

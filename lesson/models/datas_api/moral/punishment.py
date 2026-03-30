@@ -34,10 +34,11 @@ router = APIRouter(prefix="/punishments", tags=["处分管理"])
 class PunishmentCreate(BaseModel):
     """创建处分记录"""
     student_id: str = Field(..., description="学号")
-    event_id: int = Field(..., description="处分事件类型ID")
+    punishment_type: str = Field(..., description="处分类型")
+    punishment_level: int = Field(2, description="处分等级")
     punishment_date: date = Field(..., description="处分日期")
-    level: Optional[str] = Field(None, description="处分等级")
-    reason: Optional[str] = Field(None, description="处分原因")
+    punishment_reason: Optional[str] = Field(None, description="处分原因")
+    evidence: Optional[str] = Field(None, description="证据材料")
     score_deduct: Optional[int] = Field(None, description="扣分")
 
 
@@ -110,8 +111,11 @@ async def get_punishments(
 
         offset = (page - 1) * page_size
         data_query = f"""
-            SELECT p.*, s.name as student_name, se.event_name,
-                   c.class_name, g.grade_name
+            SELECT p.id as record_id, p.student_id, p.punishment_date, p.score_deduct,
+                   p.level as punishment_level, p.reason as punishment_reason,
+                   p.is_revoked, p.revoke_date, p.revoke_reason,
+                   se.event_name as punishment_type,
+                   s.name as student_name, c.class_name, g.grade_name
             FROM punishment_record p
             JOIN student s ON p.student_id = s.student_id
             JOIN school_event_type se ON p.event_id = se.event_id
@@ -154,16 +158,31 @@ async def create_punishment(
         if not student_info:
             raise HTTPException(404, f"学生 {punishment.student_id} 不存在或不在校")
 
-        # 获取事件类型
+        # 根据处分类型名称查找或创建事件类型
         event = db.query_one(
-            "SELECT * FROM school_event_type WHERE event_id = %s AND event_type = 2",
-            (punishment.event_id,)
+            "SELECT * FROM school_event_type WHERE event_name = %s AND event_type = 2",
+            (punishment.punishment_type,)
         )
         if not event:
-            raise HTTPException(404, "处分事件类型不存在")
+            # 如果不存在，创建一个新的事件类型
+            level_score_map = {1: -5, 2: -10, 3: -20, 4: -30}
+            score = punishment.score_deduct if punishment.score_deduct else level_score_map.get(punishment.punishment_level, -10)
+            db.execute(
+                """INSERT INTO school_event_type (event_name, event_type, score, is_active)
+                VALUES (%s, 2, %s, 1)""",
+                (punishment.punishment_type, score)
+            )
+            event_id = db.lastrowid()
+        else:
+            event_id = event['event_id']
 
         # 计算扣分
-        score_deduct = punishment.score_deduct if punishment.score_deduct is not None else abs(event['score'])
+        level_score_map = {1: -5, 2: -10, 3: -20, 4: -30}
+        score_deduct = punishment.score_deduct if punishment.score_deduct else level_score_map.get(punishment.punishment_level, -10)
+
+        # 处分等级文本
+        level_map = {1: '一级', 2: '二级', 3: '三级', 4: '四级'}
+        level_text = level_map.get(punishment.punishment_level, '二级')
 
         # 插入记录
         db.execute(
@@ -173,14 +192,14 @@ async def create_punishment(
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 punishment.student_id,
-                punishment.event_id,
+                event_id,
                 semester_id,
                 punishment.punishment_date,
                 student_info['class_id'],
                 student_info['grade_id'],
                 score_deduct,
-                punishment.level,
-                punishment.reason,
+                level_text,
+                punishment.punishment_reason,
                 user.username
             )
         )
@@ -190,7 +209,7 @@ async def create_punishment(
         log_operation(
             db, user.username, user.role, 'INSERT', 'punishment_record',
             record_id, semester_id,
-            new_data={'student_id': punishment.student_id, 'reason': punishment.reason},
+            new_data={'student_id': punishment.student_id, 'reason': punishment.punishment_reason},
             ip_address=request.client.host if request.client else None
         )
 
@@ -213,11 +232,15 @@ async def update_punishment(
         if not old_record:
             raise HTTPException(404, "记录不存在")
 
+        # 处分等级文本
+        level_map = {1: '一级', 2: '二级', 3: '三级', 4: '四级'}
+        level_text = level_map.get(punishment.punishment_level, '二级')
+
         db.execute(
             """UPDATE punishment_record SET
             punishment_date = %s, level = %s, reason = %s, score_deduct = %s
             WHERE id = %s""",
-            (punishment.punishment_date, punishment.level, punishment.reason,
+            (punishment.punishment_date, level_text, punishment.punishment_reason,
              punishment.score_deduct, record_id)
         )
 
