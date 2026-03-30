@@ -3,7 +3,7 @@
 德育评价系统基础模块
 
 提供：
-- 数据库连接管理
+- 数据库连接管理（SQLite）
 - 权限检查函数
 - 通用工具函数
 """
@@ -16,7 +16,7 @@ from datetime import datetime, date
 from fastapi import Depends, HTTPException, status
 from pydantic import BaseModel
 
-from utils.mysql_db import MySQLDatabase, get_db_connection
+from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
 from models.datas_api.auth import User, get_current_user, is_admin_user
 
 logger = logging.getLogger(__name__)
@@ -116,24 +116,24 @@ MORAL_PERMISSIONS = {
 @contextmanager
 def get_moral_db():
     """
-    获取德育数据库连接的上下文管理器
+    获取德育数据库连接的上下文管理器（SQLite）
 
     使用方式:
         with get_moral_db() as db:
             result = db.query_all("SELECT * FROM student")
     """
-    with MySQLDatabase(pool_name="moral", config_file="moral.yaml") as db:
+    with SQLiteMoralDatabase() as db:
         yield db
 
 
 class MoralDB:
-    """德育数据库操作便捷类"""
+    """德育数据库操作便捷类（SQLite）"""
 
     def __init__(self):
         self._db = None
 
     def __enter__(self):
-        self._db = MySQLDatabase(pool_name="moral", config_file="moral.yaml")
+        self._db = SQLiteMoralDatabase()
         self._db.__enter__()
         return self._db
 
@@ -194,7 +194,7 @@ def check_moral_permission(user: User, permission: str) -> bool:
     return permission in permissions
 
 
-def check_class_access(user: User, class_id: int, db: MySQLDatabase) -> bool:
+def check_class_access(user: User, class_id: int, db: SQLiteMoralDatabase) -> bool:
     """
     检查用户是否有班级访问权限
 
@@ -282,7 +282,7 @@ def require_role_level(min_level: int):
 # 学年学期工具函数
 # =============================================================================
 
-def get_current_school_year(db: MySQLDatabase) -> Optional[Dict[str, Any]]:
+def get_current_school_year(db: SQLiteMoralDatabase) -> Optional[Dict[str, Any]]:
     """
     获取当前学年
 
@@ -297,7 +297,7 @@ def get_current_school_year(db: MySQLDatabase) -> Optional[Dict[str, Any]]:
     )
 
 
-def get_current_semester(db: MySQLDatabase) -> Optional[Dict[str, Any]]:
+def get_current_semester(db: SQLiteMoralDatabase) -> Optional[Dict[str, Any]]:
     """
     获取当前学期
 
@@ -312,7 +312,7 @@ def get_current_semester(db: MySQLDatabase) -> Optional[Dict[str, Any]]:
     )
 
 
-def get_or_create_current_semester(db: MySQLDatabase) -> Dict[str, Any]:
+def get_or_create_current_semester(db: SQLiteMoralDatabase) -> Dict[str, Any]:
     """
     获取或创建当前学期
 
@@ -414,7 +414,7 @@ def calculate_moral_level(score: float) -> str:
         return "不合格"
 
 
-def get_student_class_snapshot(db: MySQLDatabase, student_id: str) -> Optional[Dict[str, Any]]:
+def get_student_class_snapshot(db: SQLiteMoralDatabase, student_id: str) -> Optional[Dict[str, Any]]:
     """
     获取学生当前班级信息快照
 
@@ -433,7 +433,7 @@ def get_student_class_snapshot(db: MySQLDatabase, student_id: str) -> Optional[D
 
 
 def log_operation(
-    db: MySQLDatabase,
+    db: SQLiteMoralDatabase,
     operator: str,
     operator_role: str,
     operation: str,

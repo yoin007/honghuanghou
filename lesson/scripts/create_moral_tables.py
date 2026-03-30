@@ -9,7 +9,11 @@
 - 配置表：semester_carryover_config, data_visibility_config, task_carryover_log, moral_operation_log
 
 运行方式：
+    # MySQL 建表（默认）
     python scripts/create_moral_tables.py [--drop-existing]
+
+    # SQLite 建表
+    python scripts/create_moral_tables.py --sqlite [--drop-existing]
 """
 
 import sys
@@ -20,12 +24,583 @@ from typing import List
 # 添加 lesson 目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import sqlite3
 import mysql.connector
 from mysql.connector import Error
 from utils.mysql_db import get_connection_pool
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# SQLite 表定义 SQL
+# =============================================================================
+
+SQLite_TABLES_SQL = {
+    # 1. 学年表
+    "school_year": """
+CREATE TABLE IF NOT EXISTS school_year (
+    year_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    year_name TEXT NOT NULL UNIQUE,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    is_current INTEGER DEFAULT 0
+);
+""",
+    # 2. 学期表
+    "semester": """
+CREATE TABLE IF NOT EXISTS semester (
+    semester_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    semester_name TEXT NOT NULL,
+    year_id INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    status INTEGER DEFAULT 1,
+    FOREIGN KEY (year_id) REFERENCES school_year(year_id),
+    UNIQUE (semester_name, year_id)
+);
+CREATE INDEX IF NOT EXISTS idx_semester_year ON semester(year_id);
+""",
+    # 3. 级号表
+    "grade": """
+CREATE TABLE IF NOT EXISTS grade (
+    grade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    grade_name TEXT NOT NULL,
+    enrollment_year INTEGER NOT NULL UNIQUE
+);
+""",
+    # 4. 年级等级配置表
+    "grade_level_config": """
+CREATE TABLE IF NOT EXISTS grade_level_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    years_after_enrollment INTEGER NOT NULL UNIQUE,
+    level_name TEXT NOT NULL
+);
+""",
+    # 5. 班级表
+    "class": """
+CREATE TABLE IF NOT EXISTS class (
+    class_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_code TEXT NOT NULL UNIQUE,
+    grade_id INTEGER NOT NULL,
+    class_number INTEGER NOT NULL,
+    class_name TEXT NOT NULL,
+    leader_wxid TEXT,
+    leader_name TEXT,
+    roomid TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id),
+    UNIQUE (grade_id, class_number)
+);
+""",
+    # 6. 学生表
+    "student": """
+CREATE TABLE IF NOT EXISTS student (
+    student_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    gender TEXT CHECK (gender IN ('男', '女')),
+    class_id INTEGER NOT NULL,
+    grade_id INTEGER NOT NULL,
+    original_grade_id INTEGER,
+    roomid TEXT,
+    status TEXT DEFAULT '在校' CHECK (status IN ('在校', '休学', '转出', '毕业')),
+    status_date TEXT,
+    enrollment_date TEXT,
+    is_active INTEGER DEFAULT 1,
+    birthday TEXT,
+    phone TEXT,
+    email TEXT,
+    entrance_score NUMERIC(6,2),
+    entrance_rank INTEGER,
+    gaokao_score NUMERIC(6,2),
+    gaokao_year INTEGER,
+    gaokao_rank INTEGER,
+    middle_school TEXT,
+    middle_school_city TEXT,
+    university_name TEXT,
+    university_type TEXT,
+    university_major TEXT,
+    university_city TEXT,
+    profile_summary TEXT,
+    profile_tags TEXT,
+    profile_updated_at TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (class_id) REFERENCES class(class_id),
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id),
+    FOREIGN KEY (original_grade_id) REFERENCES grade(grade_id)
+);
+CREATE INDEX IF NOT EXISTS idx_student_birthday ON student(birthday);
+CREATE INDEX IF NOT EXISTS idx_student_grade_status ON student(grade_id, status);
+""",
+    # 7. 教师表
+    "teacher": """
+CREATE TABLE IF NOT EXISTS teacher (
+    teacher_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    wxid TEXT,
+    subject TEXT,
+    password_hash TEXT,
+    role TEXT DEFAULT 'teacher',
+    level INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    notice_enabled INTEGER DEFAULT 1,
+    is_password_changed INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_teacher_wxid ON teacher(wxid);
+""",
+    # 8. 角色表
+    "role": """
+CREATE TABLE IF NOT EXISTS role (
+    role_id TEXT PRIMARY KEY,
+    role_name TEXT,
+    description TEXT
+);
+""",
+    # 9. 学生班级履历表
+    "student_class_history": """
+CREATE TABLE IF NOT EXISTS student_class_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    class_id INTEGER NOT NULL,
+    grade_id INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    change_reason TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (class_id) REFERENCES class(class_id),
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id)
+);
+CREATE INDEX IF NOT EXISTS idx_student_class_history_date ON student_class_history(student_id, start_date, end_date);
+""",
+    # 10. 学籍变动记录表
+    "student_status_change": """
+CREATE TABLE IF NOT EXISTS student_status_change (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    change_type TEXT NOT NULL,
+    from_class_id INTEGER,
+    to_class_id INTEGER,
+    from_grade_id INTEGER,
+    to_grade_id INTEGER,
+    effective_date TEXT NOT NULL,
+    reason TEXT,
+    approver TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (from_class_id) REFERENCES class(class_id),
+    FOREIGN KEY (to_class_id) REFERENCES class(class_id),
+    FOREIGN KEY (from_grade_id) REFERENCES grade(grade_id),
+    FOREIGN KEY (to_grade_id) REFERENCES grade(grade_id)
+);
+""",
+    # 11. 日常事件类型表
+    "daily_event_type": """
+CREATE TABLE IF NOT EXISTS daily_event_type (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_name TEXT NOT NULL,
+    event_type INTEGER NOT NULL CHECK (event_type IN (1, 2)),
+    score INTEGER NOT NULL,
+    description TEXT,
+    is_active INTEGER DEFAULT 1,
+    CHECK (
+        (event_type = 1 AND score > 0) OR
+        (event_type = 2 AND score < 0)
+    )
+);
+""",
+    # 12. 校级事件类型表
+    "school_event_type": """
+CREATE TABLE IF NOT EXISTS school_event_type (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_name TEXT NOT NULL,
+    event_level TEXT,
+    event_type INTEGER NOT NULL CHECK (event_type IN (1, 2)),
+    score INTEGER NOT NULL,
+    description TEXT,
+    is_active INTEGER DEFAULT 1
+);
+""",
+    # 13. 年级德育任务表
+    "grade_moral_task": """
+CREATE TABLE IF NOT EXISTS grade_moral_task (
+    task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    grade_id INTEGER NOT NULL,
+    task_name TEXT NOT NULL,
+    task_desc TEXT,
+    score INTEGER NOT NULL,
+    deadline_type TEXT,
+    is_required INTEGER DEFAULT 1,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id)
+);
+""",
+    # 14. 学生日常表现记录表
+    "student_daily_record": """
+CREATE TABLE IF NOT EXISTS student_daily_record (
+    record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    event_id INTEGER NOT NULL,
+    semester_id INTEGER NOT NULL,
+    record_date TEXT NOT NULL,
+    class_id INTEGER NOT NULL,
+    grade_id INTEGER NOT NULL,
+    score INTEGER,
+    remark TEXT,
+    recorder TEXT,
+    is_deleted INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (event_id) REFERENCES daily_event_type(event_id),
+    FOREIGN KEY (semester_id) REFERENCES semester(semester_id),
+    FOREIGN KEY (class_id) REFERENCES class(class_id),
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id),
+    UNIQUE (student_id, event_id, record_date, semester_id)
+);
+CREATE INDEX IF NOT EXISTS idx_student_daily_semester ON student_daily_record(student_id, semester_id);
+""",
+    # 15. 学生校级事件记录表
+    "student_school_record": """
+CREATE TABLE IF NOT EXISTS student_school_record (
+    record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    event_id INTEGER NOT NULL,
+    semester_id INTEGER NOT NULL,
+    get_date TEXT NOT NULL,
+    class_id INTEGER NOT NULL,
+    grade_id INTEGER NOT NULL,
+    score INTEGER,
+    proof TEXT UNIQUE,
+    is_deleted INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (event_id) REFERENCES school_event_type(event_id),
+    FOREIGN KEY (semester_id) REFERENCES semester(semester_id),
+    FOREIGN KEY (class_id) REFERENCES class(class_id),
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id)
+);
+""",
+    # 16. 学生任务完成记录表
+    "student_task_finish": """
+CREATE TABLE IF NOT EXISTS student_task_finish (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    task_id INTEGER NOT NULL,
+    year_id INTEGER NOT NULL,
+    original_task_id INTEGER,
+    original_year_id INTEGER,
+    is_carried_over INTEGER DEFAULT 0,
+    carryover_count INTEGER DEFAULT 0,
+    current_score NUMERIC(6,2),
+    status INTEGER DEFAULT 0 CHECK (status IN (0, 1, 2)),
+    finish_date TEXT,
+    finish_year_id INTEGER,
+    proof TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (task_id) REFERENCES grade_moral_task(task_id),
+    FOREIGN KEY (year_id) REFERENCES school_year(year_id),
+    FOREIGN KEY (original_task_id) REFERENCES grade_moral_task(task_id),
+    FOREIGN KEY (original_year_id) REFERENCES school_year(year_id),
+    FOREIGN KEY (finish_year_id) REFERENCES school_year(year_id),
+    UNIQUE (student_id, task_id, year_id)
+);
+""",
+    # 17. 处分记录表
+    "punishment_record": """
+CREATE TABLE IF NOT EXISTS punishment_record (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    event_id INTEGER NOT NULL,
+    semester_id INTEGER NOT NULL,
+    punishment_date TEXT NOT NULL,
+    class_id INTEGER NOT NULL,
+    grade_id INTEGER NOT NULL,
+    score_deduct INTEGER NOT NULL,
+    level TEXT,
+    reason TEXT,
+    recorder TEXT,
+    is_revoked INTEGER DEFAULT 0,
+    revoke_date TEXT,
+    revoke_by TEXT,
+    revoke_reason TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (event_id) REFERENCES school_event_type(event_id),
+    FOREIGN KEY (semester_id) REFERENCES semester(semester_id),
+    FOREIGN KEY (class_id) REFERENCES class(class_id),
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id)
+);
+""",
+    # 18. 集体事件表
+    "collective_event": """
+CREATE TABLE IF NOT EXISTS collective_event (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_name TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    semester_id INTEGER NOT NULL,
+    event_date TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    description TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (semester_id) REFERENCES semester(semester_id)
+);
+""",
+    # 19. 集体事件分配表
+    "collective_event_distribution": """
+CREATE TABLE IF NOT EXISTS collective_event_distribution (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    student_id TEXT NOT NULL,
+    class_id INTEGER NOT NULL,
+    score_assigned INTEGER,
+    is_participant INTEGER DEFAULT 1,
+    remark TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (event_id) REFERENCES collective_event(event_id),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (class_id) REFERENCES class(class_id),
+    UNIQUE (event_id, student_id)
+);
+""",
+    # 20. 德育评价表
+    "moral_evaluation": """
+CREATE TABLE IF NOT EXISTS moral_evaluation (
+    eval_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    semester_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    grade_id INTEGER NOT NULL,
+    total_score NUMERIC(6,2) DEFAULT 0,
+    level TEXT,
+    update_time TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (semester_id) REFERENCES semester(semester_id),
+    FOREIGN KEY (class_id) REFERENCES class(class_id),
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id),
+    UNIQUE (student_id, semester_id)
+);
+""",
+    # 21. 违纪累进规则表
+    "violation_escalation_rule": """
+CREATE TABLE IF NOT EXISTS violation_escalation_rule (
+    rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    time_window_days INTEGER DEFAULT 90,
+    escalation_rules TEXT,
+    FOREIGN KEY (event_id) REFERENCES daily_event_type(event_id)
+);
+""",
+    # 22. 学期结转配置表
+    "semester_carryover_config": """
+CREATE TABLE IF NOT EXISTS semester_carryover_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    data_type TEXT NOT NULL,
+    can_carryover INTEGER DEFAULT 1,
+    score_factor NUMERIC(3,2) DEFAULT 1.00,
+    description TEXT
+);
+""",
+    # 23. 数据可见性配置表
+    "data_visibility_config": """
+CREATE TABLE IF NOT EXISTS data_visibility_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    data_type TEXT NOT NULL,
+    visible_roles TEXT NOT NULL,
+    description TEXT
+);
+""",
+    # 24. 预警配置表
+    "warning_config": """
+CREATE TABLE IF NOT EXISTS warning_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_name TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,
+    trigger_value INTEGER NOT NULL,
+    notify_roles TEXT,
+    is_active INTEGER DEFAULT 1
+);
+""",
+    # 25. 预警日志表
+    "warning_log": """
+CREATE TABLE IF NOT EXISTS warning_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    rule_id INTEGER NOT NULL,
+    semester_id INTEGER NOT NULL,
+    warning_level TEXT DEFAULT 'warning',
+    message TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (rule_id) REFERENCES warning_config(id),
+    FOREIGN KEY (semester_id) REFERENCES semester(semester_id)
+);
+""",
+    # 26. 任务结转日志表
+    "task_carryover_log": """
+CREATE TABLE IF NOT EXISTS task_carryover_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    original_task_id INTEGER NOT NULL,
+    from_year_id INTEGER NOT NULL,
+    to_year_id INTEGER NOT NULL,
+    carryover_index INTEGER NOT NULL,
+    score_before NUMERIC(6,2),
+    score_after NUMERIC(6,2),
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (original_task_id) REFERENCES grade_moral_task(task_id),
+    FOREIGN KEY (from_year_id) REFERENCES school_year(year_id),
+    FOREIGN KEY (to_year_id) REFERENCES school_year(year_id)
+);
+""",
+    # 27. 操作日志表
+    "moral_operation_log": """
+CREATE TABLE IF NOT EXISTS moral_operation_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operator TEXT NOT NULL,
+    operator_role TEXT,
+    operation TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    record_id INTEGER,
+    semester_id INTEGER,
+    old_data TEXT,
+    new_data TEXT,
+    reason TEXT,
+    ip_address TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_operation_log_operator ON moral_operation_log(operator);
+CREATE INDEX IF NOT EXISTS idx_operation_log_table_record ON moral_operation_log(table_name, record_id);
+""",
+    # 28. 学生画像表
+    "student_profile": """
+CREATE TABLE IF NOT EXISTS student_profile (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    profile_version INTEGER DEFAULT 1,
+    profile_summary TEXT,
+    profile_tags TEXT,
+    strength_tags TEXT,
+    improvement_tags TEXT,
+    risk_level TEXT,
+    moral_score NUMERIC(5,2),
+    attitude_score NUMERIC(5,2),
+    social_score NUMERIC(5,2),
+    growth_score NUMERIC(5,2),
+    suggestions TEXT,
+    intervention_priority TEXT,
+    data_source_summary TEXT,
+    generated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    UNIQUE (student_id, profile_version)
+);
+""",
+    # 29. 画像历史表
+    "student_profile_history": """
+CREATE TABLE IF NOT EXISTS student_profile_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    profile_version INTEGER NOT NULL,
+    profile_data TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id)
+);
+""",
+    # 30. 画像配置表
+    "profile_config": """
+CREATE TABLE IF NOT EXISTS profile_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_key TEXT NOT NULL UNIQUE,
+    config_value TEXT,
+    description TEXT
+);
+""",
+    # 31. AI诊疗会话表
+    "ai_consultation": """
+CREATE TABLE IF NOT EXISTS ai_consultation (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    consultation_type TEXT NOT NULL,
+    title TEXT,
+    description TEXT,
+    status TEXT DEFAULT 'active',
+    priority TEXT DEFAULT 'normal',
+    creator TEXT,
+    assignee TEXT,
+    participants TEXT,
+    ai_analysis TEXT,
+    ai_suggestions TEXT,
+    ai_risk_assessment TEXT,
+    solution TEXT,
+    outcome TEXT,
+    follow_up_date TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    closed_at TEXT,
+    FOREIGN KEY (student_id) REFERENCES student(student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_consultation_student_status ON ai_consultation(student_id, status);
+""",
+    # 32. AI诊疗对话记录表
+    "ai_consultation_message": """
+CREATE TABLE IF NOT EXISTS ai_consultation_message (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    consultation_id INTEGER NOT NULL,
+    message_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    sender TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (consultation_id) REFERENCES ai_consultation(id)
+);
+CREATE INDEX IF NOT EXISTS idx_consultation_message ON ai_consultation_message(consultation_id);
+""",
+    # 33. 生日提醒表
+    "birthday_reminder": """
+CREATE TABLE IF NOT EXISTS birthday_reminder (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    reminder_date TEXT NOT NULL,
+    reminder_type TEXT DEFAULT 'birthday',
+    message TEXT,
+    is_sent INTEGER DEFAULT 0,
+    sent_at TEXT,
+    recipient_type TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_birthday_reminder_date ON birthday_reminder(reminder_date);
+""",
+    # 34. 生日提醒配置表
+    "birthday_reminder_config": """
+CREATE TABLE IF NOT EXISTS birthday_reminder_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_key TEXT NOT NULL UNIQUE,
+    config_value TEXT,
+    description TEXT
+);
+""",
+    # 35. 系统配置表
+    "moral_config": """
+CREATE TABLE IF NOT EXISTS moral_config (
+    config_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_key TEXT NOT NULL UNIQUE,
+    config_value TEXT,
+    description TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+""",
+}
 
 
 # =============================================================================
@@ -723,7 +1298,7 @@ def create_tables(drop_existing: bool = False):
 
 
 def verify_tables():
-    """验证表创建结果"""
+    """验证MySQL表创建结果"""
     from utils.mysql_db import MySQLDatabase
 
     with MySQLDatabase() as db:
@@ -740,20 +1315,153 @@ def verify_tables():
                 logger.warning(f"Table '{table_name}' check failed: {e}")
 
 
+# SQLite 初始数据插入SQL
+SQLite_INITIAL_DATA_SQL = [
+    # 年级等级配置
+    "INSERT OR IGNORE INTO grade_level_config VALUES (1, 0, '高一'), (2, 1, '高二'), (3, 2, '高三');",
+    # 角色配置
+    """INSERT OR IGNORE INTO role VALUES
+    ('admin', '管理员', '系统管理员'),
+    ('jiaowu', '教发部', '教师发展部，负责教学质量、教师管理'),
+    ('xuefa', '学发部', '学生发展部，负责德育评价'),
+    ('cleader', '班主任', '班级管理者'),
+    ('teacher', '教师', '普通教师'),
+    ('student', '学生', '学生'),
+    ('parent', '家长', '学生家长');""",
+    # 学期结转配置
+    """INSERT OR IGNORE INTO semester_carryover_config (id, data_type, can_carryover, score_factor, description) VALUES
+    (1, 'honor', 0, 1.00, '荣誉不结转，记录保留在原学期'),
+    (2, 'punishment', 0, 1.00, '处分不结转，记录保留在原学期'),
+    (3, 'task_unfinished', 1, 0.60, '未完成任务可结转，每次×60%');""",
+    # 数据可见性配置
+    """INSERT OR IGNORE INTO data_visibility_config (id, data_type, visible_roles, description) VALUES
+    (1, 'punishment_record', '["admin", "xuefa", "jiaowu"]', '处分记录'),
+    (2, 'daily_negative', '["admin", "xuefa", "jiaowu", "cleader"]', '消极事件'),
+    (3, 'daily_positive', '["admin", "xuefa", "jiaowu", "cleader", "teacher"]', '积极事件'),
+    (4, 'honor_record', '["admin", "xuefa", "jiaowu", "cleader", "teacher", "student", "parent"]', '荣誉记录'),
+    (5, 'evaluation_score', '["admin", "xuefa", "jiaowu", "cleader", "student", "parent"]', '评价得分');""",
+    # 预警配置
+    """INSERT OR IGNORE INTO warning_config (id, rule_name, trigger_type, trigger_value, notify_roles, is_active) VALUES
+    (1, '德育分过低', 'score_threshold', 50, '["cleader", "xuefa", "jiaowu"]', 1),
+    (2, '扣分过多', 'score_threshold', -20, '["cleader", "xuefa", "jiaowu"]', 1),
+    (3, '违纪次数过多', 'count_threshold', 5, '["cleader", "xuefa", "jiaowu"]', 1);""",
+    # 画像配置
+    """INSERT OR IGNORE INTO profile_config VALUES
+    (1, 'tag_definitions', '["责任担当", "诚实守信", "乐于助人", "勤奋刻苦", "积极进取", "团结协作", "遵纪守法", "文明礼貌", "关爱他人", "勇于创新"]', '画像标签定义'),
+    (2, 'update_frequency', '{"type": "semester", "min_records": 5}', '更新频率配置'),
+    (3, 'risk_thresholds', '{"high": {"negative_count": 10, "score_below": 50}, "medium": {"negative_count": 5, "score_below": 60}}', '风险阈值配置');""",
+    # 生日提醒配置
+    """INSERT OR IGNORE INTO birthday_reminder_config VALUES
+    (1, 'reminder_days_before', '3', '提前多少天提醒'),
+    (2, 'reminder_time', '{"hour": 8, "minute": 0}', '提醒时间'),
+    (3, 'message_template', '{"student": "祝你生日快乐！愿你学业进步，前程似锦！", "parent": "您的孩子即将迎来生日，祝家庭幸福美满！"}', '祝福模板');""",
+]
+
+
+def create_sqlite_tables(db_path: str = None, drop_existing: bool = False):
+    """
+    创建SQLite表
+
+    Args:
+        db_path: 数据库文件路径，默认为 databases/moral.db
+        drop_existing: 是否先删除现有表
+    """
+    from utils.sqlite_moral_db import MoralDatabase, get_moral_db_path
+
+    db_path = db_path or get_moral_db_path()
+
+    # 确保数据库目录存在
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA journal_mode=WAL")
+
+    try:
+        if drop_existing:
+            logger.warning("Dropping existing SQLite tables...")
+            # 按相反顺序删除（避免外键约束问题）
+            table_order_reverse = list(SQLite_TABLES_SQL.keys())[::-1]
+            for table_name in table_order_reverse:
+                conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+                logger.info(f"SQLite table '{table_name}' dropped")
+
+        # 按定义顺序创建表
+        logger.info("Creating SQLite tables...")
+        for table_name, sql in SQLite_TABLES_SQL.items():
+            # SQLite 每条 CREATE 语句需要分开执行（包含 CREATE INDEX）
+            statements = sql.strip().split(';')
+            for stmt in statements:
+                stmt = stmt.strip()
+                if stmt:
+                    conn.execute(stmt)
+            logger.info(f"SQLite table '{table_name}' created")
+
+        # 插入初始数据
+        logger.info("Inserting SQLite initial data...")
+        for sql in SQLite_INITIAL_DATA_SQL:
+            conn.execute(sql)
+
+        conn.commit()
+        logger.info("All SQLite tables created successfully!")
+
+        # 显示创建的表数量
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        tables = cursor.fetchall()
+        logger.info(f"Total SQLite tables: {len(tables)}")
+
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error creating SQLite tables: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+def verify_sqlite_tables(db_path: str = None):
+    """验证SQLite表创建结果"""
+    from utils.sqlite_moral_db import MoralDatabase, get_moral_db_path
+
+    db_path = db_path or get_moral_db_path()
+
+    with MoralDatabase(db_path) as db:
+        # 检查表数量
+        result = db.query_value(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+        logger.info(f"SQLite tables count: {result}")
+
+        # 检查各表记录数
+        for table_name in SQLite_TABLES_SQL.keys():
+            try:
+                count = db.query_value(f"SELECT COUNT(*) FROM {table_name}")
+                logger.info(f"SQLite table '{table_name}': {count} records")
+            except Exception as e:
+                logger.warning(f"SQLite table '{table_name}' check failed: {e}")
+
+
 def main():
     """主函数"""
     import argparse
 
     parser = argparse.ArgumentParser(description="Create moral evaluation system database tables")
+    parser.add_argument("--sqlite", action="store_true", help="Use SQLite instead of MySQL")
     parser.add_argument("--drop-existing", action="store_true", help="Drop existing tables before creating")
     parser.add_argument("--verify", action="store_true", help="Verify tables after creation")
+    parser.add_argument("--db-path", type=str, help="SQLite database path (optional)")
     args = parser.parse_args()
 
     try:
-        create_tables(drop_existing=args.drop_existing)
+        if args.sqlite:
+            create_sqlite_tables(db_path=args.db_path, drop_existing=args.drop_existing)
 
-        if args.verify:
-            verify_tables()
+            if args.verify:
+                verify_sqlite_tables(db_path=args.db_path)
+        else:
+            create_tables(drop_existing=args.drop_existing)
+
+            if args.verify:
+                verify_tables()
 
         logger.info("Database setup completed!")
     except Exception as e:
