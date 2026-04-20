@@ -272,6 +272,24 @@ const routes = [
       title: '生日提醒'
     }
   },
+  {
+    path: '/moral/moment',
+    name: 'MoralMoment',
+    component: () => import('../views/moral/MomentRecord.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '点滴记录'
+    }
+  },
+  {
+    path: '/moral/lifebook',
+    name: 'MoralLifeBook',
+    component: () => import('../views/moral/LifeBook.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '一生一册'
+    }
+  },
   // 德育配置管理路由
   {
     path: '/moral/config',

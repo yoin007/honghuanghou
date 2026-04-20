@@ -44,6 +44,8 @@ from .birthday import router as birthday_router
 from .consultation import router as consultation_router
 from .admin import router as admin_router
 from .escalation_api import router as escalation_router
+from .moment_api import router as moment_router
+from .timeline_api import router as timeline_router
 
 from fastapi import APIRouter
 
@@ -61,6 +63,8 @@ router.include_router(birthday_router)
 router.include_router(consultation_router)
 router.include_router(admin_router)
 router.include_router(escalation_router)
+router.include_router(moment_router)
+router.include_router(timeline_router)
 
 __all__ = [
     'router',

@@ -45,6 +45,8 @@ MORAL_PERMISSIONS = {
             'semester_manage',
             'birthday_reminder',
             'student_profile',
+            'moment_view_all',
+            'profile_view_all',
         ]
     },
     'xuefa': {
@@ -60,6 +62,8 @@ MORAL_PERMISSIONS = {
             'ai_consultation',
             'birthday_reminder',
             'student_profile',
+            'moment_view_all',
+            'profile_view_all',
         ]
     },
     'cleader': {
@@ -74,6 +78,9 @@ MORAL_PERMISSIONS = {
             'ai_consultation_own_class',
             'student_profile_own_class',
             'birthday_reminder_own_class',
+            'moment_create',
+            'moment_view_own',
+            'profile_view_own_class',
         ]
     },
     'teacher': {
@@ -84,6 +91,8 @@ MORAL_PERMISSIONS = {
             'schedule_view',
             'student_view',
             'moral_record_input',
+            'moment_create',
+            'moment_view_own',
         ]
     },
     'student': {

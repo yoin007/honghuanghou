@@ -74,6 +74,8 @@
               <el-menu-item index="/moral/task">德育任务</el-menu-item>
               <el-menu-item index="/moral/punishment">处分管理</el-menu-item>
               <el-menu-item index="/moral/evaluation">评价查询</el-menu-item>
+              <el-menu-item index="/moral/moment">点滴记录</el-menu-item>
+              <el-menu-item v-if="isCleader || isJiaowu || isAdmin" index="/moral/lifebook">一生一册</el-menu-item>
               <el-menu-item index="/moral/profile">学生画像</el-menu-item>
               <el-menu-item index="/moral/birthday">生日提醒</el-menu-item>
               <el-menu-item v-if="isCleader && !isAdmin && !isJiaowu" index="/moral/config/student">学生管理</el-menu-item>
