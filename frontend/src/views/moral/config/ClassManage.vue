@@ -27,6 +27,9 @@
             <el-tag type="success">{{ row.student_count || 0 }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="established" label="成立时间" width="100" />
+        <el-table-column prop="motto" label="班级口号" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="location" label="位置" width="60" />
         <el-table-column prop="created_at" label="创建时间" width="180" />
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
@@ -59,6 +62,15 @@
           <el-select v-model="form.leader_name" placeholder="选择班主任" clearable filterable style="width: 100%">
             <el-option v-for="teacher in teacherList" :key="teacher.teacher_id" :label="teacher.name" :value="teacher.name" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="成立时间">
+          <el-date-picker v-model="form.established" type="date" placeholder="选择成立时间" value-format="YYYY-MM-DD" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="班级口号">
+          <el-input v-model="form.motto" placeholder="班级口号" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="教室位置">
+          <el-input v-model="form.location" placeholder="如：A、B" maxlength="20" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -107,7 +119,10 @@ const form = reactive({
   class_code: '',
   class_number: 1,
   class_name: '',
-  leader_name: ''
+  leader_name: '',
+  established: '',
+  motto: '',
+  location: ''
 })
 const rules = {
   grade_id: [{ required: true, message: '请选择级号', trigger: 'change' }],
@@ -169,7 +184,10 @@ const handleAdd = () => {
     class_code: `${year}-${classCount}`,
     class_number: classCount,
     class_name: `${classCount}班`,
-    leader_name: ''
+    leader_name: '',
+    established: `${year}-09-01`,
+    motto: '',
+    location: ''
   })
   dialogVisible.value = true
 }
@@ -191,7 +209,10 @@ const handleEdit = (row) => {
     class_code: row.class_code,
     class_number: row.class_number,
     class_name: row.class_name,
-    leader_name: row.leader_name || ''
+    leader_name: row.leader_name || '',
+    established: row.established || '',
+    motto: row.motto || '',
+    location: row.location || ''
   })
   dialogVisible.value = true
 }
@@ -204,7 +225,10 @@ const handleSubmit = async () => {
       grade_id: form.grade_id,
       class_number: form.class_number,
       class_name: form.class_name,
-      leader_name: form.leader_name || null
+      leader_name: form.leader_name || null,
+      established: form.established || null,
+      motto: form.motto || null,
+      location: form.location || null
     }
 
     let res

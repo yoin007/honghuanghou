@@ -48,6 +48,20 @@ class ClassCreate(BaseModel):
     roomid: Optional[str] = Field(None, description="微信群ID")
 
 
+class ClassUpdate(BaseModel):
+    """更新班级"""
+    class_code: Optional[str] = Field(None, description="班级代码")
+    grade_id: Optional[int] = Field(None, description="级号ID")
+    class_number: Optional[int] = Field(None, description="班号")
+    class_name: Optional[str] = Field(None, description="班级名称")
+    leader_name: Optional[str] = Field(None, description="班主任姓名")
+    leader_wxid: Optional[str] = Field(None, description="班主任微信ID")
+    roomid: Optional[str] = Field(None, description="微信群ID")
+    established: Optional[str] = Field(None, description="成立时间")
+    motto: Optional[str] = Field(None, description="班级口号")
+    location: Optional[str] = Field(None, description="教室位置")
+
+
 class StudentCreate(BaseModel):
     """创建学生"""
     student_id: str = Field(..., description="学号")
@@ -233,20 +247,53 @@ async def create_class(
 @router.put("/classes/{class_id}", summary="更新班级")
 async def update_class(
     class_id: int,
-    cls: ClassCreate,
+    cls: ClassUpdate,
     request: Request,
     user: User = Depends(require_permission('class_manage'))
 ):
     """更新班级"""
     with get_moral_db() as db:
-        db.execute(
-            """UPDATE class SET
-            class_code = %s, grade_id = %s, class_number = %s, class_name = %s,
-            leader_name = %s
-            WHERE class_id = %s""",
-            (cls.class_code, cls.grade_id, cls.class_number, cls.class_name,
-             cls.leader_name, class_id)
-        )
+        # 构建动态更新
+        updates = []
+        params = []
+
+        if cls.class_code is not None:
+            updates.append("class_code = %s")
+            params.append(cls.class_code)
+        if cls.grade_id is not None:
+            updates.append("grade_id = %s")
+            params.append(cls.grade_id)
+        if cls.class_number is not None:
+            updates.append("class_number = %s")
+            params.append(cls.class_number)
+        if cls.class_name is not None:
+            updates.append("class_name = %s")
+            params.append(cls.class_name)
+        if cls.leader_name is not None:
+            updates.append("leader_name = %s")
+            params.append(cls.leader_name)
+        if cls.leader_wxid is not None:
+            updates.append("leader_wxid = %s")
+            params.append(cls.leader_wxid)
+        if cls.roomid is not None:
+            updates.append("roomid = %s")
+            params.append(cls.roomid)
+        if cls.established is not None:
+            updates.append("established = %s")
+            params.append(cls.established)
+        if cls.motto is not None:
+            updates.append("motto = %s")
+            params.append(cls.motto)
+        if cls.location is not None:
+            updates.append("location = %s")
+            params.append(cls.location)
+
+        if not updates:
+            return {"success": True, "message": "无需更新"}
+
+        params.append(class_id)
+        sql = f"UPDATE class SET {', '.join(updates)} WHERE class_id = %s"
+        db.execute(sql, tuple(params))
 
         log_operation(
             db, user.username, user.role, 'UPDATE', 'class', class_id,
