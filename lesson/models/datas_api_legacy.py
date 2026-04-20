@@ -939,22 +939,40 @@ async def get_teacher_messages(class_code: str):
 
 @router.get("/class-info/{class_code}")
 async def get_class_info(class_code: str):
-    """获取指定班级的基本信息"""
-    l = Lesson()
-    class_template = (
-        l.class_template[l.class_template["class_code"] == class_code]
-        .iloc[0]
-        .to_dict()
-    )
-    class_info = {
-        "className": class_template["class_name"],
-        "classTeacher": class_template["leaders"],
-        "studentCount": class_template["studentCount"],
-        "established": class_template["established"],
-        "motto": class_template["motto"],
-        "location": class_template["location"],
-    }
-    return {"class_info": class_info}
+    """获取指定班级的基本信息 - 数据源改为德育系统"""
+    from utils.sqlite_moral_db import MoralDatabase
+
+    with MoralDatabase() as db:
+        # 查询班级基本信息，包含学生数实时计算
+        class_info = db.query_one("""
+            SELECT
+                c.class_name,
+                c.leader_name,
+                c.established,
+                c.motto,
+                c.location,
+                g.grade_name,
+                COUNT(s.student_id) as student_count
+            FROM class c
+            LEFT JOIN student s ON c.class_id = s.class_id AND s.is_active = 1
+            JOIN grade g ON c.grade_id = g.grade_id
+            WHERE c.class_code = ? AND c.is_active = 1
+            GROUP BY c.class_id
+        """, (class_code,))
+
+        if not class_info:
+            raise HTTPException(status_code=404, detail="班级不存在")
+
+        return {
+            "class_info": {
+                "className": class_info["class_name"],
+                "classTeacher": class_info["leader_name"] or "未设置",
+                "studentCount": class_info["student_count"],
+                "established": class_info["established"] or "未设置",
+                "motto": class_info["motto"] or "未设置",
+                "location": class_info["location"] or "未设置"
+            }
+        }
 
 
 # =============================================================================
