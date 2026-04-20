@@ -17,6 +17,8 @@ from .base import (
     require_permission,
     require_role_level,
     log_operation,
+    check_moral_permission,
+    check_class_access,
 )
 from models.datas_api.auth import User, get_current_user, is_admin_user
 
@@ -53,6 +55,16 @@ class StudentCreate(BaseModel):
     gender: Optional[str] = Field(None, description="性别")
     class_id: int = Field(..., description="班级ID")
     birthday: Optional[date] = Field(None, description="出生日期")
+
+
+class StudentUpdate(BaseModel):
+    """更新学生信息"""
+    name: Optional[str] = Field(None, description="姓名")
+    gender: Optional[str] = Field(None, description="性别")
+    class_id: Optional[int] = Field(None, description="班级ID")
+    birthday: Optional[date] = Field(None, description="出生日期")
+    roomid: Optional[str] = Field(None, description="宿舍号")
+    rpid: Optional[str] = Field(None, description="床位号")
 
 
 class SchoolYearCreate(BaseModel):
@@ -444,10 +456,35 @@ async def get_students(
     page_size: int = Query(50, ge=1, le=200),
     user: User = Depends(get_current_user)
 ):
-    """获取学生列表"""
+    """
+    获取学生列表
+
+    权限说明：
+    - admin/jiaowu/xuefa: 可查看所有学生
+    - cleader: 只能查看自己班级的学生
+    """
     with get_moral_db() as db:
         conditions = ["1=1"]
         params = []
+
+        # 班主任权限过滤：两种识别方式
+        # 方式1：role='cleader' 的传统方式
+        # 方式2：username 能匹配到班级 leader_name（更健壮，不依赖 teacher_template）
+        my_class = db.query_one(
+            "SELECT class_id FROM class WHERE leader_name = %s",
+            (user.username,)
+        )
+
+        is_cleader_by_role = user.role == 'cleader' and not check_moral_permission(user, 'student_manage')
+        is_cleader_by_class = my_class is not None and not check_moral_permission(user, 'student_manage')
+
+        if is_cleader_by_role or is_cleader_by_class:
+            if my_class:
+                conditions.append("s.class_id = %s")
+                params.append(my_class['class_id'])
+            else:
+                # 班主任没有分配班级，返回空列表
+                return {"success": True, "data": {"items": [], "total": 0, "page": page, "page_size": page_size}}
 
         if class_id:
             conditions.append("s.class_id = %s")
@@ -548,6 +585,105 @@ async def create_student(
         )
 
         return {"success": True, "message": "学生创建成功"}
+
+
+@router.put("/students/{student_id}", summary="更新学生信息")
+async def update_student(
+    student_id: str,
+    update_data: StudentUpdate,
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    """
+    更新学生基本信息
+
+    权限说明：
+    - admin/jiaowu/xuefa: 可编辑所有学生
+    - cleader: 只能编辑自己班级的学生
+    """
+    with get_moral_db() as db:
+        # 获取学生信息
+        student = db.query_one(
+            """SELECT s.*, c.leader_name
+            FROM student s
+            JOIN class c ON s.class_id = c.class_id
+            WHERE s.student_id = %s""",
+            (student_id,)
+        )
+        if not student:
+            raise HTTPException(404, "学生不存在")
+
+        # 权限检查：班主任只能编辑自己班级的学生
+        # 双重识别：role='cleader' 或 username 匹配 leader_name
+        my_class = db.query_one(
+            "SELECT class_id FROM class WHERE leader_name = %s",
+            (user.username,)
+        )
+        is_cleader_by_role = user.role == 'cleader' and not check_moral_permission(user, 'student_manage')
+        is_cleader_by_class = my_class is not None and not check_moral_permission(user, 'student_manage')
+
+        if is_cleader_by_role or is_cleader_by_class:
+            if student['leader_name'] != user.username:
+                raise HTTPException(403, "只能编辑本班学生信息")
+
+        # 构建更新语句
+        updates = []
+        params = []
+
+        if update_data.name is not None:
+            updates.append("name = %s")
+            params.append(update_data.name)
+
+        if update_data.gender is not None:
+            updates.append("gender = %s")
+            params.append(update_data.gender)
+
+        if update_data.birthday is not None:
+            updates.append("birthday = %s")
+            params.append(update_data.birthday)
+
+        if update_data.roomid is not None:
+            updates.append("roomid = %s")
+            params.append(update_data.roomid)
+
+        if update_data.rpid is not None:
+            updates.append("rpid = %s")
+            params.append(update_data.rpid)
+
+        if update_data.class_id is not None:
+            # 获取新班级的年级ID
+            new_class = db.query_one(
+                "SELECT grade_id FROM class WHERE class_id = %s",
+                (update_data.class_id,)
+            )
+            if not new_class:
+                raise HTTPException(400, "班级不存在")
+
+            # 班主任不能把学生转到其他班级
+            if is_cleader_by_role or is_cleader_by_class:
+                if update_data.class_id != student['class_id']:
+                    raise HTTPException(403, "班主任不能调整学生班级")
+
+            updates.append("class_id = %s")
+            params.append(update_data.class_id)
+            updates.append("grade_id = %s")
+            params.append(new_class['grade_id'])
+
+        if not updates:
+            return {"success": True, "message": "无需更新"}
+
+        params.append(student_id)
+        update_query = f"UPDATE student SET {', '.join(updates)} WHERE student_id = %s"
+        db.execute(update_query, tuple(params))
+
+        log_operation(
+            db, user.username, user.role, 'UPDATE', 'student', student_id,
+            old_data={'name': student['name'], 'class_id': student['class_id']},
+            new_data=update_data.dict(exclude_unset=True),
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {"success": True, "message": "学生信息更新成功"}
 
 
 @router.put("/students/{student_id}/status", summary="更新学生状态")

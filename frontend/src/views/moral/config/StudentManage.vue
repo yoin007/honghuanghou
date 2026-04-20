@@ -36,6 +36,8 @@
           </template>
         </el-table-column>
         <el-table-column prop="birthday" label="生日" width="100" />
+        <el-table-column prop="roomid" label="宿舍" width="80" />
+        <el-table-column prop="rpid" label="床号" width="60" />
         <el-table-column prop="class_name" label="班级" width="120" />
         <el-table-column prop="grade_name" label="级号" width="100" />
         <el-table-column label="状态" width="80">
@@ -44,10 +46,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="入学时间" width="180" />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleViewDetail(row)">详情</el-button>
-            <el-button link type="warning" @click="handleUpdateStatus(row)">变更状态</el-button>
+            <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
+            <el-button link type="info" @click="handleViewDetail(row)">详情</el-button>
+            <el-button link type="warning" @click="handleUpdateStatus(row)">状态</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -64,11 +67,11 @@
       />
     </el-card>
 
-    <!-- 新增对话框 -->
-    <el-dialog v-model="dialogVisible" title="新增学生" width="500px">
+    <!-- 新增/编辑对话框 -->
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑学生信息' : '新增学生'" width="500px">
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
         <el-form-item label="学号" prop="student_id">
-          <el-input v-model="form.student_id" placeholder="输入学号" maxlength="20" />
+          <el-input v-model="form.student_id" placeholder="输入学号" maxlength="20" :disabled="isEdit" />
         </el-form-item>
         <el-form-item label="姓名" prop="name">
           <el-input v-model="form.name" placeholder="输入姓名" maxlength="50" />
@@ -96,6 +99,12 @@
             style="width: 100%"
           />
         </el-form-item>
+        <el-form-item label="宿舍">
+          <el-input v-model="form.roomid" placeholder="宿舍号（如A101）" maxlength="20" />
+        </el-form-item>
+        <el-form-item label="床号">
+          <el-input v-model="form.rpid" placeholder="床位号（如1）" maxlength="10" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -110,6 +119,8 @@
         <el-descriptions-item label="姓名">{{ currentStudent?.name }}</el-descriptions-item>
         <el-descriptions-item label="性别">{{ currentStudent?.gender }}</el-descriptions-item>
         <el-descriptions-item label="生日">{{ currentStudent?.birthday }}</el-descriptions-item>
+        <el-descriptions-item label="宿舍">{{ currentStudent?.roomid || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="床号">{{ currentStudent?.rpid || '-' }}</el-descriptions-item>
         <el-descriptions-item label="班级">{{ currentStudent?.class_name }}</el-descriptions-item>
         <el-descriptions-item label="级号">{{ currentStudent?.grade_name }}</el-descriptions-item>
         <el-descriptions-item label="状态">
@@ -172,7 +183,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { getGrades, getClasses, getStudents, createStudent, updateStudentStatus } from '@/api/modules/moral'
+import { getGrades, getClasses, getStudents, createStudent, updateStudent, updateStudentStatus } from '@/api/modules/moral'
 
 const loading = ref(false)
 const studentList = ref([])
@@ -180,6 +191,8 @@ const gradeList = ref([])
 const classList = ref([])
 const filterGradeClass = ref([])
 const filterStatus = ref(null)
+
+const isEdit = ref(false)
 
 const pagination = reactive({
   page: 1,
@@ -194,6 +207,8 @@ const form = reactive({
   name: '',
   gender: '男',
   birthday: '',
+  roomid: '',
+  rpid: '',
   classSelection: []
 })
 const rules = {
@@ -292,12 +307,32 @@ const handleFilterChange = () => {
 }
 
 const handleAdd = () => {
+  isEdit.value = false
   Object.assign(form, {
     student_id: '',
     name: '',
     gender: '男',
     birthday: '',
+    roomid: '',
+    rpid: '',
     classSelection: filterGradeClass.value.length === 2 ? [...filterGradeClass.value] : []
+  })
+  dialogVisible.value = true
+}
+
+const handleEdit = (row) => {
+  isEdit.value = true
+  // 查找学生所在班级的级号-班级路径
+  const classInfo = classList.value.find(c => c.class_id === row.class_id)
+  const gradeId = classInfo?.grade_id
+  Object.assign(form, {
+    student_id: row.student_id,
+    name: row.name,
+    gender: row.gender,
+    birthday: row.birthday,
+    roomid: row.roomid || '',
+    rpid: row.rpid || '',
+    classSelection: gradeId ? [gradeId, row.class_id] : [row.class_id]
   })
   dialogVisible.value = true
 }
@@ -306,20 +341,32 @@ const handleSubmit = async () => {
   try {
     await formRef.value.validate()
     const classId = form.classSelection[form.classSelection.length - 1]
-    const res = await createStudent({
-      student_id: form.student_id,
+    const data = {
       name: form.name,
       gender: form.gender,
       birthday: form.birthday,
+      roomid: form.roomid,
+      rpid: form.rpid,
       class_id: classId
-    })
+    }
+
+    let res
+    if (isEdit.value) {
+      res = await updateStudent(form.student_id, data)
+    } else {
+      res = await createStudent({
+        ...data,
+        student_id: form.student_id
+      })
+    }
+
     if (res.success) {
-      ElMessage.success('创建成功')
+      ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
       dialogVisible.value = false
       fetchStudents()
     }
   } catch (error) {
-    console.error('创建失败:', error)
+    console.error(isEdit.value ? '更新失败:' : '创建失败:', error)
   }
 }
 

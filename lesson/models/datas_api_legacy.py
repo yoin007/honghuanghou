@@ -1173,38 +1173,60 @@ async def get_vehicle_inout(counts: int = 20):
 
 @router.get("/students_status/{class_code}")
 async def get_students_status(class_code: str):
-    """获取所有学生状态"""
-    l = Lesson()
-    students_df = l.get_cache_data("students")
-    students_df = students_df[(students_df["cname"] == class_code) & (students_df['active'] == 1)].copy()
-    
-    # 转换 roomid 和 rpid 为整数再转字符串，去除小数点
-    def safe_int_str(x):
-        try:
-            if pd.isna(x):
-                return ""
-            if isinstance(x, (int, float)):
-                return str(int(x))
-            return str(x)
-        except (ValueError, TypeError) as e:
-            logging.warning(f"safe_int_str conversion error: {e}")
-            return str(x)
+    """获取所有学生状态 - 数据源改为德育系统"""
+    from utils.sqlite_moral_db import MoralDatabase
 
-    for col in ['roomid', 'rpid', 'sid']:
-        if col in students_df.columns:
-            students_df[col] = students_df[col].apply(safe_int_str)
-            
-    students_df['status'] = '在校'
-    students_df.sort_values(by=['roomid','rpid'], inplace=True)
-    with InOut() as i:
-        leaves = i.get_inouts(activate=1)
-        for leave in leaves:
-            try:
-                students_df.loc[students_df['sid']==leave[1], 'status'] = f"{leave[2]}-{leave[4]}"
-            except:
-                pass
-    students = students_df.to_dict(orient="records")
-    return students
+    with MoralDatabase() as db:
+        # 查询德育系统学生数据，关联班级表获取班级名称
+        query = """
+            SELECT
+                s.student_id as sid,
+                s.name,
+                c.class_name as cname,
+                s.roomid,
+                s.rpid,
+                s.status,
+                s.is_active as active
+            FROM student s
+            JOIN class c ON s.class_id = c.class_id
+            WHERE c.class_name = ? AND s.is_active = 1
+            ORDER BY s.roomid, s.rpid, s.student_id
+        """
+        students = db.query_all(query, (class_code,))
+
+        if not students:
+            return []
+
+        # 转换为前端期望的格式
+        result = []
+        for stu in students:
+            result.append({
+                'sid': stu['sid'],
+                'name': stu['name'],
+                'cname': stu['cname'],
+                'roomid': stu['roomid'] or '',
+                'rpid': str(stu['rpid']) if stu['rpid'] else '',
+                'status': stu['status'] or '在校',
+                'active': stu['active']
+            })
+
+        # 补充请假/离校状态（从InOut系统）
+        try:
+            with InOut() as i:
+                leaves = i.get_inouts(activate=1)
+                for leave in leaves:
+                    try:
+                        sid = str(leave[1])
+                        for stu in result:
+                            if stu['sid'] == sid:
+                                stu['status'] = f"{leave[2]}-{leave[4]}"
+                                break
+                    except:
+                        pass
+        except Exception as e:
+            logger.warning(f"获取InOut状态失败: {e}")
+
+        return result
 
 class StudentInfoRequest(BaseModel):
     sid: str

@@ -50,11 +50,20 @@
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="hover" class="config-card" @click="navigateTo('logs')">
+        <el-card shadow="hover" class="config-card" @click="navigateTo('escalation')">
+          <div class="card-content">
+            <el-icon class="card-icon"><Warning /></el-icon>
+            <div class="card-title">累进规则</div>
+            <div class="card-count">{{ stats.escalationCount }} 条规则</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="config-card disabled">
           <div class="card-content">
             <el-icon class="card-icon"><Notebook /></el-icon>
             <div class="card-title">操作日志</div>
-            <div class="card-count">查看日志</div>
+            <div class="card-count">待开发</div>
           </div>
         </el-card>
       </el-col>
@@ -86,8 +95,8 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { School, User, Calendar, Document, Notebook, Setting } from '@element-plus/icons-vue'
-import { getGrades, getClasses, getStudents, getSemesters, getDailyEventTypes, getSchoolEventTypes } from '@/api/modules/moral'
+import { School, User, Calendar, Document, Notebook, Setting, Warning } from '@element-plus/icons-vue'
+import { getGrades, getClasses, getStudents, getSemesters, getDailyEventTypes, getSchoolEventTypes, getEscalationRules } from '@/api/modules/moral'
 
 const router = useRouter()
 
@@ -96,20 +105,22 @@ const stats = reactive({
   classCount: 0,
   studentCount: 0,
   semesterCount: 0,
-  eventTypeCount: 0
+  eventTypeCount: 0,
+  escalationCount: 0
 })
 
 const currentSemester = ref(null)
 
 const fetchStats = async () => {
   try {
-    const [grades, classes, students, semesters, dailyTypes, schoolTypes] = await Promise.all([
+    const [grades, classes, students, semesters, dailyTypes, schoolTypes, escalationRules] = await Promise.all([
       getGrades(),
       getClasses(),
       getStudents({ page_size: 1 }),
       getSemesters(),
       getDailyEventTypes(),
-      getSchoolEventTypes()
+      getSchoolEventTypes(),
+      getEscalationRules()
     ])
 
     stats.gradeCount = grades.success ? (grades.data?.length || 0) : 0
@@ -117,6 +128,7 @@ const fetchStats = async () => {
     stats.studentCount = students.success ? (students.data?.total || 0) : 0
     stats.semesterCount = semesters.success ? (semesters.data?.length || 0) : 0
     stats.eventTypeCount = (dailyTypes.success ? (dailyTypes.data?.length || 0) : 0) + (schoolTypes.success ? (schoolTypes.data?.length || 0) : 0)
+    stats.escalationCount = escalationRules.success ? (escalationRules.data?.length || 0) : 0
 
     if (semesters.success && semesters.data) {
       currentSemester.value = semesters.data.find(s => s.is_current)
@@ -133,7 +145,7 @@ const navigateTo = (type) => {
     'student': '/moral/config/student',
     'semester': '/moral/config/semester',
     'event-type': '/moral/config/event-type',
-    'logs': '/moral/config/logs',
+    'escalation': '/moral/config/escalation',
     'config': '/moral/config/settings'
   }
   router.push(routes[type])
@@ -178,5 +190,14 @@ onMounted(() => {
 .card-count {
   font-size: 14px;
   color: #909399;
+}
+
+.config-card.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.config-card.disabled:hover {
+  transform: none;
 }
 </style>

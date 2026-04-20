@@ -58,7 +58,7 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="record_date" label="日期" width="120" />
+        <el-table-column prop="record_date" label="时间" width="160" />
         <el-table-column prop="remark" label="备注" show-overflow-tooltip />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
@@ -134,13 +134,14 @@
             </el-option-group>
           </el-select>
         </el-form-item>
-        <el-form-item label="日期" prop="record_date">
+        <el-form-item label="时间" prop="record_date">
           <el-date-picker
             v-model="recordForm.record_date"
-            type="date"
-            placeholder="选择日期"
+            type="datetime"
+            placeholder="选择时间"
             style="width: 100%"
-            value-format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD HH:mm"
+            format="YYYY-MM-DD HH:mm"
           />
         </el-form-item>
         <el-form-item label="备注">
@@ -316,7 +317,7 @@ const handleAdd = () => {
     class_id: null,
     student_ids: [],
     event_id: null,
-    record_date: new Date().toISOString().split('T')[0],
+    record_date: new Date().toISOString().slice(0, 16).replace('T', ' '),
     remark: ''
   })
   classStudents.value = []
@@ -389,6 +390,7 @@ const handleSubmit = async () => {
 
     // 新增模式：批量为每个学生创建记录
     const results = []
+    let escalationMessages = []
     for (const studentId of recordForm.student_ids) {
       const res = await createDailyRecord({
         student_id: studentId,
@@ -397,10 +399,22 @@ const handleSubmit = async () => {
         remark: recordForm.remark
       })
       results.push(res.success)
+      if (res.success && res.message && res.message.includes('触发累进处罚')) {
+        escalationMessages.push(res.message.replace('记录创建成功，', ''))
+      }
     }
     const successCount = results.filter(r => r).length
     if (successCount > 0) {
-      ElMessage.success(`成功创建 ${successCount} 条记录`)
+      if (escalationMessages.length > 0) {
+        ElMessage({
+          type: 'warning',
+          message: `成功创建 ${successCount} 条记录，触发累进处罚：\n${escalationMessages.join('\n')}`,
+          duration: 5000,
+          dangerouslyUseInnerHTMLString: false
+        })
+      } else {
+        ElMessage.success(`成功创建 ${successCount} 条记录`)
+      }
       dialogVisible.value = false
       fetchRecords()
     }

@@ -296,8 +296,11 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
             class_id = student['class_id']
             grade_id = student['grade_id']
 
-    # 基础分
-    base_score = Decimal('60.00')
+    # 基础分（从配置读取）
+    base_score_config = db.query_value(
+        "SELECT config_value FROM moral_config WHERE config_key = 'evaluation_base_score'"
+    )
+    base_score = Decimal(str(base_score_config or 60))
 
     # 日常表现分
     daily_score = db.query_value(
@@ -368,7 +371,7 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
 def get_daily_statistics(db, student_id: str, semester_id: int) -> dict:
     """获取日常表现统计"""
     positive = db.query_one(
-        """SELECT COUNT(*) as count, SUM(score) as total
+        """SELECT COUNT(*) as count, SUM(dr.score) as total
         FROM student_daily_record dr
         JOIN daily_event_type de ON dr.event_id = de.event_id
         WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
@@ -377,7 +380,7 @@ def get_daily_statistics(db, student_id: str, semester_id: int) -> dict:
     )
 
     negative = db.query_one(
-        """SELECT COUNT(*) as count, SUM(ABS(score)) as total
+        """SELECT COUNT(*) as count, SUM(ABS(dr.score)) as total
         FROM student_daily_record dr
         JOIN daily_event_type de ON dr.event_id = de.event_id
         WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0

@@ -60,6 +60,7 @@ class SchoolEventTypeCreate(BaseModel):
 class SchoolEventTypeUpdate(BaseModel):
     """更新校级事件类型"""
     event_name: Optional[str] = Field(None, description="事件名称", max_length=50)
+    event_type: Optional[int] = Field(None, description="事件类型：1=荣誉，2=处分")
     event_level: Optional[str] = Field(None, description="事件级别", max_length=20)
     score: Optional[int] = Field(None, description="分值")
     description: Optional[str] = Field(None, description="描述", max_length=200)
@@ -74,7 +75,7 @@ class SchoolEventTypeUpdate(BaseModel):
 async def get_school_event_types(
     event_type: Optional[int] = Query(None, description="事件类型：1=荣誉，2=处分"),
     event_level: Optional[str] = Query(None, description="事件级别"),
-    is_active: Optional[int] = Query(1),
+    is_active: Optional[int] = Query(None, description="是否启用：不传返回全部，1=启用，0=禁用"),
     user: User = Depends(get_current_user)
 ):
     """获取校级事件类型列表"""
@@ -415,12 +416,19 @@ async def update_school_event_type(
             updates.append("event_name = %s")
             params.append(update_data.event_name)
 
+        # 获取最终的事件类型
+        final_event_type = update_data.event_type if update_data.event_type is not None else old_type['event_type']
+
+        if update_data.event_type is not None:
+            updates.append("event_type = %s")
+            params.append(update_data.event_type)
+
         if update_data.event_level is not None:
             updates.append("event_level = %s")
             params.append(update_data.event_level)
 
         if update_data.score is not None:
-            score = abs(update_data.score) if old_type['event_type'] == 1 else -abs(update_data.score)
+            score = abs(update_data.score) if final_event_type == 1 else -abs(update_data.score)
             updates.append("score = %s")
             params.append(score)
 

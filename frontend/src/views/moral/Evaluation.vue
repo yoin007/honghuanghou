@@ -147,6 +147,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   getClasses,
@@ -155,6 +156,8 @@ import {
   getStudentEvaluation,
   calculateEvaluation
 } from '@/api/modules/moral'
+
+const router = useRouter()
 
 // 数据
 const loading = ref(false)
@@ -279,7 +282,10 @@ const handleViewDetail = async (row) => {
 }
 
 const handleViewProfile = (row) => {
-  ElMessage.info('学生画像功能开发中')
+  router.push({
+    path: '/moral/profile',
+    query: { student_id: row.student_id }
+  })
 }
 
 const getScoreClass = (score) => {

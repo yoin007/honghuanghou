@@ -449,6 +449,70 @@ export function getGrades() {
   return request.get('/api/moral/admin/grades')
 }
 
+// =============================================================================
+// 累进规则 API
+// =============================================================================
+
+/**
+ * 获取累进规则列表
+ */
+export function getEscalationRules(params = {}) {
+  return request.get('/api/moral/escalation-rules', { params })
+}
+
+/**
+ * 创建累进规则
+ */
+export function createEscalationRule(data) {
+  return request.post('/api/moral/escalation-rules', data)
+}
+
+/**
+ * 更新累进规则
+ */
+export function updateEscalationRule(ruleId, data) {
+  return request.put(`/api/moral/escalation-rules/${ruleId}`, data)
+}
+
+/**
+ * 删除累进规则
+ */
+export function deleteEscalationRule(ruleId) {
+  return request.delete(`/api/moral/escalation-rules/${ruleId}`)
+}
+
+/**
+ * 获取可配置累进规则的消极事件列表
+ */
+export function getConfigurableEvents() {
+  return request.get('/api/moral/escalation-rules/events')
+}
+
+/**
+ * 获取学生累进处罚历史
+ */
+export function getStudentEscalationHistory(studentId, semesterId = null) {
+  return request.get(`/api/moral/escalation-rules/student/${studentId}/history`, {
+    params: { semester_id: semesterId }
+  })
+}
+
+/**
+ * 获取学生事件累计次数
+ */
+export function getStudentEventCount(studentId, eventId, timeWindowDays = 90) {
+  return request.get(`/api/moral/escalation-rules/student/${studentId}/count`, {
+    params: { event_id: eventId, time_window_days: timeWindowDays }
+  })
+}
+
+/**
+ * 获取学生所有消极事件累计进度
+ */
+export function getStudentAllProgress(studentId) {
+  return request.get(`/api/moral/escalation-rules/student/${studentId}/progress`)
+}
+
 /**
  * 创建级号
  */
@@ -545,6 +609,13 @@ export function batchCreateStudents(data) {
  */
 export function createStudent(data) {
   return request.post('/api/moral/admin/students', data)
+}
+
+/**
+ * 更新学生信息
+ */
+export function updateStudent(studentId, data) {
+  return request.put(`/api/moral/admin/students/${studentId}`, data)
 }
 
 /**
@@ -656,6 +727,7 @@ export default {
   setCurrentSemester,
   getStudents,
   createStudent,
+  updateStudent,
   updateStudentStatus,
   getOperationLogs,
   getSystemConfig,
@@ -668,4 +740,14 @@ export default {
   createSchoolEventType,
   updateSchoolEventType,
   deleteSchoolEventType,
+
+  // 累进规则
+  getEscalationRules,
+  createEscalationRule,
+  updateEscalationRule,
+  deleteEscalationRule,
+  getConfigurableEvents,
+  getStudentEscalationHistory,
+  getStudentEventCount,
+  getStudentAllProgress,
 }

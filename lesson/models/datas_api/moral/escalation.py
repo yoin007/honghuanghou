@@ -44,7 +44,7 @@ def check_and_trigger_escalation(
     student_id: str,
     event_id: int,
     record_id: int,
-    record_date: date,
+    record_date,  # 可以是 date 或 datetime
     semester_id: int
 ) -> EscalationResult:
     """
@@ -55,13 +55,21 @@ def check_and_trigger_escalation(
         student_id: 学生ID
         event_id: 违纪事件类型ID
         record_id: 当前记录ID
-        record_date: 记录日期
+        record_date: 记录时间（可以是date或datetime）
         semester_id: 学期ID
 
     Returns:
         EscalationResult: 累进判断结果
     """
     result = EscalationResult()
+
+    # 提取日期部分用于统计（累进规则按天计算）
+    if isinstance(record_date, datetime):
+        record_date_only = record_date.date()
+        record_date_str = record_date.strftime('%Y-%m-%d %H:%M')
+    else:
+        record_date_only = record_date
+        record_date_str = str(record_date)
 
     # 1. 查询累进规则
     rule = db.query_one(
@@ -87,16 +95,17 @@ def check_and_trigger_escalation(
     if not rules_list:
         return result
 
-    # 3. 计算时间窗口内的累计次数
-    window_start = record_date - timedelta(days=time_window_days)
+    # 3. 计算时间窗口内的累计次数（按日期统计，忽略时间部分）
+    window_start = record_date_only - timedelta(days=time_window_days)
 
     count_result = db.query_one(
         """SELECT COUNT(*) as total_count
         FROM student_daily_record
         WHERE student_id = %s AND event_id = %s
-        AND record_date >= %s AND record_date <= %s
+        AND strftime('%Y-%m-%d', record_date) >= %s
+        AND strftime('%Y-%m-%d', record_date) <= %s
         AND is_deleted = 0""",
-        (student_id, event_id, window_start, record_date)
+        (student_id, event_id, window_start.strftime('%Y-%m-%d'), record_date_only.strftime('%Y-%m-%d'))
     )
 
     current_count = count_result['total_count'] if count_result else 1
@@ -181,7 +190,7 @@ def check_and_trigger_escalation(
         f"时间窗口内累计：{current_count}次\n"
         f"触发处罚：{result.description}\n"
         f"触发条件：累计{result.threshold}次\n"
-        f"记录日期：{record_date}"
+        f"记录时间：{record_date_str}"
     )
 
     # 7. 记录预警日志
@@ -213,7 +222,7 @@ def check_and_trigger_escalation(
     if triggered_rule.get('auto_create_punishment', False):
         punishment_level = triggered_rule.get('punishment_level', 2)
         punishment_id = create_escalation_punishment(
-            db, student_id, event_id, semester_id, record_date,
+            db, student_id, event_id, semester_id, record_date_only,
             result.description, result.score_penalty, punishment_level,
             record_id
         )
@@ -420,9 +429,10 @@ def get_student_event_count_in_window(
         """SELECT COUNT(*) as count
         FROM student_daily_record
         WHERE student_id = %s AND event_id = %s
-        AND record_date >= %s AND record_date <= %s
+        AND strftime('%Y-%m-%d', record_date) >= %s
+        AND strftime('%Y-%m-%d', record_date) <= %s
         AND is_deleted = 0""",
-        (student_id, event_id, window_start, current_date)
+        (student_id, event_id, window_start.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
     )
 
     return result['count'] if result else 0

@@ -11,6 +11,7 @@
               <el-radio-button :label="2">消极事件</el-radio-button>
             </el-radio-group>
             <div>
+              <el-button @click="handleExport('daily')">导出</el-button>
               <el-button @click="downloadTemplate('daily')">下载模板</el-button>
               <el-button type="warning" @click="handleImport('daily')">批量导入</el-button>
               <el-button type="primary" @click="handleAddDaily">新增事件类型</el-button>
@@ -65,6 +66,7 @@
               <el-radio-button :label="2">违纪处分</el-radio-button>
             </el-radio-group>
             <div>
+              <el-button @click="handleExport('school')">导出</el-button>
               <el-button @click="downloadTemplate('school')">下载模板</el-button>
               <el-button type="warning" @click="handleImport('school')">批量导入</el-button>
               <el-button type="primary" @click="handleAddSchool">新增事件类型</el-button>
@@ -247,7 +249,8 @@ const dailyForm = reactive({
   event_name: '',
   event_type: 1,
   score: 5,
-  description: ''
+  description: '',
+  is_active: 1
 })
 const dailyRules = {
   event_name: [{ required: true, message: '请输入事件名称', trigger: 'blur' }],
@@ -268,7 +271,8 @@ const schoolForm = reactive({
   event_type: 1,
   event_level: '校级',
   score: 10,
-  description: ''
+  description: '',
+  is_active: 1
 })
 const schoolRules = {
   event_name: [{ required: true, message: '请输入事件名称', trigger: 'blur' }],
@@ -288,7 +292,7 @@ const importResult = ref(null)
 const fetchDailyTypes = async () => {
   dailyLoading.value = true
   try {
-    const params = { is_active: null }
+    const params = {}
     if (dailyFilter.eventType) params.event_type = dailyFilter.eventType
     const res = await getDailyEventTypes(params)
     if (res.success) dailyTypes.value = res.data
@@ -302,7 +306,7 @@ const fetchDailyTypes = async () => {
 const fetchSchoolTypes = async () => {
   schoolLoading.value = true
   try {
-    const params = { is_active: null }
+    const params = {}
     if (schoolFilter.eventType) params.event_type = schoolFilter.eventType
     const res = await getSchoolEventTypes(params)
     if (res.success) schoolTypes.value = res.data
@@ -325,7 +329,8 @@ const handleAddDaily = () => {
     event_name: '',
     event_type: 1,
     score: 5,
-    description: ''
+    description: '',
+    is_active: 1
   })
   dailyDialogVisible.value = true
 }
@@ -336,7 +341,8 @@ const handleEditDaily = (row) => {
     event_name: row.event_name,
     event_type: row.event_type,
     score: Math.abs(row.score),
-    description: row.description
+    description: row.description,
+    is_active: row.is_active
   })
   dailyDialogVisible.value = true
 }
@@ -348,7 +354,8 @@ const handleSubmitDaily = async () => {
       event_name: dailyForm.event_name,
       event_type: dailyForm.event_type,
       score: dailyForm.score,
-      description: dailyForm.description
+      description: dailyForm.description,
+      is_active: dailyForm.is_active ?? 1
     }
 
     let res
@@ -390,7 +397,8 @@ const handleAddSchool = () => {
     event_type: 1,
     event_level: '校级',
     score: 10,
-    description: ''
+    description: '',
+    is_active: 1
   })
   schoolDialogVisible.value = true
 }
@@ -402,7 +410,8 @@ const handleEditSchool = (row) => {
     event_type: row.event_type,
     event_level: row.event_level,
     score: Math.abs(row.score),
-    description: row.description
+    description: row.description,
+    is_active: row.is_active
   })
   schoolDialogVisible.value = true
 }
@@ -415,7 +424,8 @@ const handleSubmitSchool = async () => {
       event_type: schoolForm.event_type,
       event_level: schoolForm.event_level,
       score: schoolForm.score,
-      description: schoolForm.description
+      description: schoolForm.description,
+      is_active: schoolForm.is_active ?? 1
     }
 
     let res
@@ -449,17 +459,89 @@ const handleToggleSchool = async (row) => {
   }
 }
 
-// 模板下载
-const downloadTemplate = (type) => {
+// 模板下载 - 使用内嵌模板数据避免网络请求
+const downloadTemplate = async (type) => {
   const templates = {
-    daily: '/templates/daily_events.csv',
-    school: '/templates/school_events.csv'
+    daily: `事件名称,事件类型,分值,描述
+拾金不昧,积极,3,主动上交拾得物品
+课堂积极发言,积极,2,课堂主动回答问题
+帮助同学,积极,2,主动帮助同学解决困难
+作业优秀,积极,2,作业完成质量优秀
+卫生积极,积极,2,主动打扫卫生
+文明礼貌,积极,2,见到老师主动问好
+爱护公物,积极,2,主动维护公物
+班级活动积极,积极,3,积极参与班级活动
+早读认真,积极,1,早读时间认真朗读
+课间操认真,积极,1,课间操动作规范
+迟到,消极,-2,上课铃响后进入教室
+早退,消极,-2,下课铃响前离开教室
+旷课,消极,-5,未经请假缺课
+上课讲话,消极,-2,上课时间随意讲话
+作业未交,消极,-2,未按时提交作业
+卫生不合格,消极,-2,卫生打扫不彻底
+仪容仪表不整,消极,-2,着装或发型不符合规范
+手机违纪,消极,-5,上课时间使用手机
+打架斗殴,消极,-10,参与打架或斗殴
+说脏话,消极,-2,使用不文明语言`,
+    school: `事件名称,事件类型,事件级别,分值,描述
+三好学生,荣誉,校级,20,德智体美劳全面发展
+优秀班干部,荣誉,校级,15,班级管理表现突出
+优秀团员,荣誉,校级,10,共青团组织表现优秀
+优秀班集体,荣誉,校级,30,班级整体表现优异
+优秀团支书,荣誉,校级,15,团支部工作出色
+学科竞赛获奖,荣誉,省级,25,省级学科竞赛获奖
+学科竞赛获奖,荣誉,市级,15,市级学科竞赛获奖
+体育比赛获奖,荣誉,市级,15,市级体育比赛获奖
+文艺比赛获奖,荣誉,市级,15,市级文艺比赛获奖
+科技创新获奖,荣誉,省级,20,省级科技创新比赛获奖
+严重违纪,处分,校级,-15,严重违反校规校纪
+打架斗殴,处分,校级,-20,参与打架或斗殴
+作弊,处分,校级,-30,考试作弊行为
+偷窃,处分,校级,-25,偷窃他人财物
+损坏公物,处分,校级,-10,故意损坏学校公物`
   }
+
+  const blob = new Blob(['\ufeff' + templates[type]], { type: 'text/csv;charset=utf-8' })
+  const url = window.URL.createObjectURL(blob)
   const link = document.createElement('a')
-  link.href = templates[type]
+  link.href = url
   link.download = type === 'daily' ? '日常事件类型模板.csv' : '校级事件类型模板.csv'
   link.click()
-  ElMessage.success('模板下载中...')
+  window.URL.revokeObjectURL(url)
+  ElMessage.success('模板下载成功')
+}
+
+// 导出事件类型
+const handleExport = (type) => {
+  const data = type === 'daily' ? dailyTypes.value : schoolTypes.value
+  if (!data || data.length === 0) {
+    ElMessage.warning('暂无数据可导出')
+    return
+  }
+
+  // 构建CSV内容
+  let csvContent = ''
+  if (type === 'daily') {
+    csvContent = '事件名称,事件类型,分值,描述,状态\n'
+    data.forEach(row => {
+      csvContent += `${row.event_name},${row.event_type === 1 ? '积极' : '消极'},${row.score},${row.description || ''},${row.is_active ? '启用' : '禁用'}\n`
+    })
+  } else {
+    csvContent = '事件名称,事件类型,事件级别,分值,描述,状态\n'
+    data.forEach(row => {
+      csvContent += `${row.event_name},${row.event_type === 1 ? '荣誉' : '处分'},${row.event_level},${row.score},${row.description || ''},${row.is_active ? '启用' : '禁用'}\n`
+    })
+  }
+
+  // 创建下载链接
+  const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = type === 'daily' ? '日常事件类型.csv' : '校级事件类型.csv'
+  link.click()
+  window.URL.revokeObjectURL(url)
+  ElMessage.success('导出成功')
 }
 
 // 批量导入

@@ -76,6 +76,7 @@
               <el-menu-item index="/moral/evaluation">评价查询</el-menu-item>
               <el-menu-item index="/moral/profile">学生画像</el-menu-item>
               <el-menu-item index="/moral/birthday">生日提醒</el-menu-item>
+              <el-menu-item v-if="isCleader && !isAdmin && !isJiaowu" index="/moral/config/student">学生管理</el-menu-item>
               <el-menu-item v-if="isAdmin || isJiaowu" index="/moral/config">德育配置</el-menu-item>
             </el-sub-menu>
             
@@ -155,6 +156,7 @@ const isLoggedIn = computed(() => authStore.isLoggedIn)
 const username = computed(() => authStore.username)
 const isAdmin = computed(() => authStore.isAdmin)
 const isJiaowu = computed(() => authStore.isJiaowu)
+const isCleader = computed(() => authStore.isCleader)
 const classCode = computed(() => appStore.classCode)
 const classCodes = computed(() => appStore.classCodes)
 

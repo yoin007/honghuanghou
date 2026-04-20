@@ -42,7 +42,7 @@ class DailyRecordCreate(BaseModel):
     """创建日常表现记录"""
     student_id: str = Field(..., description="学号")
     event_id: int = Field(..., description="事件类型ID")
-    record_date: date = Field(..., description="记录日期")
+    record_date: datetime = Field(..., description="记录时间（精确到分钟）")
     remark: Optional[str] = Field(None, description="备注")
 
 
@@ -60,7 +60,7 @@ class DailyRecordResponse(BaseModel):
     event_name: str
     event_type: int
     score: int
-    record_date: date
+    record_date: str  # 存储格式：YYYY-MM-DD HH:MM
     class_name: str
     remark: Optional[str]
     recorder: Optional[str]
@@ -78,6 +78,7 @@ class DailyEventTypeCreate(BaseModel):
 class DailyEventTypeUpdate(BaseModel):
     """更新日常事件类型"""
     event_name: Optional[str] = Field(None, description="事件名称", max_length=50)
+    event_type: Optional[int] = Field(None, description="事件类型：1=积极，2=消极")
     score: Optional[int] = Field(None, description="分值")
     description: Optional[str] = Field(None, description="描述", max_length=200)
     is_active: Optional[int] = Field(None, description="是否启用：1=启用，0=禁用")
@@ -90,7 +91,7 @@ class DailyEventTypeUpdate(BaseModel):
 @router.get("/types", summary="获取日常事件类型列表")
 async def get_daily_event_types(
     event_type: Optional[int] = Query(None, description="事件类型：1=积极，2=消极"),
-    is_active: Optional[int] = Query(1, description="是否启用"),
+    is_active: Optional[int] = Query(None, description="是否启用：不传返回全部，1=启用，0=禁用"),
     user: User = Depends(get_current_user)
 ):
     """获取日常事件类型列表"""
@@ -263,15 +264,17 @@ async def create_daily_record(
         if not event:
             raise HTTPException(404, f"事件类型 {record.event_id} 不存在或已禁用")
 
-        # 检查是否重复录入
-        existing = db.query_one(
+        # 注意：允许同一天多次相同事件记录，用于累进处罚统计
+        # 防误操作：检查是否1分钟内重复提交（通过created_at精确时间）
+        recent_duplicate = db.query_one(
             """SELECT record_id FROM student_daily_record
-            WHERE student_id = %s AND event_id = %s AND record_date = %s AND semester_id = %s
-            AND is_deleted = 0""",
-            (record.student_id, record.event_id, record.record_date, semester_id)
+            WHERE student_id = %s AND event_id = %s AND semester_id = %s
+            AND is_deleted = 0
+            AND created_at >= datetime('now', 'localtime', '-1 minute')""",
+            (record.student_id, record.event_id, semester_id)
         )
-        if existing:
-            raise HTTPException(400, "该学生当天已有相同事件记录")
+        if recent_duplicate:
+            raise HTTPException(400, "1分钟内已有相同事件记录，请勿重复提交")
 
         # 插入记录
         db.execute(
@@ -282,7 +285,7 @@ async def create_daily_record(
                 record.student_id,
                 record.event_id,
                 semester_id,
-                record.record_date,
+                record.record_date.strftime('%Y-%m-%d %H:%M') if isinstance(record.record_date, datetime) else record.record_date,
                 class_id,
                 grade_id,
                 event['score'],
@@ -331,9 +334,11 @@ async def create_daily_record(
                 "current_count": escalation_result.current_count,
                 "score_penalty": escalation_result.score_penalty,
                 "message": escalation_result.message,
-                "punishment_id": escalation_result.punishment_id
+                "punishment_id": escalation_result.punishment_id,
+                "student_name": student_info.get('name', record.student_id),
+                "event_name": event['event_name']
             }
-            response_message = f"记录创建成功，触发累进处罚：{escalation_result.description}"
+            response_message = f"记录创建成功，触发累进处罚：{student_info.get('name', record.student_id)}（{record.student_id}）{event['event_name']} → {escalation_result.description}"
 
         return {"success": True, "message": response_message, "data": response_data}
 
@@ -376,15 +381,17 @@ async def batch_create_daily_records(
                     errors.append(f"第{i+1}条：事件类型不存在")
                     continue
 
-                # 检查重复
-                existing = db.query_one(
+                # 检查重复（1分钟内防误操作）
+                record_date_str = record.record_date.strftime('%Y-%m-%d %H:%M') if isinstance(record.record_date, datetime) else record.record_date
+                recent_duplicate = db.query_one(
                     """SELECT record_id FROM student_daily_record
-                    WHERE student_id = %s AND event_id = %s AND record_date = %s AND semester_id = %s
-                    AND is_deleted = 0""",
-                    (record.student_id, record.event_id, record.record_date, semester_id)
+                    WHERE student_id = %s AND event_id = %s AND semester_id = %s
+                    AND is_deleted = 0
+                    AND created_at >= datetime('now', 'localtime', '-1 minute')""",
+                    (record.student_id, record.event_id, semester_id)
                 )
-                if existing:
-                    errors.append(f"第{i+1}条：记录已存在")
+                if recent_duplicate:
+                    errors.append(f"第{i+1}条：1分钟内已有相同事件记录")
                     continue
 
                 # 插入记录
@@ -396,7 +403,7 @@ async def batch_create_daily_records(
                         record.student_id,
                         record.event_id,
                         semester_id,
-                        record.record_date,
+                        record_date_str,
                         student_info['class_id'],
                         student_info['grade_id'],
                         event['score'],
@@ -421,10 +428,12 @@ async def batch_create_daily_records(
                         escalation_results.append({
                             "student_id": record.student_id,
                             "student_name": student_info.get('name', ''),
+                            "event_name": event['event_name'],
                             "action": escalation_result.action,
                             "description": escalation_result.description,
                             "threshold": escalation_result.threshold,
-                            "current_count": escalation_result.current_count
+                            "current_count": escalation_result.current_count,
+                            "message": f"{student_info.get('name', record.student_id)}（{record.student_id}）{event['event_name']} → {escalation_result.description}"
                         })
 
             except Exception as e:
@@ -662,9 +671,16 @@ async def update_daily_event_type(
             updates.append("event_name = %s")
             params.append(update_data.event_name)
 
+        # 获取最终的事件类型（新值或原值）
+        final_event_type = update_data.event_type if update_data.event_type is not None else old_type['event_type']
+
+        if update_data.event_type is not None:
+            updates.append("event_type = %s")
+            params.append(update_data.event_type)
+
         if update_data.score is not None:
-            # 保持分值正负与事件类型一致
-            score = abs(update_data.score) if old_type['event_type'] == 1 else -abs(update_data.score)
+            # 分值正负与事件类型一致
+            score = abs(update_data.score) if final_event_type == 1 else -abs(update_data.score)
             updates.append("score = %s")
             params.append(score)
 

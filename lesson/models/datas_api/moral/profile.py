@@ -99,7 +99,7 @@ async def get_student_profile(
 
         # 获取画像历史
         history = db.query_all(
-            """SELECT id, profile_version, generated_at,
+            """SELECT id, profile_version, created_at,
             JSON_EXTRACT(profile_data, '$.profile_summary') as summary
             FROM student_profile_history
             WHERE student_id = %s

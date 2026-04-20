@@ -100,12 +100,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   getStudentProfile,
   generateStudentProfile
 } from '@/api/modules/moral'
+
+const route = useRoute()
 
 // 数据
 const filterForm = reactive({
@@ -206,6 +209,14 @@ const formatDateTime = (datetime) => {
   if (!datetime) return '-'
   return new Date(datetime).toLocaleString('zh-CN')
 }
+
+// 页面加载时检查 query 参数
+onMounted(() => {
+  if (route.query.student_id) {
+    filterForm.student_id = route.query.student_id
+    handleSearch()
+  }
+})
 </script>
 
 <style scoped>

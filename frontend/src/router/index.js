@@ -328,6 +328,24 @@ const routes = [
     }
   },
   {
+    path: '/moral/config/escalation',
+    name: 'MoralConfigEscalation',
+    component: () => import('../views/moral/EscalationRuleManage.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '累进规则管理'
+    }
+  },
+  {
+    path: '/moral/config/settings',
+    name: 'MoralConfigSettings',
+    component: () => import('../views/moral/config/Settings.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '系统配置'
+    }
+  },
+  {
     path: '/',
     redirect: '/schedules'
   },

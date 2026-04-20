@@ -260,10 +260,11 @@ CREATE TABLE IF NOT EXISTS student_daily_record (
     FOREIGN KEY (event_id) REFERENCES daily_event_type(event_id),
     FOREIGN KEY (semester_id) REFERENCES semester(semester_id),
     FOREIGN KEY (class_id) REFERENCES class(class_id),
-    FOREIGN KEY (grade_id) REFERENCES grade(grade_id),
-    UNIQUE (student_id, event_id, record_date, semester_id)
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id)
 );
 CREATE INDEX IF NOT EXISTS idx_student_daily_semester ON student_daily_record(student_id, semester_id);
+CREATE INDEX IF NOT EXISTS idx_student_daily_date ON student_daily_record(record_date);
+CREATE INDEX IF NOT EXISTS idx_student_daily_event ON student_daily_record(event_id);
 """,
     # 15. 学生校级事件记录表
     "student_school_record": """
