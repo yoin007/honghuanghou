@@ -43,6 +43,7 @@ from .profile import router as profile_router
 from .birthday import router as birthday_router
 from .consultation import router as consultation_router
 from .admin import router as admin_router
+from .escalation_api import router as escalation_router
 
 from fastapi import APIRouter
 
@@ -59,6 +60,7 @@ router.include_router(profile_router)
 router.include_router(birthday_router)
 router.include_router(consultation_router)
 router.include_router(admin_router)
+router.include_router(escalation_router)
 
 __all__ = [
     'router',

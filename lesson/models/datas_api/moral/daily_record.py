@@ -26,6 +26,7 @@ from .base import (
     require_permission,
     require_role_level,
 )
+from .escalation import check_and_trigger_escalation
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
@@ -292,6 +293,18 @@ async def create_daily_record(
 
         record_id = db.lastrowid()
 
+        # 检查累进处罚（仅对消极事件）
+        escalation_result = None
+        if event['event_type'] == 2:
+            escalation_result = check_and_trigger_escalation(
+                db=db,
+                student_id=record.student_id,
+                event_id=record.event_id,
+                record_id=record_id,
+                record_date=record.record_date,
+                semester_id=semester_id
+            )
+
         # 记录操作日志
         log_operation(
             db, user.username, user.role, 'INSERT', 'student_daily_record',
@@ -299,12 +312,30 @@ async def create_daily_record(
                 'student_id': record.student_id,
                 'event_id': record.event_id,
                 'record_date': str(record.record_date),
-                'remark': record.remark
+                'remark': record.remark,
+                'escalation_triggered': escalation_result.triggered if escalation_result else False
             },
             ip_address=request.client.host if request.client else None
         )
 
-        return {"success": True, "message": "记录创建成功", "data": {"record_id": record_id}}
+        # 构建返回数据
+        response_data = {"record_id": record_id}
+        response_message = "记录创建成功"
+
+        if escalation_result and escalation_result.triggered:
+            response_data["escalation"] = {
+                "triggered": True,
+                "action": escalation_result.action,
+                "description": escalation_result.description,
+                "threshold": escalation_result.threshold,
+                "current_count": escalation_result.current_count,
+                "score_penalty": escalation_result.score_penalty,
+                "message": escalation_result.message,
+                "punishment_id": escalation_result.punishment_id
+            }
+            response_message = f"记录创建成功，触发累进处罚：{escalation_result.description}"
+
+        return {"success": True, "message": response_message, "data": response_data}
 
 
 @router.post("/batch", summary="批量创建日常表现记录")
@@ -326,6 +357,7 @@ async def batch_create_daily_records(
         semester_id = current_semester['semester_id']
         success_count = 0
         errors = []
+        escalation_results = []  # 收集累进结果
 
         for i, record in enumerate(records):
             try:
@@ -372,18 +404,44 @@ async def batch_create_daily_records(
                         user.username
                     )
                 )
+                record_id = db.lastrowid()
                 success_count += 1
+
+                # 检查累进处罚（仅对消极事件）
+                if event['event_type'] == 2:
+                    escalation_result = check_and_trigger_escalation(
+                        db=db,
+                        student_id=record.student_id,
+                        event_id=record.event_id,
+                        record_id=record_id,
+                        record_date=record.record_date,
+                        semester_id=semester_id
+                    )
+                    if escalation_result.triggered:
+                        escalation_results.append({
+                            "student_id": record.student_id,
+                            "student_name": student_info.get('name', ''),
+                            "action": escalation_result.action,
+                            "description": escalation_result.description,
+                            "threshold": escalation_result.threshold,
+                            "current_count": escalation_result.current_count
+                        })
 
             except Exception as e:
                 errors.append(f"第{i+1}条：{str(e)}")
 
+        message = f"成功创建 {success_count} 条记录"
+        if escalation_results:
+            message += f"，触发 {len(escalation_results)} 次累进处罚"
+
         return {
             "success": True,
-            "message": f"成功创建 {success_count} 条记录",
+            "message": message,
             "data": {
                 "success_count": success_count,
                 "error_count": len(errors),
-                "errors": errors[:20]  # 最多返回20条错误
+                "errors": errors[:20],
+                "escalations": escalation_results[:20]  # 返回触发信息
             }
         }
 

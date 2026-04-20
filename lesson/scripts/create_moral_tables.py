@@ -1210,6 +1210,14 @@ INITIAL_DATA_SQL = [
     ('德育分过低', 'score_threshold', 50, '["cleader", "xuefa", "jiaowu"]'),
     ('扣分过多', 'score_threshold', -20, '["cleader", "xuefa", "jiaowu"]'),
     ('违纪次数过多', 'count_threshold', 5, '["cleader", "xuefa", "jiaowu"]');""",
+    # 累进预警配置
+    """INSERT IGNORE INTO warning_config (rule_name, trigger_type, trigger_value, notify_roles, is_active) VALUES
+    ('累进警告', 'escalation_warning', 3, '["cleader"]', 1),
+    ('累进通报批评', 'escalation_criticism', 5, '["cleader", "xuefa"]', 1),
+    ('累进记过', 'escalation_demerit', 10, '["cleader", "xuefa"]', 1);""",
+    # 累进规则示例（需要根据实际event_id调整）
+    """INSERT IGNORE INTO violation_escalation_rule (rule_id, event_id, time_window_days, escalation_rules) VALUES
+    (1, 1, 90, '{"rules": [{"threshold": 3, "action": "warning", "description": "警告", "notify_roles": ["cleader"], "score_penalty": 0}, {"threshold": 5, "action": "criticism", "description": "通报批评", "notify_roles": ["cleader", "xuefa"], "score_penalty": -5}, {"threshold": 10, "action": "demerit", "description": "记过", "notify_roles": ["cleader", "xuefa"], "score_penalty": -10, "auto_create_punishment": true, "punishment_level": 2}], "reset_on_action": false}');""",
     # 画像配置
     """INSERT IGNORE INTO profile_config VALUES
     (1, 'tag_definitions', '["责任担当", "诚实守信", "乐于助人", "勤奋刻苦", "积极进取", "团结协作", "遵纪守法", "文明礼貌", "关爱他人", "勇于创新"]', '画像标签定义'),
@@ -1347,6 +1355,14 @@ SQLite_INITIAL_DATA_SQL = [
     (1, '德育分过低', 'score_threshold', 50, '["cleader", "xuefa", "jiaowu"]', 1),
     (2, '扣分过多', 'score_threshold', -20, '["cleader", "xuefa", "jiaowu"]', 1),
     (3, '违纪次数过多', 'count_threshold', 5, '["cleader", "xuefa", "jiaowu"]', 1);""",
+    # 累进预警配置
+    """INSERT OR IGNORE INTO warning_config (id, rule_name, trigger_type, trigger_value, notify_roles, is_active) VALUES
+    (4, '累进警告', 'escalation_warning', 3, '["cleader"]', 1),
+    (5, '累进通报批评', 'escalation_criticism', 5, '["cleader", "xuefa"]', 1),
+    (6, '累进记过', 'escalation_demerit', 10, '["cleader", "xuefa"]', 1);""",
+    # 累进规则示例（需要根据实际event_id调整）
+    """INSERT OR IGNORE INTO violation_escalation_rule (rule_id, event_id, time_window_days, escalation_rules) VALUES
+    (1, 1, 90, '{"rules": [{"threshold": 3, "action": "warning", "description": "警告", "notify_roles": ["cleader"], "score_penalty": 0}, {"threshold": 5, "action": "criticism", "description": "通报批评", "notify_roles": ["cleader", "xuefa"], "score_penalty": -5}, {"threshold": 10, "action": "demerit", "description": "记过", "notify_roles": ["cleader", "xuefa"], "score_penalty": -10, "auto_create_punishment": true, "punishment_level": 2}], "reset_on_action": false}');""",
     # 画像配置
     """INSERT OR IGNORE INTO profile_config VALUES
     (1, 'tag_definitions', '["责任担当", "诚实守信", "乐于助人", "勤奋刻苦", "积极进取", "团结协作", "遵纪守法", "文明礼貌", "关爱他人", "勇于创新"]', '画像标签定义'),
