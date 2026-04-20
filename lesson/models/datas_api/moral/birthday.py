@@ -77,17 +77,17 @@ async def get_upcoming_birthdays(
         # 查询即将过生日的学生
         query = f"""
             SELECT s.student_id, s.name, s.birthday, c.class_name, c.leader_name,
-                   DATE_FORMAT(s.birthday, '%m-%d') as birthday_md
+                   strftime('%m-%d', s.birthday) as birthday_md
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             WHERE {where_clause}
             AND (
-                DATE_FORMAT(s.birthday, '%m-%d') BETWEEN DATE_FORMAT(%s, '%m-%d')
-                AND DATE_FORMAT(%s, '%m-%d')
-                OR DATE_FORMAT(s.birthday, '%m-%d') BETWEEN '01-01'
-                AND DATE_FORMAT(%s, '%m-%d')
+                strftime('%m-%d', s.birthday) BETWEEN strftime('%m-%d', %s)
+                AND strftime('%m-%d', %s)
+                OR strftime('%m-%d', s.birthday) BETWEEN '01-01'
+                AND strftime('%m-%d', %s)
             )
-            ORDER BY DATE_FORMAT(s.birthday, '%m-%d')
+            ORDER BY strftime('%m-%d', s.birthday)
         """
         params.extend([today, end_date, end_date])
 
@@ -134,8 +134,8 @@ async def get_today_birthdays(
             JOIN class c ON s.class_id = c.class_id
             WHERE s.birthday IS NOT NULL
             AND s.status = '在校'
-            AND MONTH(s.birthday) = %s
-            AND DAY(s.birthday) = %s
+            AND CAST(strftime('%m', s.birthday) AS INTEGER) = %s
+            AND CAST(strftime('%d', s.birthday) AS INTEGER) = %s
         """
         students = db.query_all(query, (today.month, today.day))
 
@@ -242,7 +242,7 @@ async def send_birthday_reminder(
         # 更新发送状态
         db.execute(
             """UPDATE birthday_reminder SET
-            is_sent = 1, sent_at = NOW()
+            is_sent = 1, sent_at = datetime('now', 'localtime')
             WHERE id = %s""",
             (reminder_id,)
         )
@@ -287,7 +287,7 @@ async def generate_monthly_reminders(
             FROM student s
             WHERE s.birthday IS NOT NULL
             AND s.status = '在校'
-            AND MONTH(s.birthday) = %s""",
+            AND CAST(strftime('%m', s.birthday) AS INTEGER) = %s""",
             (today.month,)
         )
 
@@ -297,7 +297,7 @@ async def generate_monthly_reminders(
             existing = db.query_one(
                 """SELECT id FROM birthday_reminder
                 WHERE student_id = %s AND reminder_type = 'birthday'
-                AND YEAR(reminder_date) = %s""",
+                AND CAST(strftime('%Y', reminder_date) AS INTEGER) = %s""",
                 (student['student_id'], today.year)
             )
 
