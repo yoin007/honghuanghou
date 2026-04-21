@@ -228,7 +228,7 @@ const fetchClassesAndStudents = async () => {
     }
 
     // 获取每个班级的学生（简化处理，获取所有学生后按班级分组）
-    const studentRes = await api.get('/api/moral/admin/students', { params: { page_size: 500 } })
+    const studentRes = await api.get('/api/moral/admin/students', { params: { page: 1, page_size: 500 } })
     if (studentRes.success) {
       const students = studentRes.data.items
       const grouped = {}

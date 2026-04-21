@@ -2,7 +2,7 @@
   <div class="life-book-page">
     <!-- 筛选区 -->
     <el-card class="filter-card">
-      <el-form :inline="true" :model="filterForm">
+      <el-form :inline="true" :model="filterForm" class="filter-form">
         <el-form-item label="班级">
           <el-select v-model="filterForm.class_id" placeholder="选择班级" clearable filterable style="width: 150px" @change="handleClassChange">
             <el-option v-for="cls in classList" :key="cls.class_id" :label="cls.class_name" :value="cls.class_id" />
@@ -31,7 +31,7 @@
             <el-option label="德育任务" value="task" />
           </el-select>
         </el-form-item>
-        <el-form-item>
+        <el-form-item class="search-btn">
           <el-button type="primary" @click="handleSearch">搜索学生</el-button>
         </el-form-item>
       </el-form>
@@ -40,11 +40,11 @@
     <!-- 学生选择 -->
     <el-card v-if="showStudentList" class="student-list-card">
       <el-table :data="studentList" v-loading="studentLoading" stripe max-height="300">
-        <el-table-column prop="student_id" label="学号" width="120" />
-        <el-table-column prop="name" label="姓名" width="100" />
-        <el-table-column prop="class_name" label="班级" width="120" />
-        <el-table-column prop="grade_name" label="级号" width="100" />
-        <el-table-column label="操作" width="80">
+        <el-table-column prop="student_id" label="学号" min-width="120" />
+        <el-table-column prop="name" label="姓名" min-width="100" />
+        <el-table-column prop="class_name" label="班级" min-width="120" />
+        <el-table-column prop="grade_name" label="级号" min-width="100" />
+        <el-table-column label="操作" min-width="100" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleSelectStudent(row)">查看档案</el-button>
           </template>
@@ -58,7 +58,7 @@
         layout="total, sizes, prev, pager, next"
         @size-change="fetchStudents"
         @current-change="fetchStudents"
-        style="margin-top: 15px; justify-content: flex-end"
+        class="pagination"
       />
     </el-card>
 
@@ -253,14 +253,37 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
+.filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  align-items: center;
+}
+
+.filter-form .el-form-item {
+  margin-right: 0;
+  margin-bottom: 0;
+}
+
+.search-btn {
+  margin-left: auto;
+}
+
 .student-list-card {
   margin-bottom: 20px;
+}
+
+.student-list-card .pagination {
+  margin-top: 15px;
+  justify-content: flex-end;
 }
 
 .timeline-card .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .student-info .student-name {
@@ -274,8 +297,10 @@ onMounted(() => {
   font-size: 14px;
 }
 
-.stats-info .el-tag {
-  margin-left: 8px;
+.stats-info {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .timeline-container {
@@ -330,12 +355,14 @@ onMounted(() => {
   padding: 15px;
   border-radius: 8px;
   flex: 1;
+  min-width: 0;
 }
 
 .content-header {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .content-title {
@@ -358,10 +385,9 @@ onMounted(() => {
 
 .content-tags {
   margin-top: 10px;
-}
-
-.content-tags .el-tag {
-  margin-right: 5px;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
 }
 
 .content-meta {
@@ -373,5 +399,97 @@ onMounted(() => {
 .back-btn {
   margin-top: 20px;
   text-align: center;
+}
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .life-book-page {
+    padding: 10px;
+  }
+
+  .filter-card {
+    margin-bottom: 15px;
+  }
+
+  .filter-form {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .filter-form .el-form-item {
+    width: 100%;
+  }
+
+  .filter-form .el-form-item .el-select,
+  .filter-form .el-form-item .el-input,
+  .filter-form .el-form-item .el-date-editor {
+    width: 100% !important;
+  }
+
+  .search-btn {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .search-btn .el-button {
+    width: 100%;
+  }
+
+  .student-list-card {
+    margin-bottom: 15px;
+  }
+
+  .timeline-card .card-header {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .stats-info {
+    justify-content: center;
+  }
+
+  /* 时光轴改为垂直布局 */
+  .timeline {
+    padding-left: 0;
+  }
+
+  .timeline-item {
+    flex-direction: column;
+    padding-bottom: 20px;
+  }
+
+  .timeline-date {
+    position: relative;
+    left: 0;
+    width: 100%;
+    text-align: left;
+    padding-right: 0;
+    padding-bottom: 5px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .timeline-marker {
+    position: relative;
+    left: 0;
+    margin-bottom: 10px;
+  }
+
+  .timeline-content {
+    margin-left: 0;
+    padding: 12px;
+  }
+
+  .content-header {
+    flex-wrap: wrap;
+  }
+
+  .content-title {
+    font-size: 14px;
+  }
+
+  .back-btn .el-button {
+    width: 100%;
+  }
 }
 </style>

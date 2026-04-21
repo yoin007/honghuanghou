@@ -26,6 +26,7 @@ from .base import (
     require_permission,
     require_role_level,
 )
+from .evaluation import calculate_evaluation
 from .escalation import check_and_trigger_escalation
 from models.datas_api.auth import User, get_current_user
 
@@ -321,6 +322,9 @@ async def create_daily_record(
             ip_address=request.client.host if request.client else None
         )
 
+        # 重新计算德育评价总分
+        calculate_evaluation(db, record.student_id, semester_id, class_id, grade_id)
+
         # 构建返回数据
         response_data = {"record_id": record_id}
         response_message = "记录创建成功"
@@ -502,6 +506,10 @@ async def update_daily_record(
             ip_address=request.client.host if request.client else None
         )
 
+        # 重新计算德育评价总分
+        calculate_evaluation(db, old_record['student_id'], old_record['semester_id'],
+                             old_record['class_id'], old_record['grade_id'])
+
         return {"success": True, "message": "记录更新成功"}
 
 
@@ -511,13 +519,18 @@ async def delete_daily_record(
     request: Request,
     user: User = Depends(require_permission('moral_record_manage'))
 ):
-    """删除日常表现记录（软删除）"""
+    """
+    删除日常表现记录（软删除）
+
+    删除后会重新计算德育评价总分
+    """
     with get_moral_db() as db:
         # 获取原记录
         old_record = db.query_one(
             "SELECT * FROM student_daily_record WHERE record_id = %s",
             (record_id,)
         )
+
         if not old_record:
             raise HTTPException(404, "记录不存在")
 
@@ -527,6 +540,10 @@ async def delete_daily_record(
             (record_id,)
         )
 
+        # 重新计算德育评价总分（替代手动回退）
+        calculate_evaluation(db, old_record['student_id'], old_record['semester_id'],
+                             old_record['class_id'], old_record['grade_id'])
+
         # 记录操作日志
         log_operation(
             db, user.username, user.role, 'DELETE', 'student_daily_record',
@@ -535,7 +552,7 @@ async def delete_daily_record(
             ip_address=request.client.host if request.client else None
         )
 
-        return {"success": True, "message": "记录已删除"}
+        return {"success": True, "message": "记录已删除，总分已重新计算"}
 
 
 @router.get("/statistics/student/{student_id}", summary="获取学生日常表现统计")

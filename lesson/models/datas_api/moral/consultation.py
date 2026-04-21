@@ -254,7 +254,7 @@ async def update_consultation(
             params.append(update_data.status)
 
             if update_data.status == 'closed':
-                updates.append("closed_at = NOW()")
+                updates.append("closed_at = datetime('now','localtime')")
 
         if update_data.priority is not None:
             updates.append("priority = %s")
@@ -347,7 +347,7 @@ async def close_consultation(
 
         db.execute(
             """UPDATE ai_consultation SET
-            status = 'closed', closed_at = NOW(), outcome = %s
+            status = 'closed', closed_at = datetime('now','localtime'), outcome = %s
             WHERE id = %s""",
             (outcome, consultation_id)
         )

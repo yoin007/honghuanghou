@@ -500,7 +500,7 @@ async def get_students(
     grade_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=500),  # 放开上限支持下拉选择场景
     user: User = Depends(get_current_user)
 ):
     """
@@ -931,7 +931,7 @@ async def update_system_config(
 
                 if existing:
                     db.execute(
-                        "UPDATE moral_config SET config_value = %s, updated_at = NOW() WHERE config_key = %s",
+                        "UPDATE moral_config SET config_value = %s, updated_at = datetime('now','localtime') WHERE config_key = %s",
                         (json_value, key)
                     )
                 else:

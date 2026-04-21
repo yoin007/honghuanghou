@@ -601,6 +601,28 @@ CREATE TABLE IF NOT EXISTS moral_config (
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 """,
+    # 36. 点滴记录表（一生一册）
+    "moment_record": """
+CREATE TABLE IF NOT EXISTS moment_record (
+    record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    class_id INTEGER NOT NULL,
+    recorder TEXT NOT NULL,
+    record_type TEXT DEFAULT 'moment',
+    content TEXT NOT NULL,
+    record_date TEXT NOT NULL,
+    is_private INTEGER DEFAULT 1,
+    tags TEXT,
+    semester_id INTEGER,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (student_id) REFERENCES student(student_id),
+    FOREIGN KEY (class_id) REFERENCES class(class_id),
+    FOREIGN KEY (semester_id) REFERENCES semester(semester_id)
+);
+CREATE INDEX IF NOT EXISTS idx_moment_student ON moment_record(student_id);
+CREATE INDEX IF NOT EXISTS idx_moment_date ON moment_record(record_date);
+""",
 }
 
 

@@ -101,7 +101,7 @@
           <el-col :span="8">
             <div class="score-item">
               <div class="score-label">基础分</div>
-              <div class="score-value">60</div>
+              <div class="score-value">{{ detailData.base_score || 80 }}</div>
             </div>
           </el-col>
           <el-col :span="8">
@@ -269,6 +269,7 @@ const handleViewDetail = async (row) => {
     const res = await getStudentEvaluation(row.student_id, filterForm.semester_id)
     if (res.success) {
       detailData.value = {
+        base_score: res.data.evaluation?.base_score || 80,
         daily_score: res.data.evaluation?.daily_score || 0,
         school_score: res.data.evaluation?.school_score || 0,
         task_score: res.data.evaluation?.task_score || 0,

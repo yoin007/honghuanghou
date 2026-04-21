@@ -80,9 +80,50 @@ async def get_student_evaluation(
             (student_id, semester_id)
         )
 
+        # 获取基础分配置
+        base_score_config = db.query_value(
+            "SELECT config_value FROM moral_config WHERE config_key = 'evaluation_base_score'"
+        )
+        base_score = float(base_score_config or 80)
+
         if not evaluation:
             # 计算评价
             evaluation = calculate_evaluation(db, student_id, semester_id)
+        else:
+            # 补充 base_score 和各分项（数据库未存储）
+            # 计算各分项得分
+            daily_score = db.query_value(
+                """SELECT COALESCE(SUM(score), 0)
+                FROM student_daily_record
+                WHERE student_id = %s AND semester_id = %s AND is_deleted = 0""",
+                (student_id, semester_id)
+            ) or 0
+
+            school_score = db.query_value(
+                """SELECT COALESCE(SUM(score), 0)
+                FROM student_school_record
+                WHERE student_id = %s AND semester_id = %s AND is_deleted = 0""",
+                (student_id, semester_id)
+            ) or 0
+
+            task_score = db.query_value(
+                """SELECT COALESCE(SUM(current_score), 0)
+                FROM student_task_finish stf
+                JOIN grade_moral_task gmt ON stf.task_id = gmt.task_id
+                JOIN school_year sy ON stf.year_id = sy.year_id
+                JOIN semester sem ON sem.year_id = sy.year_id
+                WHERE stf.student_id = %s AND sem.semester_id = %s AND stf.status = 1""",
+                (student_id, semester_id)
+            ) or 0
+
+            evaluation = {
+                'total_score': evaluation['total_score'],
+                'level': evaluation['level'],
+                'base_score': base_score,
+                'daily_score': float(daily_score),
+                'school_score': float(school_score),
+                'task_score': float(task_score)
+            }
 
         # 获取详细统计
         daily_stats = get_daily_statistics(db, student_id, semester_id)
@@ -344,7 +385,7 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
     if existing:
         db.execute(
             """UPDATE moral_evaluation SET
-            total_score = %s, level = %s, class_id = %s, grade_id = %s, update_time = NOW()
+            total_score = %s, level = %s, class_id = %s, grade_id = %s, update_time = datetime('now','localtime')
             WHERE eval_id = %s""",
             (total_score, level, class_id, grade_id, existing['eval_id'])
         )

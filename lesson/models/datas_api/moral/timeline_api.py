@@ -20,6 +20,77 @@ from models.datas_api.auth import User
 router = APIRouter(prefix="/timeline", tags=["一生一册"])
 
 
+@router.get("/search", summary="搜索学生（用于一生一册筛选）")
+async def search_students_for_timeline(
+    class_id: Optional[int] = Query(None),
+    student_name: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user: User = Depends(get_current_user)
+):
+    """
+    搜索学生用于一生一册查看
+
+    权限说明：
+    - 班主任只能搜索本班学生
+    - 教发部/管理员可搜索所有学生
+    """
+    with get_moral_db() as db:
+        conditions = ["s.is_active = 1"]
+        params = []
+
+        # 权限过滤
+        if not check_moral_permission(user, 'profile_view_all'):
+            my_class = db.query_one(
+                "SELECT class_id FROM class WHERE leader_name = %s",
+                (user.username,)
+            )
+            if my_class:
+                conditions.append("s.class_id = %s")
+                params.append(my_class['class_id'])
+            else:
+                return {"success": True, "data": {"items": [], "total": 0}}
+
+        if class_id:
+            conditions.append("s.class_id = %s")
+            params.append(class_id)
+
+        if student_name:
+            conditions.append("s.name LIKE %s")
+            params.append(f"%{student_name}%")
+
+        where_clause = " AND ".join(conditions)
+
+        # 查询总数
+        count_query = f"SELECT COUNT(*) FROM student s WHERE {where_clause}"
+        total = db.query_value(count_query, tuple(params))
+
+        # 分页查询
+        offset = (page - 1) * page_size
+        data_query = f"""
+            SELECT s.student_id, s.name, s.gender, s.birthday,
+                   c.class_name, g.grade_name
+            FROM student s
+            JOIN class c ON s.class_id = c.class_id
+            JOIN grade g ON s.grade_id = g.grade_id
+            WHERE {where_clause}
+            ORDER BY c.class_name, s.student_id
+            LIMIT %s OFFSET %s
+        """
+        params.extend([page_size, offset])
+        students = db.query_all(data_query, tuple(params))
+
+        return {
+            "success": True,
+            "data": {
+                "items": students,
+                "total": total,
+                "page": page,
+                "page_size": page_size
+            }
+        }
+
+
 @router.get("/{student_id}", summary="获取学生时光轴")
 async def get_student_timeline(
     student_id: str,
@@ -118,22 +189,22 @@ async def get_student_timeline(
         # 3. 校级事件
         if not type_filter or 'school' in type_filter:
             school_records = db.query_all("""
-                SELECT ssr.record_id, se.event_name, se.score, ssr.record_date,
-                       ssr.description, 'school' as source
+                SELECT ssr.record_id, se.event_name, se.score, ssr.get_date,
+                       ssr.proof, 'school' as source
                 FROM student_school_record ssr
-                JOIN school_event se ON ssr.event_id = se.event_id
-                WHERE ssr.student_id = %s
-                  AND (%s IS NULL OR ssr.record_date >= %s)
-                  AND (%s IS NULL OR ssr.record_date <= %s)
-                ORDER BY ssr.record_date DESC
+                JOIN school_event_type se ON ssr.event_id = se.event_id
+                WHERE ssr.student_id = %s AND ssr.is_deleted = 0
+                  AND (%s IS NULL OR ssr.get_date >= %s)
+                  AND (%s IS NULL OR ssr.get_date <= %s)
+                ORDER BY ssr.get_date DESC
             """, (student_id, start_date, start_date, end_date, end_date) if start_date or end_date else (student_id, None, None, None, None))
 
             for s in school_records:
                 timeline.append({
-                    "date": s['record_date'],
+                    "date": s['get_date'],
                     "type": "school",
                     "title": s['event_name'],
-                    "content": s['description'] or "",
+                    "content": s['proof'] or "",
                     "score": s['score'],
                     "recorder": None,
                     "source": "校级事件"
@@ -142,16 +213,16 @@ async def get_student_timeline(
         # 4. 处分记录
         if not type_filter or 'punishment' in type_filter:
             punishments = db.query_all("""
-                SELECT pr.record_id, pr.level, pr.reason, pr.created_at,
+                SELECT pr.id, pr.level, pr.reason, pr.punishment_date,
                        pr.revoke_date, 'punishment' as source
                 FROM punishment_record pr
-                WHERE pr.student_id = %s
-                ORDER BY pr.created_at DESC
+                WHERE pr.student_id = %s AND pr.is_revoked = 0
+                ORDER BY pr.punishment_date DESC
             """, (student_id,))
 
             for p in punishments:
                 timeline.append({
-                    "date": p['created_at'][:10] if p['created_at'] else None,
+                    "date": p['punishment_date'][:10] if p['punishment_date'] else None,
                     "type": "punishment",
                     "title": f"处分 - {p['level']}",
                     "content": p['reason'] or "",
@@ -164,11 +235,11 @@ async def get_student_timeline(
         # 5. 任务完成
         if not type_filter or 'task' in type_filter:
             tasks = db.query_all("""
-                SELECT stf.finish_id, mt.task_name, stf.finish_date,
-                       stf.score, 'task' as source
+                SELECT stf.id, mt.task_name, stf.finish_date,
+                       stf.current_score, 'task' as source
                 FROM student_task_finish stf
                 JOIN grade_moral_task mt ON stf.task_id = mt.task_id
-                WHERE stf.student_id = %s
+                WHERE stf.student_id = %s AND stf.status = 1
                 ORDER BY stf.finish_date DESC
             """, (student_id,))
 
@@ -178,7 +249,7 @@ async def get_student_timeline(
                     "type": "task",
                     "title": f"完成任务: {t['task_name']}",
                     "content": "",
-                    "score": t['score'],
+                    "score": t['current_score'],
                     "recorder": None,
                     "source": "德育任务"
                 })
@@ -211,74 +282,4 @@ async def get_student_timeline(
                 "stats": stats
             }
         }
-
-
-@router.get("/search", summary="搜索学生（用于一生一册筛选）")
-async def search_students_for_timeline(
-    class_id: Optional[int] = Query(None),
-    student_name: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(get_current_user)
-):
-    """
-    搜索学生用于一生一册查看
-
-    权限说明：
-    - 班主任只能搜索本班学生
-    - 教发部/管理员可搜索所有学生
-    """
-    with get_moral_db() as db:
-        conditions = ["s.is_active = 1"]
-        params = []
-
-        # 权限过滤
-        if not check_moral_permission(user, 'profile_view_all'):
-            my_class = db.query_one(
-                "SELECT class_id FROM class WHERE leader_name = %s",
-                (user.username,)
-            )
-            if my_class:
-                conditions.append("s.class_id = %s")
-                params.append(my_class['class_id'])
-            else:
-                return {"success": True, "data": {"items": [], "total": 0}}
-
-        if class_id:
-            conditions.append("s.class_id = %s")
-            params.append(class_id)
-
-        if student_name:
-            conditions.append("s.name LIKE %s")
-            params.append(f"%{student_name}%")
-
-        where_clause = " AND ".join(conditions)
-
-        # 查询总数
-        count_query = f"SELECT COUNT(*) FROM student s WHERE {where_clause}"
-        total = db.query_value(count_query, tuple(params))
-
-        # 分页查询
-        offset = (page - 1) * page_size
-        data_query = f"""
-            SELECT s.student_id, s.name, s.gender, s.birthday,
-                   c.class_name, g.grade_name
-            FROM student s
-            JOIN class c ON s.class_id = c.class_id
-            JOIN grade g ON s.grade_id = g.grade_id
-            WHERE {where_clause}
-            ORDER BY c.class_name, s.student_id
-            LIMIT %s OFFSET %s
-        """
-        params.extend([page_size, offset])
-        students = db.query_all(data_query, tuple(params))
-
-        return {
-            "success": True,
-            "data": {
-                "items": students,
-                "total": total,
-                "page": page,
-                "page_size": page_size
-            }
-        }
+                
