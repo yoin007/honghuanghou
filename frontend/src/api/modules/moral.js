@@ -513,6 +513,70 @@ export function getStudentAllProgress(studentId) {
   return request.get(`/api/moral/escalation-rules/student/${studentId}/progress`)
 }
 
+// =============================================================================
+// API权限管理 API
+// =============================================================================
+
+/**
+ * 获取API权限配置列表
+ */
+export function getApiPermissions(apiGroup = null) {
+  return request.get('/api/moral/api-permissions', {
+    params: { api_group: apiGroup }
+  })
+}
+
+/**
+ * 创建API权限配置
+ */
+export function createApiPermission(data) {
+  return request.post('/api/moral/api-permissions', data)
+}
+
+/**
+ * 更新API权限配置
+ */
+export function updateApiPermission(configId, data) {
+  return request.put(`/api/moral/api-permissions/${configId}`, data)
+}
+
+/**
+ * 删除API权限配置
+ */
+export function deleteApiPermission(configId) {
+  return request.delete(`/api/moral/api-permissions/${configId}`)
+}
+
+/**
+ * 获取当前用户可访问的API列表
+ */
+export function getMyApiPermissions() {
+  return request.get('/api/moral/api-permissions/my-permissions')
+}
+
+/**
+ * 检查用户对特定API的权限
+ */
+export function checkApiPermission(apiPath) {
+  return request.get('/api/moral/api-permissions/check', {
+    params: { api_path: apiPath }
+  })
+}
+
+/**
+ * 初始化默认API权限配置
+ */
+export function initApiPermissions() {
+  return request.post('/api/moral/api-permissions/init')
+}
+
+/**
+ * 获取API分组列表
+ */
+export function getApiGroups() {
+  return request.get('/api/moral/api-permissions/groups')
+}
+
 /**
  * 创建级号
  */
@@ -750,4 +814,14 @@ export default {
   getStudentEscalationHistory,
   getStudentEventCount,
   getStudentAllProgress,
+
+  // API权限管理
+  getApiPermissions,
+  createApiPermission,
+  updateApiPermission,
+  deleteApiPermission,
+  getMyApiPermissions,
+  checkApiPermission,
+  initApiPermissions,
+  getApiGroups,
 }

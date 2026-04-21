@@ -89,14 +89,36 @@
       </el-descriptions>
       <el-empty v-else description="未设置当前学期" />
     </el-card>
+
+    <el-row :gutter="20" style="margin-top: 20px">
+      <el-col :span="6">
+        <el-card shadow="hover" class="config-card" @click="navigateTo('api-permission')">
+          <div class="card-content">
+            <el-icon class="card-icon"><Lock /></el-icon>
+            <div class="card-title">API权限</div>
+            <div class="card-count">{{ stats.apiPermissionCount }} 条配置</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="config-card disabled">
+          <div class="card-content">
+            <el-icon class="card-icon"><Notebook /></el-icon>
+            <div class="card-title">操作日志</div>
+            <div class="card-count">待开发</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="12"></el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { School, User, Calendar, Document, Notebook, Setting, Warning } from '@element-plus/icons-vue'
-import { getGrades, getClasses, getStudents, getSemesters, getDailyEventTypes, getSchoolEventTypes, getEscalationRules } from '@/api/modules/moral'
+import { School, User, Calendar, Document, Notebook, Setting, Warning, Lock } from '@element-plus/icons-vue'
+import { getGrades, getClasses, getStudents, getSemesters, getDailyEventTypes, getSchoolEventTypes, getEscalationRules, getApiPermissions } from '@/api/modules/moral'
 
 const router = useRouter()
 
@@ -106,21 +128,23 @@ const stats = reactive({
   studentCount: 0,
   semesterCount: 0,
   eventTypeCount: 0,
-  escalationCount: 0
+  escalationCount: 0,
+  apiPermissionCount: 0
 })
 
 const currentSemester = ref(null)
 
 const fetchStats = async () => {
   try {
-    const [grades, classes, students, semesters, dailyTypes, schoolTypes, escalationRules] = await Promise.all([
+    const [grades, classes, students, semesters, dailyTypes, schoolTypes, escalationRules, apiPermissions] = await Promise.all([
       getGrades(),
       getClasses(),
       getStudents({ page_size: 1 }),
       getSemesters(),
       getDailyEventTypes(),
       getSchoolEventTypes(),
-      getEscalationRules()
+      getEscalationRules(),
+      getApiPermissions()
     ])
 
     stats.gradeCount = grades.success ? (grades.data?.length || 0) : 0
@@ -129,6 +153,7 @@ const fetchStats = async () => {
     stats.semesterCount = semesters.success ? (semesters.data?.length || 0) : 0
     stats.eventTypeCount = (dailyTypes.success ? (dailyTypes.data?.length || 0) : 0) + (schoolTypes.success ? (schoolTypes.data?.length || 0) : 0)
     stats.escalationCount = escalationRules.success ? (escalationRules.data?.length || 0) : 0
+    stats.apiPermissionCount = apiPermissions.success ? (apiPermissions.data?.length || 0) : 0
 
     if (semesters.success && semesters.data) {
       currentSemester.value = semesters.data.find(s => s.is_current)
@@ -146,7 +171,8 @@ const navigateTo = (type) => {
     'semester': '/moral/config/semester',
     'event-type': '/moral/config/event-type',
     'escalation': '/moral/config/escalation',
-    'config': '/moral/config/settings'
+    'config': '/moral/config/settings',
+    'api-permission': '/moral/config/api-permission'
   }
   router.push(routes[type])
 }

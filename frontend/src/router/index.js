@@ -364,6 +364,15 @@ const routes = [
     }
   },
   {
+    path: '/moral/config/api-permission',
+    name: 'MoralConfigApiPermission',
+    component: () => import('../views/moral/config/ApiPermission.vue'),
+    meta: {
+      requiresAuth: true,
+      title: 'API权限管理'
+    }
+  },
+  {
     path: '/',
     redirect: '/schedules'
   },
