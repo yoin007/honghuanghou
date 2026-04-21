@@ -6,8 +6,11 @@
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional, List
+
+# 东八区时区
+GMT8 = timezone(timedelta(hours=8))
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -35,9 +38,16 @@ class SchoolRecordCreate(BaseModel):
     """创建校级事件记录"""
     student_id: str = Field(..., description="学号")
     event_id: int = Field(..., description="事件类型ID")
-    event_date: date = Field(..., description="事件日期")
+    event_date: Optional[date] = Field(None, description="事件日期，不传则默认今天")
     description: Optional[str] = Field(None, description="事件描述")
     evidence: Optional[str] = Field(None, description="证明材料")
+
+    def validate_event_date(self, current_date: date) -> date:
+        """验证事件日期不能超过今天"""
+        event_date = self.event_date or current_date
+        if event_date > current_date:
+            raise ValueError("事件日期不能超过今天")
+        return event_date
 
 
 class SchoolRecordUpdate(BaseModel):
@@ -193,6 +203,15 @@ async def create_school_record(
 ):
     """创建校级事件记录"""
     with get_moral_db() as db:
+        # 获取当前东八区日期
+        current_date_gmt8 = datetime.now(GMT8).date()
+
+        # 验证并设置事件日期（默认今天，不能超过今天）
+        try:
+            event_date = record.validate_event_date(current_date_gmt8)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
         current_semester = get_current_semester(db)
         if not current_semester:
             raise HTTPException(400, "当前学期未配置")
@@ -235,7 +254,7 @@ async def create_school_record(
                 record.student_id,
                 record.event_id,
                 semester_id,
-                record.event_date,
+                event_date,
                 student_info['class_id'],
                 student_info['grade_id'],
                 event['score'],

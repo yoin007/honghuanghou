@@ -6,9 +6,12 @@
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional, List
 import json
+
+# 东八区时区
+GMT8 = timezone(timedelta(hours=8))
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -25,6 +28,7 @@ from .base import (
     PaginatedResponse,
     require_permission,
     require_role_level,
+    get_teacher_class_id,
 )
 from .evaluation import calculate_evaluation
 from .escalation import check_and_trigger_escalation
@@ -43,8 +47,15 @@ class DailyRecordCreate(BaseModel):
     """创建日常表现记录"""
     student_id: str = Field(..., description="学号")
     event_id: int = Field(..., description="事件类型ID")
-    record_date: datetime = Field(..., description="记录时间（精确到分钟）")
+    record_date: Optional[datetime] = Field(None, description="记录时间（精确到分钟），不传则默认当前时间")
     remark: Optional[str] = Field(None, description="备注")
+
+    def validate_record_date(self, current_time: datetime) -> datetime:
+        """验证记录时间不能超过当前时间"""
+        record_date = self.record_date or current_time
+        if record_date > current_time:
+            raise ValueError("记录时间不能超过当前时间")
+        return record_date
 
 
 class DailyRecordUpdate(BaseModel):
@@ -133,8 +144,7 @@ async def get_daily_records(
 
     权限说明：
     - admin/xuefa/jiaowu: 可查看所有记录
-    - cleader: 只能查看本班记录
-    - teacher: 只能查看录入的记录
+    - cleader/teacher: 只能查看自己创建的记录
     """
     with get_moral_db() as db:
         # 获取当前学期
@@ -174,12 +184,11 @@ async def get_daily_records(
             conditions.append("dr.record_date <= %s")
             params.append(end_date)
 
-        # 权限过滤
+        # 权限过滤：记录人只能查看自己创建的记录
         if not check_moral_permission(user, 'report_view_all'):
-            if check_moral_permission(user, 'report_view_own_class'):
-                # 班主任只能查看自己班级
-                conditions.append("c.leader_name = %s")
-                params.append(user.username)
+            # teacher/cleader 只能看 recorder == username
+            conditions.append("dr.recorder = %s")
+            params.append(user.username)
 
         where_clause = " AND ".join(conditions)
 
@@ -236,6 +245,15 @@ async def create_daily_record(
     - teacher/cleader/xuefa/jiaowu/admin 可录入
     """
     with get_moral_db() as db:
+        # 获取当前东八区时间
+        current_time_gmt8 = datetime.now(GMT8).replace(tzinfo=None)
+
+        # 验证并设置记录时间（默认当前时间，不能超过当前时间）
+        try:
+            record_date = record.validate_record_date(current_time_gmt8)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
         # 获取当前学期
         current_semester = get_current_semester(db)
         if not current_semester:
@@ -251,12 +269,6 @@ async def create_daily_record(
         class_id = student_info['class_id']
         grade_id = student_info['grade_id']
 
-        # 权限检查：班主任只能录入本班学生
-        if check_moral_permission(user, 'moral_record_own_class') and \
-           not check_moral_permission(user, 'moral_record_manage'):
-            if not check_class_access(user, class_id, db):
-                raise HTTPException(403, "只能录入本班学生的记录")
-
         # 获取事件类型
         event = db.query_one(
             "SELECT * FROM daily_event_type WHERE event_id = %s AND is_active = 1",
@@ -264,18 +276,6 @@ async def create_daily_record(
         )
         if not event:
             raise HTTPException(404, f"事件类型 {record.event_id} 不存在或已禁用")
-
-        # 注意：允许同一天多次相同事件记录，用于累进处罚统计
-        # 防误操作：检查是否1分钟内重复提交（通过created_at精确时间）
-        recent_duplicate = db.query_one(
-            """SELECT record_id FROM student_daily_record
-            WHERE student_id = %s AND event_id = %s AND semester_id = %s
-            AND is_deleted = 0
-            AND created_at >= datetime('now', 'localtime', '-1 minute')""",
-            (record.student_id, record.event_id, semester_id)
-        )
-        if recent_duplicate:
-            raise HTTPException(400, "1分钟内已有相同事件记录，请勿重复提交")
 
         # 插入记录
         db.execute(
@@ -286,7 +286,7 @@ async def create_daily_record(
                 record.student_id,
                 record.event_id,
                 semester_id,
-                record.record_date.strftime('%Y-%m-%d %H:%M') if isinstance(record.record_date, datetime) else record.record_date,
+                record_date.strftime('%Y-%m-%d %H:%M'),
                 class_id,
                 grade_id,
                 event['score'],
@@ -305,7 +305,7 @@ async def create_daily_record(
                 student_id=record.student_id,
                 event_id=record.event_id,
                 record_id=record_id,
-                record_date=record.record_date,
+                record_date=record_date,
                 semester_id=semester_id
             )
 
@@ -359,6 +359,9 @@ async def batch_create_daily_records(
     权限要求：cleader/xuefa/jiaowu/admin
     """
     with get_moral_db() as db:
+        # 获取当前东八区时间
+        current_time_gmt8 = datetime.now(GMT8).replace(tzinfo=None)
+
         current_semester = get_current_semester(db)
         if not current_semester:
             raise HTTPException(400, "当前学期未配置")
@@ -370,6 +373,13 @@ async def batch_create_daily_records(
 
         for i, record in enumerate(records):
             try:
+                # 验证并设置记录时间
+                try:
+                    record_date = record.validate_record_date(current_time_gmt8)
+                except ValueError as e:
+                    errors.append(f"第{i+1}条：{str(e)}")
+                    continue
+
                 # 获取学生班级信息
                 student_info = get_student_class_snapshot(db, record.student_id)
                 if not student_info:
@@ -385,19 +395,6 @@ async def batch_create_daily_records(
                     errors.append(f"第{i+1}条：事件类型不存在")
                     continue
 
-                # 检查重复（1分钟内防误操作）
-                record_date_str = record.record_date.strftime('%Y-%m-%d %H:%M') if isinstance(record.record_date, datetime) else record.record_date
-                recent_duplicate = db.query_one(
-                    """SELECT record_id FROM student_daily_record
-                    WHERE student_id = %s AND event_id = %s AND semester_id = %s
-                    AND is_deleted = 0
-                    AND created_at >= datetime('now', 'localtime', '-1 minute')""",
-                    (record.student_id, record.event_id, semester_id)
-                )
-                if recent_duplicate:
-                    errors.append(f"第{i+1}条：1分钟内已有相同事件记录")
-                    continue
-
                 # 插入记录
                 db.execute(
                     """INSERT INTO student_daily_record
@@ -407,7 +404,7 @@ async def batch_create_daily_records(
                         record.student_id,
                         record.event_id,
                         semester_id,
-                        record_date_str,
+                        record_date.strftime('%Y-%m-%d %H:%M'),
                         student_info['class_id'],
                         student_info['grade_id'],
                         event['score'],
@@ -425,7 +422,7 @@ async def batch_create_daily_records(
                         student_id=record.student_id,
                         event_id=record.event_id,
                         record_id=record_id,
-                        record_date=record.record_date,
+                        record_date=record_date,
                         semester_id=semester_id
                     )
                     if escalation_result.triggered:

@@ -132,6 +132,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/utils/api'
+import { getGMT8DateString } from '@/utils/time'
 
 const loading = ref(false)
 const recordList = ref([])
@@ -161,7 +162,7 @@ const form = reactive({
   content: '',
   record_type: 'moment',
   tags: [],
-  record_date: new Date().toISOString().split('T')[0]
+  record_date: getGMT8DateString() // 东八区当前日期
 })
 
 const rules = {
@@ -265,7 +266,7 @@ const handleAdd = () => {
     content: '',
     record_type: 'moment',
     tags: [],
-    record_date: new Date().toISOString().split('T')[0]
+    record_date: getGMT8DateString() // 东八区当前日期
   })
   dialogVisible.value = true
 }

@@ -169,6 +169,7 @@ import {
   getGrades,
   getStudents
 } from '@/api/modules/moral'
+import { getGMT8TimeString } from '@/utils/time'
 
 // 数据
 const loading = ref(false)
@@ -317,7 +318,7 @@ const handleAdd = () => {
     class_id: null,
     student_ids: [],
     event_id: null,
-    record_date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+    record_date: getGMT8TimeString(), // 东八区当前时间
     remark: ''
   })
   classStudents.value = []

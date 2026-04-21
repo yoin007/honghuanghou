@@ -14,6 +14,7 @@ from .base import (
     get_moral_db,
     get_current_user,
     check_moral_permission,
+    get_teacher_class_id,
 )
 from models.datas_api.auth import User
 
@@ -41,13 +42,10 @@ async def search_students_for_timeline(
 
         # 权限过滤
         if not check_moral_permission(user, 'profile_view_all'):
-            my_class = db.query_one(
-                "SELECT class_id FROM class WHERE leader_name = %s",
-                (user.username,)
-            )
-            if my_class:
+            my_class_id = get_teacher_class_id(user, db)
+            if my_class_id:
                 conditions.append("s.class_id = %s")
-                params.append(my_class['class_id'])
+                params.append(my_class_id)
             else:
                 return {"success": True, "data": {"items": [], "total": 0}}
 
@@ -121,12 +119,8 @@ async def get_student_timeline(
 
         # 权限检查：班主任只能看本班学生
         if not check_moral_permission(user, 'profile_view_all'):
-            # 检查是否是该班班主任
-            my_class = db.query_one(
-                "SELECT class_id FROM class WHERE leader_name = %s",
-                (user.username,)
-            )
-            if not my_class or my_class['class_id'] != student['class_id']:
+            my_class_id = get_teacher_class_id(user, db)
+            if my_class_id is None or my_class_id != student['class_id']:
                 raise HTTPException(403, "只能查看本班学生的档案")
 
         # 解析筛选类型

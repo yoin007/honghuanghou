@@ -16,6 +16,7 @@ from .base import (
     get_moral_db,
     check_moral_permission,
     require_permission,
+    get_teacher_class_id,
 )
 from models.datas_api.auth import User, get_current_user
 
@@ -69,8 +70,10 @@ async def get_upcoming_birthdays(
 
         # 权限过滤
         if user.role == 'cleader':
-            conditions.append("c.leader_name = %s")
-            params.append(user.username)
+            my_class_id = get_teacher_class_id(user, db)
+            if my_class_id:
+                conditions.append("s.class_id = %s")
+                params.append(my_class_id)
 
         where_clause = " AND ".join(conditions)
 

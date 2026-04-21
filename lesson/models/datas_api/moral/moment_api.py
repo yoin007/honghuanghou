@@ -6,7 +6,10 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
+
+# 东八区时区
+GMT8 = timezone(timedelta(hours=8))
 
 from .base import (
     get_moral_db,
@@ -26,9 +29,16 @@ class MomentRecordCreate(BaseModel):
     """创建点滴记录"""
     student_id: str = Field(..., description="学生学号")
     content: str = Field(..., description="记录内容")
-    record_date: date = Field(..., description="记录日期")
+    record_date: Optional[date] = Field(None, description="记录日期，不传则默认今天")
     record_type: str = Field(default="moment", description="记录类型")
     tags: Optional[List[str]] = Field(default=None, description="标签列表")
+
+    def validate_record_date(self, current_date: date) -> date:
+        """验证记录日期不能超过今天"""
+        record_date = self.record_date or current_date
+        if record_date > current_date:
+            raise ValueError("记录日期不能超过今天")
+        return record_date
 
 
 class MomentRecordUpdate(BaseModel):
@@ -126,6 +136,15 @@ async def create_moment_record(
     - teacher/cleader/xuefa/jiaowu/admin 可创建
     """
     with get_moral_db() as db:
+        # 获取当前东八区日期
+        current_date_gmt8 = datetime.now(GMT8).date()
+
+        # 验证并设置记录日期（默认今天，不能超过今天）
+        try:
+            record_date = record.validate_record_date(current_date_gmt8)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
         # 获取学生班级信息
         student_info = get_student_class_snapshot(db, record.student_id)
         if not student_info:
@@ -153,7 +172,7 @@ async def create_moment_record(
             user.username,
             record.record_type,
             record.content,
-            record.record_date,
+            record_date,
             tags_json,
             semester_id
         ))

@@ -20,6 +20,7 @@ from .base import (
     check_class_access,
     get_current_semester,
     require_permission,
+    get_teacher_class_id,
 )
 from models.datas_api.auth import User, get_current_user
 
@@ -85,9 +86,11 @@ async def get_student_profile(
             raise HTTPException(404, "学生不存在")
 
         # 班主任权限检查
-        if user.role == 'cleader' and student['leader_name'] != user.username:
-            if not check_moral_permission(user, 'student_profile'):
-                raise HTTPException(403, "只能查看本班学生画像")
+        if user.role == 'cleader':
+            my_class_id = get_teacher_class_id(user, db)
+            if my_class_id is None or my_class_id != student['class_id']:
+                if not check_moral_permission(user, 'student_profile'):
+                    raise HTTPException(403, "只能查看本班学生画像")
 
         # 获取最新画像
         profile = db.query_one(

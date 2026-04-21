@@ -19,7 +19,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
-# 数据库路径
+# 数据库路径（相对于 lesson 目录）
 DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases")
 DB_PATH = os.path.join(DB_DIR, "moral.db")
 

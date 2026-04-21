@@ -37,6 +37,7 @@ MORAL_PERMISSIONS = {
         'level': 60,
         'permissions': [
             'moral_record_manage',
+            'moral_record_input',     # 可以录入记录
             'student_manage',
             'teacher_manage',
             'class_manage',
@@ -54,6 +55,7 @@ MORAL_PERMISSIONS = {
         'level': 50,
         'permissions': [
             'moral_record_manage',
+            'moral_record_input',     # 可以录入记录
             'punishment_manage',
             'event_type_manage',
             'class_change_approve',
@@ -70,8 +72,8 @@ MORAL_PERMISSIONS = {
         'name': '班主任',
         'level': 30,
         'permissions': [
-            'moral_record_own_class',
-            'report_view_own_class',
+            'moral_record_input',      # 可以录入记录
+            'moral_record_view_own',   # 只能查看自己创建的记录
             'homework_publish',
             'announcement_publish',
             'leave_approve',
@@ -91,6 +93,7 @@ MORAL_PERMISSIONS = {
             'schedule_view',
             'student_view',
             'moral_record_input',
+            'moral_record_view_own',  # 只能查看自己创建的记录
             'moment_create',
             'moment_view_own',
         ]
@@ -229,21 +232,78 @@ def check_class_access(user: User, class_id: int, db: SQLiteMoralDatabase) -> bo
             (class_id,)
         )
         if class_info:
-            # 检查是否是该班级的班主任
             username = user.username if hasattr(user, 'username') else ''
-            if class_info.get('leader_name') == username:
+            leader_name = class_info.get('leader_name', '')
+
+            # 方式1：直接匹配（leader_name 存的是 teacher_id）
+            if leader_name == username:
                 return True
 
-            # 也可以通过 teacher 表的关联来判断
+            # 方式2：通过 teacher 表关联（username 是 teacher_id，leader_name 是姓名）
+            # 获取当前登录教师的姓名，与 leader_name 比较
             teacher = db.query_one(
-                "SELECT teacher_id FROM teacher WHERE name = %s",
+                "SELECT name FROM teacher WHERE teacher_id = %s",
                 (username,)
             )
-            if teacher:
-                # 检查 teacher 是否是该班级的班主任
-                pass  # 需要建立 teacher-class 关联表
+            if teacher and teacher.get('name') == leader_name:
+                return True
+
+            # 方式3：通过 leader_wxid 匹配（如果已配置）
+            leader_wxid = class_info.get('leader_wxid', '')
+            if leader_wxid and leader_wxid == username:
+                return True
 
     return False
+
+
+def get_teacher_class_id(user: User, db: SQLiteMoralDatabase) -> Optional[int]:
+    """
+    获取班主任管理的班级ID
+
+    Args:
+        user: 用户对象
+        db: 数据库连接
+
+    Returns:
+        班级ID，如果不是班主任或未关联班级则返回 None
+    """
+    if not user:
+        return None
+
+    username = user.username if hasattr(user, 'username') else ''
+
+    # 方式1：通过 teacher 表关联（username 是 teacher_id）
+    teacher = db.query_one(
+        "SELECT name FROM teacher WHERE teacher_id = %s",
+        (username,)
+    )
+    if teacher:
+        teacher_name = teacher.get('name', '')
+        # 用教师姓名匹配 class.leader_name
+        my_class = db.query_one(
+            "SELECT class_id FROM class WHERE leader_name = %s AND is_active = 1",
+            (teacher_name,)
+        )
+        if my_class:
+            return my_class['class_id']
+
+    # 方式2：直接用 username 匹配 leader_name（如果 leader_name 存的是 teacher_id）
+    my_class = db.query_one(
+        "SELECT class_id FROM class WHERE leader_name = %s AND is_active = 1",
+        (username,)
+    )
+    if my_class:
+        return my_class['class_id']
+
+    # 方式3：通过 leader_wxid 匹配
+    my_class = db.query_one(
+        "SELECT class_id FROM class WHERE leader_wxid = %s AND is_active = 1",
+        (username,)
+    )
+    if my_class:
+        return my_class['class_id']
+
+    return None
 
 
 def require_permission(permission: str):

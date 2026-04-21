@@ -168,6 +168,7 @@ import {
   getGrades,
   getStudents
 } from '@/api/modules/moral'
+import { getGMT8DateString } from '@/utils/time'
 
 // 数据
 const loading = ref(false)
@@ -316,7 +317,7 @@ const handleAdd = () => {
     class_id: null,
     student_ids: [],
     event_id: null,
-    event_date: new Date().toISOString().split('T')[0],
+    event_date: getGMT8DateString(), // 东八区当前日期
     description: '',
     evidence: ''
   })

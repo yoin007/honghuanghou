@@ -200,6 +200,7 @@ import {
   getGrades,
   getStudents
 } from '@/api/modules/moral'
+import { getGMT8DateString } from '@/utils/time'
 
 // 数据
 const loading = ref(false)
@@ -355,7 +356,7 @@ const handleAdd = () => {
     student_id: '',
     punishment_type: '',
     punishment_level: 2,
-    punishment_date: new Date().toISOString().split('T')[0],
+    punishment_date: getGMT8DateString(), // 东八区当前日期
     punishment_reason: '',
     evidence: '',
     score_deduct: -10
@@ -436,7 +437,7 @@ const handleRevoke = (row) => {
     student_name: row.student_name,
     punishment_type: row.punishment_type,
     punishment_date: row.punishment_date,
-    revoke_date: new Date().toISOString().split('T')[0],
+    revoke_date: getGMT8DateString(), // 东八区当前日期
     revoke_reason: ''
   })
   revokeDialogVisible.value = true

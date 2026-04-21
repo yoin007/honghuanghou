@@ -18,6 +18,7 @@ from .base import (
     check_moral_permission,
     check_class_access,
     require_permission,
+    get_teacher_class_id,
 )
 from models.datas_api.auth import User, get_current_user
 
@@ -150,9 +151,11 @@ async def create_consultation(
             raise HTTPException(404, "学生不存在")
 
         # 权限检查：班主任只能处理本班
-        if user.role == 'cleader' and student['leader_name'] != user.username:
-            if not check_moral_permission(user, 'ai_consultation'):
-                raise HTTPException(403, "只能处理本班学生")
+        if user.role == 'cleader':
+            my_class_id = get_teacher_class_id(user, db)
+            if my_class_id is None or my_class_id != student['class_id']:
+                if not check_moral_permission(user, 'ai_consultation'):
+                    raise HTTPException(403, "只能处理本班学生")
 
         # 创建会话
         db.execute(

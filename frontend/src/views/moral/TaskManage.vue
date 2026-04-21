@@ -263,6 +263,7 @@ import {
   getClasses,
   getStudents
 } from '@/api/modules/moral'
+import { getGMT8DateString } from '@/utils/time'
 
 // Tab
 const activeTab = ref('tasks')
@@ -449,7 +450,7 @@ const handleAddTask = () => {
     grade_id: null,
     task_type: 1,
     score: 5,
-    start_date: new Date().toISOString().split('T')[0],
+    start_date: getGMT8DateString(), // 东八区当前日期
     end_date: '',
     description: ''
   })
@@ -521,7 +522,7 @@ const handleAddFinish = () => {
     class_id: null,
     student_ids: [],
     task_id: null,
-    finish_date: new Date().toISOString().split('T')[0],
+    finish_date: getGMT8DateString(), // 东八区当前日期
     remark: ''
   })
   classStudents.value = []

@@ -351,13 +351,47 @@ def send_escalation_notification(
 
         if role == 'cleader':
             # 通知班主任
+            leader_name = student_info.get('leader_name', '')
+
+            # 优先使用 leader_wxid（如果已配置）
             recipient = student_info.get('leader_wxid')
+
+            # 如果 leader_wxid 为空，通过 contacts 表查找班主任 wxid
+            if not recipient and leader_name:
+                try:
+                    import sqlite3
+                    import os
+
+                    # 连接 member.db 查询 contacts 表
+                    member_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases", "member.db")
+
+                    conn = sqlite3.connect(member_db_path)
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.cursor()
+
+                    cursor.execute(
+                        """SELECT wxid FROM contacts
+                        WHERE remark LIKE ? OR nick_name LIKE ?
+                        LIMIT 1""",
+                        (f'%{leader_name}%', f'%{leader_name}%')
+                    )
+                    row = cursor.fetchone()
+                    conn.close()
+
+                    if row:
+                        recipient = row['wxid']
+                        logger.info(f"通过 contacts 表找到班主任 {leader_name} 的 wxid: {recipient}")
+                except Exception as e:
+                    logger.warning(f"查询班主任 wxid 失败: {e}")
+
             if recipient:
                 try:
                     send_text(result.message, recipient, producer="escalation")
-                    logger.info(f"已通知班主任 {student_info.get('leader_name')}: {recipient}")
+                    logger.info(f"已通知班主任 {leader_name}: {recipient}")
                 except Exception as e:
                     logger.error(f"发送班主任通知失败: {e}")
+            else:
+                logger.warning(f"班主任 {leader_name} 未配置 wxid，无法发送通知")
 
         elif role == 'xuefa':
             # 通知学发部（从配置获取）

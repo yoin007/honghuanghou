@@ -19,6 +19,7 @@ from .base import (
     log_operation,
     check_moral_permission,
     check_class_access,
+    get_teacher_class_id,
 )
 from models.datas_api.auth import User, get_current_user, is_admin_user
 
@@ -514,21 +515,16 @@ async def get_students(
         conditions = ["1=1"]
         params = []
 
-        # 班主任权限过滤：两种识别方式
-        # 方式1：role='cleader' 的传统方式
-        # 方式2：username 能匹配到班级 leader_name（更健壮，不依赖 teacher_template）
-        my_class = db.query_one(
-            "SELECT class_id FROM class WHERE leader_name = %s",
-            (user.username,)
-        )
+        # 班主任权限过滤
+        my_class_id = get_teacher_class_id(user, db)
 
         is_cleader_by_role = user.role == 'cleader' and not check_moral_permission(user, 'student_manage')
-        is_cleader_by_class = my_class is not None and not check_moral_permission(user, 'student_manage')
+        is_cleader_by_class = my_class_id is not None and not check_moral_permission(user, 'student_manage')
 
         if is_cleader_by_role or is_cleader_by_class:
-            if my_class:
+            if my_class_id:
                 conditions.append("s.class_id = %s")
-                params.append(my_class['class_id'])
+                params.append(my_class_id)
             else:
                 # 班主任没有分配班级，返回空列表
                 return {"success": True, "data": {"items": [], "total": 0, "page": page, "page_size": page_size}}
@@ -661,16 +657,12 @@ async def update_student(
             raise HTTPException(404, "学生不存在")
 
         # 权限检查：班主任只能编辑自己班级的学生
-        # 双重识别：role='cleader' 或 username 匹配 leader_name
-        my_class = db.query_one(
-            "SELECT class_id FROM class WHERE leader_name = %s",
-            (user.username,)
-        )
+        my_class_id = get_teacher_class_id(user, db)
         is_cleader_by_role = user.role == 'cleader' and not check_moral_permission(user, 'student_manage')
-        is_cleader_by_class = my_class is not None and not check_moral_permission(user, 'student_manage')
+        is_cleader_by_class = my_class_id is not None and not check_moral_permission(user, 'student_manage')
 
         if is_cleader_by_role or is_cleader_by_class:
-            if student['leader_name'] != user.username:
+            if my_class_id is None or my_class_id != student['class_id']:
                 raise HTTPException(403, "只能编辑本班学生信息")
 
         # 构建更新语句
