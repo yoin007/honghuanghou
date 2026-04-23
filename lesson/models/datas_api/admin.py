@@ -32,6 +32,12 @@ class PasswordResetRequest(BaseModel):
     username: str
 
 
+class AdminSetPasswordRequest(BaseModel):
+    """管理员设置用户密码"""
+    username: str
+    new_password: str
+
+
 class PasswordChangeRequest(BaseModel):
     old_password: str
     new_password: str
@@ -121,7 +127,7 @@ async def admin_reset_password(
 
 @router.post("/set-password")
 async def admin_set_password(
-    request: PasswordChangeRequest,
+    request: AdminSetPasswordRequest,
     current_user: User = Depends(get_current_user)
 ):
     """管理员为用户设置密码"""
