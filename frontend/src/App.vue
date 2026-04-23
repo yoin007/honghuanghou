@@ -188,6 +188,8 @@ const showMoralMenu = computed(() => {
 
 // 加载德育菜单权限
 const loadMoralMenuPermissions = async () => {
+  // 先清除缓存，确保重新加载最新权限
+  clearCache()
   await loadMyPermissions()
   canViewDailyRecord.value = hasApiPermissionSync('/api/moral/daily-records')
   canViewSchoolEvent.value = hasApiPermissionSync('/api/moral/school-records')
