@@ -101,13 +101,9 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
     {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
 
-    # 生日提醒
-    {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/birthdays/today", "api_name": "获取今日生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/birthdays/reminders", "api_name": "获取提醒列表", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/birthdays/reminders/create", "api_name": "创建生日提醒", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/birthdays/reminders/send", "api_name": "发送生日提醒", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/birthdays/generate", "api_name": "生成本月提醒", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    # 生日查看
+    {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日查看", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/birthdays/today", "api_name": "获取今日生日", "api_group": "生日查看", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
 
     # 学生画像
     {"api_path": "/api/moral/profiles/student", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},

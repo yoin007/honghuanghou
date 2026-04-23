@@ -344,41 +344,6 @@ export function getTodayBirthdays() {
   return request.get('/api/moral/birthdays/today')
 }
 
-/**
- * 获取生日提醒列表
- */
-export function getBirthdayReminders(params = {}) {
-  return request.get('/api/moral/birthdays/reminders', { params })
-}
-
-/**
- * 创建生日提醒
- */
-export function createBirthdayReminder(data) {
-  return request.post('/api/moral/birthdays/reminders', data)
-}
-
-/**
- * 发送生日提醒
- */
-export function sendBirthdayReminder(reminderId) {
-  return request.post(`/api/moral/birthdays/reminders/${reminderId}/send`)
-}
-
-/**
- * 生成本月生日提醒
- */
-export function generateMonthlyReminders() {
-  return request.post('/api/moral/birthdays/generate')
-}
-
-/**
- * 获取生日提醒配置
- */
-export function getBirthdayConfig() {
-  return request.get('/api/moral/birthdays/config')
-}
-
 // =============================================================================
 // AI诊疗 API
 // =============================================================================
@@ -756,14 +721,9 @@ export default {
   batchGenerateProfiles,
   getProfileConfig,
 
-  // 生日提醒
+  // 生日查看
   getUpcomingBirthdays,
   getTodayBirthdays,
-  getBirthdayReminders,
-  createBirthdayReminder,
-  sendBirthdayReminder,
-  generateMonthlyReminders,
-  getBirthdayConfig,
 
   // AI诊疗
   getConsultations,
