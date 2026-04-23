@@ -67,19 +67,19 @@
               <el-menu-item index="/admin-files-done">已查阅文件</el-menu-item>
               <el-menu-item index="/upload-schedule">更新课表</el-menu-item>
             </el-sub-menu>
-            <el-sub-menu v-if="isLoggedIn" index="moral">
+            <el-sub-menu v-if="isLoggedIn && showMoralMenu" index="moral">
               <template #title>德育评价</template>
-              <el-menu-item index="/moral/daily-record">日常表现</el-menu-item>
-              <el-menu-item index="/moral/school-event">校级事件</el-menu-item>
-              <el-menu-item index="/moral/task">德育任务</el-menu-item>
-              <el-menu-item index="/moral/punishment">处分管理</el-menu-item>
-              <el-menu-item index="/moral/evaluation">评价查询</el-menu-item>
-              <el-menu-item index="/moral/moment">点滴记录</el-menu-item>
-              <el-menu-item v-if="isCleader || isJiaowu || isAdmin" index="/moral/lifebook">一生一册</el-menu-item>
-              <el-menu-item index="/moral/profile">学生画像</el-menu-item>
-              <el-menu-item index="/moral/birthday">生日提醒</el-menu-item>
-              <el-menu-item v-if="isCleader && !isAdmin && !isJiaowu" index="/moral/config/student">学生管理</el-menu-item>
-              <el-menu-item v-if="isAdmin || isJiaowu" index="/moral/config">德育配置</el-menu-item>
+              <el-menu-item v-if="canViewDailyRecord" index="/moral/daily-record">日常表现</el-menu-item>
+              <el-menu-item v-if="canViewSchoolEvent" index="/moral/school-event">校级事件</el-menu-item>
+              <el-menu-item v-if="canViewTask" index="/moral/task">德育任务</el-menu-item>
+              <el-menu-item v-if="canViewPunishment" index="/moral/punishment">处分管理</el-menu-item>
+              <el-menu-item v-if="canViewEvaluation" index="/moral/evaluation">评价查询</el-menu-item>
+              <el-menu-item v-if="canViewMoment" index="/moral/moment">点滴记录</el-menu-item>
+              <el-menu-item v-if="canViewLifebook" index="/moral/lifebook">一生一册</el-menu-item>
+              <el-menu-item v-if="canViewProfile" index="/moral/profile">学生画像</el-menu-item>
+              <el-menu-item v-if="canViewBirthday" index="/moral/birthday">生日提醒</el-menu-item>
+              <el-menu-item v-if="canViewStudentManage" index="/moral/config/student">学生管理</el-menu-item>
+              <el-menu-item v-if="canViewMoralConfig" index="/moral/config">德育配置</el-menu-item>
             </el-sub-menu>
             
             <el-sub-menu v-if="isAdmin" index="system">
@@ -129,11 +129,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from './stores/auth'
 import { useAppStore } from './stores/app'
+import { useApiPermission } from './composables/useApiPermission'
 import api from './utils/api'
 
 const router = useRouter()
@@ -142,6 +143,9 @@ const route = useRoute()
 // Use Pinia stores
 const authStore = useAuthStore()
 const appStore = useAppStore()
+
+// API权限检查
+const { hasApiPermissionSync, loadMyPermissions, clearCache } = useApiPermission()
 
 // Local refs for UI
 const showLoginDialog = ref(false)
@@ -153,6 +157,19 @@ const loginRules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
+// 德育菜单权限
+const canViewDailyRecord = ref(false)
+const canViewSchoolEvent = ref(false)
+const canViewTask = ref(false)
+const canViewPunishment = ref(false)
+const canViewEvaluation = ref(false)
+const canViewMoment = ref(false)
+const canViewLifebook = ref(false)
+const canViewProfile = ref(false)
+const canViewBirthday = ref(false)
+const canViewStudentManage = ref(false)
+const canViewMoralConfig = ref(false)
+
 // Computed properties from store
 const isLoggedIn = computed(() => authStore.isLoggedIn)
 const username = computed(() => authStore.username)
@@ -161,6 +178,50 @@ const isJiaowu = computed(() => authStore.isJiaowu)
 const isCleader = computed(() => authStore.isCleader)
 const classCode = computed(() => appStore.classCode)
 const classCodes = computed(() => appStore.classCodes)
+
+// 德育菜单是否显示（有任一子菜单权限才显示）
+const showMoralMenu = computed(() => {
+  return canViewDailyRecord.value || canViewSchoolEvent.value || canViewTask.value ||
+         canViewPunishment.value || canViewEvaluation.value || canViewMoment.value ||
+         canViewBirthday.value
+})
+
+// 加载德育菜单权限
+const loadMoralMenuPermissions = async () => {
+  await loadMyPermissions()
+  canViewDailyRecord.value = hasApiPermissionSync('/api/moral/daily-records')
+  canViewSchoolEvent.value = hasApiPermissionSync('/api/moral/school-records')
+  canViewTask.value = hasApiPermissionSync('/api/moral/tasks')
+  canViewPunishment.value = hasApiPermissionSync('/api/moral/punishments')
+  canViewEvaluation.value = hasApiPermissionSync('/api/moral/evaluation/class')
+  canViewMoment.value = hasApiPermissionSync('/api/moral/moment-records')
+  canViewLifebook.value = hasApiPermissionSync('/api/moral/timeline')
+  canViewProfile.value = hasApiPermissionSync('/api/moral/profile/student')
+  canViewBirthday.value = hasApiPermissionSync('/api/moral/birthdays/upcoming')
+  canViewStudentManage.value = hasApiPermissionSync('/api/moral/admin/students')
+  canViewMoralConfig.value = hasApiPermissionSync('/api/moral/admin/api-permissions')
+}
+
+// 监听登录状态变化，登录成功后加载权限
+watch(isLoggedIn, async (newVal) => {
+  if (newVal) {
+    await loadMoralMenuPermissions()
+  } else {
+    // 退出登录时清空权限
+    clearCache()
+    canViewDailyRecord.value = false
+    canViewSchoolEvent.value = false
+    canViewTask.value = false
+    canViewPunishment.value = false
+    canViewEvaluation.value = false
+    canViewMoment.value = false
+    canViewLifebook.value = false
+    canViewProfile.value = false
+    canViewBirthday.value = false
+    canViewStudentManage.value = false
+    canViewMoralConfig.value = false
+  }
+}, { immediate: true })
 
 const handleLogin = async () => {
   if (!loginFormRef.value) return
@@ -171,6 +232,8 @@ const handleLogin = async () => {
         await authStore.login(loginForm.value.username, loginForm.value.password)
         showLoginDialog.value = false
         loginForm.value = { username: '', password: '' }
+        // 登录成功后主动加载权限
+        await loadMoralMenuPermissions()
       } catch (error) {
         console.error(error)
         ElMessage.error('登录失败，请检查用户名和密码')

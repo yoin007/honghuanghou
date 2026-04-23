@@ -38,7 +38,8 @@ MORAL_PERMISSIONS = {
         'permissions': [
             'moral_record_manage',
             'moral_record_input',     # 可以录入记录
-            'student_manage',
+            'student_manage',         # 学生管理
+            'student_manage_all',     # 全量学生管理（不限班级）
             'teacher_manage',
             'class_manage',
             'report_view_all',
@@ -60,7 +61,8 @@ MORAL_PERMISSIONS = {
             'event_type_manage',
             'class_change_approve',
             'report_view_all',
-            'student_manage',
+            'student_manage',         # 学生管理
+            'student_manage_all',     # 全量学生管理（不限班级）
             'ai_consultation',
             'birthday_reminder',
             'student_profile',
@@ -74,6 +76,7 @@ MORAL_PERMISSIONS = {
         'permissions': [
             'moral_record_input',      # 可以录入记录
             'moral_record_view_own',   # 只能查看自己创建的记录
+            'student_manage_own_class', # 只能管理本班学生（新增、导入）
             'homework_publish',
             'announcement_publish',
             'leave_approve',
@@ -165,15 +168,22 @@ def get_user_role_level(user: User) -> int:
         user: 用户对象
 
     Returns:
-        int: 角色等级
+        int: 角色等级（多角色取最高）
     """
     if not user:
         return 0
 
     role = user.role if hasattr(user, 'role') else 'teacher'
-    role_config = MORAL_PERMISSIONS.get(role, {})
 
-    return role_config.get('level', 0)
+    # 支持多角色格式：取最高等级
+    roles = role.split('/') if '/' in role else [role]
+    max_level = 0
+    for r in roles:
+        role_config = MORAL_PERMISSIONS.get(r, {})
+        level = role_config.get('level', 0)
+        max_level = max(max_level, level)
+
+    return max_level
 
 
 def check_moral_permission(user: User, permission: str) -> bool:
@@ -195,15 +205,21 @@ def check_moral_permission(user: User, permission: str) -> bool:
         return True
 
     role = user.role if hasattr(user, 'role') else 'teacher'
-    role_config = MORAL_PERMISSIONS.get(role, {})
 
-    permissions = role_config.get('permissions', [])
+    # 支持多角色格式：任一角色有权限即可
+    roles = role.split('/') if '/' in role else [role]
+    for r in roles:
+        role_config = MORAL_PERMISSIONS.get(r, {})
+        permissions = role_config.get('permissions', [])
 
-    # 'all' 表示拥有所有权限
-    if 'all' in permissions:
-        return True
+        # 'all' 表示拥有所有权限
+        if 'all' in permissions:
+            return True
 
-    return permission in permissions
+        if permission in permissions:
+            return True
+
+    return False
 
 
 def check_class_access(user: User, class_id: int, db: SQLiteMoralDatabase) -> bool:

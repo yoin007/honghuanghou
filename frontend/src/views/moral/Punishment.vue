@@ -32,7 +32,10 @@
       <template #header>
         <div class="card-header">
           <span>处分记录管理</span>
-          <el-button type="primary" @click="handleAdd">新增处分</el-button>
+          <div class="header-actions">
+            <el-button @click="handleExport">导出</el-button>
+            <el-button type="primary" @click="handleAdd" v-if="canCreatePunishment">新增处分</el-button>
+          </div>
         </div>
       </template>
 
@@ -59,14 +62,7 @@
         <el-table-column prop="revoke_date" label="撤销日期" width="120" />
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
-            <el-button
-              link
-              type="warning"
-              @click="handleRevoke(row)"
-              v-if="row.status === 1"
-            >撤销</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button link type="warning" @click="handleRevoke(row)" v-if="row.status === 1 && canRevokePunishment">撤销</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -201,6 +197,12 @@ import {
   getStudents
 } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
+import { useApiPermission } from '@/composables/useApiPermission'
+
+// API权限
+const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
+const canCreatePunishment = ref(false)
+const canRevokePunishment = ref(false)
 
 // 数据
 const loading = ref(false)
@@ -456,8 +458,48 @@ const handleRevokeSubmit = async () => {
   }
 }
 
+// 导出处分记录（支持筛选条件，导出全部数据）
+const handleExport = async () => {
+  const params = { ...filterForm, page_size: 10000 }
+  Object.keys(params).forEach(key => {
+    if (params[key] === '' || params[key] === null) {
+      delete params[key]
+    }
+  })
+
+  try {
+    ElMessage.info('正在导出数据...')
+    const res = await getPunishments(params)
+    if (!res.success || !res.data.items || res.data.items.length === 0) {
+      ElMessage.warning('暂无数据可导出')
+      return
+    }
+
+    const exportData = res.data.items
+    let csvContent = '学号,姓名,班级,处分类型,处分原因,处分日期,状态,撤销日期,德育扣分\n'
+    exportData.forEach(row => {
+      csvContent += `${row.student_id},${row.student_name},${row.class_name},${row.punishment_type},${row.punishment_reason},${row.punishment_date},${row.status === 1 ? '生效中' : '已撤销'},${row.revoke_date || ''},${row.score_deduct || ''}\n`
+    })
+
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `处分记录_${new Date().toISOString().slice(0,10)}.csv`
+    link.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出失败')
+  }
+}
+
 // 生命周期
-onMounted(() => {
+onMounted(async () => {
+  await loadMyPermissions()
+  canCreatePunishment.value = hasApiPermissionSync('/api/moral/punishments/create')
+  canRevokePunishment.value = hasApiPermissionSync('/api/moral/punishments/revoke')
   fetchGradeList()
   fetchClassList()
   fetchRecords()
@@ -477,6 +519,11 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .pagination {

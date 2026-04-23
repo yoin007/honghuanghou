@@ -32,7 +32,10 @@
       <template #header>
         <div class="card-header">
           <span>校级事件记录</span>
-          <el-button type="primary" @click="handleAdd">新增记录</el-button>
+          <div class="header-actions">
+            <el-button @click="handleExport">导出</el-button>
+            <el-button type="primary" @click="handleAdd" v-if="canCreateSchoolRecord">新增记录</el-button>
+          </div>
         </div>
       </template>
 
@@ -59,8 +62,8 @@
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateSchoolRecord">编辑</el-button>
+            <el-button link type="danger" @click="handleDelete(row)" v-if="canDeleteSchoolRecord">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -169,6 +172,13 @@ import {
   getStudents
 } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
+import { useApiPermission } from '@/composables/useApiPermission'
+
+// API权限
+const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
+const canCreateSchoolRecord = ref(false)
+const canUpdateSchoolRecord = ref(false)
+const canDeleteSchoolRecord = ref(false)
 
 // 数据
 const loading = ref(false)
@@ -413,8 +423,49 @@ const handleSubmit = async () => {
   }
 }
 
+// 导出校级事件记录（支持筛选条件，导出全部数据）
+const handleExport = async () => {
+  const params = { ...filterForm, page_size: 10000 }
+  Object.keys(params).forEach(key => {
+    if (params[key] === '' || params[key] === null) {
+      delete params[key]
+    }
+  })
+
+  try {
+    ElMessage.info('正在导出数据...')
+    const res = await getSchoolRecords(params)
+    if (!res.success || !res.data.items || res.data.items.length === 0) {
+      ElMessage.warning('暂无数据可导出')
+      return
+    }
+
+    const exportData = res.data.items
+    let csvContent = '学号,姓名,班级,事件名称,类型,分值,日期,描述,证明材料\n'
+    exportData.forEach(row => {
+      csvContent += `${row.student_id},${row.student_name},${row.class_name},${row.event_name},${row.event_type === 1 ? '荣誉奖励' : '违纪处分'},${row.score},${row.event_date},${row.description || ''},${row.evidence || ''}\n`
+    })
+
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `校级事件记录_${new Date().toISOString().slice(0,10)}.csv`
+    link.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出失败')
+  }
+}
+
 // 生命周期
-onMounted(() => {
+onMounted(async () => {
+  await loadMyPermissions()
+  canCreateSchoolRecord.value = hasApiPermissionSync('/api/moral/school-records/create')
+  canUpdateSchoolRecord.value = hasApiPermissionSync('/api/moral/school-records/update')
+  canDeleteSchoolRecord.value = hasApiPermissionSync('/api/moral/school-records/delete')
   fetchEventTypes()
   fetchGradeList()
   fetchClassList()
@@ -435,6 +486,11 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .pagination {

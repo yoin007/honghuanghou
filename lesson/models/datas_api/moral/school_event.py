@@ -120,7 +120,7 @@ async def get_school_records(
     semester_id: Optional[int] = Query(None),
     event_type: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=10000),
     user: User = Depends(get_current_user)
 ):
     """获取校级事件记录列表"""

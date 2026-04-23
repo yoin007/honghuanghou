@@ -56,7 +56,7 @@ async def get_moment_records(
     end_date: Optional[date] = Query(None),
     record_type: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=10000),
     user: User = Depends(get_current_user)
 ):
     """

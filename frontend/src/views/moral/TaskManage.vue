@@ -32,7 +32,7 @@
           <template #header>
             <div class="card-header">
               <span>德育任务列表</span>
-              <el-button type="primary" @click="handleAddTask">新增任务</el-button>
+              <el-button type="primary" @click="handleAddTask" v-if="canCreateTask">新增任务</el-button>
             </div>
           </template>
 
@@ -59,8 +59,8 @@
             <el-table-column prop="description" label="描述" show-overflow-tooltip />
             <el-table-column label="操作" width="150" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="handleEditTask(row)">编辑</el-button>
-                <el-button link type="danger" @click="handleDeleteTask(row)">删除</el-button>
+                <el-button link type="primary" @click="handleEditTask(row)" v-if="canUpdateTask">编辑</el-button>
+                <el-button link type="danger" @click="handleDeleteTask(row)" v-if="canDeleteTask">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -95,7 +95,7 @@
           <template #header>
             <div class="card-header">
               <span>任务完成记录</span>
-              <el-button type="primary" @click="handleAddFinish">记录完成</el-button>
+              <el-button type="primary" @click="handleAddFinish" v-if="canFinishTask">记录完成</el-button>
             </div>
           </template>
 
@@ -264,6 +264,14 @@ import {
   getStudents
 } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
+import { useApiPermission } from '@/composables/useApiPermission'
+
+// API权限
+const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
+const canCreateTask = ref(false)
+const canUpdateTask = ref(false)
+const canDeleteTask = ref(false)
+const canFinishTask = ref(false)
 
 // Tab
 const activeTab = ref('tasks')
@@ -570,7 +578,12 @@ const handleFinishSubmit = async () => {
 }
 
 // 生命周期
-onMounted(() => {
+onMounted(async () => {
+  await loadMyPermissions()
+  canCreateTask.value = hasApiPermissionSync('/api/moral/tasks/create')
+  canUpdateTask.value = hasApiPermissionSync('/api/moral/tasks/update')
+  canDeleteTask.value = hasApiPermissionSync('/api/moral/tasks/delete')
+  canFinishTask.value = hasApiPermissionSync('/api/moral/tasks/finish')
   fetchGradeList()
   fetchClassList()
   fetchTasks()

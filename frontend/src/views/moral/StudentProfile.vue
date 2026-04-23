@@ -7,7 +7,7 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleGenerate" :loading="generating">生成画像</el-button>
+          <el-button @click="handleGenerate" :loading="generating" v-if="canGenerateProfile">生成画像</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -107,8 +107,13 @@ import {
   getStudentProfile,
   generateStudentProfile
 } from '@/api/modules/moral'
+import { useApiPermission } from '@/composables/useApiPermission'
 
 const route = useRoute()
+
+// API权限检查
+const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
+const canGenerateProfile = ref(false)
 
 // 数据
 const filterForm = reactive({
@@ -211,7 +216,9 @@ const formatDateTime = (datetime) => {
 }
 
 // 页面加载时检查 query 参数
-onMounted(() => {
+onMounted(async () => {
+  await loadMyPermissions()
+  canGenerateProfile.value = hasApiPermissionSync('/api/moral/profiles/student/generate')
   if (route.query.student_id) {
     filterForm.student_id = route.query.student_id
     handleSearch()

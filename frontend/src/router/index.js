@@ -373,6 +373,15 @@ const routes = [
     }
   },
   {
+    path: '/moral/config/operation-log',
+    name: 'MoralConfigOperationLog',
+    component: () => import('../views/moral/config/OperationLog.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '操作日志'
+    }
+  },
+  {
     path: '/',
     redirect: '/schedules'
   },

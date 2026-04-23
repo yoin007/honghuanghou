@@ -248,8 +248,51 @@ const handleCalculate = async () => {
   }
 }
 
-const handleExport = () => {
-  ElMessage.info('导出功能开发中')
+// 导出德育评价报表（支持筛选条件，导出全部数据）
+const handleExport = async () => {
+  if (!filterForm.class_id || !filterForm.semester_id) {
+    ElMessage.warning('请先选择班级和学期')
+    return
+  }
+
+  try {
+    ElMessage.info('正在导出数据...')
+    const res = await getClassEvaluation(filterForm.class_id, filterForm.semester_id)
+    if (!res.success || !res.data?.students || res.data.students.length === 0) {
+      ElMessage.warning('暂无数据可导出')
+      return
+    }
+
+    const exportData = res.data.students
+    const className = classList.value.find(c => c.class_id === filterForm.class_id)?.class_name || '班级'
+    const semesterName = semesterList.value.find(s => s.semester_id === filterForm.semester_id)?.semester_name || '学期'
+
+    // 构建 CSV 内容
+    let csvContent = `德育评价报表 - ${className} - ${semesterName}\n\n`
+    csvContent += `班级人数: ${stats.total_count || exportData.length}\n`
+    csvContent += `平均分: ${(stats.avg_score || 0).toFixed(1)}\n`
+    csvContent += `优秀人数: ${stats.excellent_count || 0}\n`
+    csvContent += `不合格人数: ${stats.fail_count || 0}\n\n`
+    csvContent += '排名,学号,姓名,总分,等级\n'
+
+    // 按分数排序
+    const sortedData = [...exportData].sort((a, b) => (b.total_score || 0) - (a.total_score || 0))
+    sortedData.forEach((row, index) => {
+      csvContent += `${index + 1},${row.student_id},${row.student_name},${row.total_score?.toFixed(1) || ''},${row.level || ''}\n`
+    })
+
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `德育评价报表_${className}_${semesterName}.csv`
+    link.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出失败')
+  }
 }
 
 const handleSortChange = ({ prop, order }) => {

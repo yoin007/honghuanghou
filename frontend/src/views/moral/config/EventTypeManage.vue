@@ -13,8 +13,8 @@
             <div>
               <el-button @click="handleExport('daily')">导出</el-button>
               <el-button @click="downloadTemplate('daily')">下载模板</el-button>
-              <el-button type="warning" @click="handleImport('daily')">批量导入</el-button>
-              <el-button type="primary" @click="handleAddDaily">新增事件类型</el-button>
+              <el-button type="warning" @click="handleImport('daily')" v-if="canImportEventType">批量导入</el-button>
+              <el-button type="primary" @click="handleAddDaily" v-if="canCreateEventType">新增事件类型</el-button>
             </div>
           </div>
 
@@ -44,11 +44,12 @@
             </el-table-column>
             <el-table-column label="操作" width="150" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="handleEditDaily(row)">编辑</el-button>
+                <el-button link type="primary" @click="handleEditDaily(row)" v-if="canUpdateEventType">编辑</el-button>
                 <el-button
                   link
                   :type="row.is_active ? 'warning' : 'success'"
                   @click="handleToggleDaily(row)"
+                  v-if="canUpdateEventType"
                 >
                   {{ row.is_active ? '禁用' : '启用' }}
                 </el-button>
@@ -68,8 +69,8 @@
             <div>
               <el-button @click="handleExport('school')">导出</el-button>
               <el-button @click="downloadTemplate('school')">下载模板</el-button>
-              <el-button type="warning" @click="handleImport('school')">批量导入</el-button>
-              <el-button type="primary" @click="handleAddSchool">新增事件类型</el-button>
+              <el-button type="warning" @click="handleImport('school')" v-if="canImportEventType">批量导入</el-button>
+              <el-button type="primary" @click="handleAddSchool" v-if="canCreateEventType">新增事件类型</el-button>
             </div>
           </div>
 
@@ -100,11 +101,12 @@
             </el-table-column>
             <el-table-column label="操作" width="150" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="handleEditSchool(row)">编辑</el-button>
+                <el-button link type="primary" @click="handleEditSchool(row)" v-if="canUpdateEventType">编辑</el-button>
                 <el-button
                   link
                   :type="row.is_active ? 'warning' : 'success'"
                   @click="handleToggleSchool(row)"
+                  v-if="canUpdateEventType"
                 >
                   {{ row.is_active ? '禁用' : '启用' }}
                 </el-button>
@@ -233,6 +235,13 @@ import {
   deleteSchoolEventType,
   batchImportSchoolEventTypes
 } from '@/api/modules/moral'
+import { useApiPermission } from '@/composables/useApiPermission'
+
+// API权限
+const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
+const canCreateEventType = ref(false)
+const canUpdateEventType = ref(false)
+const canImportEventType = ref(false)
 
 // Tab
 const activeTab = ref('daily')
@@ -622,7 +631,11 @@ const handleImportSubmit = async () => {
 }
 
 // 生命周期
-onMounted(() => {
+onMounted(async () => {
+  await loadMyPermissions()
+  canCreateEventType.value = hasApiPermissionSync('/api/moral/event-types')
+  canUpdateEventType.value = hasApiPermissionSync('/api/moral/event-types/update')
+  canImportEventType.value = hasApiPermissionSync('/api/moral/event-types/import')
   fetchDailyTypes()
 })
 </script>

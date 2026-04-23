@@ -59,7 +59,7 @@ async def get_punishments(
     semester_id: Optional[int] = Query(None),
     is_revoked: Optional[int] = Query(None, description="是否已撤销"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=10000),
     user: User = Depends(get_current_user)
 ):
     """

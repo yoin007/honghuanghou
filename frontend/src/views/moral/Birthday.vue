@@ -9,7 +9,7 @@
             <el-option :value="30" label="30天内" />
           </el-select>
         </el-form-item>
-        <el-form-item label="班级">
+        <el-form-item label="班级" v-if="!isCleader">
           <el-select v-model="filterForm.class_id" placeholder="全部班级" clearable @change="fetchBirthdays">
             <el-option
               v-for="cls in classList"
@@ -19,7 +19,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item>
+        <el-form-item v-if="canGenerateReminders">
           <el-button type="primary" @click="handleGenerateReminders">生成本月提醒</el-button>
         </el-form-item>
       </el-form>
@@ -33,7 +33,7 @@
         <div v-for="student in todayBirthdays" :key="student.student_id" class="birthday-item today">
           <span class="student-name">{{ student.name }}</span>
           <span class="class-name">{{ student.class_name }}</span>
-          <el-button type="primary" size="small" @click="handleSendBlessing(student)">发送祝福</el-button>
+          <el-button type="primary" size="small" @click="handleSendBlessing(student)" v-if="canSendReminder">发送祝福</el-button>
         </div>
       </div>
     </el-card>
@@ -61,7 +61,30 @@
         </el-table-column>
         <el-table-column label="操作" width="150">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleCreateReminder(row)">创建提醒</el-button>
+            <el-button link type="primary" @click="handleCreateReminder(row)" v-if="canCreateReminder">创建提醒</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card class="reminders-card" v-if="reminderList.length > 0">
+      <template #header>
+        <span>已创建的提醒</span>
+      </template>
+      <el-table :data="reminderList" stripe size="small">
+        <el-table-column prop="student_name" label="学生" width="100" />
+        <el-table-column prop="reminder_date" label="提醒日期" width="120" />
+        <el-table-column prop="message" label="祝福内容" show-overflow-tooltip />
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.is_sent ? 'success' : 'info'" size="small">
+              {{ row.is_sent ? '已发送' : '待发送' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="handleSendReminder(row)" v-if="!row.is_sent && canSendReminder">发送</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -99,21 +122,34 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   getUpcomingBirthdays,
   getTodayBirthdays,
   getClasses,
   createBirthdayReminder,
-  generateMonthlyReminders
+  generateMonthlyReminders,
+  getBirthdayReminders,
+  sendBirthdayReminder
 } from '@/api/modules/moral'
+import { useApiPermission } from '@/composables/useApiPermission'
+import { useAuthStore } from '@/stores/auth'
+
+// 权限检查
+const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
+const authStore = useAuthStore()
+const isCleader = computed(() => authStore.role === 'cleader')
+const canGenerateReminders = ref(false)
+const canCreateReminder = ref(false)
+const canSendReminder = ref(false)
 
 // 数据
 const loading = ref(false)
 const classList = ref([])
 const todayBirthdays = ref([])
 const upcomingBirthdays = ref([])
+const reminderList = ref([])
 
 const filterForm = reactive({
   days: 7,
@@ -194,9 +230,34 @@ const handleSubmitReminder = async () => {
     if (res.success) {
       ElMessage.success('提醒创建成功')
       dialogVisible.value = false
+      fetchReminders() // 刷新提醒列表
     }
   } catch (error) {
     console.error('创建提醒失败:', error)
+  }
+}
+
+const fetchReminders = async () => {
+  try {
+    const res = await getBirthdayReminders({ is_sent: 0, page_size: 20 })
+    if (res.success) {
+      reminderList.value = res.data.items || []
+    }
+  } catch (error) {
+    console.error('获取提醒列表失败:', error)
+  }
+}
+
+const handleSendReminder = async (row) => {
+  try {
+    const res = await sendBirthdayReminder(row.id)
+    if (res.success) {
+      ElMessage.success('提醒已发送')
+      fetchReminders()
+    }
+  } catch (error) {
+    console.error('发送提醒失败:', error)
+    ElMessage.error('发送失败')
   }
 }
 
@@ -213,10 +274,15 @@ const formatDate = (dateStr) => {
 }
 
 // 生命周期
-onMounted(() => {
+onMounted(async () => {
+  await loadMyPermissions()
+  canGenerateReminders.value = hasApiPermissionSync('/api/moral/birthdays/generate')
+  canCreateReminder.value = hasApiPermissionSync('/api/moral/birthdays/reminders/create')
+  canSendReminder.value = hasApiPermissionSync('/api/moral/birthdays/reminders/send')
   fetchClassList()
   fetchTodayBirthdays()
   fetchBirthdays()
+  fetchReminders()
 })
 </script>
 

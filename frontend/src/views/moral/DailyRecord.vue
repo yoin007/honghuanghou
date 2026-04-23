@@ -33,8 +33,9 @@
         <div class="card-header">
           <span>日常表现记录</span>
           <div class="header-actions">
-            <el-button type="primary" @click="handleAdd">新增记录</el-button>
-            <el-button @click="handleBatchAdd">批量录入</el-button>
+            <el-button @click="handleExport">导出</el-button>
+            <el-button type="primary" @click="handleAdd" v-if="canCreateDailyRecord">新增记录</el-button>
+            <el-button @click="handleBatchAdd" v-if="canBatchCreateDailyRecord">批量录入</el-button>
           </div>
         </div>
       </template>
@@ -62,8 +63,8 @@
         <el-table-column prop="remark" label="备注" show-overflow-tooltip />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateDailyRecord">编辑</el-button>
+            <el-button link type="danger" @click="handleDelete(row)" v-if="canDeleteDailyRecord">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -170,6 +171,14 @@ import {
   getStudents
 } from '@/api/modules/moral'
 import { getGMT8TimeString } from '@/utils/time'
+import { useApiPermission } from '@/composables/useApiPermission'
+
+// API权限
+const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
+const canCreateDailyRecord = ref(false)
+const canBatchCreateDailyRecord = ref(false)
+const canUpdateDailyRecord = ref(false)
+const canDeleteDailyRecord = ref(false)
 
 // 数据
 const loading = ref(false)
@@ -424,8 +433,51 @@ const handleSubmit = async () => {
   }
 }
 
+// 导出日常表现记录（支持筛选条件，导出全部数据）
+const handleExport = async () => {
+  // 构建筛选参数
+  const params = { ...filterForm, page_size: 10000 }  // 获取全部数据
+  Object.keys(params).forEach(key => {
+    if (params[key] === '' || params[key] === null) {
+      delete params[key]
+    }
+  })
+
+  try {
+    ElMessage.info('正在导出数据...')
+    const res = await getDailyRecords(params)
+    if (!res.success || !res.data.items || res.data.items.length === 0) {
+      ElMessage.warning('暂无数据可导出')
+      return
+    }
+
+    const exportData = res.data.items
+    let csvContent = '学号,姓名,班级,事件,类型,分值,时间,备注\n'
+    exportData.forEach(row => {
+      csvContent += `${row.student_id},${row.student_name},${row.class_name},${row.event_name},${row.event_type === 1 ? '积极' : '消极'},${row.score},${row.record_date},${row.remark || ''}\n`
+    })
+
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `日常表现记录_${new Date().toISOString().slice(0,10)}.csv`
+    link.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出失败')
+  }
+}
+
 // 生命周期
-onMounted(() => {
+onMounted(async () => {
+  await loadMyPermissions()
+  canCreateDailyRecord.value = hasApiPermissionSync('/api/moral/daily-records/create')
+  canBatchCreateDailyRecord.value = hasApiPermissionSync('/api/moral/daily-records/batch')
+  canUpdateDailyRecord.value = hasApiPermissionSync('/api/moral/daily-records/update')
+  canDeleteDailyRecord.value = hasApiPermissionSync('/api/moral/daily-records/delete')
   fetchEventTypes()
   fetchGradeList()
   fetchClassList()

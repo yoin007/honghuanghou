@@ -1,84 +1,82 @@
 <template>
   <div class="config-index-page">
-    <el-row :gutter="20">
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card" @click="navigateTo('grade')">
-          <div class="card-content">
-            <el-icon class="card-icon"><School /></el-icon>
-            <div class="card-title">级号管理</div>
-            <div class="card-count">{{ stats.gradeCount }} 个级号</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card" @click="navigateTo('class')">
-          <div class="card-content">
-            <el-icon class="card-icon"><ClassRoom /></el-icon>
-            <div class="card-title">班级管理</div>
-            <div class="card-count">{{ stats.classCount }} 个班级</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card" @click="navigateTo('student')">
-          <div class="card-content">
-            <el-icon class="card-icon"><User /></el-icon>
-            <div class="card-title">学生管理</div>
-            <div class="card-count">{{ stats.studentCount }} 名学生</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card" @click="navigateTo('semester')">
-          <div class="card-content">
-            <el-icon class="card-icon"><Calendar /></el-icon>
-            <div class="card-title">学年学期</div>
-            <div class="card-count">{{ stats.semesterCount }} 个学期</div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <!-- 配置管理卡片网格 -->
+    <div class="config-grid">
+      <el-card shadow="hover" class="config-card" @click="navigateTo('grade')">
+        <div class="card-content">
+          <el-icon class="card-icon"><School /></el-icon>
+          <div class="card-title">级号管理</div>
+          <div class="card-count">{{ stats.gradeCount }} 个级号</div>
+        </div>
+      </el-card>
 
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card" @click="navigateTo('event-type')">
-          <div class="card-content">
-            <el-icon class="card-icon"><Document /></el-icon>
-            <div class="card-title">事件类型</div>
-            <div class="card-count">{{ stats.eventTypeCount }} 种类型</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card" @click="navigateTo('escalation')">
-          <div class="card-content">
-            <el-icon class="card-icon"><Warning /></el-icon>
-            <div class="card-title">累进规则</div>
-            <div class="card-count">{{ stats.escalationCount }} 条规则</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card disabled">
-          <div class="card-content">
-            <el-icon class="card-icon"><Notebook /></el-icon>
-            <div class="card-title">操作日志</div>
-            <div class="card-count">待开发</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card" @click="navigateTo('config')">
-          <div class="card-content">
-            <el-icon class="card-icon"><Setting /></el-icon>
-            <div class="card-title">系统配置</div>
-            <div class="card-count">参数设置</div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+      <el-card shadow="hover" class="config-card" @click="navigateTo('class')">
+        <div class="card-content">
+          <el-icon class="card-icon"><House /></el-icon>
+          <div class="card-title">班级管理</div>
+          <div class="card-count">{{ stats.classCount }} 个班级</div>
+        </div>
+      </el-card>
 
-    <el-card style="margin-top: 30px">
+      <el-card shadow="hover" class="config-card" @click="navigateTo('student')">
+        <div class="card-content">
+          <el-icon class="card-icon"><User /></el-icon>
+          <div class="card-title">学生管理</div>
+          <div class="card-count">{{ stats.studentCount }} 名学生</div>
+        </div>
+      </el-card>
+
+      <el-card shadow="hover" class="config-card" @click="navigateTo('semester')">
+        <div class="card-content">
+          <el-icon class="card-icon"><Calendar /></el-icon>
+          <div class="card-title">学年学期</div>
+          <div class="card-count">{{ stats.semesterCount }} 个学期</div>
+        </div>
+      </el-card>
+
+      <el-card shadow="hover" class="config-card" @click="navigateTo('event-type')">
+        <div class="card-content">
+          <el-icon class="card-icon"><Document /></el-icon>
+          <div class="card-title">事件类型</div>
+          <div class="card-count">{{ stats.eventTypeCount }} 种类型</div>
+        </div>
+      </el-card>
+
+      <el-card shadow="hover" class="config-card" @click="navigateTo('escalation')">
+        <div class="card-content">
+          <el-icon class="card-icon"><Warning /></el-icon>
+          <div class="card-title">累进规则</div>
+          <div class="card-count">{{ stats.escalationCount }} 条规则</div>
+        </div>
+      </el-card>
+
+      <el-card shadow="hover" class="config-card" @click="navigateTo('config')">
+        <div class="card-content">
+          <el-icon class="card-icon"><Setting /></el-icon>
+          <div class="card-title">系统配置</div>
+          <div class="card-count">参数设置</div>
+        </div>
+      </el-card>
+
+      <el-card shadow="hover" class="config-card" @click="navigateTo('operation-log')" v-if="isAdmin">
+        <div class="card-content">
+          <el-icon class="card-icon"><Notebook /></el-icon>
+          <div class="card-title">操作日志</div>
+          <div class="card-count">审计追踪</div>
+        </div>
+      </el-card>
+
+      <el-card shadow="hover" class="config-card" @click="navigateTo('api-permission')" v-if="isAdmin">
+        <div class="card-content">
+          <el-icon class="card-icon"><Lock /></el-icon>
+          <div class="card-title">API权限</div>
+          <div class="card-count">{{ stats.apiPermissionCount }} 条配置</div>
+        </div>
+      </el-card>
+    </div>
+
+    <!-- 当前学期信息 -->
+    <el-card class="semester-card">
       <template #header>
         <span>当前学期信息</span>
       </template>
@@ -89,38 +87,19 @@
       </el-descriptions>
       <el-empty v-else description="未设置当前学期" />
     </el-card>
-
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card" @click="navigateTo('api-permission')">
-          <div class="card-content">
-            <el-icon class="card-icon"><Lock /></el-icon>
-            <div class="card-title">API权限</div>
-            <div class="card-count">{{ stats.apiPermissionCount }} 条配置</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="config-card disabled">
-          <div class="card-content">
-            <el-icon class="card-icon"><Notebook /></el-icon>
-            <div class="card-title">操作日志</div>
-            <div class="card-count">待开发</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="12"></el-col>
-    </el-row>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { School, User, Calendar, Document, Notebook, Setting, Warning, Lock } from '@element-plus/icons-vue'
+import { School, User, Calendar, Document, Notebook, Setting, Warning, Lock, House } from '@element-plus/icons-vue'
 import { getGrades, getClasses, getStudents, getSemesters, getDailyEventTypes, getSchoolEventTypes, getEscalationRules, getApiPermissions } from '@/api/modules/moral'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.isAdmin)
 
 const stats = reactive({
   gradeCount: 0,
@@ -172,7 +151,8 @@ const navigateTo = (type) => {
     'event-type': '/moral/config/event-type',
     'escalation': '/moral/config/escalation',
     'config': '/moral/config/settings',
-    'api-permission': '/moral/config/api-permission'
+    'api-permission': '/moral/config/api-permission',
+    'operation-log': '/moral/config/operation-log'
   }
   router.push(routes[type])
 }
@@ -187,18 +167,26 @@ onMounted(() => {
   padding: 20px;
 }
 
-.config-card {
-  cursor: pointer;
-  transition: transform 0.2s;
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
 }
 
-.config-card:hover {
+.config-card {
+  cursor: pointer;
+  transition: all 0.3s ease;
+  height: 100%;
+}
+
+.config-card:hover:not(.disabled) {
   transform: translateY(-5px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .card-content {
   text-align: center;
-  padding: 20px;
+  padding: 30px 20px;
 }
 
 .card-icon {
@@ -219,11 +207,47 @@ onMounted(() => {
 }
 
 .config-card.disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .config-card.disabled:hover {
   transform: none;
+}
+
+.semester-card {
+  margin-top: 30px;
+}
+
+/* 响应式布局 */
+@media screen and (max-width: 1200px) {
+  .config-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media screen and (max-width: 900px) {
+  .config-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media screen and (max-width: 600px) {
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .config-index-page {
+    padding: 10px;
+  }
+
+  .card-content {
+    padding: 20px 15px;
+  }
+
+  .card-icon {
+    font-size: 36px;
+    margin-bottom: 10px;
+  }
 }
 </style>

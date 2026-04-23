@@ -34,7 +34,10 @@
       <template #header>
         <div class="card-header">
           <span>我的点滴记录</span>
-          <el-button type="primary" @click="handleAdd">新增记录</el-button>
+          <div class="header-actions">
+            <el-button @click="handleExport">导出</el-button>
+            <el-button type="primary" @click="handleAdd">新增记录</el-button>
+          </div>
         </div>
       </template>
 
@@ -329,6 +332,43 @@ const handleDelete = async (row) => {
   }
 }
 
+// 导出点滴记录（支持筛选条件，导出全部数据）
+const handleExport = async () => {
+  const params = { ...filterForm, page_size: 10000 }
+  Object.keys(params).forEach(key => {
+    if (params[key] === '' || params[key] === null) {
+      delete params[key]
+    }
+  })
+
+  try {
+    ElMessage.info('正在导出数据...')
+    const res = await api.get('/api/moral/moment-records', { params })
+    if (!res.data?.success || !res.data?.data?.items || res.data.data.items.length === 0) {
+      ElMessage.warning('暂无数据可导出')
+      return
+    }
+
+    const exportData = res.data.data.items
+    let csvContent = '学号,姓名,班级,记录类型,标题,内容,日期\n'
+    exportData.forEach(row => {
+      csvContent += `${row.student_id},${row.student_name},${row.class_name},${row.record_type},${row.title || ''},${row.content},${row.record_date}\n`
+    })
+
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `点滴记录_${new Date().toISOString().slice(0,10)}.csv`
+    link.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出失败')
+  }
+}
+
 onMounted(() => {
   fetchRecords()
   fetchClassesAndStudents()
@@ -348,6 +388,11 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .pagination {

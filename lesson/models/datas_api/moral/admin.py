@@ -72,6 +72,20 @@ class StudentCreate(BaseModel):
     birthday: Optional[date] = Field(None, description="出生日期")
 
 
+class StudentBatchItem(BaseModel):
+    """批量导入学生单项"""
+    student_id: str = Field(..., description="学号")
+    name: str = Field(..., description="姓名")
+    gender: Optional[str] = Field(None, description="性别")
+    class_name: str = Field(..., description="班级名称")
+    birthday: Optional[str] = Field(None, description="出生日期 YYYY-MM-DD")
+
+
+class StudentBatchImport(BaseModel):
+    """批量导入学生"""
+    students: List[StudentBatchItem] = Field(..., description="学生列表")
+
+
 class StudentUpdate(BaseModel):
     """更新学生信息"""
     name: Optional[str] = Field(None, description="姓名")
@@ -501,7 +515,7 @@ async def get_students(
     grade_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),  # 放开上限支持下拉选择场景
+    page_size: int = Query(50, ge=1, le=10000),  # 放开上限支持导出全量数据
     user: User = Depends(get_current_user)
 ):
     """
@@ -570,14 +584,49 @@ async def get_students(
         }
 
 
+def check_student_manage_permission():
+    """
+    学生管理权限检查
+
+    允许有 student_manage 或 student_manage_own_class 权限的用户访问
+    """
+    async def check(user: User = Depends(get_current_user)):
+        has_full_permission = check_moral_permission(user, 'student_manage')
+        has_own_class_permission = check_moral_permission(user, 'student_manage_own_class')
+
+        if not has_full_permission and not has_own_class_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="权限不足：需要学生管理权限"
+            )
+        return user
+    return check
+
+
 @router.post("/students", summary="创建学生")
 async def create_student(
     student: StudentCreate,
     request: Request,
-    user: User = Depends(require_permission('student_manage'))
+    user: User = Depends(check_student_manage_permission())
 ):
-    """创建学生"""
+    """
+    创建学生
+
+    权限说明：
+    - admin/jiaowu/xuefa (student_manage): 可创建任意班级学生
+    - cleader (student_manage_own_class): 只能创建自己班级的学生
+    """
     with get_moral_db() as db:
+        # 班主任权限检查：只能创建本班学生
+        my_class_id = get_teacher_class_id(user, db)
+        is_cleader_restricted = check_moral_permission(user, 'student_manage_own_class') and not check_moral_permission(user, 'student_manage')
+
+        if is_cleader_restricted:
+            if my_class_id is None:
+                raise HTTPException(403, "未分配班级，无法创建学生")
+            if student.class_id != my_class_id:
+                raise HTTPException(403, "只能创建本班学生")
+
         # 检查学号是否已存在
         existing = db.query_one(
             "SELECT student_id FROM student WHERE student_id = %s",
@@ -630,19 +679,129 @@ async def create_student(
         return {"success": True, "message": "学生创建成功"}
 
 
+@router.post("/students/batch", summary="批量导入学生")
+async def batch_import_students(
+    data: StudentBatchImport,
+    request: Request,
+    user: User = Depends(check_student_manage_permission())
+):
+    """
+    批量导入学生
+
+    通过班级名称匹配班级ID，支持大量学生快速导入。
+
+    权限说明：
+    - admin/jiaowu/xuefa (student_manage): 可导入任意班级学生
+    - cleader (student_manage_own_class): 只能导入自己班级的学生
+    """
+    with get_moral_db() as db:
+        # 获取班级映射
+        classes = db.query_all("SELECT class_id, class_name, grade_id FROM class")
+        class_map = {c['class_name']: c for c in classes}
+
+        # 班主任权限检查
+        my_class_id = get_teacher_class_id(user, db)
+        is_cleader_restricted = check_moral_permission(user, 'student_manage_own_class') and not check_moral_permission(user, 'student_manage')
+
+        success_count = 0
+        skip_count = 0
+        errors = []
+
+        for item in data.students:
+            try:
+                # 检查学号是否已存在
+                existing = db.query_one(
+                    "SELECT student_id FROM student WHERE student_id = %s",
+                    (item.student_id,)
+                )
+                if existing:
+                    skip_count += 1
+                    continue
+
+                # 匹配班级
+                class_info = class_map.get(item.class_name)
+                if not class_info:
+                    errors.append(f"学号 {item.student_id}: 班级 '{item.class_name}' 不存在")
+                    continue
+
+                class_id = class_info['class_id']
+                grade_id = class_info['grade_id']
+
+                # 班主任只能导入自己班级的学生
+                if is_cleader_restricted and class_id != my_class_id:
+                    errors.append(f"学号 {item.student_id}: 班主任只能导入本班学生")
+                    continue
+
+                # 解析生日
+                birthday = None
+                if item.birthday:
+                    try:
+                        birthday = datetime.strptime(item.birthday, '%Y-%m-%d').date()
+                    except:
+                        pass
+
+                # 从学号提取入学年份
+                enrollment_date = date.today()
+                if len(item.student_id) >= 4:
+                    try:
+                        year = int(item.student_id[:4])
+                        enrollment_date = date(year, 9, 1)
+                    except ValueError:
+                        pass
+
+                # 插入学生
+                db.execute(
+                    """INSERT INTO student
+                    (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '在校')""",
+                    (item.student_id, item.name, item.gender, class_id, grade_id, grade_id, birthday, enrollment_date)
+                )
+
+                # 创建班级履历
+                db.execute(
+                    """INSERT INTO student_class_history
+                    (student_id, class_id, grade_id, start_date, change_reason)
+                    VALUES (%s, %s, %s, %s, '入学')""",
+                    (item.student_id, class_id, grade_id, enrollment_date)
+                )
+
+                success_count += 1
+
+            except Exception as e:
+                errors.append(f"学号 {item.student_id}: {str(e)}")
+
+        log_operation(
+            db, user.username, user.role, 'BATCH_INSERT', 'student', None,
+            new_data={'success': success_count, 'skip': skip_count, 'errors': len(errors)},
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {
+            "success": True,
+            "data": {
+                "success_count": success_count,
+                "skip_count": skip_count,
+                "error_count": len(errors),
+                "errors": errors[:10] if errors else []  # 只返回前10条错误
+            },
+            "message": f"导入完成：成功 {success_count} 条，跳过 {skip_count} 条已存在"
+        }
+
+
 @router.put("/students/{student_id}", summary="更新学生信息")
 async def update_student(
     student_id: str,
     update_data: StudentUpdate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(check_student_manage_permission())
 ):
     """
     更新学生基本信息
 
     权限说明：
-    - admin/jiaowu/xuefa: 可编辑所有学生
-    - cleader: 只能编辑自己班级的学生
+    - admin/jiaowu/xuefa (student_manage): 可编辑所有学生
+    - cleader (student_manage_own_class): 只能编辑自己班级的学生
+    - teacher: 无编辑权限
     """
     with get_moral_db() as db:
         # 获取学生信息

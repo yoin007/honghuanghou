@@ -71,6 +71,8 @@ DEFAULT_API_PERMISSIONS = [
     # 校级事件
     {"api_path": "/api/moral/school-records", "api_name": "获取校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/school-records/create", "api_name": "创建校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/school-records/update", "api_name": "更新校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/school-records/delete", "api_name": "删除校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 
     # 处分管理
     {"api_path": "/api/moral/punishments", "api_name": "获取处分记录", "api_group": "处分管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
@@ -80,14 +82,36 @@ DEFAULT_API_PERMISSIONS = [
     # 德育任务
     {"api_path": "/api/moral/tasks", "api_name": "获取德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/tasks/create", "api_name": "创建德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/tasks/update", "api_name": "更新德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/tasks/delete", "api_name": "删除德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/tasks/finish", "api_name": "记录任务完成", "api_group": "德育任务", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+
+    # 事件类型管理
+    {"api_path": "/api/moral/event-types", "api_name": "创建事件类型", "api_group": "事件类型", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/event-types/update", "api_name": "更新事件类型", "api_group": "事件类型", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/event-types/import", "api_name": "批量导入事件类型", "api_group": "事件类型", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 
     # 学生管理
     {"api_path": "/api/moral/admin/students", "api_name": "获取学生列表", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/admin/students/create", "api_name": "创建学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/admin/students/update", "api_name": "更新学生信息", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/admin/students/batch", "api_name": "批量导入学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 
     # 系统配置
     {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
     {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
+
+    # 生日提醒
+    {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/birthdays/today", "api_name": "获取今日生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/birthdays/reminders", "api_name": "获取提醒列表", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/birthdays/reminders/create", "api_name": "创建生日提醒", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/birthdays/reminders/send", "api_name": "发送生日提醒", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/birthdays/generate", "api_name": "生成本月提醒", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+
+    # 学生画像
+    {"api_path": "/api/moral/profiles/student", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/profiles/student/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 ]
 
 
@@ -281,8 +305,9 @@ async def get_my_api_permissions(user: User = Depends(get_current_user)):
                 })
                 continue
 
-            # 检查角色
-            if user.role in allowed_roles:
+            # 检查角色（支持多角色格式如 teacher/cleader）
+            user_roles = user.role.split('/') if '/' in user.role else [user.role]
+            if any(role in allowed_roles for role in user_roles):
                 allowed_apis.append({
                     "api_path": config['api_path'],
                     "api_name": config['api_name'],
@@ -317,8 +342,9 @@ async def check_api_permission_endpoint(
         if is_admin_user(user):
             return {"success": True, "data": {"has_permission": True, "reason": "admin拥有所有权限"}}
 
-        # 检查角色
-        if user.role in allowed_roles:
+        # 检查角色（支持多角色格式）
+        user_roles = user.role.split('/') if '/' in user.role else [user.role]
+        if any(role in allowed_roles for role in user_roles):
             return {"success": True, "data": {"has_permission": True, "reason": f"角色 {user.role} 在允许列表中"}}
 
         # 检查等级

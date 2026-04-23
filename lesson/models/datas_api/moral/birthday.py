@@ -20,6 +20,14 @@ from .base import (
 )
 from models.datas_api.auth import User, get_current_user
 
+# 尝试导入微信发送函数
+try:
+    from sendqueue import send_text
+    WX_SEND_AVAILABLE = True
+except ImportError:
+    WX_SEND_AVAILABLE = False
+    send_text = None
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/birthdays", tags=["生日提醒"])
@@ -64,16 +72,23 @@ async def get_upcoming_birthdays(
         conditions = ["s.birthday IS NOT NULL", "s.status = '在校'"]
         params = []
 
-        if class_id:
-            conditions.append("s.class_id = %s")
-            params.append(class_id)
+        # 权限过滤：
+        # - 有 birthday_reminder 权限（admin/jiaowu/xuefa）：可查看全部，支持班级筛选
+        # - 无该权限（teacher/cleader）：只能查看本班，强制过滤
+        my_class_id = get_teacher_class_id(user, db)
+        has_full_permission = check_moral_permission(user, 'birthday_reminder')
 
-        # 权限过滤
-        if user.role == 'cleader':
-            my_class_id = get_teacher_class_id(user, db)
+        if not has_full_permission:
+            # teacher/cleader 只能看本班
             if my_class_id:
                 conditions.append("s.class_id = %s")
                 params.append(my_class_id)
+            else:
+                return {"success": True, "data": []}
+        elif class_id:
+            # admin/jiaowu/xuefa 支持班级筛选
+            conditions.append("s.class_id = %s")
+            params.append(class_id)
 
         where_clause = " AND ".join(conditions)
 
@@ -127,20 +142,40 @@ async def get_upcoming_birthdays(
 async def get_today_birthdays(
     user: User = Depends(get_current_user)
 ):
-    """获取今日过生日的学生"""
+    """
+    获取今日过生日的学生
+
+    权限说明：
+    - cleader: 只能查看本班学生
+    - jiaowu/xuefa/admin: 可查看所有
+    """
     with get_moral_db() as db:
         today = date.today()
 
-        query = """
+        conditions = ["s.birthday IS NOT NULL", "s.status = '在校'"]
+        params = []
+
+        # 权限过滤：无 birthday_reminder 权限只能看本班
+        my_class_id = get_teacher_class_id(user, db)
+        if not check_moral_permission(user, 'birthday_reminder'):
+            if my_class_id:
+                conditions.append("s.class_id = %s")
+                params.append(my_class_id)
+            else:
+                return {"success": True, "data": []}
+
+        where_clause = " AND ".join(conditions)
+
+        query = f"""
             SELECT s.student_id, s.name, s.birthday, c.class_name, c.leader_name
             FROM student s
             JOIN class c ON s.class_id = c.class_id
-            WHERE s.birthday IS NOT NULL
-            AND s.status = '在校'
+            WHERE {where_clause}
             AND CAST(strftime('%m', s.birthday) AS INTEGER) = %s
             AND CAST(strftime('%d', s.birthday) AS INTEGER) = %s
         """
-        students = db.query_all(query, (today.month, today.day))
+        params.extend([today.month, today.day])
+        students = db.query_all(query, tuple(params))
 
         return {"success": True, "data": students}
 
@@ -153,7 +188,13 @@ async def get_birthday_reminders(
     page_size: int = Query(20, ge=1, le=100),
     user: User = Depends(get_current_user)
 ):
-    """获取生日提醒列表"""
+    """
+    获取生日提醒列表
+
+    权限说明：
+    - cleader: 只能查看本班学生的提醒
+    - jiaowu/xuefa/admin: 可查看所有
+    """
     with get_moral_db() as db:
         conditions = ["1=1"]
         params = []
@@ -166,9 +207,23 @@ async def get_birthday_reminders(
             conditions.append("br.is_sent = %s")
             params.append(is_sent)
 
+        # 班主任权限过滤：强制只能查看本班
+        my_class_id = get_teacher_class_id(user, db)
+        if user.role == 'cleader' and not check_moral_permission(user, 'birthday_reminder'):
+            if my_class_id:
+                conditions.append("s.class_id = %s")
+                params.append(my_class_id)
+            else:
+                return {"success": True, "data": {"items": [], "total": 0, "page": page, "page_size": page_size}}
+
         where_clause = " AND ".join(conditions)
 
-        count_query = f"SELECT COUNT(*) FROM birthday_reminder br WHERE {where_clause}"
+        # count_query 需要同样的 JOIN 才能按班级过滤
+        count_query = f"""
+            SELECT COUNT(*) FROM birthday_reminder br
+            JOIN student s ON br.student_id = s.student_id
+            WHERE {where_clause}
+        """
         total = db.query_value(count_query, tuple(params))
 
         offset = (page - 1) * page_size
@@ -233,7 +288,10 @@ async def send_birthday_reminder(
     """发送生日提醒"""
     with get_moral_db() as db:
         reminder = db.query_one(
-            "SELECT * FROM birthday_reminder WHERE id = %s",
+            """SELECT br.*, s.name as student_name, s.class_id
+            FROM birthday_reminder br
+            JOIN student s ON br.student_id = s.student_id
+            WHERE br.id = %s""",
             (reminder_id,)
         )
         if not reminder:
@@ -241,6 +299,60 @@ async def send_birthday_reminder(
 
         if reminder['is_sent'] == 1:
             raise HTTPException(400, "该提醒已发送")
+
+        # 构建提醒消息
+        student_name = reminder['student_name'] or '同学'
+        reminder_date = reminder['reminder_date']
+        custom_message = reminder['message']
+
+        message = custom_message or f"🎂 生日提醒：{student_name}将于{reminder_date}过生日，请提前准备祝福！"
+
+        # 查找班主任 wxid 并发送微信通知
+        class_id = reminder['class_id']
+        wxid_sent = False
+
+        if class_id and WX_SEND_AVAILABLE and send_text:
+            class_info = db.query_one(
+                "SELECT leader_name, leader_wxid FROM class WHERE class_id = %s",
+                (class_id,)
+            )
+
+            if class_info:
+                # 尝试多种方式获取班主任 wxid
+                leader_wxid = class_info['leader_wxid']
+
+                # 方式1：直接使用 class.leader_wxid
+                if leader_wxid:
+                    try:
+                        send_text(message, leader_wxid, producer="birthday_reminder")
+                        wxid_sent = True
+                        logger.info(f"生日提醒已发送给班主任 {class_info['leader_name']}: {leader_wxid}")
+                    except Exception as e:
+                        logger.error(f"发送微信消息失败: {e}")
+
+                # 方式2：通过 contacts 表查找（如果 class.leader_wxid 为空）
+                if not wxid_sent and class_info['leader_name']:
+                    try:
+                        import sqlite3
+                        import os
+                        # contacts 表在 databases/wechat.db 或 databases/member.db
+                        db_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "databases")
+                        for db_file in ['wechat.db', 'member.db']:
+                            db_path = os.path.join(db_dir, db_file)
+                            if os.path.exists(db_path):
+                                conn = sqlite3.connect(db_path)
+                                conn.row_factory = sqlite3.Row
+                                cursor = conn.cursor()
+                                cursor.execute("SELECT wxid FROM contacts WHERE name = ? LIMIT 1", (class_info['leader_name'],))
+                                row = cursor.fetchone()
+                                conn.close()
+                                if row and row['wxid']:
+                                    send_text(message, row['wxid'], producer="birthday_reminder")
+                                    wxid_sent = True
+                                    logger.info(f"生日提醒已通过contacts发送给班主任 {class_info['leader_name']}")
+                                    break
+                    except Exception as e:
+                        logger.warning(f"查找contacts表失败: {e}")
 
         # 更新发送状态
         db.execute(
@@ -250,9 +362,15 @@ async def send_birthday_reminder(
             (reminder_id,)
         )
 
-        # TODO: 实际发送通知（微信、短信等）
+        result_msg = "提醒已发送"
+        if wxid_sent:
+            result_msg += "（微信通知已发送给班主任）"
+        elif not WX_SEND_AVAILABLE:
+            result_msg += "（微信发送模块未加载）"
+        elif not class_id:
+            result_msg += "（学生无班级信息）"
 
-        return {"success": True, "message": "提醒已发送"}
+        return {"success": True, "message": result_msg, "data": {"wxid_sent": wxid_sent}}
 
 
 @router.get("/config", summary="获取生日提醒配置")
