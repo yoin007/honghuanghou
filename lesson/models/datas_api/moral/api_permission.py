@@ -108,6 +108,11 @@ DEFAULT_API_PERMISSIONS = [
     # 学生画像
     {"api_path": "/api/moral/profiles/student", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/profiles/student/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+
+    # 评价查询
+    {"api_path": "/api/moral/evaluations/class", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/evaluations/grade", "api_name": "年级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/evaluations/calculate", "api_name": "计算德育评价", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 ]
 
 
