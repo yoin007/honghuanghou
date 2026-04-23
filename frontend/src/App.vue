@@ -134,7 +134,7 @@ import { RouterView, useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from './stores/auth'
 import { useAppStore } from './stores/app'
-import { useApiPermission } from './composables/useApiPermission'
+import { useApiPermissionStore } from './stores/apiPermission'
 import api from './utils/api'
 
 const router = useRouter()
@@ -143,9 +143,10 @@ const route = useRoute()
 // Use Pinia stores
 const authStore = useAuthStore()
 const appStore = useAppStore()
+const apiPermissionStore = useApiPermissionStore()
 
-// API权限检查
-const { hasApiPermissionSync, loadMyPermissions, clearCache } = useApiPermission()
+// API权限检查方法
+const { hasApiPermissionSync, loadMyPermissions, clearCache } = apiPermissionStore
 
 // Local refs for UI
 const showLoginDialog = ref(false)
