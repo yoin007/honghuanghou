@@ -3,6 +3,7 @@
 # @Author: Tech_T
 
 import os
+DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
 import sqlite3
 import time
 from datetime import datetime
@@ -28,7 +29,7 @@ admin_list = Config().get_config("admin_list", "wechat.yaml")
 
 
 class Application:
-    def __init__(self, db_path="databases/application.db"):
+    def __init__(self, db_path=os.path.join(DB_DIR, "application.db")):
         self.__conn__ = None
         self.__cursor__ = None
         self.year = datetime.now().year

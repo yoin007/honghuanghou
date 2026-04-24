@@ -1,3 +1,5 @@
+import os
+DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
 # _*_ coding :utf-8 _*_
 # @Time : 2024/11/4 20:56
 # @Author : Tech_T
@@ -14,7 +16,7 @@ log = LogConfig().get_logger()
 
 
 class Notes:
-    def __enter__(self, db="databases/notes.db"):
+    def __enter__(self, db=os.path.join(DB_DIR, "notes.db")):
         self.__conn__ = sqlite3.connect(db)
         self.__cursor__ = self.__conn__.cursor()
         return self

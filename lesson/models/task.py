@@ -34,6 +34,7 @@ import json
 import random
 import re
 import sqlite3
+from utils.db_config import TASK_DB
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -112,7 +113,7 @@ class Task:
         self.job_args = {}
         self.__enter__()
 
-    def __enter__(self, db="databases/task.db"):
+    def __enter__(self, db=TASK_DB):
         self.__conn__ = sqlite3.connect(db)
         self.__cursor__ = self.__conn__.cursor()
         return self
@@ -328,7 +329,7 @@ class Task:
         """
         try:
             # 创建新的数据库连接，确保在当前线程中使用
-            with sqlite3.connect("databases/task.db") as conn:
+            with sqlite3.connect(TASK_DB) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     "UPDATE tasks SET consumed = ? WHERE id = ? AND one_off = 1",

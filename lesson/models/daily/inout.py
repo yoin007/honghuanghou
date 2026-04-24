@@ -1,3 +1,5 @@
+import os
+DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
 # _*_ coding :utf-8 _*_
 # @Time : 2026/01/31 16:05
 # @Author : Tech_T
@@ -15,7 +17,7 @@ log = LogConfig().get_logger()
 event_list = config.get_config("event_list", "event.yaml")
 
 class InOut:
-    def __enter__(self, db="databases/inout.db"):
+    def __enter__(self, db=os.path.join(DB_DIR, "inout.db")):
         self.__conn__ = sqlite3.connect(db)
         self.__cursor__ = self.__conn__.cursor()
         return self

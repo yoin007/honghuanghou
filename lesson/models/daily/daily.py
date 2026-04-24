@@ -4,6 +4,7 @@
 
 from datetime import datetime
 import os
+DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
 import sqlite3
 import pandas as pd
 from sendqueue import send_text
@@ -21,7 +22,7 @@ class Daily:
     def __init__(self):
         self.admin = config.get_config("daily_admin", "event.yaml")
 
-    def __enter__(self, db="databases/daily.db"):
+    def __enter__(self, db=os.path.join(DB_DIR, "daily.db")):
         self.__conn__ = sqlite3.connect(db)
         self.__cursor__ = self.__conn__.cursor()
         return self

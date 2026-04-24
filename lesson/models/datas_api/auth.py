@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from config.config import Config
-from models.lesson.lesson import Lesson
+from utils.teacher_db import get_teacher_by_name, get_all_teachers
 
 logger = logging.getLogger(__name__)
 
@@ -71,80 +71,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def get_users_dict():
-    """动态获取用户数据，支持缓存刷新"""
-    l = Lesson()
-    subject_teacher = l.get_cache_data("teacher_template")
+    """从数据库获取用户数据"""
+    teachers = get_all_teachers()
     users_data = {}
 
-    has_role = "role" in subject_teacher.columns
-    has_level = "level" in subject_teacher.columns
-    has_is_password_changed = "is_password_changed" in subject_teacher.columns
-    has_active = "active" in subject_teacher.columns  # 登录权限
-    has_notice = "notice" in subject_teacher.columns  # 通知开关
-    has_subject = "subject" in subject_teacher.columns
-    has_course = "course" in subject_teacher.columns
-
-    for teacher in subject_teacher["name"].tolist():
-        users_data[teacher] = {}
-        users_data[teacher]["username"] = teacher
-        teacher_row = subject_teacher[subject_teacher["name"] == teacher]
-        users_data[teacher]["stored_password"] = str(teacher_row["pwd"].values[0])
-
-        # 读取 is_password_changed 字段
-        is_password_changed = 0
-        if has_is_password_changed:
-            val = teacher_row["is_password_changed"].values[0]
-            if pd.notna(val):
-                is_password_changed = int(val)
-        users_data[teacher]["is_password_changed"] = is_password_changed
-
-        # 读取 active 字段（登录权限，原 logined）
-        active = 1
-        if has_active:
-            val = teacher_row["active"].values[0]
-            if pd.notna(val):
-                active = int(val)
-        users_data[teacher]["active"] = active
-
-        # 读取 notice 字段（通知开关，原 active）
-        notice = 1
-        if has_notice:
-            val = teacher_row["notice"].values[0]
-            if pd.notna(val):
-                notice = int(val)
-        users_data[teacher]["notice"] = notice
-
-        # 读取 subject 字段
-        subject = ""
-        if has_subject:
-            val = teacher_row["subject"].values[0]
-            if pd.notna(val):
-                subject = str(val)
-        users_data[teacher]["subject"] = subject
-
-        # 读取 course 字段
-        course = ""
-        if has_course:
-            val = teacher_row["course"].values[0]
-            if pd.notna(val):
-                course = str(val)
-        users_data[teacher]["course"] = course
-
-        # 角色
-        role = "teacher"
-        if has_role:
-            r = teacher_row["role"].values[0]
-            if pd.notna(r):
-                role = str(r)
-        users_data[teacher]["role"] = role
-
-        # 等级
-        level = 0
-        if has_level:
-            l_val = teacher_row["level"].values[0]
-            if pd.notna(l_val):
-                level = int(l_val)
-        users_data[teacher]["level"] = level
+    for teacher in teachers:
+        name = teacher['name']
+        users_data[name] = {
+            'username': name,
+            'stored_password': str(teacher['pwd']),
+            'is_password_changed': teacher.get('is_password_changed', 0),
+            'active': teacher.get('active', 1),
+            'notice': teacher.get('notice', 1),
+            'subject': teacher.get('subject', ''),
+            'course': teacher.get('course', ''),
+            'role': teacher.get('role', 'teacher'),
+            'level': teacher.get('level', 10)
+        }
 
     return users_data
 
@@ -186,26 +129,23 @@ def get_user(username: str):
 
 
 def authenticate_user(username: str, password: str):
-    """验证用户登录"""
-    # 只刷新教师模板缓存，确保用户数据是最新的
-    l = Lesson()
-    l.cache_datas["teacher_template"] = l.teacher_template
+    """验证用户登录（从数据库）"""
+    teacher = get_teacher_by_name(username)
 
-    users_data = get_users_dict()
-
-    if username not in users_data:
+    if not teacher:
         return False
-    user = users_data[username]
 
     # 检查是否允许登录
-    active = user.get("active", 1)
-    if active == 0:
+    if teacher.get('active', 1) == 0:
         return False
 
-    is_password_changed = user.get("is_password_changed", 0)
-    if not verify_password_compat(password, user["stored_password"], is_password_changed):
+    is_password_changed = teacher.get('is_password_changed', 0)
+    stored_password = str(teacher.get('pwd', ''))
+
+    if not verify_password_compat(password, stored_password, is_password_changed):
         return False
-    return user
+
+    return teacher
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):

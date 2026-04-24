@@ -143,9 +143,9 @@ class Lesson:
     
     @property
     def teacher_template(self):
-        """获取教师模板"""
-        file_path = os.path.join(self.lesson_dir, "checkTemplate.xlsx")
-        return self.load_excel_file(file_path, sheet_name="teachers")
+        """获取教师模板（从数据库）"""
+        from utils.teacher_db import get_teachers_dataframe
+        return get_teachers_dataframe()
     
     @property
     def class_template(self):

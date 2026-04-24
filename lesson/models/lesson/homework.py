@@ -1,3 +1,5 @@
+import os
+DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
 # _*_ coding: utf-8 _*_
 # @Time : 2024/12/10
 # @Author : Tech_T
@@ -30,7 +32,7 @@ class Homework:
             "班级",
         ]
 
-    def __enter__(self, db_path="databases/homework.db"):
+    def __enter__(self, db_path=os.path.join(DB_DIR, "homework.db")):
         self.db_path = db_path
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()

@@ -6,8 +6,11 @@
 import json
 import requests
 import sqlite3
+import os
 import time
 from datetime import datetime, timedelta
+
+DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases")
 import threading
 
 from config.log import LogConfig
@@ -52,7 +55,7 @@ class QueueDB:
         self.max_retries = 3
         self.retry_delay = 2
 
-    def __enter__(self, db="databases/queues.db"):
+    def __enter__(self, db=os.path.join(DB_DIR, "queues.db")):
         if not hasattr(self._local, "connection"):
             self._local.connection = sqlite3.connect(db, timeout=30)
             self._local.connection.row_factory = sqlite3.Row
@@ -196,7 +199,7 @@ class QueueDB:
         :return: dict
         """
         try:
-            with sqlite3.connect("databases/queues.db") as conn:
+            with sqlite3.connect(os.path.join(DB_DIR, "queues.db")) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
 
@@ -272,7 +275,7 @@ class QueueDB:
         """
         self.__clean_expired_messages__()
 
-        with sqlite3.connect("databases/queues.db") as conn:
+        with sqlite3.connect(os.path.join(DB_DIR, "queues.db")) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             try:
