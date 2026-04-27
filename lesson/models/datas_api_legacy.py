@@ -14,6 +14,7 @@ import sqlite3
 import logging
 
 from config.config import Config
+from utils.db_config import TASK_DB
 from models.lesson.lesson import Lesson
 from models.lesson.homework import Homework
 from models.daily.inout import InOut
@@ -2151,7 +2152,7 @@ async def delete_permission(id: int, current_user: User = Depends(get_current_us
         raise HTTPException(status_code=500, detail=f"删除权限失败: {str(e)}")
 
 
-TASK_DB_PATH = "databases/task.db"
+TASK_DB_PATH = TASK_DB
 
 class TaskCreate(BaseModel):
     func: str

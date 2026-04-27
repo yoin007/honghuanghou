@@ -10,7 +10,7 @@ import os
 import time
 from datetime import datetime, timedelta
 
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases")
+from utils.db_config import DATABASES_DIR as DB_DIR
 import threading
 
 from config.log import LogConfig

@@ -67,6 +67,40 @@
           </el-select>
         </el-form-item>
 
+        <el-divider content-position="left">处罚类型配置</el-divider>
+
+        <el-form-item label="处罚类型列表">
+          <el-table :data="configForm.punishment_types" size="small" border style="width: 500px">
+            <el-table-column prop="action" label="类型代码" width="120" align="center">
+              <template #default="{ row }">
+                <el-tag size="small">{{ row.action }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="name" label="名称" width="120">
+              <template #default="{ row }">
+                <el-input v-model="row.name" size="small" />
+              </template>
+            </el-table-column>
+            <el-table-column prop="level" label="处分等级" width="120">
+              <template #default="{ row }">
+                <el-select v-model="row.level" size="small" clearable placeholder="无">
+                  <el-option label="无" :value="null" />
+                  <el-option label="一级" value="一级" />
+                  <el-option label="二级" value="二级" />
+                  <el-option label="三级" value="三级" />
+                  <el-option label="四级" value="四级" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="说明" width="140">
+              <template #default="{ row }">
+                <span class="hint">{{ row.level ? '创建处分记录' : '仅预警通知' }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <span class="hint">等级为空则只发预警通知，有等级则自动创建处分记录</span>
+        </el-form-item>
+
         <el-divider content-position="left">其他配置</el-divider>
 
         <el-form-item label="学期结转">
@@ -95,7 +129,14 @@ const configForm = reactive({
   daily_record_roles: ['teacher', 'cleader'],
   student_profile_roles: ['admin', 'jiaowu', 'xuefa', 'cleader'],
   ai_consultation_roles: ['admin', 'xuefa', 'cleader'],
-  semester_carryover_enabled: 1
+  semester_carryover_enabled: 1,
+  punishment_types: [
+    { action: 'warning', name: '警告', level: null },
+    { action: 'serious_warning', name: '严重警告', level: '一级' },
+    { action: 'criticism', name: '通报', level: '二级' },
+    { action: 'demerit', name: '记过', level: '三级' },
+    { action: 'observation', name: '留校查看', level: '四级' }
+  ]
 })
 
 const fetchConfig = async () => {
@@ -107,6 +148,13 @@ const fetchConfig = async () => {
       Object.keys(res.data).forEach(key => {
         if (key.endsWith('_roles') && typeof res.data[key] === 'string') {
           configForm[key] = res.data[key].split(',')
+        } else if (key === 'punishment_types' && typeof res.data[key] === 'string') {
+          // 处理 punishment_types（JSON字符串转数组）
+          try {
+            configForm[key] = JSON.parse(res.data[key])
+          } catch {
+            console.warn('处罚类型解析失败')
+          }
         } else {
           configForm[key] = res.data[key]
         }
@@ -127,6 +175,9 @@ const handleSave = async () => {
     Object.keys(configForm).forEach(key => {
       if (key.endsWith('_roles') && Array.isArray(configForm[key])) {
         submitData[key] = configForm[key].join(',')
+      } else if (key === 'punishment_types' && Array.isArray(configForm[key])) {
+        // 处理 punishment_types（数组转JSON字符串）
+        submitData[key] = JSON.stringify(configForm[key])
       } else {
         submitData[key] = configForm[key]
       }

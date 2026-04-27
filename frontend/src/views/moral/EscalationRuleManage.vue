@@ -44,10 +44,11 @@
     <el-dialog
       v-model="dialogVisible"
       :title="isEdit ? '编辑累进规则' : '新增累进规则'"
-      width="600px"
+      width="900px"
       :close-on-click-modal="false"
+      modal-class="escalation-dialog-modal"
     >
-      <el-form :model="formData" label-width="120px" :rules="formRules" ref="formRef">
+      <el-form :model="formData" label-width="100px" :rules="formRules" ref="formRef">
         <el-form-item label="违纪事件" prop="event_id">
           <el-select
             v-model="formData.event_id"
@@ -64,84 +65,60 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item label="累计周期(天)" prop="time_window_days">
+        <el-form-item label="累计周期" prop="time_window_days">
           <el-input-number
             v-model="formData.time_window_days"
             :min="1"
             :max="365"
             :step="1"
           />
-          <span class="hint">例：1天=当天累计，90天=一学期累计</span>
+          <span class="hint">天（1=当天累计，90=一学期累计）</span>
         </el-form-item>
 
         <el-form-item label="处罚阶梯" prop="rules">
-          <div class="rules-editor">
-            <el-table :data="formData.rules" size="small">
-              <el-table-column prop="threshold" label="次数阈值" width="100">
-                <template #default="{ row, $index }">
-                  <el-input-number
-                    v-model="row.threshold"
-                    :min="1"
-                    :max="100"
-                    size="small"
+          <el-table :data="formData.rules" size="small" border>
+            <el-table-column prop="threshold" label="次数" width="70" align="center">
+              <template #default="{ row }">
+                <el-input-number v-model="row.threshold" :min="1" :max="100" size="small" controls-position="right" />
+              </template>
+            </el-table-column>
+            <el-table-column label="处罚类型" width="150">
+              <template #default="{ row }">
+                <el-select v-model="row.action" size="small" @change="onActionChange(row)">
+                  <el-option
+                    v-for="type in punishmentTypes"
+                    :key="type.action"
+                    :value="type.action"
+                    :label="type.name"
                   />
-                </template>
-              </el-table-column>
-              <el-table-column prop="action" label="处罚类型" width="150">
-                <template #default="{ row, $index }">
-                  <el-select v-model="row.action" size="small">
-                    <el-option value="warning" label="警告" />
-                    <el-option value="criticism" label="通报批评" />
-                    <el-option value="demerit" label="记过" />
-                    <el-option value="serious_demerit" label="严重记过" />
-                  </el-select>
-                </template>
-              </el-table-column>
-              <el-table-column prop="description" label="描述" width="120">
-                <template #default="{ row, $index }">
-                  <el-input v-model="row.description" size="small" placeholder="如：警告" />
-                </template>
-              </el-table-column>
-              <el-table-column prop="score_penalty" label="额外扣分" width="100">
-                <template #default="{ row, $index }">
-                  <el-input-number
-                    v-model="row.score_penalty"
-                    :min="-50"
-                    :max="0"
-                    size="small"
-                  />
-                </template>
-              </el-table-column>
-              <el-table-column label="通知对象" width="150">
-                <template #default="{ row, $index }">
-                  <el-checkbox-group v-model="row.notify_roles" size="small">
-                    <el-checkbox label="cleader">班主任</el-checkbox>
-                    <el-checkbox label="xuefa">学发部</el-checkbox>
-                  </el-checkbox-group>
-                </template>
-              </el-table-column>
-              <el-table-column label="自动处分" width="100">
-                <template #default="{ row, $index }">
-                  <el-switch v-model="row.auto_create_punishment" size="small" />
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="60">
-                <template #default="{ row, $index }">
-                  <el-button
-                    link
-                    type="danger"
-                    size="small"
-                    @click="removeRule($index)"
-                  >
-                    删除
-                  </el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-            <el-button type="primary" size="small" @click="addRule" class="add-rule-btn">
-              添加阶梯
-            </el-button>
-          </div>
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column prop="description" label="描述" width="100">
+              <template #default="{ row }">
+                <el-input v-model="row.description" size="small" />
+              </template>
+            </el-table-column>
+            <el-table-column prop="score_penalty" label="扣分" width="80" align="center">
+              <template #default="{ row }">
+                <el-input-number v-model="row.score_penalty" :min="-50" :max="0" size="small" controls-position="right" />
+              </template>
+            </el-table-column>
+            <el-table-column label="通知对象" width="160">
+              <template #default="{ row }">
+                <el-checkbox-group v-model="row.notify_roles" size="small">
+                  <el-checkbox label="cleader">班主任</el-checkbox>
+                  <el-checkbox label="xuefa">学发部</el-checkbox>
+                </el-checkbox-group>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="60" align="center">
+              <template #default="{ $index }">
+                <el-button link type="danger" size="small" @click="removeRule($index)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-button type="primary" size="small" @click="addRule" style="margin-top: 10px">添加阶梯</el-button>
         </el-form-item>
       </el-form>
 
@@ -164,13 +141,14 @@ import {
   updateEscalationRule,
   deleteEscalationRule,
   getConfigurableEvents,
+  getPunishmentTypes,
 } from '@/api/modules/moral'
 
-// 数据
 const loading = ref(false)
 const submitting = ref(false)
 const ruleList = ref([])
 const configurableEvents = ref([])
+const punishmentTypes = ref([])  // 处罚类型列表（从配置获取）
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref(null)
@@ -187,14 +165,17 @@ const formRules = {
   rules: [{ required: true, message: '请添加至少一个处罚阶梯', trigger: 'change' }]
 }
 
-// 方法
+// 触发类型改变时自动填充描述
+const onActionChange = (row) => {
+  const type = punishmentTypes.value.find(t => t.action === row.action)
+  row.description = type ? type.name : ''
+}
+
 const fetchRules = async () => {
   loading.value = true
   try {
     const res = await getEscalationRules()
-    if (res.success) {
-      ruleList.value = res.data
-    }
+    if (res.success) ruleList.value = res.data
   } catch (error) {
     ElMessage.error('获取规则列表失败')
   } finally {
@@ -205,11 +186,18 @@ const fetchRules = async () => {
 const fetchConfigurableEvents = async () => {
   try {
     const res = await getConfigurableEvents()
-    if (res.success) {
-      configurableEvents.value = res.data
-    }
+    if (res.success) configurableEvents.value = res.data
   } catch (error) {
     console.error('获取可配置事件失败:', error)
+  }
+}
+
+const fetchPunishmentTypes = async () => {
+  try {
+    const res = await getPunishmentTypes()
+    if (res.success) punishmentTypes.value = res.data
+  } catch (error) {
+    console.error('获取处罚类型失败:', error)
   }
 }
 
@@ -227,12 +215,10 @@ const handleEdit = (row) => {
   formData.time_window_days = row.time_window_days
   formData.rules = row.rules_parsed?.rules?.map(r => ({
     threshold: r.threshold,
-    action: r.action,
-    description: r.description,
+    action: r.action || 'warning',
+    description: r.description || '',
     notify_roles: r.notify_roles || ['cleader'],
-    score_penalty: r.score_penalty || 0,
-    auto_create_punishment: r.auto_create_punishment || false,
-    punishment_level: r.punishment_level || null
+    score_penalty: r.score_penalty || 0
   })) || [createDefaultRule()]
   formData.rule_id = row.rule_id
   dialogVisible.value = true
@@ -240,21 +226,14 @@ const handleEdit = (row) => {
 
 const handleDelete = async (row) => {
   try {
-    await ElMessageBox.confirm(
-      `确定删除事件"${row.event_name}"的累进规则吗？`,
-      '确认删除',
-      { type: 'warning' }
-    )
-
+    await ElMessageBox.confirm(`确定删除事件"${row.event_name}"的累进规则吗？`, '确认删除', { type: 'warning' })
     const res = await deleteEscalationRule(row.rule_id)
     if (res.success) {
       ElMessage.success('删除成功')
       fetchRules()
     }
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
-    }
+    if (error !== 'cancel') ElMessage.error('删除失败')
   }
 }
 
@@ -270,7 +249,6 @@ const handleSubmit = async () => {
     return
   }
 
-  // 验证阈值递增
   const thresholds = formData.rules.map(r => r.threshold).sort((a, b) => a - b)
   for (let i = 0; i < thresholds.length - 1; i++) {
     if (thresholds[i] === thresholds[i + 1]) {
@@ -289,9 +267,7 @@ const handleSubmit = async () => {
         action: r.action,
         description: r.description,
         notify_roles: r.notify_roles,
-        score_penalty: r.score_penalty,
-        auto_create_punishment: r.auto_create_punishment,
-        punishment_level: r.punishment_level
+        score_penalty: r.score_penalty
       }))
     }
 
@@ -314,28 +290,26 @@ const handleSubmit = async () => {
   }
 }
 
-const createDefaultRule = () => ({
-  threshold: 3,
-  action: 'warning',
-  description: '警告',
-  notify_roles: ['cleader'],
-  score_penalty: 0,
-  auto_create_punishment: false,
-  punishment_level: null
-})
+const createDefaultRule = () => {
+  const firstType = punishmentTypes.value[0] || { action: 'warning', name: '警告' }
+  return {
+    threshold: 3,
+    action: firstType.action,
+    description: firstType.name,
+    notify_roles: ['cleader'],
+    score_penalty: 0
+  }
+}
 
 const addRule = () => {
-  const lastThreshold = formData.rules.length > 0
-    ? Math.max(...formData.rules.map(r => r.threshold))
-    : 0
+  const lastThreshold = formData.rules.length > 0 ? Math.max(...formData.rules.map(r => r.threshold)) : 0
+  const nextType = punishmentTypes.value[Math.min(formData.rules.length, punishmentTypes.value.length - 1)]
   formData.rules.push({
     threshold: lastThreshold + 2,
-    action: 'criticism',
-    description: '通报批评',
+    action: nextType?.action || 'criticism',
+    description: nextType?.name || '通报',
     notify_roles: ['cleader', 'xuefa'],
-    score_penalty: -5,
-    auto_create_punishment: false,
-    punishment_level: null
+    score_penalty: -5
   })
 }
 
@@ -344,18 +318,16 @@ const removeRule = (index) => {
 }
 
 const getActionType = (action) => {
-  const types = {
-    warning: 'warning',
-    criticism: 'danger',
-    demerit: 'danger',
-    serious_demerit: 'danger'
-  }
-  return types[action] || 'info'
+  if (action === 'warning') return 'warning'
+  if (action === 'serious_warning') return 'warning'
+  if (action === 'observation') return 'danger'
+  return ''  // criticism, demerit 用默认样式
 }
 
 onMounted(() => {
   fetchRules()
   fetchConfigurableEvents()
+  fetchPunishmentTypes()
 })
 </script>
 
@@ -384,17 +356,31 @@ onMounted(() => {
   margin-right: 8px;
 }
 
-.rules-editor {
-  width: 100%;
-}
-
-.add-rule-btn {
-  margin-top: 10px;
-}
-
 .hint {
   color: #909399;
   font-size: 12px;
   margin-left: 10px;
+}
+</style>
+
+<style>
+.escalation-dialog-modal .el-dialog__body {
+  padding: 15px 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.escalation-dialog-modal .el-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.escalation-dialog-modal .el-table .el-input-number {
+  width: 100%;
+}
+
+.escalation-dialog-modal .el-table .el-select {
+  width: 100%;
 }
 </style>

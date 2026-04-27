@@ -16,10 +16,9 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
-logger = logging.getLogger(__name__)
+from utils.db_config import FILEGATHER_DB
 
-# 默认数据库路径
-DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "databases", "filegather.db")
+logger = logging.getLogger(__name__)
 
 # 默认存储路径
 DEFAULT_STORAGE_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "storage", "filegather")
@@ -42,7 +41,7 @@ class FileGatherDB:
             db_path: 数据库文件路径
             storage_root: 存储根目录
         """
-        self.db_path = db_path or DEFAULT_DB_PATH
+        self.db_path = db_path or FILEGATHER_DB
         self.storage_root = storage_root or DEFAULT_STORAGE_ROOT
         self.uploads_dir = os.path.join(self.storage_root, "uploads")
         self.done_dir = os.path.join(self.storage_root, "done")

@@ -11,18 +11,16 @@ import os
 from typing import Optional, Dict, Any, List
 from contextlib import contextmanager
 
-logger = logging.getLogger(__name__)
+from utils.db_config import AUTH_DB, DATABASES_DIR
 
-# 数据库路径（lesson 目录下的 databases）
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases")
-DB_PATH = os.path.join(DB_DIR, "auth.db")
+logger = logging.getLogger(__name__)
 
 
 class TeacherDB:
     """教师数据库操作类"""
 
     def __init__(self, db_path: str = None):
-        self.db_path = db_path or DB_PATH
+        self.db_path = db_path or AUTH_DB
         self._connection = None
 
     def __enter__(self):

@@ -215,10 +215,10 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user["username"], "role": user.get("role", "user")}, expires_delta=access_token_expires
+        data={"sub": user["name"], "role": user.get("role", "user")}, expires_delta=access_token_expires
     )
 
     # 记录登录日志
-    logger.info(f"User {user['username']} logged in successfully")
+    logger.info(f"User {user['name']} logged in successfully")
 
     return {"access_token": access_token, "token_type": "bearer"}

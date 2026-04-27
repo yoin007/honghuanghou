@@ -1,10 +1,13 @@
 import json
 import logging
 from datetime import datetime
+import os
 import time
 import re
 import sqlite3
 from models.manage.member import Member
+
+DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases")
 
 logger = logging.getLogger(__name__)
 
@@ -542,7 +545,7 @@ class WxMsg:
 class MessageDB:
     """消息数据库"""
 
-    def __enter__(self, db="databases/messages.db"):
+    def __enter__(self, db=os.path.join(DB_DIR, "messages.db")):
         self.__conn__ = sqlite3.connect(db)
         self.__cursor__ = self.__conn__.cursor()
         return self

@@ -51,18 +51,29 @@
           </template>
         </el-table-column>
         <el-table-column prop="punishment_reason" label="处分原因" show-overflow-tooltip />
-        <el-table-column prop="punishment_date" label="处分日期" width="120" />
-        <el-table-column label="状态" width="100">
+        <el-table-column prop="score_deduct" label="德育扣分" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'danger' : 'info'">
-              {{ row.status === 1 ? '生效中' : '已撤销' }}
-            </el-tag>
+            <el-tag type="danger" size="small">{{ row.score_deduct }}分</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="punishment_date" label="处分日期" width="120" />
+        <el-table-column label="状态" width="150">
+          <template #default="{ row }">
+            <div>
+              <el-tag :type="row.review_status === 1 ? 'warning' : (row.is_revoked === 0 ? 'danger' : 'info')">
+                {{ row.review_status === 1 ? '待复核' : (row.is_revoked === 0 ? '生效中' : '已撤销') }}
+              </el-tag>
+              <el-tag v-if="row.is_revoked === 1 && row.revoke_category" type="success" size="small" style="margin-left: 4px">
+                {{ row.revoke_type === 1 || row.revoke_type === 3 ? '已归还' : '扣分保留' }}
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="revoke_date" label="撤销日期" width="120" />
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button link type="warning" @click="handleRevoke(row)" v-if="row.status === 1 && canRevokePunishment">撤销</el-button>
+            <el-button link type="warning" @click="handleRevoke(row)" v-if="row.is_revoked === 0 && canRevokePunishment">撤销</el-button>
+            <el-button link type="primary" @click="handleReview(row)" v-if="row.review_status === 1 && canRevokePunishment">复核</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -163,6 +174,15 @@
             <p><strong>处分日期：</strong>{{ revokeForm.punishment_date }}</p>
           </div>
         </el-form-item>
+        <el-form-item label="撤销类型" prop="revoke_type">
+          <el-radio-group v-model="revokeForm.revoke_type">
+            <el-radio :value="2">期满申请撤销（扣分保留）</el-radio>
+            <el-radio :value="1">误处分撤销（扣分归还）</el-radio>
+          </el-radio-group>
+          <div class="hint" style="margin-top: 8px">
+            {{ revokeForm.revoke_type === 2 ? '处分有效，因表现良好申请撤销，扣分保留' : '处分本身有误（如记录错误），扣分归还' }}
+          </div>
+        </el-form-item>
         <el-form-item label="撤销日期" prop="revoke_date">
           <el-date-picker
             v-model="revokeForm.revoke_date"
@@ -173,12 +193,50 @@
           />
         </el-form-item>
         <el-form-item label="撤销原因" prop="revoke_reason">
-          <el-input v-model="revokeForm.revoke_reason" type="textarea" :rows="3" />
+          <el-input v-model="revokeForm.revoke_reason" type="textarea" :rows="3" placeholder="请填写撤销原因" />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="revokeDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleRevokeSubmit">确定撤销</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 复核对话框 -->
+    <el-dialog v-model="reviewDialogVisible" title="处分复核" width="600px">
+      <el-descriptions :column="1" border v-loading="reviewLoading">
+        <el-descriptions-item label="学生">{{ reviewInfo.student_name }}（{{ reviewInfo.student_id }}）</el-descriptions-item>
+        <el-descriptions-item label="事件">{{ reviewInfo.event_name }}</el-descriptions-item>
+        <el-descriptions-item label="扣分">{{ reviewInfo.score_deduct }}分</el-descriptions-item>
+        <el-descriptions-item label="处分等级">{{ reviewInfo.level || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="触发条件">累计 {{ reviewInfo.threshold }} 次（时间窗口 {{ reviewInfo.time_window_days }} 天）</el-descriptions-item>
+        <el-descriptions-item label="当前有效次数">{{ reviewInfo.valid_count }} 次</el-descriptions-item>
+      </el-descriptions>
+
+      <el-divider content-position="left">源记录状态</el-divider>
+      <el-table :data="reviewInfo.source_records" size="small" border v-if="reviewInfo.source_records?.length">
+        <el-table-column prop="record_id" label="记录ID" width="100" />
+        <el-table-column prop="record_date" label="记录日期" width="150" />
+        <el-table-column prop="status" label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.is_deleted === 0 ? 'success' : 'danger'" size="small">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else description="无源记录信息" :image-size="60" />
+
+      <el-divider />
+      <el-alert :title="`推荐操作：${reviewInfo.recommendation}`" type="warning" :closable="false" show-icon style="margin-bottom: 15px" />
+      <el-alert title="撤销处分将归还扣分，复核通过则扣分保留" type="info" :closable="false" show-icon style="margin-bottom: 15px" />
+
+      <el-form-item label="复核说明">
+        <el-input v-model="reviewReason" type="textarea" :rows="2" placeholder="可选填写复核说明" />
+      </el-form-item>
+
+      <template #footer>
+        <el-button @click="reviewDialogVisible = false">取消</el-button>
+        <el-button type="danger" @click="handleReviewRevoke">撤销处分（归还扣分）</el-button>
+        <el-button type="success" @click="handleReviewApprove">复核通过（扣分保留）</el-button>
       </template>
     </el-dialog>
   </div>
@@ -192,6 +250,8 @@ import {
   createPunishment,
   updatePunishment,
   revokePunishment,
+  getPunishmentReviewInfo,
+  reviewPunishment,
   getClasses,
   getGrades,
   getStudents
@@ -262,7 +322,27 @@ const revokeForm = reactive({
   punishment_type: '',
   punishment_date: '',
   revoke_date: '',
-  revoke_reason: ''
+  revoke_reason: '',
+  revoke_type: 2  // 默认期满申请撤销
+})
+
+// 复核对话框
+const reviewDialogVisible = ref(false)
+const reviewLoading = ref(false)
+const reviewReason = ref('')
+const reviewInfo = reactive({
+  punishment_id: null,
+  student_id: '',
+  student_name: '',
+  event_name: '',
+  score_deduct: 0,
+  level: '',
+  reason: '',
+  threshold: 0,
+  time_window_days: 90,
+  valid_count: 0,
+  source_records: [],
+  recommendation: ''
 })
 
 // 方法
@@ -439,22 +519,73 @@ const handleRevoke = (row) => {
     student_name: row.student_name,
     punishment_type: row.punishment_type,
     punishment_date: row.punishment_date,
-    revoke_date: getGMT8DateString(), // 东八区当前日期
-    revoke_reason: ''
+    revoke_date: getGMT8DateString(),
+    revoke_reason: '',
+    revoke_type: 2  // 默认期满申请撤销
   })
   revokeDialogVisible.value = true
 }
 
 const handleRevokeSubmit = async () => {
   try {
-    const res = await revokePunishment(revokeForm.record_id, revokeForm.revoke_reason)
+    const res = await revokePunishment(revokeForm.record_id, revokeForm.revoke_reason, revokeForm.revoke_type)
     if (res.success) {
-      ElMessage.success('撤销成功')
+      const msg = res.score_returned
+        ? `撤销成功（扣分已归还 +${Math.abs(res.score_deduct || 0)}分）`
+        : '撤销成功（扣分保留）'
+      ElMessage.success(msg)
       revokeDialogVisible.value = false
       fetchRecords()
     }
   } catch (error) {
     console.error('撤销失败:', error)
+  }
+}
+
+// 复核处分
+const handleReview = async (row) => {
+  reviewLoading.value = true
+  reviewDialogVisible.value = true
+  reviewReason.value = ''
+
+  try {
+    const res = await getPunishmentReviewInfo(row.record_id)
+    if (res.success) {
+      Object.assign(reviewInfo, res.data)
+    }
+  } catch (error) {
+    ElMessage.error('获取复核信息失败')
+    reviewDialogVisible.value = false
+  } finally {
+    reviewLoading.value = false
+  }
+}
+
+// 复核撤销
+const handleReviewRevoke = async () => {
+  try {
+    const res = await reviewPunishment(reviewInfo.punishment_id, 'revoke', reviewReason.value)
+    if (res.success) {
+      ElMessage.success('处分已撤销，扣分已回滚')
+      reviewDialogVisible.value = false
+      fetchRecords()
+    }
+  } catch (error) {
+    ElMessage.error('撤销失败')
+  }
+}
+
+// 复核通过
+const handleReviewApprove = async () => {
+  try {
+    const res = await reviewPunishment(reviewInfo.punishment_id, 'approve', reviewReason.value)
+    if (res.success) {
+      ElMessage.success('复核通过，处分保持有效')
+      reviewDialogVisible.value = false
+      fetchRecords()
+    }
+  } catch (error) {
+    ElMessage.error('操作失败')
   }
 }
 

@@ -24,6 +24,10 @@ DAILY_DB = os.path.join(DATABASES_DIR, "daily.db")
 INOUT_DB = os.path.join(DATABASES_DIR, "inout.db")
 MESSAGES_DB = os.path.join(DATABASES_DIR, "messages.db")
 MAIN_DB = os.path.join(DATABASES_DIR, "main.db")
+FILEGATHER_DB = os.path.join(DATABASES_DIR, "filegather.db")
+NOTES_DB = os.path.join(DATABASES_DIR, "notes.db")
+COLLEGES_DB = os.path.join(DATABASES_DIR, "colleges.db")
+QUEUES_DB = os.path.join(DATABASES_DIR, "queues.db")
 
 def get_db_path(db_name: str) -> str:
     """获取数据库路径"""

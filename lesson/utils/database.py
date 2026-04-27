@@ -2,11 +2,11 @@
 # SQLite 数据库优化工具
 
 import sqlite3
-import os
 from contextlib import contextmanager
 from functools import wraps
 import logging
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "lesson", "databases")
+
+from utils.db_config import DATABASES_DIR
 
 logger = logging.getLogger(__name__)
 
