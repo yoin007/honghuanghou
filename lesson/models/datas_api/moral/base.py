@@ -382,6 +382,23 @@ def get_current_school_year(db: SQLiteMoralDatabase) -> Optional[Dict[str, Any]]
     )
 
 
+def get_next_school_year(db: SQLiteMoralDatabase, current_year_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取下一个学年
+
+    Args:
+        db: 数据库连接
+        current_year_id: 当前学年ID
+
+    Returns:
+        下一个学年信息，如果不存在则返回None
+    """
+    return db.query_one(
+        "SELECT * FROM school_year WHERE year_id = %s LIMIT 1",
+        (current_year_id + 1,)
+    )
+
+
 def get_current_semester(db: SQLiteMoralDatabase) -> Optional[Dict[str, Any]]:
     """
     获取当前学期

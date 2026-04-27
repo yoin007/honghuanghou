@@ -541,6 +541,9 @@ async def delete_daily_record(
         calculate_evaluation(db, old_record['student_id'], old_record['semester_id'],
                              old_record['class_id'], old_record['grade_id'])
 
+        # 检查关联处分是否需要复核
+        check_related_punishments(db, record_id, old_record['student_id'], old_record['event_id'], old_record['semester_id'])
+
         # 记录操作日志
         log_operation(
             db, user.username, user.role, 'DELETE', 'student_daily_record',
@@ -848,3 +851,104 @@ async def batch_import_daily_event_types(
                 "errors": errors[:10]
             }
         }
+
+
+# =============================================================================
+# 处分复核检查函数
+# =============================================================================
+
+def check_related_punishments(db, record_id: int, student_id: str, event_id: int, semester_id: int):
+    """
+    检查记录删除后关联处分是否需要复核
+
+    Args:
+        db: 数据库连接
+        record_id: 被删除的记录ID
+        student_id: 学生ID
+        event_id: 事件ID
+        semester_id: 学期ID
+    """
+    import json
+
+    # 1. 查找关联的处分记录（source_record_ids 包含该记录ID）
+    punishments = db.query_all(
+        """SELECT id, student_id, event_id, semester_id, source_record_ids, reason, is_revoked
+        FROM punishment_record
+        WHERE student_id = %s AND event_id = %s AND semester_id = %s
+        AND is_revoked = 0 AND source_record_ids IS NOT NULL""",
+        (student_id, event_id, semester_id)
+    )
+
+    for p in punishments:
+        try:
+            source_ids = json.loads(p['source_record_ids']) if p['source_record_ids'] else []
+        except:
+            source_ids = []
+
+        if record_id not in source_ids:
+            continue  # 该处分不关联此记录
+
+        # 2. 从累进规则获取阈值
+        rule = db.query_one(
+            """SELECT escalation_rules FROM violation_escalation_rule WHERE event_id = %s""",
+            (event_id,)
+        )
+
+        if not rule:
+            continue
+
+        try:
+            rules_data = json.loads(rule['escalation_rules'])
+            # 找到触发该处分的阈值（从reason解析或匹配action）
+            threshold = None
+            for r in rules_data.get('rules', []):
+                # 匹配处分原因中的阈值描述
+                if f"累计{r['threshold']}次" in p['reason'] or r.get('threshold'):
+                    threshold = r['threshold']
+                    break
+        except:
+            continue
+
+        if not threshold:
+            continue
+
+        # 3. 计算当前有效累计次数（不含已删除记录）
+        time_window_days = rule.get('time_window_days', 90) if rule else 90
+
+        # 获取处分日期作为基准
+        punishment_date = db.query_value(
+            "SELECT punishment_date FROM punishment_record WHERE id = %s",
+            (p['id'],)
+        )
+
+        if punishment_date:
+            from datetime import datetime, timedelta
+            try:
+                base_date = datetime.strptime(punishment_date, '%Y-%m-%d').date()
+            except:
+                base_date = datetime.now().date()
+
+            window_start = base_date - timedelta(days=time_window_days)
+
+            valid_count = db.query_value(
+                """SELECT COUNT(*) FROM student_daily_record
+                WHERE student_id = %s AND event_id = %s
+                AND strftime('%Y-%m-%d', record_date) >= %s
+                AND strftime('%Y-%m-%d', record_date) <= %s
+                AND is_deleted = 0""",
+                (student_id, event_id, window_start.strftime('%Y-%m-%d'), base_date.strftime('%Y-%m-%d'))
+            ) or 0
+        else:
+            valid_count = 0
+
+        # 4. 判断是否仍达标
+        if valid_count < threshold:
+            # 标记待复核
+            db.execute(
+                """UPDATE punishment_record SET review_status = 1 WHERE id = %s""",
+                (p['id'],)
+            )
+            logger.info(f"处分 {p['id']} 已标记待复核：有效次数 {valid_count} < 阈值 {threshold}")
+
+            # 5. 发送通知给学发部（可选）
+            # notify_xuefa_review_needed(db, p)

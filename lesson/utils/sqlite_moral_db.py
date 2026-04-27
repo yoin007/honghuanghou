@@ -17,11 +17,9 @@ from typing import Optional, Dict, Any, List, Tuple, Union
 from decimal import Decimal
 import json
 
-logger = logging.getLogger(__name__)
+from utils.db_config import MORAL_DB, DATABASES_DIR
 
-# 数据库路径（相对于 lesson 目录）
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases")
-DB_PATH = os.path.join(DB_DIR, "moral.db")
+logger = logging.getLogger(__name__)
 
 
 class MoralDatabase:
@@ -38,7 +36,7 @@ class MoralDatabase:
         Args:
             db_path: 数据库文件路径，默认为 databases/moral.db
         """
-        self.db_path = db_path or DB_PATH
+        self.db_path = db_path or MORAL_DB
         self._connection = None
         self._cursor = None
 
@@ -233,7 +231,7 @@ class MoralDatabase:
 
 def get_moral_db_path() -> str:
     """获取德育数据库路径"""
-    return DB_PATH
+    return MORAL_DB
 
 
 def init_moral_db():
@@ -242,15 +240,15 @@ def init_moral_db():
 
     确保 WAL 模式已启用
     """
-    if not os.path.exists(DB_PATH):
-        logger.warning(f"Moral database not found at {DB_PATH}")
+    if not os.path.exists(MORAL_DB):
+        logger.warning(f"Moral database not found at {MORAL_DB}")
         return
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(MORAL_DB)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.close()
-    logger.info(f"Moral database initialized: {DB_PATH}")
+    logger.info(f"Moral database initialized: {MORAL_DB}")
 
 
 __all__ = [

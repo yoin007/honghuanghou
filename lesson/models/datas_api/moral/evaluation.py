@@ -373,8 +373,16 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
         (student_id, semester_id)
     ) or 0
 
+    # 处分扣分（包括累进扣分）
+    punishment_score = db.query_value(
+        """SELECT COALESCE(SUM(score_deduct), 0)
+        FROM punishment_record
+        WHERE student_id = %s AND semester_id = %s AND is_revoked = 0""",
+        (student_id, semester_id)
+    ) or 0
+
     # 总分
-    total_score = Decimal(str(base_score)) + Decimal(str(daily_score)) + Decimal(str(school_score)) + Decimal(str(task_score))
+    total_score = Decimal(str(base_score)) + Decimal(str(daily_score)) + Decimal(str(school_score)) + Decimal(str(task_score)) + Decimal(str(punishment_score))
 
     # 等级
     level = calculate_moral_level(float(total_score))
@@ -408,7 +416,8 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
         'base_score': float(base_score),
         'daily_score': float(daily_score),
         'school_score': float(school_score),
-        'task_score': float(task_score)
+        'task_score': float(task_score),
+        'punishment_score': float(punishment_score)
     }
 
 

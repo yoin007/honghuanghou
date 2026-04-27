@@ -1,27 +1,53 @@
 # -*- coding: utf-8 -*-
 """
-生日查看 API
+生日查看与提醒 API
 
-提供查看即将过生日学生名单的功能
+提供查看即将过生日学生名单、发送祝福、配置管理等功能
 """
 
 import logging
-from datetime import date, timedelta
+import json
+from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from .base import (
     get_moral_db,
     check_moral_permission,
     get_teacher_class_id,
+    log_operation,
+    require_permission,
 )
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/birthdays", tags=["生日查看"])
+
+
+# =============================================================================
+# Pydantic 模型
+# =============================================================================
+
+class BlessingSend(BaseModel):
+    """发送祝福请求"""
+    student_id: str = Field(..., description="学号")
+    message: Optional[str] = Field(None, description="祝福内容（可选，使用模板则不需要）")
+
+
+class BirthdayConfigUpdate(BaseModel):
+    """更新生日提醒配置"""
+    reminder_days_before: Optional[int] = Field(None, description="提前提醒天数")
+    reminder_time: Optional[dict] = Field(None, description="提醒时间")
+    blessing_enabled: Optional[bool] = Field(None, description="是否启用祝福")
+    message_template: Optional[dict] = Field(None, description="祝福模板")
+
+
+# =============================================================================
+# API 路由 - 基础查询
+# =============================================================================
 
 
 # =============================================================================

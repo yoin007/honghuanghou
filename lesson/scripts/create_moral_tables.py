@@ -601,7 +601,37 @@ CREATE TABLE IF NOT EXISTS moral_config (
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 """,
-    # 36. 点滴记录表（一生一册）
+    # 36. API权限配置表
+    "api_permission_config": """
+CREATE TABLE IF NOT EXISTS api_permission_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_path TEXT NOT NULL UNIQUE,
+    api_name TEXT NOT NULL,
+    api_group TEXT NOT NULL,
+    allowed_roles TEXT NOT NULL,
+    min_level INTEGER DEFAULT 0,
+    description TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_api_permission_path ON api_permission_config(api_path);
+CREATE INDEX IF NOT EXISTS idx_api_permission_group ON api_permission_config(api_group);
+""",
+    # 37. AI诊疗模板表
+    "ai_consultation_template": """
+CREATE TABLE IF NOT EXISTS ai_consultation_template (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_type TEXT NOT NULL,
+    template_name TEXT NOT NULL,
+    prompt_template TEXT NOT NULL,
+    suggested_questions TEXT,
+    response_format TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+""",
+    # 38. 点滴记录表（一生一册）
     "moment_record": """
 CREATE TABLE IF NOT EXISTS moment_record (
     record_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1201,6 +1231,36 @@ CREATE TABLE IF NOT EXISTS moral_config (
     UNIQUE KEY uk_key (config_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='德育系统配置表';
 """,
+    # 36. API权限配置表
+    "api_permission_config": """
+CREATE TABLE IF NOT EXISTS api_permission_config (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    api_path VARCHAR(100) NOT NULL COMMENT 'API路径',
+    api_name VARCHAR(50) NOT NULL COMMENT 'API名称',
+    api_group VARCHAR(30) NOT NULL COMMENT 'API分组',
+    allowed_roles JSON NOT NULL COMMENT '允许访问的角色列表',
+    min_level INT DEFAULT 0 COMMENT '最低等级要求',
+    description TEXT,
+    is_active TINYINT DEFAULT 1,
+    created_at DATETIME DEFAULT NOW(),
+    updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+    UNIQUE KEY uk_api_path (api_path),
+    INDEX idx_api_group (api_group)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='API权限配置表';
+""",
+    # 37. AI诊疗模板表
+    "ai_consultation_template": """
+CREATE TABLE IF NOT EXISTS ai_consultation_template (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    template_type VARCHAR(20) NOT NULL COMMENT 'academic/behavior/psychological',
+    template_name VARCHAR(50) NOT NULL COMMENT '模板名称',
+    prompt_template TEXT NOT NULL COMMENT 'AI提示词模板',
+    suggested_questions JSON COMMENT '建议提问列表',
+    response_format JSON COMMENT '回复格式配置',
+    is_active TINYINT DEFAULT 1,
+    created_at DATETIME DEFAULT NOW()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI诊疗模板表';
+""",
 }
 
 # 初始数据插入SQL
@@ -1253,6 +1313,11 @@ INITIAL_DATA_SQL = [
     (1, 'reminder_days_before', '3', '提前多少天提醒'),
     (2, 'reminder_time', '{"hour": 8, "minute": 0}', '提醒时间'),
     (3, 'message_template', '{"student": "祝你生日快乐！愿你学业进步，前程似锦！", "parent": "您的孩子即将迎来生日，祝家庭幸福美满！"}', '祝福模板');""",
+    # AI诊疗模板
+    """INSERT IGNORE INTO ai_consultation_template (template_type, template_name, prompt_template, suggested_questions, response_format, is_active) VALUES
+    ('academic', '学业问题诊断', '学生{student_name}近期出现学业问题：{description}。请分析可能的原因并提供解决方案。', '["学习成绩下降", "作业完成困难", "课堂注意力不集中"]', '{}', 1),
+    ('behavior', '行为问题诊断', '学生{student_name}出现行为问题：{description}。请分析原因并提供干预建议。', '["迟到早退", "违纪行为", "人际关系冲突"]', '{}', 1),
+    ('psychological', '心理问题诊断', '学生{student_name}可能出现心理困扰：{description}。请提供初步评估和建议。', '["情绪波动", "社交退缩", "压力过大"]', '{}', 1);""",
 ]
 
 
@@ -1398,6 +1463,11 @@ SQLite_INITIAL_DATA_SQL = [
     (1, 'reminder_days_before', '3', '提前多少天提醒'),
     (2, 'reminder_time', '{"hour": 8, "minute": 0}', '提醒时间'),
     (3, 'message_template', '{"student": "祝你生日快乐！愿你学业进步，前程似锦！", "parent": "您的孩子即将迎来生日，祝家庭幸福美满！"}', '祝福模板');""",
+    # AI诊疗模板
+    """INSERT OR IGNORE INTO ai_consultation_template (id, template_type, template_name, prompt_template, suggested_questions, response_format, is_active) VALUES
+    (1, 'academic', '学业问题诊断', '学生{student_name}近期出现学业问题：{description}。请分析可能的原因并提供解决方案。', '["学习成绩下降", "作业完成困难", "课堂注意力不集中"]', '{}', 1),
+    (2, 'behavior', '行为问题诊断', '学生{student_name}出现行为问题：{description}。请分析原因并提供干预建议。', '["迟到早退", "违纪行为", "人际关系冲突"]', '{}', 1),
+    (3, 'psychological', '心理问题诊断', '学生{student_name}可能出现心理困扰：{description}。请提供初步评估和建议。', '["情绪波动", "社交退缩", "压力过大"]', '{}', 1);""",
 ]
 
 

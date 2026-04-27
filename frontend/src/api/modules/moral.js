@@ -250,8 +250,25 @@ export function updatePunishment(recordId, data) {
 /**
  * 撤销处分
  */
-export function revokePunishment(recordId, reason) {
-  return request.post(`/api/moral/punishments/${recordId}/revoke`, { revoke_reason: reason })
+export function revokePunishment(recordId, reason, revokeType = 2) {
+  return request.post(`/api/moral/punishments/${recordId}/revoke`, {
+    revoke_reason: reason,
+    revoke_type: revokeType
+  })
+}
+
+/**
+ * 获取处分复核信息
+ */
+export function getPunishmentReviewInfo(recordId) {
+  return request.get(`/api/moral/punishments/${recordId}/review-info`)
+}
+
+/**
+ * 复核处分
+ */
+export function reviewPunishment(recordId, action, reason) {
+  return request.post(`/api/moral/punishments/${recordId}/review`, { action, reason })
 }
 
 // =============================================================================
@@ -454,6 +471,13 @@ export function getConfigurableEvents() {
 }
 
 /**
+ * 获取处罚类型列表（用于前端下拉框）
+ */
+export function getPunishmentTypes() {
+  return request.get('/api/moral/punishment-types')
+}
+
+/**
  * 获取学生累进处罚历史
  */
 export function getStudentEscalationHistory(studentId, semesterId = null) {
@@ -540,6 +564,61 @@ export function initApiPermissions() {
  */
 export function getApiGroups() {
   return request.get('/api/moral/api-permissions/groups')
+}
+
+// =============================================================================
+// 集体事件 API
+// =============================================================================
+
+/**
+ * 获取集体事件列表
+ */
+export function getCollectiveEvents(params = {}) {
+  return request.get('/api/moral/collective-events', { params })
+}
+
+/**
+ * 创建集体事件
+ */
+export function createCollectiveEvent(data) {
+  return request.post('/api/moral/collective-events', data)
+}
+
+/**
+ * 获取集体事件详情
+ */
+export function getCollectiveEvent(eventId) {
+  return request.get(`/api/moral/collective-events/${eventId}`)
+}
+
+/**
+ * 更新集体事件
+ */
+export function updateCollectiveEvent(eventId, data) {
+  return request.put(`/api/moral/collective-events/${eventId}`, data)
+}
+
+/**
+ * 删除集体事件
+ */
+export function deleteCollectiveEvent(eventId) {
+  return request.delete(`/api/moral/collective-events/${eventId}`)
+}
+
+/**
+ * 更新分配记录
+ */
+export function updateDistribution(eventId, distributionId, data) {
+  return request.put(`/api/moral/collective-events/${eventId}/distributions/${distributionId}`, data)
+}
+
+/**
+ * 获取学生集体事件得分汇总
+ */
+export function getStudentCollectiveScore(studentId, semesterId = null) {
+  return request.get(`/api/moral/collective-events/student/${studentId}`, {
+    params: { semester_id: semesterId }
+  })
 }
 
 /**
@@ -771,6 +850,7 @@ export default {
   updateEscalationRule,
   deleteEscalationRule,
   getConfigurableEvents,
+  getPunishmentTypes,
   getStudentEscalationHistory,
   getStudentEventCount,
   getStudentAllProgress,
@@ -784,4 +864,13 @@ export default {
   checkApiPermission,
   initApiPermissions,
   getApiGroups,
+
+  // 集体事件
+  getCollectiveEvents,
+  createCollectiveEvent,
+  getCollectiveEvent,
+  updateCollectiveEvent,
+  deleteCollectiveEvent,
+  updateDistribution,
+  getStudentCollectiveScore,
 }

@@ -39,12 +39,10 @@ router = APIRouter(prefix="/escalation-rules", tags=["累进规则管理"])
 class EscalationRuleItem(BaseModel):
     """单个处罚阶梯"""
     threshold: int = Field(..., description="次数阈值", ge=1)
-    action: str = Field(..., description="处罚类型")
+    action: str = Field(..., description="触发类型: warning/criticism/demerit/serious_demerit")
     description: str = Field(..., description="处罚描述")
     notify_roles: List[str] = Field(["cleader"], description="通知角色")
     score_penalty: int = Field(0, description="额外扣分")
-    auto_create_punishment: bool = Field(False, description="是否自动创建处分")
-    punishment_level: Optional[int] = Field(None, description="处分等级")
 
 
 class EscalationRuleCreate(BaseModel):

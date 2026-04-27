@@ -45,6 +45,7 @@ class PunishmentCreate(BaseModel):
 class PunishmentRevoke(BaseModel):
     """撤销处分"""
     revoke_reason: str = Field(..., description="撤销原因")
+    revoke_type: int = Field(2, description="撤销类型: 1=源记录错误, 2=期满申请, 3=复核误处分")
 
 
 # =============================================================================
@@ -113,12 +114,14 @@ async def get_punishments(
         data_query = f"""
             SELECT p.id as record_id, p.student_id, p.punishment_date, p.score_deduct,
                    p.level as punishment_level, p.reason as punishment_reason,
-                   p.is_revoked, p.revoke_date, p.revoke_reason,
-                   se.event_name as punishment_type,
+                   p.is_revoked, p.revoke_date, p.revoke_reason, p.revoke_type, p.revoke_category,
+                   p.review_status,
+                   COALESCE(de.event_name, se.event_name, '累进扣分') as punishment_type,
                    s.name as student_name, c.class_name, g.grade_name
             FROM punishment_record p
             JOIN student s ON p.student_id = s.student_id
-            JOIN school_event_type se ON p.event_id = se.event_id
+            LEFT JOIN daily_event_type de ON p.event_id = de.event_id
+            LEFT JOIN school_event_type se ON p.event_id = se.event_id
             JOIN class c ON p.class_id = c.class_id
             JOIN grade g ON p.grade_id = g.grade_id
             WHERE {where_clause}
@@ -260,7 +263,23 @@ async def revoke_punishment(
     request: Request,
     user: User = Depends(require_permission('punishment_manage'))
 ):
-    """撤销处分"""
+    """
+    撤销处分
+
+    revoke_type 说明：
+    - 1: 源记录错误撤销（归还分数）
+    - 2: 期满申请撤销（不归还分数）
+    - 3: 复核误处分撤销（归还分数）
+    """
+    from .evaluation import calculate_evaluation
+
+    # 撤销类型对应的显示文本
+    revoke_category_map = {
+        1: "源记录错误撤销",
+        2: "期满申请撤销",
+        3: "复核误处分撤销"
+    }
+
     with get_moral_db() as db:
         old_record = db.query_one(
             "SELECT * FROM punishment_record WHERE id = %s",
@@ -272,18 +291,233 @@ async def revoke_punishment(
         if old_record['is_revoked'] == 1:
             raise HTTPException(400, "该处分已撤销")
 
+        revoke_type = revoke_data.revoke_type
+        revoke_category = revoke_category_map.get(revoke_type, "期满申请撤销")
+
         db.execute(
             """UPDATE punishment_record SET
-            is_revoked = 1, revoke_date = %s, revoke_by = %s, revoke_reason = %s
+            is_revoked = 1, revoke_date = %s, revoke_by = %s, revoke_reason = %s,
+            revoke_type = %s, revoke_category = %s
             WHERE id = %s""",
-            (date.today(), user.username, revoke_data.revoke_reason, record_id)
+            (date.today(), user.username, revoke_data.revoke_reason,
+             revoke_type, revoke_category, record_id)
         )
+
+        # 归还分数逻辑：type=1 或 type=3 时归还
+        score_returned = revoke_type in [1, 3]
+        if score_returned:
+            calculate_evaluation(db, old_record['student_id'], old_record['semester_id'])
 
         log_operation(
             db, user.username, user.role, 'REVOKE', 'punishment_record',
             record_id, old_record['semester_id'],
-            new_data={'revoke_reason': revoke_data.revoke_reason},
+            new_data={'revoke_reason': revoke_data.revoke_reason, 'revoke_type': revoke_type, 'score_returned': score_returned},
             ip_address=request.client.host if request.client else None
         )
 
-        return {"success": True, "message": "处分已撤销"}
+        message = f"处分已撤销（{revoke_category}）"
+        if score_returned:
+            message += f"，扣分已归还（+{abs(old_record['score_deduct'])}分）"
+
+        return {"success": True, "message": message, "score_returned": score_returned}
+
+
+# =============================================================================
+# 处分复核 API
+# =============================================================================
+
+@router.get("/{record_id}/review-info", summary="获取处分复核信息")
+async def get_punishment_review_info(
+    record_id: int,
+    user: User = Depends(require_permission('punishment_manage'))
+):
+    """
+    获取处分复核所需信息
+
+    返回：源记录状态、累计次数、阈值等
+    """
+    import json
+    from datetime import datetime, timedelta
+
+    with get_moral_db() as db:
+        punishment = db.query_one(
+            """SELECT id, student_id, event_id, semester_id, source_record_ids, reason,
+                   score_deduct, level, punishment_date, review_status
+            FROM punishment_record WHERE id = %s""",
+            (record_id,)
+        )
+
+        if not punishment:
+            raise HTTPException(404, "处分记录不存在")
+
+        # 解析源记录ID列表
+        try:
+            source_ids = json.loads(punishment['source_record_ids']) if punishment['source_record_ids'] else []
+        except:
+            source_ids = []
+
+        # 获取每条源记录的状态
+        source_records = []
+        for sid in source_ids:
+            record = db.query_one(
+                """SELECT record_id, record_date, is_deleted FROM student_daily_record WHERE record_id = %s""",
+                (sid,)
+            )
+            if record:
+                source_records.append({
+                    "record_id": sid,
+                    "record_date": record['record_date'],
+                    "is_deleted": record['is_deleted'],
+                    "status": "有效" if record['is_deleted'] == 0 else "已删除"
+                })
+
+        # 获取累进规则阈值和时间窗口
+        rule = db.query_one(
+            """SELECT escalation_rules, time_window_days FROM violation_escalation_rule WHERE event_id = %s""",
+            (punishment['event_id'],)
+        )
+
+        threshold = None
+        time_window_days = 90
+        if rule:
+            time_window_days = rule.get('time_window_days', 90)
+            try:
+                rules_data = json.loads(rule['escalation_rules'])
+                for r in rules_data.get('rules', []):
+                    if f"累计{r['threshold']}次" in punishment['reason']:
+                        threshold = r['threshold']
+                        break
+                    threshold = r.get('threshold')  # 取第一个阈值作为参考
+            except:
+                pass
+
+        # 计算当前有效累计次数
+        try:
+            base_date = datetime.strptime(punishment['punishment_date'], '%Y-%m-%d').date()
+        except:
+            base_date = datetime.now().date()
+
+        window_start = base_date - timedelta(days=time_window_days)
+
+        valid_count = db.query_value(
+            """SELECT COUNT(*) FROM student_daily_record
+            WHERE student_id = %s AND event_id = %s
+            AND strftime('%Y-%m-%d', record_date) >= %s
+            AND strftime('%Y-%m-%d', record_date) <= %s
+            AND is_deleted = 0""",
+            (punishment['student_id'], punishment['event_id'],
+             window_start.strftime('%Y-%m-%d'), base_date.strftime('%Y-%m-%d'))
+        ) or 0
+
+        # 学生信息
+        student = db.query_one(
+            "SELECT name FROM student WHERE student_id = %s",
+            (punishment['student_id'],)
+        )
+        student_name = student['name'] if student else punishment['student_id']
+
+        # 事件信息
+        event = db.query_one(
+            "SELECT event_name FROM daily_event_type WHERE event_id = %s",
+            (punishment['event_id'],)
+        )
+        event_name = event['event_name'] if event else "未知事件"
+
+        return {
+            "success": True,
+            "data": {
+                "punishment_id": record_id,
+                "student_id": punishment['student_id'],
+                "student_name": student_name,
+                "event_name": event_name,
+                "score_deduct": punishment['score_deduct'],
+                "level": punishment['level'],
+                "reason": punishment['reason'],
+                "punishment_date": punishment['punishment_date'],
+                "review_status": punishment['review_status'],
+                "threshold": threshold,
+                "time_window_days": time_window_days,
+                "valid_count": valid_count,
+                "source_records": source_records,
+                "recommendation": "撤销处分" if valid_count < threshold else "复核通过（保留处分）" if threshold else "无阈值信息"
+            }
+        }
+
+
+class PunishmentReview(BaseModel):
+    """复核决定"""
+    action: str = Field(..., description="操作: revoke(撤销) 或 approve(通过)")
+    reason: Optional[str] = Field(None, description="复核说明")
+
+
+@router.post("/{record_id}/review", summary="复核处分")
+async def review_punishment(
+    record_id: int,
+    review_data: PunishmentReview,
+    request: Request,
+    user: User = Depends(require_permission('punishment_manage'))
+):
+    """
+    复核处分（撤销或通过）
+
+    - revoke: 撤销处分，回滚扣分，重新计算评价
+    - approve: 标记复核通过，处分保持有效
+    """
+    from .evaluation import calculate_evaluation
+
+    with get_moral_db() as db:
+        punishment = db.query_one(
+            "SELECT * FROM punishment_record WHERE id = %s",
+            (record_id,)
+        )
+
+        if not punishment:
+            raise HTTPException(404, "处分记录不存在")
+
+        if punishment['is_revoked'] == 1:
+            raise HTTPException(400, "处分已撤销，无法复核")
+
+        if review_data.action == "revoke":
+            # 撤销处分（源记录错误，归还分数）
+            db.execute(
+                """UPDATE punishment_record SET
+                is_revoked = 1, revoke_date = %s, revoke_by = %s, revoke_reason = %s,
+                revoke_type = 1, revoke_category = '源记录错误撤销',
+                review_status = 2, review_by = %s, review_time = datetime('now','localtime')
+                WHERE id = %s""",
+                (date.today(), user.username, review_data.reason or "复核撤销-源记录错误",
+                 user.username, record_id)
+            )
+
+            # 重新计算德育评价（回滚扣分）
+            calculate_evaluation(db, punishment['student_id'], punishment['semester_id'])
+
+            log_operation(
+                db, user.username, user.role, 'REVIEW_REVOKE', 'punishment_record',
+                record_id, punishment['semester_id'],
+                new_data={'review_reason': review_data.reason, 'revoke_type': 1, 'score_returned': True},
+                ip_address=request.client.host if request.client else None
+            )
+
+            return {"success": True, "message": "处分已撤销（源记录错误），扣分已归还"}
+
+        elif review_data.action == "approve":
+            # 复核通过
+            db.execute(
+                """UPDATE punishment_record SET
+                review_status = 2, review_by = %s, review_time = datetime('now','localtime')
+                WHERE id = %s""",
+                (user.username, record_id)
+            )
+
+            log_operation(
+                db, user.username, user.role, 'REVIEW_APPROVE', 'punishment_record',
+                record_id, punishment['semester_id'],
+                new_data={'review_reason': review_data.reason},
+                ip_address=request.client.host if request.client else None
+            )
+
+            return {"success": True, "message": "复核通过，处分保持有效"}
+
+        else:
+            raise HTTPException(400, "无效操作，必须是 revoke 或 approve")

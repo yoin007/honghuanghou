@@ -30,6 +30,7 @@ from .base import (
     check_class_access,
     get_current_semester,
     get_current_school_year,
+    get_next_school_year,
     get_user_role_level,
     MORAL_PERMISSIONS,
 )
@@ -47,11 +48,50 @@ from .escalation_api import router as escalation_router
 from .moment_api import router as moment_router
 from .timeline_api import router as timeline_router
 from .api_permission import router as api_permission_router
+from .collective import router as collective_router
+from .carryover import router as carryover_router
+from .scheduler import scheduler_router
 
 from fastapi import APIRouter
+from fastapi import Depends
+from typing import List
+import json
 
 # 创建主路由聚合器
 router = APIRouter(prefix="/moral", tags=["德育评价"])
+
+
+# =============================================================================
+# 直接挂载的路由（不带子前缀）
+# =============================================================================
+
+@router.get("/punishment-types", summary="获取处罚类型列表")
+async def get_punishment_types_direct():
+    """
+    获取处罚类型列表（用于前端下拉框）
+
+    无需权限验证（前端展示需要）
+    """
+    with get_moral_db() as db:
+        config = db.query_one(
+            "SELECT config_value FROM moral_config WHERE config_key = 'punishment_types'"
+        )
+        if config:
+            try:
+                types = json.loads(config['config_value'])
+                return {"success": True, "data": types}
+            except:
+                pass
+    # 默认值
+    default_types = [
+        {"action": "warning", "name": "警告", "level": None},
+        {"action": "serious_warning", "name": "严重警告", "level": "一级"},
+        {"action": "criticism", "name": "通报", "level": "二级"},
+        {"action": "demerit", "name": "记过", "level": "三级"},
+        {"action": "observation", "name": "留校查看", "level": "四级"}
+    ]
+    return {"success": True, "data": default_types}
+
 
 # 包含所有子路由
 router.include_router(daily_record_router)
@@ -67,6 +107,9 @@ router.include_router(escalation_router)
 router.include_router(moment_router)
 router.include_router(timeline_router)
 router.include_router(api_permission_router)
+router.include_router(collective_router)
+router.include_router(carryover_router)
+router.include_router(scheduler_router)
 
 __all__ = [
     'router',
@@ -76,6 +119,7 @@ __all__ = [
     'check_class_access',
     'get_current_semester',
     'get_current_school_year',
+    'get_next_school_year',
     'get_user_role_level',
     'MORAL_PERMISSIONS',
 ]

@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any
 
 from .base import get_moral_db, log_operation
 from sendqueue import send_text
+from models.lesson.lesson import Lesson
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,34 @@ class EscalationResult:
     punishment_id: int = None   # 自动创建的处分ID（如有）
     warning_log_id: int = None  # 预警日志ID
     message: str = None         # 通知消息内容
+
+
+# action 与处分等级映射（warning 不处分，其他创建处分记录）
+def get_action_to_level_map():
+    """从配置获取 action → level 映射"""
+    import json
+    with get_moral_db() as db:
+        config = db.query_one(
+            "SELECT config_value FROM moral_config WHERE config_key = 'punishment_types'"
+        )
+        if config:
+            try:
+                types = json.loads(config['config_value'])
+                return {t['action']: t.get('level') for t in types}
+            except:
+                pass
+    # 默认映射
+    return {
+        'warning': None,
+        'serious_warning': '一级',
+        'criticism': '二级',
+        'demerit': '三级',
+        'observation': '四级'
+    }
+
+
+# 模块加载时初始化
+ACTION_TO_LEVEL = get_action_to_level_map()
 
 
 # =============================================================================
@@ -218,15 +247,20 @@ def check_and_trigger_escalation(
         )
         result.warning_log_id = db.lastrowid()
 
-    # 8. 自动创建处分记录（如果配置）
-    if triggered_rule.get('auto_create_punishment', False):
-        punishment_level = triggered_rule.get('punishment_level', 2)
+    # 8. 获取处分等级并执行扣分
+    level_text = ACTION_TO_LEVEL.get(result.action)
+    if result.score_penalty < 0:
         punishment_id = create_escalation_punishment(
             db, student_id, event_id, semester_id, record_date_only,
-            result.description, result.score_penalty, punishment_level,
+            result.description, result.score_penalty, level_text,
             record_id
         )
         result.punishment_id = punishment_id
+        logger.info(f"累进扣分: action={result.action}, level={level_text or '无'}, 扣分={result.score_penalty}")
+
+        # 扣分后重新计算德育评价（确保总分实时更新）
+        from .evaluation import calculate_evaluation
+        calculate_evaluation(db, student_id, semester_id)
 
     # 9. 发送通知
     send_escalation_notification(db, student_id, result, student_info)
@@ -244,7 +278,7 @@ def create_escalation_punishment(
     punishment_date: date,
     punishment_reason: str,
     score_deduct: int,
-    punishment_level: int,
+    level_text: str,
     source_record_id: int
 ) -> int:
     """
@@ -258,7 +292,7 @@ def create_escalation_punishment(
         punishment_date: 处分日期
         punishment_reason: 处分原因
         score_deduct: 扣分
-        punishment_level: 处分等级
+        level_text: 处分等级文本（一级/二级/三级/四级）
         source_record_id: 触发源记录ID
 
     Returns:
@@ -276,18 +310,18 @@ def create_escalation_punishment(
         logger.error(f"无法获取学生 {student_id} 的班级信息")
         return None
 
-    # 处分等级文本
-    level_map = {1: '一级', 2: '二级', 3: '三级', 4: '四级'}
-    level_text = level_map.get(punishment_level, '二级')
+    # 创建扣分记录（level 可为空，表示仅扣分无处分等级）
+    level_desc = level_text if level_text else "无处分等级"
+    full_reason = f"[累进扣分] {punishment_reason}（{level_desc}）"
 
-    # 创建处分记录
-    full_reason = f"[累进处罚] {punishment_reason}，触发源记录ID: {source_record_id}"
+    # 存储源记录ID列表（JSON数组，便于后续复核）
+    source_record_ids_json = json.dumps([source_record_id])
 
     db.execute(
         """INSERT INTO punishment_record
         (student_id, event_id, semester_id, punishment_date, class_id, grade_id,
-         score_deduct, level, reason, recorder, is_revoked)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)""",
+         score_deduct, level, reason, recorder, is_revoked, source_record_ids)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s)""",
         (
             student_id,
             event_id,
@@ -298,7 +332,8 @@ def create_escalation_punishment(
             score_deduct,
             level_text,
             full_reason,
-            'system_escalation'  # 系统自动创建
+            'system_escalation',
+            source_record_ids_json
         )
     )
 
@@ -356,31 +391,14 @@ def send_escalation_notification(
             # 优先使用 leader_wxid（如果已配置）
             recipient = student_info.get('leader_wxid')
 
-            # 如果 leader_wxid 为空，通过 contacts 表查找班主任 wxid
+            # 如果 leader_wxid 为空，通过 Lesson 类查询班主任 wxid
             if not recipient and leader_name:
                 try:
-                    import sqlite3
-                    import os
-
-                    # 连接 member.db 查询 contacts 表
-                    member_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases", "member.db")
-
-                    conn = sqlite3.connect(member_db_path)
-                    conn.row_factory = sqlite3.Row
-                    cursor = conn.cursor()
-
-                    cursor.execute(
-                        """SELECT wxid FROM contacts
-                        WHERE remark LIKE ? OR nick_name LIKE ?
-                        LIMIT 1""",
-                        (f'%{leader_name}%', f'%{leader_name}%')
-                    )
-                    row = cursor.fetchone()
-                    conn.close()
-
-                    if row:
-                        recipient = row['wxid']
-                        logger.info(f"通过 contacts 表找到班主任 {leader_name} 的 wxid: {recipient}")
+                    l = Lesson()
+                    wxids = l.get_wxids(leader_name, notice=True)
+                    if wxids and wxids[0]:
+                        recipient = wxids[0]
+                        logger.info(f"通过 Lesson 类找到班主任 {leader_name} 的 wxid: {recipient}")
                 except Exception as e:
                     logger.warning(f"查询班主任 wxid 失败: {e}")
 

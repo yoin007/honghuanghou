@@ -273,6 +273,24 @@ const routes = [
     }
   },
   {
+    path: '/moral/collective',
+    name: 'MoralCollective',
+    component: () => import('../views/moral/Collective.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '集体事件'
+    }
+  },
+  {
+    path: '/moral/consultation',
+    name: 'MoralConsultation',
+    component: () => import('../views/moral/Consultation.vue'),
+    meta: {
+      requiresAuth: true,
+      title: 'AI诊疗'
+    }
+  },
+  {
     path: '/moral/moment',
     name: 'MoralMoment',
     component: () => import('../views/moral/MomentRecord.vue'),

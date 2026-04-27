@@ -1009,7 +1009,14 @@ DEFAULT_CONFIG = {
         "punishment": -0.2
     },
     "birthday_reminder_days": 7,
-    "semester_start_month": 9
+    "semester_start_month": 9,
+    "punishment_types": [
+        {"action": "warning", "name": "警告", "level": None},
+        {"action": "serious_warning", "name": "严重警告", "level": "一级"},
+        {"action": "criticism", "name": "通报", "level": "二级"},
+        {"action": "demerit", "name": "记过", "level": "三级"},
+        {"action": "observation", "name": "留校查看", "level": "四级"}
+    ]
 }
 
 
@@ -1052,6 +1059,7 @@ class ConfigUpdate(BaseModel):
     evaluation_weights: Optional[dict] = Field(None, description="评价权重配置")
     birthday_reminder_days: Optional[int] = Field(None, description="生日提前提醒天数", ge=1, le=30)
     semester_start_month: Optional[int] = Field(None, description="学期开始月份", ge=1, le=12)
+    punishment_types: Optional[List[dict]] = Field(None, description="处罚类型配置")
 
 
 @router.put("/config", summary="更新系统配置")
