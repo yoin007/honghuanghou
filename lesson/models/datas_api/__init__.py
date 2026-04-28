@@ -46,6 +46,9 @@ from .filegather import router as filegather_router
 # 导入德育评价模块
 from .moral import router as moral_router
 
+# 导入监考安排模块
+from .invigilation import router as invigilation_router
+
 # 导入工具函数
 from .utils import (
     refresh_teacher_cache,
@@ -71,6 +74,8 @@ router.include_router(teachers_router)
 router.include_router(filegather_router)
 # 包含德育评价路由
 router.include_router(moral_router)
+# 包含监考安排路由
+router.include_router(invigilation_router)
 # 包含旧模块中尚未迁移的路由
 router.include_router(legacy_router)
 
@@ -83,6 +88,7 @@ __all__ = [
     'teachers_router',
     'filegather_router',
     'moral_router',
+    'invigilation_router',
     # 认证相关
     'Token',
     'TokenData',

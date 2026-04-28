@@ -66,6 +66,7 @@
               <el-menu-item index="/admin-files">文件管理</el-menu-item>
               <el-menu-item index="/admin-files-done">已查阅文件</el-menu-item>
               <el-menu-item index="/upload-schedule">更新课表</el-menu-item>
+              <el-menu-item index="/invigilation">监考安排</el-menu-item>
             </el-sub-menu>
             <el-sub-menu v-if="isLoggedIn && showMoralMenu" index="moral">
               <template #title>德育评价</template>
@@ -73,6 +74,7 @@
               <el-menu-item v-if="canViewSchoolEvent" index="/moral/school-event">校级事件</el-menu-item>
               <el-menu-item v-if="canViewTask" index="/moral/task">德育任务</el-menu-item>
               <el-menu-item v-if="canViewPunishment" index="/moral/punishment">处分管理</el-menu-item>
+              <el-menu-item v-if="canViewCollective" index="/moral/collective">集体事件</el-menu-item>
               <el-menu-item v-if="canViewEvaluation" index="/moral/evaluation">评价查询</el-menu-item>
               <el-menu-item v-if="canViewMoment" index="/moral/moment">点滴记录</el-menu-item>
               <el-menu-item v-if="canViewLifebook" index="/moral/lifebook">一生一册</el-menu-item>
@@ -163,6 +165,7 @@ const canViewDailyRecord = ref(false)
 const canViewSchoolEvent = ref(false)
 const canViewTask = ref(false)
 const canViewPunishment = ref(false)
+const canViewCollective = ref(false)
 const canViewEvaluation = ref(false)
 const canViewMoment = ref(false)
 const canViewLifebook = ref(false)
@@ -184,7 +187,8 @@ const classCodes = computed(() => appStore.classCodes)
 const showMoralMenu = computed(() => {
   return canViewDailyRecord.value || canViewSchoolEvent.value || canViewTask.value ||
          canViewPunishment.value || canViewEvaluation.value || canViewMoment.value ||
-         canViewBirthday.value
+         canViewLifebook.value || canViewProfile.value || canViewBirthday.value ||
+         canViewStudentManage.value || canViewMoralConfig.value || canViewCollective.value
 })
 
 // 加载德育菜单权限
@@ -196,10 +200,11 @@ const loadMoralMenuPermissions = async () => {
   canViewSchoolEvent.value = hasApiPermissionSync('/api/moral/school-records')
   canViewTask.value = hasApiPermissionSync('/api/moral/tasks')
   canViewPunishment.value = hasApiPermissionSync('/api/moral/punishments')
-  canViewEvaluation.value = hasApiPermissionSync('/api/moral/evaluations/class')
+  canViewCollective.value = hasApiPermissionSync('/api/moral/collective-events')
+  canViewEvaluation.value = hasApiPermissionSync('/api/moral/evaluations/class') || hasApiPermissionSync('/api/moral/evaluation/class')
   canViewMoment.value = hasApiPermissionSync('/api/moral/moment-records')
   canViewLifebook.value = hasApiPermissionSync('/api/moral/timeline')
-  canViewProfile.value = hasApiPermissionSync('/api/moral/profile/student')
+  canViewProfile.value = hasApiPermissionSync('/api/moral/profiles/student') || hasApiPermissionSync('/api/moral/profile/student')
   canViewBirthday.value = hasApiPermissionSync('/api/moral/birthdays/upcoming')
   canViewStudentManage.value = hasApiPermissionSync('/api/moral/admin/students')
   canViewMoralConfig.value = hasApiPermissionSync('/api/moral/admin/api-permissions')
@@ -216,6 +221,7 @@ watch(isLoggedIn, async (newVal) => {
     canViewSchoolEvent.value = false
     canViewTask.value = false
     canViewPunishment.value = false
+    canViewCollective.value = false
     canViewEvaluation.value = false
     canViewMoment.value = false
     canViewLifebook.value = false

@@ -208,6 +208,16 @@ const routes = [
       requiresJiaowu: true
     }
   },
+  {
+    path: '/invigilation',
+    name: 'InvigilationArrange',
+    component: () => import('../views/InvigilationArrange.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '监考安排',
+      requiresJiaowu: true
+    }
+  },
   // 德育评价系统路由
   {
     path: '/moral/daily-record',
