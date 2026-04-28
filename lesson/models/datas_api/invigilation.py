@@ -13,6 +13,7 @@ import re
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from decimal import Decimal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Body
 from fastapi.responses import StreamingResponse
@@ -1326,11 +1327,12 @@ async def export_invigilation(
         output.seek(0)
 
         filename = f"{project['name']}_监考安排.xlsx"
+        encoded_filename = quote(filename)
 
         return StreamingResponse(
             output,
             media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            headers={'Content-Disposition': f'attachment; filename={filename}'}
+            headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"}
         )
 
 
@@ -1440,9 +1442,10 @@ async def export_workload_report(
         output.seek(0)
 
         filename = f"{project['name']}_监考工作量报表.xlsx"
+        encoded_filename = quote(filename)
 
         return StreamingResponse(
             output,
             media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            headers={'Content-Disposition': f'attachment; filename={filename}'}
+            headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"}
         )
