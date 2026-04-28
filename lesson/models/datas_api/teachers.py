@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
 """教师管理模块 - 教师CRUD、密码修改"""
 
-import os
 import logging
-import pandas as pd
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from config.config import Config
 from models.datas_api.auth import (
     User,
     get_current_user,
@@ -17,7 +14,11 @@ from models.datas_api.auth import (
     verify_password_compat,
     is_admin_user
 )
-from models.datas_api.utils import backup_excel_file, refresh_teacher_cache
+from utils.teacher_db import (
+    create_teacher_record,
+    update_teacher_record,
+    delete_teacher_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,53 +83,27 @@ async def create_teacher(
         raise HTTPException(status_code=403, detail="只有管理员可以创建教师")
 
     try:
-        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
-        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
-
-        xl = pd.ExcelFile(template_path)
-        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
-
-        if "teachers" not in sheets:
-            raise HTTPException(status_code=404, detail="teachers sheet 不存在")
-
-        df = sheets["teachers"]
-        df['name'] = df['name'].astype(str)
-
-        # 检查是否已存在
-        if teacher.username in df['name'].values:
-            raise HTTPException(status_code=400, detail="教师已存在")
-
         hashed_password = hash_password(str(teacher.password))
-
-        new_row = {
-            'name': teacher.username,
-            'subject': teacher.subject,
-            'course': teacher.course,
-            'notice': teacher.notice,  # 通知开关
-            'pwd': str(hashed_password),
-            'role': teacher.role,
-            'level': teacher.level,
-            'raw_pwd': teacher.password,
-            'active': 1,  # 登录权限，默认允许
-            'is_password_changed': 1
-        }
-
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        sheets["teachers"] = df
-
-        backup_excel_file(template_path)
-
-        with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
-            for sheet_name, sheet_df in sheets.items():
-                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-        refresh_teacher_cache()
+        create_teacher_record(
+            name=teacher.username,
+            subject=teacher.subject,
+            course=teacher.course,
+            notice=teacher.notice,
+            password_hash=str(hashed_password),
+            raw_pwd=teacher.password,
+            role=teacher.role,
+            level=teacher.level,
+            active=1,
+            is_password_changed=1,
+        )
 
         logger.info(f"Admin {current_user.username} created teacher {teacher.username}")
         return {"message": f"教师 {teacher.username} 创建成功", "success": True}
 
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to create teacher: {e}")
         raise HTTPException(status_code=500, detail=f"创建教师失败: {str(e)}")
@@ -145,50 +120,23 @@ async def update_teacher(
         raise HTTPException(status_code=403, detail="只有管理员可以更新教师")
 
     try:
-        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
-        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
-
-        xl = pd.ExcelFile(template_path)
-        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
-
-        if "teachers" not in sheets:
-            raise HTTPException(status_code=404, detail="teachers sheet 不存在")
-
-        df = sheets["teachers"]
-        df['name'] = df['name'].astype(str)
-        mask = df['name'] == str(username)
-
-        if not mask.any():
-            raise HTTPException(status_code=404, detail="教师不存在")
-
-        if teacher.subject is not None:
-            df.loc[mask, 'subject'] = teacher.subject
-        if teacher.course is not None:
-            df.loc[mask, 'course'] = teacher.course
-        if teacher.notice is not None:
-            df.loc[mask, 'notice'] = teacher.notice
-        if teacher.active is not None:
-            df.loc[mask, 'active'] = teacher.active
-        if teacher.role is not None:
-            df.loc[mask, 'role'] = teacher.role
-        if teacher.level is not None:
-            df.loc[mask, 'level'] = teacher.level
-
-        sheets["teachers"] = df
-
-        backup_excel_file(template_path)
-
-        with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
-            for sheet_name, sheet_df in sheets.items():
-                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-        refresh_teacher_cache()
+        update_teacher_record(
+            username,
+            subject=teacher.subject,
+            course=teacher.course,
+            notice=teacher.notice,
+            active=teacher.active,
+            role=teacher.role,
+            level=teacher.level,
+        )
 
         logger.info(f"Admin {current_user.username} updated teacher {username}")
         return {"message": f"教师 {username} 更新成功", "success": True}
 
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to update teacher: {e}")
         raise HTTPException(status_code=500, detail=f"更新教师失败: {str(e)}")
@@ -204,38 +152,15 @@ async def delete_teacher(
         raise HTTPException(status_code=403, detail="只有管理员可以删除教师")
 
     try:
-        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
-        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
-
-        xl = pd.ExcelFile(template_path)
-        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
-
-        if "teachers" not in sheets:
-            raise HTTPException(status_code=404, detail="teachers sheet 不存在")
-
-        df = sheets["teachers"]
-        df['name'] = df['name'].astype(str)
-        mask = df['name'] == str(username)
-
-        if not mask.any():
-            raise HTTPException(status_code=404, detail="教师不存在")
-
-        df = df[~mask]
-        sheets["teachers"] = df
-
-        backup_excel_file(template_path)
-
-        with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
-            for sheet_name, sheet_df in sheets.items():
-                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-        refresh_teacher_cache()
+        delete_teacher_record(username)
 
         logger.info(f"Admin {current_user.username} deleted teacher {username}")
         return {"message": f"教师 {username} 已删除", "success": True}
 
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to delete teacher: {e}")
         raise HTTPException(status_code=500, detail=f"删除教师失败: {str(e)}")
@@ -270,42 +195,19 @@ async def teacher_change_password(
         raise HTTPException(status_code=500, detail="密码加密失败")
 
     try:
-        lesson_dir = Config().get_cross_platform_path("lesson_dir", "lesson.yaml")
-        template_path = os.path.join(lesson_dir, "checkTemplate.xlsx")
-
-        xl = pd.ExcelFile(template_path)
-        sheets = {sheet: pd.read_excel(template_path, sheet_name=sheet) for sheet in xl.sheet_names}
-
-        if "teachers" not in sheets:
-            raise HTTPException(status_code=404, detail="用户不存在")
-
-        df = sheets["teachers"]
-        df['name'] = df['name'].astype(str)
-        mask = df['name'] == str(username)
-
-        if mask.any():
-            df.loc[mask, 'pwd'] = str(hashed_password)
-            if 'raw_pwd' in df.columns:
-                df.loc[mask, 'raw_pwd'] = str(request.new_password)
-            if 'is_password_changed' in df.columns:
-                df.loc[mask, 'is_password_changed'] = 1
-            sheets["teachers"] = df
-
-            backup_excel_file(template_path)
-
-            with pd.ExcelWriter(template_path, engine='openpyxl', mode='w') as writer:
-                for sheet_name, sheet_df in sheets.items():
-                    sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-            refresh_teacher_cache()
-
-            logger.info(f"Teacher {username} changed password")
-            return {"message": "密码修改成功", "success": True}
-        else:
-            raise HTTPException(status_code=404, detail="用户不存在")
+        update_teacher_record(
+            username,
+            pwd=str(hashed_password),
+            raw_pwd=str(request.new_password),
+            is_password_changed=1,
+        )
+        logger.info(f"Teacher {username} changed password")
+        return {"message": "密码修改成功", "success": True}
 
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to change password: {e}")
         raise HTTPException(status_code=500, detail=f"密码修改失败: {str(e)}")

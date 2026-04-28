@@ -11,6 +11,30 @@ from config.log import LogConfig
 from config.config import Config
 from client import Client
 from sendqueue import send_text
+from utils.db_config import MORAL_DB
+
+
+MEMBER_COLUMNS = [
+    "id",
+    "uuid",
+    "wxid",
+    "alias",
+    "active",
+    "score",
+    "balance",
+    "level",
+    "model",
+    "ai_flag",
+    "birthday",
+    "create_at",
+    "note",
+    "priority",
+]
+
+
+def _member_teacher_id(uuid: str) -> str:
+    safe_uuid = re.sub(r"[^0-9A-Za-z_\-\u4e00-\u9fff]", "_", str(uuid or ""))
+    return f"M_{safe_uuid[:120]}"
 
 
 class Member:
@@ -66,6 +90,9 @@ class Member:
             else:
                 self.log.error(f"Error creating Member table: {e}")
                 raise e
+
+        self.ensure_unified_member_schema()
+        self.migrate_legacy_members_to_teacher()
 
         try:
             self.__cursor__.execute(
@@ -519,47 +546,104 @@ class Member:
         note="",
     ):
         """插入成员"""
-        with self as m:
-            m.__cursor__.execute(
-                """
-                INSERT INTO member (uuid, wxid, alias, score, balance, level, model, ai_flag, birthday, active, note)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """,
-                (
-                    uuid,
-                    wxid,
-                    alias,
-                    score,
-                    balance,
-                    level,
-                    model,
-                    ai_flag,
-                    birthday,
-                    active,
-                    note,
-                ),
-            )
-            self.__conn__.commit()
-            return m.__cursor__.rowcount
+        self.ensure_unified_member_schema()
+        with sqlite3.connect(MORAL_DB) as conn:
+            cursor = conn.cursor()
+            existing = cursor.execute(
+                "SELECT teacher_id FROM teacher WHERE uuid = ? OR wxid = ?",
+                (uuid, wxid),
+            ).fetchone()
+
+            if existing:
+                cursor.execute(
+                    """
+                    UPDATE teacher
+                    SET uuid = ?, wxid = ?, alias = ?, score = ?, balance = ?,
+                        level = ?, model = ?, ai_flag = ?, birthday = ?,
+                        is_active = ?, member_active = ?, note = ?,
+                        identity_type = CASE WHEN identity_type = 'teacher' THEN identity_type ELSE 'member' END,
+                        updated_at = datetime('now', 'localtime')
+                    WHERE teacher_id = ?
+                    """,
+                    (
+                        uuid,
+                        wxid,
+                        alias,
+                        score,
+                        balance,
+                        level,
+                        model,
+                        ai_flag,
+                        birthday,
+                        active,
+                        active,
+                        note,
+                        existing[0],
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO teacher
+                    (teacher_id, name, wxid, role, level, is_active, notice_enabled,
+                     uuid, alias, score, balance, model, ai_flag, birthday, member_active,
+                     note, identity_type)
+                    VALUES (?, ?, ?, 'member', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'member')
+                    """,
+                    (
+                        _member_teacher_id(uuid),
+                        alias or uuid,
+                        wxid,
+                        level,
+                        active,
+                        uuid,
+                        alias,
+                        score,
+                        balance,
+                        model,
+                        ai_flag,
+                        birthday,
+                        active,
+                        note,
+                    ),
+                )
+            conn.commit()
+            return cursor.rowcount
 
     def delte_member(self, uuid):
         """删除成员"""
-        with self as m:
-            m.__cursor__.execute("DELETE FROM member WHERE uuid =?", (uuid,))
-            self.__conn__.commit()
-            return m.__cursor__.rowcount
+        self.ensure_unified_member_schema()
+        with sqlite3.connect(MORAL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE teacher
+                SET member_active = 0,
+                    is_active = CASE WHEN identity_type = 'member' THEN 0 ELSE is_active END,
+                    updated_at = datetime('now', 'localtime')
+                WHERE uuid = ?
+                """,
+                (uuid,),
+            )
+            conn.commit()
+            return cursor.rowcount
 
     def member_info(self, uuid=""):
         """获取成员信息"""
-        if uuid == "":
-            with self as m:
-                m.__cursor__.execute("SELECT * FROM member")
-                result = m.__cursor__.fetchall()
-            return result if result else None
-        with self as m:
-            m.__cursor__.execute("SELECT * FROM member WHERE uuid =?", (uuid,))
-            result = m.__cursor__.fetchone()
-        return result if result else None
+        self.ensure_unified_member_schema()
+        self.migrate_legacy_members_to_teacher()
+        with sqlite3.connect(MORAL_DB) as conn:
+            if uuid == "":
+                rows = conn.execute(
+                    self._member_select_sql() + " ORDER BY COALESCE(priority, 99), id"
+                ).fetchall()
+                return rows if rows else None
+
+            row = conn.execute(
+                self._member_select_sql() + " WHERE uuid = ?",
+                (uuid,),
+            ).fetchone()
+            return row if row else None
 
     def update_member(self, uuid, **kwargs):
         """更新成员信息"""
@@ -567,11 +651,16 @@ class Member:
             return 0
         
         valid_columns = self.member_columns()
+        column_map = {
+            "active": "member_active",
+            "create_at": "created_at",
+        }
         set_clauses = []
         values = []
         for key, value in kwargs.items():
             if key in valid_columns and key != 'uuid':  # uuid 是主键，通常不更新
-                set_clauses.append(f"{key} = ?")
+                db_column = column_map.get(key, key)
+                set_clauses.append(f"{db_column} = ?")
                 values.append(value)
         
         if not set_clauses:
@@ -579,28 +668,201 @@ class Member:
             
         values.append(uuid)
         
-        sql = f"UPDATE member SET {', '.join(set_clauses)} WHERE uuid = ?"
-        with self as m:
-            m.__cursor__.execute(sql, tuple(values))
-            self.__conn__.commit()
-            return m.__cursor__.rowcount
+        sql = f"UPDATE teacher SET {', '.join(set_clauses)}, updated_at = datetime('now', 'localtime') WHERE uuid = ?"
+        self.ensure_unified_member_schema()
+        with sqlite3.connect(MORAL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, tuple(values))
+            conn.commit()
+            return cursor.rowcount
     
     def member_columns(self):
         """获取成员列名"""
-        with self as m:
-            m.__cursor__.execute(f"PRAGMA table_info(member)")
-            columns = m.__cursor__.fetchall()
-            columns_list = [column[1] for column in columns]
-        return columns_list
+        return MEMBER_COLUMNS[:]
     
     def member_wxid(self, name, active: bool = True):
         """获取成员微信ID"""
-        with self as m:
-            m.__cursor__.execute(
-                "SELECT wxid FROM member WHERE alias =? AND active =?", (name, active)
-            )
-            result = m.__cursor__.fetchone()
+        self.ensure_unified_member_schema()
+        self.migrate_legacy_members_to_teacher()
+        with sqlite3.connect(MORAL_DB) as conn:
+            result = conn.execute(
+                """
+                SELECT wxid FROM teacher
+                WHERE (alias = ? OR name = ?) AND COALESCE(member_active, is_active, 1) = ?
+                ORDER BY CASE WHEN identity_type = 'teacher' THEN 0 ELSE 1 END
+                LIMIT 1
+                """,
+                (name, name, 1 if active else 0),
+            ).fetchone()
         return result if result else ""
+
+    @staticmethod
+    def _member_select_sql():
+        return """
+            SELECT
+                rowid AS id,
+                COALESCE(uuid, wxid, teacher_id) AS uuid,
+                wxid,
+                COALESCE(alias, name) AS alias,
+                COALESCE(member_active, is_active, 1) AS active,
+                COALESCE(score, 50) AS score,
+                COALESCE(balance, 0) AS balance,
+                COALESCE(level, 1) AS level,
+                COALESCE(model, 'basic') AS model,
+                COALESCE(ai_flag, 0) AS ai_flag,
+                COALESCE(birthday, '') AS birthday,
+                created_at AS create_at,
+                COALESCE(note, '') AS note,
+                COALESCE(priority, 99) AS priority
+            FROM teacher
+        """
+
+    @staticmethod
+    def ensure_unified_member_schema():
+        """确保 moral.teacher 可以承载原 member 表字段。"""
+        os.makedirs(os.path.dirname(MORAL_DB), exist_ok=True)
+        with sqlite3.connect(MORAL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS teacher (
+                    teacher_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    wxid TEXT,
+                    subject TEXT,
+                    password_hash TEXT,
+                    role TEXT DEFAULT 'teacher',
+                    level INTEGER DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    notice_enabled INTEGER DEFAULT 1,
+                    is_password_changed INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+                )
+                """
+            )
+            columns = {
+                row[1]
+                for row in cursor.execute("PRAGMA table_info(teacher)").fetchall()
+            }
+            additions = {
+                "uuid": "TEXT",
+                "alias": "TEXT",
+                "score": "INTEGER DEFAULT 50",
+                "balance": "INTEGER DEFAULT 0",
+                "model": "TEXT DEFAULT 'basic'",
+                "ai_flag": "INTEGER DEFAULT 0",
+                "birthday": "TEXT",
+                "member_active": "INTEGER DEFAULT 1",
+                "priority": "INTEGER DEFAULT 99",
+                "note": "TEXT",
+                "identity_type": "TEXT DEFAULT 'teacher'",
+            }
+            for column, definition in additions.items():
+                if column not in columns:
+                    cursor.execute(f"ALTER TABLE teacher ADD COLUMN {column} {definition}")
+
+            cursor.execute(
+                "UPDATE teacher SET identity_type = 'teacher' WHERE identity_type IS NULL"
+            )
+            cursor.execute(
+                "UPDATE teacher SET alias = name WHERE alias IS NULL OR alias = ''"
+            )
+            cursor.execute(
+                "UPDATE teacher SET uuid = wxid WHERE (uuid IS NULL OR uuid = '') AND wxid IS NOT NULL AND wxid != ''"
+            )
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_uuid ON teacher(uuid)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_identity_type ON teacher(identity_type)")
+            conn.commit()
+
+    def migrate_legacy_members_to_teacher(self):
+        """把 member.db.member 的历史数据迁移到 moral.teacher，原表保留备份。"""
+        self.ensure_unified_member_schema()
+        if not self.__cursor__:
+            return 0
+        try:
+            self.__cursor__.execute("SELECT * FROM member")
+            rows = self.__cursor__.fetchall()
+            legacy_columns = [desc[0] for desc in self.__cursor__.description]
+        except sqlite3.Error:
+            return 0
+
+        migrated = 0
+        with sqlite3.connect(MORAL_DB) as conn:
+            cursor = conn.cursor()
+            for row in rows:
+                member = dict(zip(legacy_columns, row))
+                uuid = member.get("uuid") or member.get("wxid")
+                wxid = member.get("wxid") or uuid
+                alias = member.get("alias") or uuid
+                if not uuid:
+                    continue
+
+                existing = cursor.execute(
+                    "SELECT teacher_id FROM teacher WHERE uuid = ? OR wxid = ? OR name = ?",
+                    (uuid, wxid, alias),
+                ).fetchone()
+                values = (
+                    uuid,
+                    wxid,
+                    alias,
+                    member.get("score", 50),
+                    member.get("balance", 0),
+                    member.get("level", 1),
+                    member.get("model", "basic"),
+                    member.get("ai_flag", 0),
+                    member.get("birthday", ""),
+                    member.get("active", 1),
+                    member.get("active", 1),
+                    member.get("priority", 99),
+                    member.get("note", ""),
+                )
+                if existing:
+                    cursor.execute(
+                        """
+                        UPDATE teacher
+                        SET uuid = ?, wxid = COALESCE(NULLIF(wxid, ''), ?), alias = ?,
+                            score = ?, balance = ?, level = CASE WHEN level IS NULL OR level = 0 THEN ? ELSE level END,
+                            model = ?, ai_flag = ?, birthday = ?,
+                            member_active = ?, is_active = CASE WHEN identity_type = 'member' THEN ? ELSE is_active END,
+                            priority = ?, note = COALESCE(NULLIF(note, ''), ?),
+                            updated_at = datetime('now', 'localtime')
+                        WHERE teacher_id = ?
+                        """,
+                        (*values, existing[0]),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO teacher
+                        (teacher_id, name, wxid, role, level, is_active, notice_enabled,
+                         uuid, alias, score, balance, model, ai_flag, birthday, member_active,
+                         priority, note, identity_type, created_at)
+                        VALUES (?, ?, ?, 'member', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'member',
+                                COALESCE(?, datetime('now', 'localtime')))
+                        """,
+                        (
+                            _member_teacher_id(uuid),
+                            alias,
+                            wxid,
+                            member.get("level", 1),
+                            member.get("active", 1),
+                            uuid,
+                            alias,
+                            member.get("score", 50),
+                            member.get("balance", 0),
+                            member.get("model", "basic"),
+                            member.get("ai_flag", 0),
+                            member.get("birthday", ""),
+                            member.get("active", 1),
+                            member.get("priority", 99),
+                            member.get("note", ""),
+                            member.get("create_at"),
+                        ),
+                    )
+                migrated += 1
+            conn.commit()
+        return migrated
 
     def insert_permission(
         self,

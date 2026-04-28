@@ -79,6 +79,15 @@ class NotifyRequest(BaseModel):
     notify_removed: bool = Field(True, description="通知被取消的老师")
 
 
+class NotifyRequestV2(BaseModel):
+    """发送通知请求V2 - 支持学科筛选"""
+    subjects: Optional[List[str]] = Field(None, description="筛选学科列表，空=全部")
+    notify_added: bool = Field(True, description="通知新增监考的老师")
+    notify_changed: bool = Field(True, description="通知有变更的老师")
+    notify_removed: bool = Field(True, description="通知被取消的老师")
+    notify_reminder: bool = Field(False, description="发送提醒给无变化的老师")
+
+
 # =============================================================================
 # 数据库连接
 # =============================================================================
@@ -384,7 +393,9 @@ async def save_invigilation_slots(
         # 获取教师wxid映射（从moral.db）
         with SQLiteMoralDatabase() as moral_db:
             teacher_wxid_map = moral_db.query_all(
-                """SELECT teacher_id, wxid FROM teacher WHERE is_active = 1"""
+                """SELECT teacher_id, wxid
+                FROM teacher
+                WHERE is_active = 1 AND COALESCE(identity_type, 'teacher') = 'teacher'"""
             )
         wxid_dict = {row['teacher_id']: row['wxid'] for row in teacher_wxid_map}
 
@@ -459,13 +470,13 @@ async def swap_teachers(
 # 通知 API
 # =============================================================================
 
-@router.post("/projects/{project_id}/notify", summary="发送监考通知")
-async def send_notifications(
+@router.get("/projects/{project_id}/changes", summary="获取变更预览")
+async def get_changes_preview(
     project_id: int,
-    user: User = Depends(require_jiaowu),
-    request: NotifyRequest = Body(default=NotifyRequest())
+    subjects: Optional[str] = Query(None, description="筛选学科，逗号分隔"),
+    user: User = Depends(require_jiaowu)
 ):
-    """发送监考通知给老师"""
+    """获取监考安排变更预览（对比上次通知版本）"""
     with get_invigilation_db() as db:
         cursor = db.cursor()
 
@@ -475,27 +486,325 @@ async def send_notifications(
         if not project:
             raise HTTPException(404, "考试项目不存在")
 
-        # 获取所有安排
+        current_version = project['version_no']
+
+        # 获取当前安排
+        subject_filter = subjects.split(',') if subjects else None
         cursor.execute("""
             SELECT * FROM invigilation_slot
             WHERE project_id = ?
-            ORDER BY teacher_id, exam_date, start_time
+            ORDER BY grade_id, exam_date, start_time, room_order
         """, (project_id,))
+        current_slots = [dict(row) for row in cursor.fetchall()]
 
-        slots = [dict(row) for row in cursor.fetchall()]
+        # 获取上次通知时的安排（从通知日志中的slots_json）
+        cursor.execute("""
+            SELECT teacher_id, slots_json
+            FROM invigilation_notification_log
+            WHERE project_id = ? AND version_no = ?
+            ORDER BY sent_at DESC
+        """, (project_id, current_version - 1 if current_version > 0 else 0))
+        previous_logs = cursor.fetchall()
 
-        # 按教师聚合
-        teacher_slots = {}
-        for slot in slots:
-            teacher_id = slot['teacher_id']
-            if teacher_id:
-                if teacher_id not in teacher_slots:
-                    teacher_slots[teacher_id] = {
-                        'teacher_name': slot['teacher_name'],
-                        'teacher_wxid': slot['teacher_wxid'],
-                        'slots': []
-                    }
-                teacher_slots[teacher_id]['slots'].append(slot)
+        # 解析上次的安排
+        previous_slots = []
+        for log in previous_logs:
+            if log['slots_json']:
+                slots_list = json.loads(log['slots_json'])
+                previous_slots.extend(slots_list)
+
+        # 构建唯一键：grade_id + exam_date + start_time + room_name
+        def get_key(slot):
+            return f"{slot['grade_id']}|{slot['exam_date']}|{slot['start_time']}|{slot['room_name']}"
+
+        current_map = {get_key(s): s for s in current_slots}
+        previous_map = {get_key(s): s for s in previous_slots}
+
+        # 检测变更
+        added = []      # 新增监考
+        removed = []    # 取消监考
+        changed = []    # 教师变更（替换/交换）
+        unchanged = []  # 无变化
+
+        all_keys = set(current_map.keys()) | set(previous_map.keys())
+
+        for key in all_keys:
+            current_slot = current_map.get(key)
+            previous_slot = previous_map.get(key)
+
+            # 学科筛选
+            if subject_filter:
+                slot_subject = (current_slot or previous_slot).get('subject', '')
+                if slot_subject not in subject_filter:
+                    continue
+
+            if not previous_slot and current_slot:
+                # 新增
+                if current_slot['teacher_id']:
+                    added.append({
+                        'teacher_id': current_slot['teacher_id'],
+                        'teacher_name': current_slot['teacher_name'],
+                        'teacher_wxid': current_slot['teacher_wxid'],
+                        'slot': current_slot
+                    })
+
+            elif previous_slot and not current_slot:
+                # 删除（整个场次取消）
+                if previous_slot['teacher_id']:
+                    removed.append({
+                        'teacher_id': previous_slot['teacher_id'],
+                        'teacher_name': previous_slot['teacher_name'],
+                        'teacher_wxid': previous_slot['teacher_wxid'],
+                        'slot': previous_slot,
+                        'reason': '场次取消'
+                    })
+
+            elif previous_slot and current_slot:
+                prev_teacher = previous_slot.get('teacher_id')
+                curr_teacher = current_slot.get('teacher_id')
+
+                if prev_teacher != curr_teacher:
+                    # 教师变更
+                    if prev_teacher and curr_teacher:
+                        # 替换
+                        changed.append({
+                            'type': 'replace',
+                            'old_teacher_id': prev_teacher,
+                            'old_teacher_name': previous_slot['teacher_name'],
+                            'old_teacher_wxid': previous_slot['teacher_wxid'],
+                            'new_teacher_id': curr_teacher,
+                            'new_teacher_name': current_slot['teacher_name'],
+                            'new_teacher_wxid': current_slot['teacher_wxid'],
+                            'slot': current_slot
+                        })
+                    elif prev_teacher and not curr_teacher:
+                        # 取消该教师的监考
+                        removed.append({
+                            'teacher_id': prev_teacher,
+                            'teacher_name': previous_slot['teacher_name'],
+                            'teacher_wxid': previous_slot['teacher_wxid'],
+                            'slot': previous_slot,
+                            'reason': '教师取消'
+                        })
+                    elif not prev_teacher and curr_teacher:
+                        # 新增教师
+                        added.append({
+                            'teacher_id': curr_teacher,
+                            'teacher_name': current_slot['teacher_name'],
+                            'teacher_wxid': current_slot['teacher_wxid'],
+                            'slot': current_slot
+                        })
+                else:
+                    # 无变化
+                    if current_slot['teacher_id']:
+                        unchanged.append({
+                            'teacher_id': current_slot['teacher_id'],
+                            'teacher_name': current_slot['teacher_name'],
+                            'teacher_wxid': current_slot['teacher_wxid'],
+                            'slot': current_slot
+                        })
+
+        # 检测交换：old→new 和 new→old 同时存在
+        swaps = []
+        remaining_changed = []
+
+        # 构建替换映射
+        replace_map = {}
+        for ch in changed:
+            if ch['type'] == 'replace':
+                key_pair = (ch['old_teacher_id'], ch['new_teacher_id'])
+                replace_map[key_pair] = ch
+
+        # 检测交换
+        processed_keys = set()
+        for (old_id, new_id), ch in replace_map.items():
+            if (new_id, old_id) in replace_map and (new_id, old_id) not in processed_keys:
+                # 发现交换
+                ch2 = replace_map[(new_id, old_id)]
+                swaps.append({
+                    'type': 'swap',
+                    'teacher_a_id': old_id,
+                    'teacher_a_name': ch['old_teacher_name'],
+                    'teacher_a_wxid': ch['old_teacher_wxid'],
+                    'teacher_b_id': new_id,
+                    'teacher_b_name': ch['new_teacher_name'],
+                    'teacher_b_wxid': ch['new_teacher_wxid'],
+                    'slot_a': ch['slot'],  # A原位置
+                    'slot_b': ch2['slot']  # B原位置
+                })
+                processed_keys.add((old_id, new_id))
+                processed_keys.add((new_id, old_id))
+            elif (old_id, new_id) not in processed_keys:
+                remaining_changed.append(ch)
+
+        # 汇总统计
+        stats = {
+            'added_count': len(added),
+            'removed_count': len(removed),
+            'changed_count': len(remaining_changed),
+            'swapped_count': len(swaps),
+            'unchanged_count': len(unchanged),
+            'has_wxid_added': sum(1 for a in added if a['teacher_wxid']),
+            'has_wxid_removed': sum(1 for r in removed if r['teacher_wxid']),
+            'has_wxid_changed': sum(1 for c in remaining_changed if c['old_teacher_wxid'] or c['new_teacher_wxid']),
+            'has_wxid_swapped': sum(1 for s in swaps if s['teacher_a_wxid'] or s['teacher_b_wxid']),
+        }
+
+        return {
+            "success": True,
+            "data": {
+                "added": added,
+                "removed": removed,
+                "changed": remaining_changed,
+                "swapped": swaps,
+                "unchanged": unchanged,
+                "stats": stats
+            }
+        }
+
+@router.post("/projects/{project_id}/notify", summary="发送监考通知")
+async def send_notifications(
+    project_id: int,
+    user: User = Depends(require_jiaowu),
+    request: NotifyRequestV2 = Body(default=NotifyRequestV2())
+):
+    """发送监考通知给老师（支持学科筛选和变更检测）"""
+    with get_invigilation_db() as db:
+        cursor = db.cursor()
+
+        # 获取项目信息
+        cursor.execute("SELECT * FROM exam_project WHERE id = ?", (project_id,))
+        project = cursor.fetchone()
+        if not project:
+            raise HTTPException(404, "考试项目不存在")
+
+        project_name = project['name']
+        new_version = project['version_no'] + 1
+
+        # 获取变更数据
+        subject_filter = request.subjects
+
+        # 获取当前安排
+        cursor.execute("""
+            SELECT * FROM invigilation_slot
+            WHERE project_id = ?
+            ORDER BY grade_id, exam_date, start_time, room_order
+        """, (project_id,))
+        current_slots = [dict(row) for row in cursor.fetchall()]
+
+        # 获取上次通知时的安排
+        cursor.execute("""
+            SELECT teacher_id, slots_json
+            FROM invigilation_notification_log
+            WHERE project_id = ? AND version_no = ?
+            ORDER BY sent_at DESC
+        """, (project_id, project['version_no'] if project['version_no'] > 0 else 0))
+        previous_logs = cursor.fetchall()
+
+        previous_slots = []
+        for log in previous_logs:
+            if log['slots_json']:
+                previous_slots.extend(json.loads(log['slots_json']))
+
+        # 检测变更（复用get_changes_preview的逻辑）
+        def get_key(slot):
+            return f"{slot['grade_id']}|{slot['exam_date']}|{slot['start_time']}|{slot['room_name']}"
+
+        current_map = {get_key(s): s for s in current_slots}
+        previous_map = {get_key(s): s for s in previous_slots}
+
+        added = []
+        removed = []
+        changed = []
+        unchanged = []
+
+        all_keys = set(current_map.keys()) | set(previous_map.keys())
+
+        for key in all_keys:
+            current_slot = current_map.get(key)
+            previous_slot = previous_map.get(key)
+
+            # 学科筛选
+            if subject_filter:
+                slot_subject = (current_slot or previous_slot).get('subject', '')
+                if slot_subject not in subject_filter:
+                    continue
+
+            if not previous_slot and current_slot:
+                if current_slot['teacher_id']:
+                    added.append({
+                        'teacher_id': current_slot['teacher_id'],
+                        'teacher_name': current_slot['teacher_name'],
+                        'teacher_wxid': current_slot['teacher_wxid'],
+                        'slot': current_slot
+                    })
+            elif previous_slot and current_slot:
+                prev_teacher = previous_slot.get('teacher_id')
+                curr_teacher = current_slot.get('teacher_id')
+
+                if prev_teacher != curr_teacher:
+                    if prev_teacher and curr_teacher:
+                        changed.append({
+                            'old_teacher_id': prev_teacher,
+                            'old_teacher_name': previous_slot['teacher_name'],
+                            'old_teacher_wxid': previous_slot['teacher_wxid'],
+                            'new_teacher_id': curr_teacher,
+                            'new_teacher_name': current_slot['teacher_name'],
+                            'new_teacher_wxid': current_slot['teacher_wxid'],
+                            'slot': current_slot,
+                            'old_slot': previous_slot
+                        })
+                    elif prev_teacher and not curr_teacher:
+                        removed.append({
+                            'teacher_id': prev_teacher,
+                            'teacher_name': previous_slot['teacher_name'],
+                            'teacher_wxid': previous_slot['teacher_wxid'],
+                            'slot': previous_slot,
+                            'reason': '教师取消'
+                        })
+                    elif not prev_teacher and curr_teacher:
+                        added.append({
+                            'teacher_id': curr_teacher,
+                            'teacher_name': current_slot['teacher_name'],
+                            'teacher_wxid': current_slot['teacher_wxid'],
+                            'slot': current_slot
+                        })
+                else:
+                    if current_slot['teacher_id']:
+                        unchanged.append({
+                            'teacher_id': current_slot['teacher_id'],
+                            'teacher_name': current_slot['teacher_name'],
+                            'teacher_wxid': current_slot['teacher_wxid'],
+                            'slot': current_slot
+                        })
+
+        # 检测交换
+        swaps = []
+        remaining_changed = []
+
+        replace_map = {}
+        for ch in changed:
+            key_pair = (ch['old_teacher_id'], ch['new_teacher_id'])
+            replace_map[key_pair] = ch
+
+        processed_keys = set()
+        for (old_id, new_id), ch in replace_map.items():
+            if (new_id, old_id) in replace_map and (new_id, old_id) not in processed_keys:
+                ch2 = replace_map[(new_id, old_id)]
+                swaps.append({
+                    'teacher_a_id': old_id,
+                    'teacher_a_name': ch['old_teacher_name'],
+                    'teacher_a_wxid': ch['old_teacher_wxid'],
+                    'teacher_b_id': new_id,
+                    'teacher_b_name': ch['new_teacher_name'],
+                    'teacher_b_wxid': ch['new_teacher_wxid'],
+                    'slot_a': ch['slot'],
+                    'slot_b': ch2['slot']
+                })
+                processed_keys.add((old_id, new_id))
+                processed_keys.add((new_id, old_id))
+            elif (old_id, new_id) not in processed_keys:
+                remaining_changed.append(ch)
 
         # 发送通知
         success_count = 0
@@ -503,24 +812,10 @@ async def send_notifications(
         skipped_count = 0
         logs = []
 
-        new_version = project['version_no'] + 1
+        def format_slot(slot):
+            return f"{slot['exam_date']} {slot['start_time']}-{slot['end_time']} {slot['subject']} {slot['grade_name']} {slot['room_name']}"
 
-        for teacher_id, data in teacher_slots.items():
-            teacher_name = data['teacher_name']
-            teacher_wxid = data['teacher_wxid']
-            slots_list = data['slots']
-
-            # 构建通知内容
-            content = f"""【监考安排通知】
-考试：{project['name']}
-{teacher_name}老师，您的监考安排如下：
-"""
-
-            for i, slot in enumerate(slots_list, 1):
-                content += f"{i}. {slot['exam_date']} {slot['start_time']}-{slot['end_time']} {slot['subject']} {slot['grade_name']} {slot['room_name']}\n"
-
-            content += "请准时到岗。"
-
+        def send_and_log(content, teacher_id, teacher_name, teacher_wxid, change_type, slots_json):
             log_entry = {
                 'project_id': project_id,
                 'version_no': new_version,
@@ -528,8 +823,8 @@ async def send_notifications(
                 'teacher_id': teacher_id,
                 'receiver': teacher_wxid,
                 'message': content,
-                'change_type': 'initial',
-                'slots_json': json.dumps(slots_list)
+                'change_type': change_type,
+                'slots_json': json.dumps(slots_json)
             }
 
             if teacher_wxid:
@@ -547,11 +842,106 @@ async def send_notifications(
                     logger.error(f"通知发送失败: {teacher_name} - {e}")
             else:
                 log_entry['sent_status'] = 'skipped'
-                log_entry['error_message'] = '未配置接收人'
+                log_entry['error_message'] = '未配置wxid'
                 log_entry['sent_at'] = None
                 skipped_count += 1
 
             logs.append(log_entry)
+
+        # 1. 发送新增通知
+        if request.notify_added:
+            for item in added:
+                content = f"""【新增监考】
+考试：{project_name}
+{item['teacher_name']}老师，新增您的监考安排：
+{format_slot(item['slot'])}
+请准时到岗。"""
+                send_and_log(content, item['teacher_id'], item['teacher_name'],
+                           item['teacher_wxid'], 'added', [item['slot']])
+
+        # 2. 发送取消通知
+        if request.notify_removed:
+            for item in removed:
+                content = f"""【取消监考】
+考试：{project_name}
+{item['teacher_name']}老师，您原定的监考安排已取消：
+{format_slot(item['slot'])}
+原因：{item['reason']}
+感谢您的配合。"""
+                send_and_log(content, item['teacher_id'], item['teacher_name'],
+                           item['teacher_wxid'], 'removed', [item['slot']])
+
+        # 3. 发送替换通知（通知双方）
+        if request.notify_changed:
+            for ch in remaining_changed:
+                # 通知被替换的教师（取消）
+                content_old = f"""【监考变更】
+考试：{project_name}
+{ch['old_teacher_name']}老师，您的监考安排已变更：
+原安排：{format_slot(ch['old_slot'])}
+现由 {ch['new_teacher_name']} 老师接替。
+感谢您的配合。"""
+                send_and_log(content_old, ch['old_teacher_id'], ch['old_teacher_name'],
+                           ch['old_teacher_wxid'], 'changed_old', [ch['old_slot']])
+
+                # 通知新接替的教师（新增）
+                content_new = f"""【新增监考】
+考试：{project_name}
+{ch['new_teacher_name']}老师，新增您的监考安排：
+{format_slot(ch['slot'])}
+（原监考教师：{ch['old_teacher_name']}）
+请准时到岗。"""
+                send_and_log(content_new, ch['new_teacher_id'], ch['new_teacher_name'],
+                           ch['new_teacher_wxid'], 'changed_new', [ch['slot']])
+
+        # 4. 发送交换通知（通知双方）
+        if request.notify_changed:
+            for sw in swaps:
+                # 通知教师A
+                content_a = f"""【监考调整】
+考试：{project_name}
+{sw['teacher_a_name']}老师，您的监考已调整：
+原安排：{format_slot(sw['slot_a'])}
+新安排：{format_slot(sw['slot_b'])}
+（与 {sw['teacher_b_name']} 老师互换）
+请准时到岗。"""
+                send_and_log(content_a, sw['teacher_a_id'], sw['teacher_a_name'],
+                           sw['teacher_a_wxid'], 'swap', [sw['slot_a'], sw['slot_b']])
+
+                # 通知教师B
+                content_b = f"""【监考调整】
+考试：{project_name}
+{sw['teacher_b_name']}老师，您的监考已调整：
+原安排：{format_slot(sw['slot_b'])}
+新安排：{format_slot(sw['slot_a'])}
+（与 {sw['teacher_a_name']} 老师互换）
+请准时到岗。"""
+                send_and_log(content_b, sw['teacher_b_id'], sw['teacher_b_name'],
+                           sw['teacher_b_wxid'], 'swap', [sw['slot_a'], sw['slot_b']])
+
+        # 5. 发送提醒（无变化的教师）
+        if request.notify_reminder:
+            # 按教师聚合unchanged
+            teacher_unchanged = {}
+            for item in unchanged:
+                tid = item['teacher_id']
+                if tid not in teacher_unchanged:
+                    teacher_unchanged[tid] = {
+                        'teacher_name': item['teacher_name'],
+                        'teacher_wxid': item['teacher_wxid'],
+                        'slots': []
+                    }
+                teacher_unchanged[tid]['slots'].append(item['slot'])
+
+            for tid, data in teacher_unchanged.items():
+                slots_str = '\n'.join([f"{i+1}. {format_slot(s)}" for i, s in enumerate(data['slots'])])
+                content = f"""【监考提醒】
+考试：{project_name}
+{data['teacher_name']}老师，您的监考安排：
+{slots_str}
+请准时到岗。"""
+                send_and_log(content, tid, data['teacher_name'],
+                           data['teacher_wxid'], 'reminder', data['slots'])
 
         # 写入通知日志
         for log in logs:
@@ -582,7 +972,11 @@ async def send_notifications(
                 "success": success_count,
                 "failed": failed_count,
                 "skipped": skipped_count,
-                "total": len(teacher_slots)
+                "added": len(added),
+                "removed": len(removed),
+                "changed": len(remaining_changed),
+                "swapped": len(swaps),
+                "reminded": len(unchanged) if request.notify_reminder else 0
             }
         }
 

@@ -1911,33 +1911,22 @@ async def get_members(
     """获取会员列表"""
     try:
         with Member() as m:
-            m.__cursor__.execute("SELECT COUNT(*) FROM member")
-            total = m.__cursor__.fetchone()[0]
-
-            sql = "SELECT * FROM member"
-            params = []
-            conditions = []
+            rows = m.member_info() or []
+            columns = m.member_columns()
 
             if search:
-                conditions.append("(alias LIKE ? OR wxid LIKE ? OR uuid LIKE ?)")
-                params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+                keyword = str(search).lower()
+                rows = [
+                    row for row in rows
+                    if any(keyword in str(value or "").lower() for value in (row[1], row[2], row[3]))
+                ]
 
             if active is not None:
-                conditions.append("active = ?")
-                params.append(active)
+                rows = [row for row in rows if int(row[4] or 0) == int(active)]
 
-            if conditions:
-                sql += " WHERE " + " AND ".join(conditions)
-                count_sql = "SELECT COUNT(*) FROM member WHERE " + " AND ".join(conditions)
-                m.__cursor__.execute(count_sql, tuple(params))
-                total = m.__cursor__.fetchone()[0]
-
-            sql += " ORDER BY id ASC LIMIT ? OFFSET ?"
-            params.extend([page_size, (page - 1) * page_size])
-
-            m.__cursor__.execute(sql, tuple(params))
-            rows = m.__cursor__.fetchall()
-            columns = m.member_columns()
+            total = len(rows)
+            offset = (page - 1) * page_size
+            rows = rows[offset:offset + page_size]
             
             members = []
             for row in rows:

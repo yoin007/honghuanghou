@@ -142,12 +142,25 @@ CREATE TABLE IF NOT EXISTS teacher (
     name TEXT NOT NULL,
     wxid TEXT,
     subject TEXT,
+    course TEXT,
     password_hash TEXT,
+    raw_pwd TEXT,
     role TEXT DEFAULT 'teacher',
     level INTEGER DEFAULT 0,
     is_active INTEGER DEFAULT 1,
     notice_enabled INTEGER DEFAULT 1,
     is_password_changed INTEGER DEFAULT 0,
+    uuid TEXT,
+    alias TEXT,
+    score INTEGER DEFAULT 50,
+    balance INTEGER DEFAULT 0,
+    model TEXT DEFAULT 'basic',
+    ai_flag INTEGER DEFAULT 0,
+    birthday TEXT,
+    member_active INTEGER DEFAULT 1,
+    priority INTEGER DEFAULT 99,
+    note TEXT,
+    identity_type TEXT DEFAULT 'teacher',
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
@@ -771,12 +784,25 @@ CREATE TABLE IF NOT EXISTS teacher (
     name VARCHAR(20) NOT NULL,
     wxid VARCHAR(50) COMMENT '微信ID',
     subject VARCHAR(20) COMMENT '任教学科',
+    course VARCHAR(50) COMMENT '课程',
     password_hash VARCHAR(255) COMMENT '密码哈希',
+    raw_pwd VARCHAR(255) COMMENT '原始密码（历史兼容）',
     role VARCHAR(50) DEFAULT 'teacher' COMMENT '角色：admin/jiaowu/xuefa/cleader/teacher',
     level INT DEFAULT 0 COMMENT '权限等级',
     is_active TINYINT DEFAULT 1 COMMENT '登录权限',
     notice_enabled TINYINT DEFAULT 1 COMMENT '通知开关',
     is_password_changed TINYINT DEFAULT 0,
+    uuid VARCHAR(150) COMMENT '统一会员UUID',
+    alias VARCHAR(100) COMMENT '会员别名',
+    score INT DEFAULT 50 COMMENT '会员积分',
+    balance INT DEFAULT 0 COMMENT '会员余额',
+    model VARCHAR(100) DEFAULT 'basic' COMMENT '会员模块',
+    ai_flag TINYINT DEFAULT 0 COMMENT 'AI标记',
+    birthday VARCHAR(20) COMMENT '生日',
+    member_active TINYINT DEFAULT 1 COMMENT '会员是否启用',
+    priority INT DEFAULT 99 COMMENT '会员优先级',
+    note TEXT COMMENT '会员备注',
+    identity_type VARCHAR(20) DEFAULT 'teacher' COMMENT '身份类型：teacher/member',
     created_at DATETIME DEFAULT NOW(),
     updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
     INDEX idx_wxid (wxid) COMMENT '微信ID索引'
@@ -1477,13 +1503,165 @@ SQLite_INITIAL_DATA_SQL = [
 
 def ensure_sqlite_schema(conn: sqlite3.Connection):
     """补齐已有 SQLite 数据库的增量字段。"""
-    columns = {
+    collective_columns = {
         row[1]
         for row in conn.execute("PRAGMA table_info(collective_event)").fetchall()
     }
-    if columns and "class_id" not in columns:
+    if collective_columns and "class_id" not in collective_columns:
         logger.info("Adding missing SQLite column: collective_event.class_id")
         conn.execute("ALTER TABLE collective_event ADD COLUMN class_id INTEGER")
+
+    teacher_columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(teacher)").fetchall()
+    }
+    teacher_additions = {
+        "course": "TEXT",
+        "raw_pwd": "TEXT",
+        "uuid": "TEXT",
+        "alias": "TEXT",
+        "score": "INTEGER DEFAULT 50",
+        "balance": "INTEGER DEFAULT 0",
+        "model": "TEXT DEFAULT 'basic'",
+        "ai_flag": "INTEGER DEFAULT 0",
+        "birthday": "TEXT",
+        "member_active": "INTEGER DEFAULT 1",
+        "priority": "INTEGER DEFAULT 99",
+        "note": "TEXT",
+        "identity_type": "TEXT DEFAULT 'teacher'",
+    }
+    for column, definition in teacher_additions.items():
+        if teacher_columns and column not in teacher_columns:
+            logger.info(f"Adding missing SQLite column: teacher.{column}")
+            conn.execute(f"ALTER TABLE teacher ADD COLUMN {column} {definition}")
+
+    if teacher_columns:
+        conn.execute("UPDATE teacher SET identity_type = 'teacher' WHERE identity_type IS NULL")
+        conn.execute("UPDATE teacher SET alias = name WHERE alias IS NULL OR alias = ''")
+        conn.execute(
+            "UPDATE teacher SET uuid = wxid WHERE (uuid IS NULL OR uuid = '') AND wxid IS NOT NULL AND wxid != ''"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_teacher_uuid ON teacher(uuid)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_teacher_identity_type ON teacher(identity_type)")
+
+        member_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases", "member.db")
+        if os.path.exists(member_db_path):
+            try:
+                legacy_conn = sqlite3.connect(member_db_path)
+                legacy_conn.row_factory = sqlite3.Row
+                legacy_rows = legacy_conn.execute("SELECT * FROM member").fetchall()
+                migrated = 0
+                for row in legacy_rows:
+                    member = dict(row)
+                    uuid = member.get("uuid") or member.get("wxid")
+                    wxid = member.get("wxid") or uuid
+                    alias = member.get("alias") or uuid
+                    if not uuid:
+                        continue
+                    existing = conn.execute(
+                        "SELECT teacher_id FROM teacher WHERE uuid = ? OR wxid = ? OR name = ?",
+                        (uuid, wxid, alias),
+                    ).fetchone()
+                    if existing:
+                        conn.execute(
+                            """UPDATE teacher
+                            SET uuid = ?, wxid = COALESCE(NULLIF(wxid, ''), ?), alias = ?,
+                                score = ?, balance = ?,
+                                level = CASE WHEN level IS NULL OR level = 0 THEN ? ELSE level END,
+                                model = ?, ai_flag = ?, birthday = ?,
+                                member_active = ?, priority = ?, note = COALESCE(NULLIF(note, ''), ?),
+                                updated_at = datetime('now', 'localtime')
+                            WHERE teacher_id = ?""",
+                            (
+                                uuid, wxid, alias,
+                                member.get("score", 50), member.get("balance", 0), member.get("level", 1),
+                                member.get("model", "basic"), member.get("ai_flag", 0), member.get("birthday", ""),
+                                member.get("active", 1), member.get("priority", 99), member.get("note", ""),
+                                existing[0],
+                            ),
+                        )
+                    else:
+                        safe_uuid = "".join(ch if ch.isalnum() or ch in "_-" else "_" for ch in str(uuid))[:120]
+                        conn.execute(
+                            """INSERT INTO teacher
+                            (teacher_id, name, wxid, role, level, is_active, notice_enabled,
+                             uuid, alias, score, balance, model, ai_flag, birthday, member_active,
+                             priority, note, identity_type, created_at)
+                            VALUES (?, ?, ?, 'member', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'member',
+                                    COALESCE(?, datetime('now', 'localtime')))""",
+                            (
+                                f"M_{safe_uuid}", alias, wxid,
+                                member.get("level", 1), member.get("active", 1),
+                                uuid, alias, member.get("score", 50), member.get("balance", 0),
+                                member.get("model", "basic"), member.get("ai_flag", 0), member.get("birthday", ""),
+                                member.get("active", 1), member.get("priority", 99), member.get("note", ""),
+                                member.get("create_at"),
+                            ),
+                        )
+                    migrated += 1
+                legacy_conn.close()
+                if migrated:
+                    logger.info(f"Migrated legacy member rows into teacher: {migrated}")
+            except Exception as e:
+                logger.warning(f"Skip legacy member migration: {e}")
+
+        auth_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases", "auth.db")
+        if os.path.exists(auth_db_path):
+            try:
+                auth_conn = sqlite3.connect(auth_db_path)
+                auth_conn.row_factory = sqlite3.Row
+                auth_rows = auth_conn.execute("SELECT * FROM teacher").fetchall()
+                migrated = 0
+                for row in auth_rows:
+                    teacher = dict(row)
+                    name = teacher.get("name")
+                    if not name:
+                        continue
+                    existing = conn.execute(
+                        "SELECT teacher_id FROM teacher WHERE name = ? AND COALESCE(identity_type, 'teacher') = 'teacher'",
+                        (name,),
+                    ).fetchone()
+                    teacher_id = existing[0] if existing else f"T_{''.join(ch if ch.isalnum() or ch in '_-' else '_' for ch in str(name))[:120]}"
+                    conn.execute(
+                        """INSERT INTO teacher
+                        (teacher_id, name, subject, course, password_hash, raw_pwd, role, level,
+                         is_active, notice_enabled, is_password_changed, alias, identity_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher')
+                        ON CONFLICT(teacher_id) DO UPDATE SET
+                            name = COALESCE(NULLIF(teacher.name, ''), excluded.name),
+                            subject = COALESCE(NULLIF(teacher.subject, ''), excluded.subject),
+                            course = COALESCE(NULLIF(teacher.course, ''), excluded.course),
+                            password_hash = COALESCE(NULLIF(teacher.password_hash, ''), excluded.password_hash),
+                            raw_pwd = COALESCE(NULLIF(teacher.raw_pwd, ''), excluded.raw_pwd),
+                            role = COALESCE(NULLIF(teacher.role, ''), excluded.role),
+                            level = COALESCE(teacher.level, excluded.level),
+                            is_active = COALESCE(teacher.is_active, excluded.is_active),
+                            notice_enabled = COALESCE(teacher.notice_enabled, excluded.notice_enabled),
+                            is_password_changed = COALESCE(teacher.is_password_changed, excluded.is_password_changed),
+                            alias = COALESCE(NULLIF(teacher.alias, ''), excluded.alias),
+                            identity_type = 'teacher',
+                            updated_at = datetime('now', 'localtime')""",
+                        (
+                            teacher_id,
+                            name,
+                            teacher.get("subject", ""),
+                            teacher.get("course", ""),
+                            teacher.get("pwd", ""),
+                            teacher.get("raw_pwd", ""),
+                            teacher.get("role", "teacher"),
+                            teacher.get("level", 10),
+                            teacher.get("active", 1),
+                            teacher.get("notice", 1),
+                            teacher.get("is_password_changed", 0),
+                            name,
+                        ),
+                    )
+                    migrated += 1
+                auth_conn.close()
+                if migrated:
+                    logger.info(f"Migrated auth teacher rows into moral.teacher: {migrated}")
+            except Exception as e:
+                logger.warning(f"Skip auth teacher migration: {e}")
 
     permission_rows = [
         (

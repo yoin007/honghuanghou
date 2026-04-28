@@ -18,7 +18,7 @@
           <el-button @click="exportExcel" :disabled="!selectedProjectId">导出Excel</el-button>
           <el-button @click="exportReport" :disabled="!selectedProjectId">导出报表</el-button>
           <el-button type="success" @click="saveSlots" :disabled="!selectedProjectId || !hasChanges">保存</el-button>
-          <el-button type="warning" @click="sendNotifications" :disabled="!selectedProjectId">保存并通知</el-button>
+          <el-button type="warning" @click="showNotifyDialog" :disabled="!selectedProjectId">发送通知</el-button>
           <el-button @click="showNotificationLogs" :disabled="!selectedProjectId">通知日志</el-button>
         </div>
       </div>
@@ -203,6 +203,115 @@
         <el-table-column prop="error_message" label="错误信息" min-width="150" show-overflow-tooltip />
       </el-table>
     </el-dialog>
+
+    <!-- 发送通知弹窗 -->
+    <el-dialog v-model="notifyDialogVisible" title="发送监考通知" width="800px">
+      <!-- 学科筛选 -->
+      <div class="notify-filter">
+        <div class="filter-label">选择学科：</div>
+        <el-checkbox-group v-model="selectedSubjects">
+          <el-checkbox label="">全部</el-checkbox>
+          <el-checkbox v-for="sub in allSubjects" :key="sub" :label="sub">{{ sub }}</el-checkbox>
+        </el-checkbox-group>
+      </div>
+
+      <!-- 变更预览 -->
+      <div v-if="changesPreview" class="changes-preview">
+        <el-divider>变更预览</el-divider>
+        <div class="changes-stats">
+          <el-tag type="success">新增 {{ changesPreview.stats.added_count }}人</el-tag>
+          <el-tag type="danger">取消 {{ changesPreview.stats.removed_count }}人</el-tag>
+          <el-tag type="warning">变更 {{ changesPreview.stats.changed_count }}人</el-tag>
+          <el-tag type="info">交换 {{ changesPreview.stats.swapped_count }}对</el-tag>
+          <el-tag>无变化 {{ changesPreview.stats.unchanged_count }}人</el-tag>
+        </div>
+
+        <!-- 新增列表 -->
+        <div v-if="changesPreview.added.length" class="change-section">
+          <div class="section-title">新增监考</div>
+          <el-table :data="changesPreview.added" size="small" border>
+            <el-table-column prop="teacher_name" label="教师" width="100" />
+            <el-table-column label="安排">
+              <template #default="{ row }">
+                {{ row.slot.exam_date }} {{ row.slot.start_time }}-{{ row.slot.end_time }} {{ row.slot.subject }} {{ row.slot.grade_name }} {{ row.slot.room_name }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="teacher_wxid" label="wxid" width="120">
+              <template #default="{ row }">
+                <el-tag v-if="row.teacher_wxid" type="success" size="small">有</el-tag>
+                <el-tag v-else type="danger" size="small">无</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <!-- 取消列表 -->
+        <div v-if="changesPreview.removed.length" class="change-section">
+          <div class="section-title">取消监考</div>
+          <el-table :data="changesPreview.removed" size="small" border>
+            <el-table-column prop="teacher_name" label="教师" width="100" />
+            <el-table-column label="原安排">
+              <template #default="{ row }">
+                {{ row.slot.exam_date }} {{ row.slot.start_time }}-{{ row.slot.end_time }} {{ row.slot.subject }} {{ row.slot.grade_name }} {{ row.slot.room_name }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="reason" label="原因" width="80" />
+          </el-table>
+        </div>
+
+        <!-- 交换列表 -->
+        <div v-if="changesPreview.swapped.length" class="change-section">
+          <div class="section-title">教师互换</div>
+          <el-table :data="changesPreview.swapped" size="small" border>
+            <el-table-column prop="teacher_a_name" label="教师A" width="100" />
+            <el-table-column prop="teacher_b_name" label="教师B" width="100" />
+            <el-table-column label="A原位置">
+              <template #default="{ row }">
+                {{ row.slot_a.exam_date }} {{ row.slot_a.subject }} {{ row.slot_a.room_name }}
+              </template>
+            </el-table-column>
+            <el-table-column label="B原位置">
+              <template #default="{ row }">
+                {{ row.slot_b.exam_date }} {{ row.slot_b.subject }} {{ row.slot_b.room_name }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <!-- 替换列表 -->
+        <div v-if="changesPreview.changed.length" class="change-section">
+          <div class="section-title">教师替换</div>
+          <el-table :data="changesPreview.changed" size="small" border>
+            <el-table-column prop="old_teacher_name" label="原教师" width="100" />
+            <el-table-column prop="new_teacher_name" label="新教师" width="100" />
+            <el-table-column label="安排">
+              <template #default="{ row }">
+                {{ row.slot.exam_date }} {{ row.slot.subject }} {{ row.slot.room_name }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+
+      <div v-else class="preview-loading">
+        <el-button @click="loadChangesPreview" :loading="previewLoading">加载变更预览</el-button>
+      </div>
+
+      <!-- 通知选项 -->
+      <div class="notify-options">
+        <el-checkbox v-model="notifyOptions.notify_added">通知新增监考的教师</el-checkbox>
+        <el-checkbox v-model="notifyOptions.notify_removed">通知取消监考的教师</el-checkbox>
+        <el-checkbox v-model="notifyOptions.notify_changed">通知变更的教师（双方）</el-checkbox>
+        <el-checkbox v-model="notifyOptions.notify_reminder">发送提醒给无变化教师</el-checkbox>
+      </div>
+
+      <template #footer>
+        <el-button @click="notifyDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="sendNotificationsV2" :loading="notifySending" :disabled="!changesPreview">
+          确认发送
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -237,9 +346,23 @@ const dragState = ref({ gradeId: null, rowIndex: null, room: null, teacherId: nu
 const createProjectVisible = ref(false)
 const importVisible = ref(false)
 const notificationLogsVisible = ref(false)
+const notifyDialogVisible = ref(false)
 const importLoading = ref(false)
 const importFile = ref(null)
 const notificationLogs = ref([])
+
+// 通知弹窗数据
+const selectedSubjects = ref([])
+const allSubjects = ref([])
+const changesPreview = ref(null)
+const previewLoading = ref(false)
+const notifySending = ref(false)
+const notifyOptions = reactive({
+  notify_added: true,
+  notify_removed: true,
+  notify_changed: true,
+  notify_reminder: false
+})
 
 // 表单
 const projectFormRef = ref(null)
@@ -530,18 +653,68 @@ async function saveSlots() {
 }
 
 // 通知
-async function sendNotifications() {
-  try {
-    await saveSlots()
+function showNotifyDialog() {
+  // 提取所有学科
+  const subjects = new Set()
+  for (const gradeId of [1, 2, 3]) {
+    const rows = horizontalSlots.value[gradeId] || []
+    for (const row of rows) {
+      if (row.subject) subjects.add(row.subject)
+    }
+  }
+  allSubjects.value = Array.from(subjects)
+  selectedSubjects.value = []
+  changesPreview.value = null
+  notifyDialogVisible.value = true
+}
 
-    const res = await api.post(`/api/invigilation/projects/${selectedProjectId.value}/notify`)
+async function loadChangesPreview() {
+  if (!selectedProjectId.value) return
+
+  previewLoading.value = true
+  try {
+    // 构建学科筛选参数
+    const params = selectedSubjects.value.length > 0
+      ? { subjects: selectedSubjects.value.join(',') }
+      : {}
+
+    const res = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/changes`, { params })
     if (res.success) {
-      ElMessage.success(`通知发送完成: 成功${res.data.success}, 失败${res.data.failed}, 跳过${res.data.skipped}`)
+      changesPreview.value = res.data
+    }
+  } catch (e) {
+    console.error('加载变更预览失败:', e)
+    ElMessage.error('加载变更预览失败')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function sendNotificationsV2() {
+  if (!selectedProjectId.value || !changesPreview.value) return
+
+  notifySending.value = true
+  try {
+    const body = {
+      subjects: selectedSubjects.value.length > 0 ? selectedSubjects.value : null,
+      notify_added: notifyOptions.notify_added,
+      notify_removed: notifyOptions.notify_removed,
+      notify_changed: notifyOptions.notify_changed,
+      notify_reminder: notifyOptions.notify_reminder
+    }
+
+    const res = await api.post(`/api/invigilation/projects/${selectedProjectId.value}/notify`, body)
+    if (res.success) {
+      const stats = res.data
+      ElMessage.success(`通知发送完成: 成功${stats.success}, 失败${stats.failed}, 跳过${stats.skipped}`)
+      notifyDialogVisible.value = false
       await loadProjectSlots()
     }
   } catch (e) {
-    console.error('通知失败:', e)
-    ElMessage.error('通知发送失败')
+    console.error('通知发送失败:', e)
+    ElMessage.error('通知发送失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    notifySending.value = false
   }
 }
 
@@ -798,6 +971,51 @@ function getStatusName(status) {
 .empty-hint {
   text-align: center;
   color: #999;
+  padding: 40px;
+}
+
+/* 通知弹窗样式 */
+.notify-filter {
+  margin-bottom: 20px;
+}
+
+.filter-label {
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.changes-preview {
+  margin: 20px 0;
+}
+
+.changes-stats {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.change-section {
+  margin-bottom: 15px;
+}
+
+.section-title {
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #409eff;
+}
+
+.notify-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 15px;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+
+.preview-loading {
+  text-align: center;
   padding: 40px;
 }
 </style>
