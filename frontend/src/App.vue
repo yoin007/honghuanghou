@@ -106,7 +106,7 @@
       </el-container>
       <el-footer class="app-footer" height="40px">
         <div class="footer-content">
-          <span>© 2026 数字天龙 - 班级管理系统</span>
+          <span>© 2026 数字天龙 - 班级管理系统 | 开发者：Tech_T</span>
         </div>
       </el-footer>
     </el-container>
