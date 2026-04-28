@@ -14,7 +14,7 @@ from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import io
@@ -451,8 +451,8 @@ async def swap_teachers(
 @router.post("/projects/{project_id}/notify", summary="发送监考通知")
 async def send_notifications(
     project_id: int,
-    request: NotifyRequest,
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_jiaowu),
+    request: NotifyRequest = Body(default=NotifyRequest())
 ):
     """发送监考通知给老师"""
     with get_invigilation_db() as db:
