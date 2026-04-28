@@ -50,74 +50,76 @@
     <el-card v-if="selectedProjectId" class="slots-card">
       <el-tabs v-model="activeGradeId" type="card">
         <el-tab-pane v-for="grade in projectGrades" :key="grade.id" :label="grade.name" :name="String(grade.id)">
-          <!-- 操作栏 -->
-          <div class="grade-toolbar">
-            <el-button type="primary" size="small" @click="addSlot(grade.id)">新增安排</el-button>
-            <el-button size="small" @click="batchAddSlots(grade.id)">批量新增</el-button>
-            <el-button size="small" @click="swapTeachers" :disabled="selectedRows.length !== 2">交换监考老师</el-button>
+          <!-- 横向布局表格 -->
+          <div class="horizontal-table-wrapper">
+            <table class="horizontal-table" v-if="horizontalSlots[grade.id]?.length">
+              <thead>
+                <tr>
+                  <th class="th-date">日期</th>
+                  <th class="th-time">时间</th>
+                  <th class="th-subject">学科</th>
+                  <th v-for="room in maxRooms[grade.id]" :key="room" class="th-room">考场{{ room }}</th>
+                  <th class="th-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, rowIndex) in horizontalSlots[grade.id]" :key="rowIndex">
+                  <td>
+                    <el-date-picker
+                      v-model="row.exam_date"
+                      type="date"
+                      value-format="YYYY-MM-DD"
+                      size="small"
+                      style="width: 120px"
+                      @change="markChanged"
+                    />
+                  </td>
+                  <td>
+                    <div class="time-inputs">
+                      <el-input v-model="row.start_time" size="small" placeholder="08:00" style="width: 70px" @change="markChanged" />
+                      <span>-</span>
+                      <el-input v-model="row.end_time" size="small" placeholder="10:00" style="width: 70px" @change="markChanged" />
+                    </div>
+                  </td>
+                  <td>
+                    <el-input v-model="row.subject" size="small" placeholder="语文" style="width: 100px" @change="markChanged" />
+                  </td>
+                  <td v-for="room in maxRooms[grade.id]" :key="room" class="td-teacher">
+                    <div
+                      class="teacher-cell"
+                      draggable="true"
+                      @dragstart="handleDragStart($event, grade.id, rowIndex, room)"
+                      @dragover.prevent
+                      @drop="handleDrop($event, grade.id, rowIndex, room)"
+                    >
+                      <el-select
+                        v-model="row.teachers[room]"
+                        placeholder="选择教师"
+                        size="small"
+                        filterable
+                        style="width: 100%"
+                        @change="markChanged"
+                      >
+                        <el-option v-for="t in teachers" :key="t.teacher_id" :label="t.name" :value="t.teacher_id" />
+                      </el-select>
+                    </div>
+                  </td>
+                  <td>
+                    <el-button type="danger" size="small" link @click="deleteRow(grade.id, rowIndex)">删除</el-button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="empty-hint">暂无安排，请导入Excel或新增</div>
           </div>
 
-          <!-- 安排表格 -->
-          <el-table
-            :data="getGradeSlots(grade.id)"
-            border
-            stripe
-            @selection-change="handleSelectionChange"
-            style="width: 100%"
-          >
-            <el-table-column type="selection" width="50" />
-            <el-table-column prop="exam_date" label="日期" width="120">
-              <template #default="{ row }">
-                <el-date-picker
-                  v-model="row.exam_date"
-                  type="date"
-                  value-format="YYYY-MM-DD"
-                  size="small"
-                  style="width: 100%"
-                  @change="markChanged"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column prop="start_time" label="开始时间" width="100">
-              <template #default="{ row }">
-                <el-input v-model="row.start_time" size="small" placeholder="08:00" @change="markChanged" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="end_time" label="结束时间" width="100">
-              <template #default="{ row }">
-                <el-input v-model="row.end_time" size="small" placeholder="10:00" @change="markChanged" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="subject" label="学科" width="120">
-              <template #default="{ row }">
-                <el-input v-model="row.subject" size="small" placeholder="语文" @change="markChanged" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="room_name" label="考场" width="150">
-              <template #default="{ row }">
-                <el-input v-model="row.room_name" size="small" placeholder="第1考场" @change="markChanged" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="teacher_name" label="监考老师" width="150">
-              <template #default="{ row }">
-                <el-select
-                  v-model="row.teacher_id"
-                  placeholder="选择教师"
-                  size="small"
-                  filterable
-                  style="width: 100%"
-                  @change="updateTeacherName(row)"
-                >
-                  <el-option v-for="t in teachers" :key="t.teacher_id" :label="t.name" :value="t.teacher_id" />
-                </el-select>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="80">
-              <template #default="{ row, $index }">
-                <el-button type="danger" size="small" link @click="deleteSlot(grade.id, $index)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+          <!-- 操作栏 -->
+          <div class="grade-toolbar">
+            <el-button type="primary" size="small" @click="addRow(grade.id)">新增行</el-button>
+            <el-button size="small" @click="addRoom(grade.id)">新增考场</el-button>
+            <el-button size="small" @click="removeRoom(grade.id)" :disabled="maxRooms[grade.id] <= 1">减少考场</el-button>
+            <span class="drag-hint">💡 拖拽教师姓名可互换监考安排</span>
+          </div>
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -205,7 +207,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import api from '@/utils/api'
@@ -214,7 +216,9 @@ import api from '@/utils/api'
 const projects = ref([])
 const selectedProjectId = ref(null)
 const currentProject = ref(null)
-const slots = ref([])
+const slots = ref([])  // 原始纵向数据
+const horizontalSlots = ref({})  // 转换后的横向数据
+const maxRooms = ref({ 1: 3, 2: 3, 3: 3 })  // 每个年级的考场数量
 const teachers = ref([])
 const hasChanges = ref(false)
 
@@ -225,7 +229,9 @@ const projectGrades = [
 ]
 
 const activeGradeId = ref('1')
-const selectedRows = ref([])
+
+// 拖拽状态
+const dragState = ref({ gradeId: null, rowIndex: null, room: null, teacherId: null })
 
 // 弹窗
 const createProjectVisible = ref(false)
@@ -282,26 +288,189 @@ async function loadProjectSlots() {
   if (!selectedProjectId.value) {
     currentProject.value = null
     slots.value = []
+    horizontalSlots.value = {}
     return
   }
 
   try {
-    // 加载项目详情
     const projectRes = await api.get(`/api/invigilation/projects/${selectedProjectId.value}`)
     if (projectRes.success) {
       currentProject.value = projectRes.data
     }
 
-    // 加载安排
     const slotsRes = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/slots`)
     if (slotsRes.success) {
       slots.value = slotsRes.data
+      convertToHorizontal()
       hasChanges.value = false
     }
   } catch (e) {
     console.error('加载安排失败:', e)
     ElMessage.error('加载安排失败')
   }
+}
+
+// 纵向数据转换为横向布局
+function convertToHorizontal() {
+  const result = {}
+  const roomCounts = {}
+
+  for (const grade of projectGrades) {
+    const gradeSlots = slots.value.filter(s => s.grade_id === grade.id)
+    if (gradeSlots.length === 0) {
+      result[grade.id] = []
+      roomCounts[grade.id] = 3
+      continue
+    }
+
+    // 按 日期+时间+学科 分组
+    const groups = {}
+    let maxRoom = 0
+
+    for (const slot of gradeSlots) {
+      const key = `${slot.exam_date}|${slot.start_time}|${slot.end_time}|${slot.subject}`
+      if (!groups[key]) {
+        groups[key] = {
+          exam_date: slot.exam_date,
+          start_time: slot.start_time,
+          end_time: slot.end_time,
+          subject: slot.subject,
+          teachers: {}
+        }
+      }
+      // 从 room_name 提取考场号 (支持 "考场1" 和 "第1考场")
+      const roomMatch = slot.room_name?.match(/\d+/)
+      const roomNum = roomMatch ? parseInt(roomMatch[0]) : 1
+      groups[key].teachers[roomNum] = slot.teacher_id
+      maxRoom = Math.max(maxRoom, roomNum)
+    }
+
+    result[grade.id] = Object.values(groups)
+    roomCounts[grade.id] = Math.max(maxRoom, 3)  // 最少3个考场
+  }
+
+  horizontalSlots.value = result
+  maxRooms.value = roomCounts
+}
+
+// 横向数据转换为纵向（用于保存）
+function convertToVertical() {
+  const result = []
+
+  for (const gradeId of [1, 2, 3]) {
+    const rows = horizontalSlots.value[gradeId] || []
+    for (const row of rows) {
+      for (const room of Object.keys(row.teachers || {})) {
+        const teacherId = row.teachers[room]
+        if (teacherId) {
+          result.push({
+            grade_id: gradeId,
+            grade_name: projectGrades.find(g => g.id === gradeId)?.name,
+            exam_date: row.exam_date,
+            start_time: row.start_time,
+            end_time: row.end_time,
+            subject: row.subject,
+            room_name: `考场${room}`,
+            room_order: parseInt(room),
+            teacher_id: teacherId,
+            teacher_name: teachers.value.find(t => t.teacher_id === teacherId)?.name || ''
+          })
+        }
+      }
+    }
+  }
+
+  return result
+}
+
+// 拖拽处理
+function handleDragStart(event, gradeId, rowIndex, room) {
+  const teacherId = horizontalSlots.value[gradeId]?.[rowIndex]?.teachers?.[room]
+  if (!teacherId) {
+    event.preventDefault()
+    return
+  }
+  dragState.value = { gradeId, rowIndex, room, teacherId }
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', teacherId)
+}
+
+function handleDrop(event, targetGradeId, targetRowIndex, targetRoom) {
+  const source = dragState.value
+  if (!source.teacherId) return
+
+  // 不能拖到同一个格子
+  if (source.gradeId === targetGradeId && source.rowIndex === targetRowIndex && source.room === targetRoom) {
+    return
+  }
+
+  // 互换教师
+  const targetTeacherId = horizontalSlots.value[targetGradeId]?.[targetRowIndex]?.teachers?.[targetRoom]
+
+  // 设置目标格子
+  horizontalSlots.value[targetGradeId][targetRowIndex].teachers[targetRoom] = source.teacherId
+
+  // 设置源格子
+  if (horizontalSlots.value[source.gradeId]?.[source.rowIndex]?.teachers) {
+    horizontalSlots.value[source.gradeId][source.rowIndex].teachers[source.room] = targetTeacherId || null
+  }
+
+  hasChanges.value = true
+  dragState.value = {}
+
+  // 提示互换
+  const sourceName = teachers.value.find(t => t.teacher_id === source.teacherId)?.name
+  const targetName = targetTeacherId ? teachers.value.find(t => t.teacher_id === targetTeacherId)?.name : '空'
+  ElMessage.success(`已互换: ${sourceName} ↔ ${targetName}`)
+}
+
+// 行操作
+function addRow(gradeId) {
+  const rows = horizontalSlots.value[gradeId] || []
+  const newRow = {
+    exam_date: currentProject.value?.start_date || '',
+    start_time: '08:00',
+    end_time: '10:00',
+    subject: '',
+    teachers: {}
+  }
+  // 预填充空值
+  for (let i = 1; i <= maxRooms.value[gradeId]; i++) {
+    newRow.teachers[i] = null
+  }
+  rows.push(newRow)
+  horizontalSlots.value[gradeId] = rows
+  hasChanges.value = true
+}
+
+function deleteRow(gradeId, rowIndex) {
+  horizontalSlots.value[gradeId].splice(rowIndex, 1)
+  hasChanges.value = true
+}
+
+// 考场操作
+function addRoom(gradeId) {
+  maxRooms.value[gradeId]++
+  // 为所有行补充新考场列
+  for (const row of (horizontalSlots.value[gradeId] || [])) {
+    row.teachers[maxRooms.value[gradeId]] = null
+  }
+  hasChanges.value = true
+}
+
+function removeRoom(gradeId) {
+  if (maxRooms.value[gradeId] <= 1) return
+  const removedRoom = maxRooms.value[gradeId]
+  // 清除该考场数据
+  for (const row of (horizontalSlots.value[gradeId] || [])) {
+    delete row.teachers[removedRoom]
+  }
+  maxRooms.value[gradeId]--
+  hasChanges.value = true
+}
+
+function markChanged() {
+  hasChanges.value = true
 }
 
 // 项目操作
@@ -340,93 +509,14 @@ async function createProject() {
   }
 }
 
-// 安排操作
-function getGradeSlots(gradeId) {
-  return slots.value.filter(s => s.grade_id === gradeId)
-}
-
-function addSlot(gradeId) {
-  const newSlot = {
-    grade_id: gradeId,
-    grade_name: projectGrades.find(g => g.id === gradeId)?.name,
-    exam_date: currentProject.value?.start_date || '',
-    start_time: '08:00',
-    end_time: '10:00',
-    subject: '',
-    room_name: '',
-    room_order: 0,
-    teacher_id: '',
-    teacher_name: ''
-  }
-  slots.value.push(newSlot)
-  hasChanges.value = true
-}
-
-function batchAddSlots(gradeId) {
-  ElMessageBox.prompt('请输入考场数量', '批量新增', {
-    inputPattern: /^[1-9]\d*$/,
-    inputErrorMessage: '请输入正整数'
-  }).then(({ value }) => {
-    const count = parseInt(value)
-    for (let i = 1; i <= count; i++) {
-      addSlot(gradeId)
-      const lastSlot = slots.value[slots.value.length - 1]
-      lastSlot.room_name = `第${i}考场`
-      lastSlot.room_order = i
-    }
-  }).catch(() => {})
-}
-
-function deleteSlot(gradeId, index) {
-  const gradeSlots = getGradeSlots(gradeId)
-  const globalIndex = slots.value.indexOf(gradeSlots[index])
-  slots.value.splice(globalIndex, 1)
-  hasChanges.value = true
-}
-
-function handleSelectionChange(rows) {
-  selectedRows.value = rows
-}
-
-function swapTeachers() {
-  if (selectedRows.value.length !== 2) {
-    ElMessage.warning('请选择两条安排')
-    return
-  }
-
-  const [row1, row2] = selectedRows.value
-  const tempTeacherId = row1.teacher_id
-  const tempTeacherName = row1.teacher_name
-
-  row1.teacher_id = row2.teacher_id
-  row1.teacher_name = row2.teacher_name
-  row2.teacher_id = tempTeacherId
-  row2.teacher_name = tempTeacherName
-
-  hasChanges.value = true
-  selectedRows.value = []
-  ElMessage.success('已交换')
-}
-
-function updateTeacherName(row) {
-  const teacher = teachers.value.find(t => t.teacher_id === row.teacher_id)
-  if (teacher) {
-    row.teacher_name = teacher.name
-  }
-  markChanged()
-}
-
-function markChanged() {
-  hasChanges.value = true
-}
-
 // 保存
 async function saveSlots() {
   if (!selectedProjectId.value) return
 
   try {
+    const verticalSlots = convertToVertical()
     const res = await api.put(`/api/invigilation/projects/${selectedProjectId.value}/slots`, {
-      slots: slots.value
+      slots: verticalSlots
     })
     if (res.success) {
       ElMessage.success('保存成功')
@@ -632,9 +722,82 @@ function getStatusName(status) {
   margin-bottom: 20px;
 }
 
-.grade-toolbar {
+/* 横向表格样式 */
+.horizontal-table-wrapper {
+  overflow-x: auto;
+}
+
+.horizontal-table {
+  width: 100%;
+  border-collapse: collapse;
   margin-bottom: 15px;
+}
+
+.horizontal-table th,
+.horizontal-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: center;
+  min-width: 100px;
+}
+
+.horizontal-table th {
+  background: #f5f7fa;
+  font-weight: 500;
+}
+
+.horizontal-table tbody tr:hover {
+  background: #f9f9f9;
+}
+
+.th-date { min-width: 140px; }
+.th-time { min-width: 160px; }
+.th-subject { min-width: 120px; }
+.th-room { min-width: 120px; }
+.th-actions { min-width: 80px; }
+
+.td-teacher {
+  position: relative;
+}
+
+.teacher-cell {
+  cursor: grab;
+}
+
+.teacher-cell:active {
+  cursor: grabbing;
+}
+
+.teacher-cell.dragging {
+  opacity: 0.5;
+}
+
+.time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: center;
+}
+
+.time-inputs span {
+  color: #999;
+}
+
+.grade-toolbar {
   display: flex;
   gap: 10px;
+  align-items: center;
+}
+
+.drag-hint {
+  color: #909399;
+  font-size: 12px;
+  margin-left: 20px;
+}
+
+.empty-hint {
+  text-align: center;
+  color: #999;
+  padding: 40px;
 }
 </style>
