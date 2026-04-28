@@ -882,3 +882,117 @@ async def export_invigilation(
             media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             headers={'Content-Disposition': f'attachment; filename={filename}'}
         )
+
+
+@router.get("/projects/{project_id}/report", summary="导出监考工作量报表")
+async def export_workload_report(
+    project_id: int,
+    user: User = Depends(require_jiaowu)
+):
+    """
+    导出监考工作量报表
+
+    报表内容：
+    - Sheet1: 教师工作量汇总（场次数、监考时长）
+    - Sheet2: 按年级细化统计
+    """
+    import pandas as pd
+
+    with get_invigilation_db() as db:
+        cursor = db.cursor()
+
+        # 获取项目信息
+        cursor.execute("SELECT name FROM exam_project WHERE id = ?", (project_id,))
+        project = cursor.fetchone()
+        if not project:
+            raise HTTPException(404, "考试项目不存在")
+
+        # Sheet1: 教师工作量汇总
+        cursor.execute("""
+            SELECT teacher_name,
+                   COUNT(*) as slot_count,
+                   SUM(
+                     (strftime('%s', end_time) - strftime('%s', start_time)) / 60
+                   ) as duration_minutes
+            FROM invigilation_slot
+            WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
+            GROUP BY teacher_id, teacher_name
+            ORDER BY slot_count DESC, duration_minutes DESC
+        """, (project_id,))
+
+        summary_data = []
+        for row in cursor.fetchall():
+            summary_data.append({
+                '教师姓名': row['teacher_name'],
+                '监考场次': row['slot_count'],
+                '监考时长(分钟)': int(row['duration_minutes'] or 0)
+            })
+
+        # Sheet2: 按年级细化统计
+        cursor.execute("""
+            SELECT teacher_name, grade_name,
+                   COUNT(*) as slot_count,
+                   SUM(
+                     (strftime('%s', end_time) - strftime('%s', start_time)) / 60
+                   ) as duration_minutes
+            FROM invigilation_slot
+            WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
+            GROUP BY teacher_id, teacher_name, grade_id, grade_name
+            ORDER BY teacher_name, grade_id
+        """, (project_id,))
+
+        grade_detail_data = []
+        for row in cursor.fetchall():
+            grade_detail_data.append({
+                '教师姓名': row['teacher_name'],
+                '年级': row['grade_name'],
+                '监考场次': row['slot_count'],
+                '监考时长(分钟)': int(row['duration_minutes'] or 0)
+            })
+
+        # 生成Excel
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Sheet1: 教师工作量汇总
+            df_summary = pd.DataFrame(summary_data)
+            if len(df_summary) > 0:
+                df_summary.to_excel(writer, index=False, sheet_name='工作量汇总')
+            else:
+                pd.DataFrame(columns=['教师姓名', '监考场次', '监考时长(分钟)']).to_excel(
+                    writer, index=False, sheet_name='工作量汇总'
+                )
+
+            # Sheet2: 按年级细化
+            df_detail = pd.DataFrame(grade_detail_data)
+            if len(df_detail) > 0:
+                df_detail.to_excel(writer, index=False, sheet_name='年级细化')
+            else:
+                pd.DataFrame(columns=['教师姓名', '年级', '监考场次', '监考时长(分钟)']).to_excel(
+                    writer, index=False, sheet_name='年级细化'
+                )
+
+            # Sheet3: 统计概览
+            total_teachers = len(summary_data)
+            total_slots = sum(d['监考场次'] for d in summary_data) if summary_data else 0
+            total_minutes = sum(d['监考时长(分钟)'] for d in summary_data) if summary_data else 0
+
+            overview_data = [
+                {'统计项': '参与监考教师数', '数值': total_teachers},
+                {'统计项': '总监考场次数', '数值': total_slots},
+                {'统计项': '总监考时长(分钟)', '数值': total_minutes},
+                {'统计项': '总监考时长(小时)', '数值': round(total_minutes / 60, 2)},
+                {'统计项': '人均监考场次', '数值': round(total_slots / total_teachers, 2) if total_teachers > 0 else 0},
+                {'统计项': '人均监考时长(分钟)', '数值': round(total_minutes / total_teachers, 2) if total_teachers > 0 else 0}
+            ]
+            df_overview = pd.DataFrame(overview_data)
+            df_overview.to_excel(writer, index=False, sheet_name='统计概览')
+
+        output.seek(0)
+
+        filename = f"{project['name']}_监考工作量报表.xlsx"
+
+        return StreamingResponse(
+            output,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )

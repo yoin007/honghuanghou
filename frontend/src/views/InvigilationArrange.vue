@@ -16,6 +16,7 @@
           <el-button @click="downloadTemplate">下载模板</el-button>
           <el-button @click="showImportDialog" :disabled="!selectedProjectId">导入Excel</el-button>
           <el-button @click="exportExcel" :disabled="!selectedProjectId">导出Excel</el-button>
+          <el-button @click="exportReport" :disabled="!selectedProjectId">导出报表</el-button>
           <el-button type="success" @click="saveSlots" :disabled="!selectedProjectId || !hasChanges">保存</el-button>
           <el-button type="warning" @click="sendNotifications" :disabled="!selectedProjectId">保存并通知</el-button>
           <el-button @click="showNotificationLogs" :disabled="!selectedProjectId">通知日志</el-button>
@@ -545,6 +546,24 @@ async function exportExcel() {
   } catch (e) {
     console.error('导出失败:', e)
     ElMessage.error('导出失败')
+  }
+}
+
+async function exportReport() {
+  try {
+    const response = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/report`, { responseType: 'blob' })
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `${currentProject.value?.name || '监考'}_工作量报表.xlsx`)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('报表导出成功')
+  } catch (e) {
+    console.error('报表导出失败:', e)
+    ElMessage.error('报表导出失败')
   }
 }
 
