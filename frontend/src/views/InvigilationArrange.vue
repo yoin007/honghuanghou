@@ -474,7 +474,7 @@ async function loadNotificationLogs() {
 async function downloadTemplate() {
   try {
     const response = await api.get('/api/invigilation/template', { responseType: 'blob' })
-    const url = window.URL.createObjectURL(new Blob([response]))
+    const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
     link.setAttribute('download', '监考安排模板.xlsx')
@@ -533,7 +533,7 @@ async function importExcel() {
 async function exportExcel() {
   try {
     const response = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/export`, { responseType: 'blob' })
-    const url = window.URL.createObjectURL(new Blob([response]))
+    const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
     link.setAttribute('download', `${currentProject.value?.name || '监考安排'}.xlsx`)
