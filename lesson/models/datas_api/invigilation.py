@@ -727,9 +727,10 @@ async def import_invigilation(
                     # 展开横向考场列
                     for room_col in room_cols:
                         # 解析考场名称：支持 "考场1" 或 "第1考场监考" 格式
-                        room_match = re.search(r'(?:第)?(\d+)考场', room_col)
+                        room_match = re.search(r'(?:考场(\d+)|(?:第)?(\d+)考场)', room_col)
                         if room_match:
-                            room_order = int(room_match.group(1))
+                            # 取第一个匹配的数字组
+                            room_order = int(room_match.group(1) or room_match.group(2))
                             room_name = f"考场{room_order}"
                         else:
                             room_order = 0
