@@ -269,7 +269,7 @@ async function loadProjects() {
 
 async function loadTeachers() {
   try {
-    const res = await api.get('/api/teachers')
+    const res = await api.get('/api/invigilation/teachers')
     if (res.success) {
       teachers.value = res.data
     }

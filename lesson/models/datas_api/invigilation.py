@@ -21,6 +21,7 @@ import io
 
 from models.datas_api.auth import User, get_current_user, is_admin_user
 from utils.db_config import INVIGILATION_DB
+from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
 from sendqueue import send_text
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,20 @@ def require_jiaowu(user: User = Depends(get_current_user)) -> User:
     if not is_admin_user(user) and 'jiaowu' not in (user.role or '').split('/'):
         raise HTTPException(403, "需要教务或管理员权限")
     return user
+
+
+# =============================================================================
+# 教师列表 API（从 moral.db 获取）
+# =============================================================================
+
+@router.get("/teachers", summary="获取教师列表")
+async def get_teachers_for_invigilation(user: User = Depends(require_jiaowu)):
+    """获取教师列表用于监考安排"""
+    moral_db = SQLiteMoralDatabase()
+    teachers_data = moral_db.query_all(
+        "SELECT teacher_id, name FROM teacher WHERE is_active = 1 ORDER BY name"
+    )
+    return {"success": True, "data": teachers_data}
 
 
 # =============================================================================
@@ -645,9 +660,10 @@ async def import_invigilation(
         # 检测布局格式：横向布局有"第X考场监考"列
         is_horizontal = any('考场监考' in col or '第' in col and '监考' in col for col in df.columns)
 
-        # 获取教师列表用于匹配
-        cursor.execute("SELECT teacher_id, name FROM teacher WHERE is_active = 1")
-        teachers = {row['name']: row['teacher_id'] for row in cursor.fetchall()}
+        # 获取教师列表用于匹配（从moral.db）
+        moral_db = SQLiteMoralDatabase()
+        teachers_data = moral_db.query_all("SELECT teacher_id, name FROM teacher WHERE is_active = 1")
+        teachers = {row['name']: row['teacher_id'] for row in teachers_data}
 
         # 导入数据
         imported = []
