@@ -52,7 +52,7 @@
     <!-- 年级Tabs -->
     <el-card v-if="selectedProjectId" class="slots-card">
       <el-tabs v-model="activeGradeId" type="card">
-        <el-tab-pane v-for="grade in projectGrades" :key="grade.id" :label="grade.name" :name="String(grade.id)">
+        <el-tab-pane v-for="grade in visibleGrades" :key="grade.id" :label="grade.name" :name="String(grade.id)">
           <!-- 横向布局表格 -->
           <div class="horizontal-table-wrapper">
             <table class="horizontal-table" v-if="horizontalSlots[grade.id]?.length">
@@ -325,6 +325,14 @@ const projectGrades = [
   { id: 3, name: '高三' }
 ]
 
+// 根据项目的grade_ids过滤显示的年级
+const visibleGrades = computed(() => {
+  if (!currentProject.value || !currentProject.value.grade_ids) {
+    return projectGrades  // 无项目时显示全部
+  }
+  return projectGrades.filter(g => currentProject.value.grade_ids.includes(g.id))
+})
+
 const activeGradeId = ref('1')
 
 // 拖拽状态
@@ -407,6 +415,11 @@ async function loadProjectSlots() {
     const projectRes = await api.get(`/api/invigilation/projects/${selectedProjectId.value}`)
     if (projectRes.success) {
       currentProject.value = projectRes.data
+      // 自动选择第一个可用年级
+      const gradeIds = currentProject.value.grade_ids || [1, 2, 3]
+      if (!gradeIds.includes(parseInt(activeGradeId.value))) {
+        activeGradeId.value = String(gradeIds[0])
+      }
     }
 
     const slotsRes = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/slots`)
