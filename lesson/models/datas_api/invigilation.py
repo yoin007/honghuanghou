@@ -657,8 +657,13 @@ async def import_invigilation(
         content = await file.read()
         df = pd.read_excel(io.BytesIO(content))
 
-        # 检测布局格式：横向布局有"第X考场监考"列
-        is_horizontal = any('考场监考' in col or '第' in col and '监考' in col for col in df.columns)
+        # 检测布局格式：横向布局有考场列（支持"考场1"和"第1考场监考"两种格式）
+        is_horizontal = any(
+            '考场监考' in col or
+            ('第' in col and '监考' in col) or
+            re.match(r'考场\d+', col)
+            for col in df.columns
+        )
 
         # 获取教师列表用于匹配（从moral.db）
         with SQLiteMoralDatabase() as moral_db:
