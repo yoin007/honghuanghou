@@ -104,6 +104,11 @@
           </router-view>
         </el-main>
       </el-container>
+      <el-footer class="app-footer" height="40px">
+        <div class="footer-content">
+          <span>© 2026 数字天龙 - 班级管理系统</span>
+        </div>
+      </el-footer>
     </el-container>
 
     <!-- 登录对话框 -->
@@ -472,6 +477,19 @@ onMounted(() => {
   overflow-y: auto;
   background-color: var(--background-color);
   position: relative;
+}
+
+.app-footer {
+  background-color: #f5f5f5;
+  border-top: 1px solid #e4e7ed;
+  flex-shrink: 0;
+}
+
+.footer-content {
+  text-align: center;
+  color: #909399;
+  font-size: 12px;
+  line-height: 40px;
 }
 
 .fade-enter-active,
