@@ -584,14 +584,16 @@ async def get_notification_logs(
 
 @router.get("/template", summary="下载导入模板")
 async def download_template(user: User = Depends(require_jiaowu)):
-    """下载监考安排导入模板（横向布局）"""
+    """下载监考安排导入模板（横向布局，场次和时间分开）"""
     import pandas as pd
 
-    # 横向布局：同一学科不同考场横向排列
+    # 横向布局：同一学科不同考场横向排列，场次和时间分开
     template_data = {
         '年级': ['高一', '高一', '高一', '高二', '高二', '高三'],
         '日期': ['2026-05-10', '2026-05-10', '2026-05-11', '2026-05-10', '2026-05-10', '2026-05-11'],
-        '场次': ['第一场(08:00-10:00)', '第二场(10:20-12:00)', '第三场(14:00-16:00)', '第一场(08:00-10:00)', '第二场(10:20-12:00)', '第一场(08:00-10:00)'],
+        '场次': ['第一场', '第二场', '第三场', '第一场', '第二场', '第一场'],
+        '开始时间': ['08:00', '10:20', '14:00', '08:00', '10:20', '08:00'],
+        '结束时间': ['10:00', '12:00', '16:00', '10:00', '12:00', '10:00'],
         '学科': ['语文', '数学', '英语', '语文', '数学', '物理'],
         '第1考场监考': ['张三', '王五', '周九', '赵六', '吴十', '孙八'],
         '第2考场监考': ['李四', '钱七', '郑十一', '冯十二', '陈十三', '褚十四'],
@@ -654,7 +656,7 @@ async def import_invigilation(
         # 年级名称映射
         grade_map = {'高一': 1, '高二': 2, '高三': 3}
 
-        # 场次时间解析：从"场次"列解析时间
+        # 场次时间解析：从"场次"列解析时间（备用）
         def parse_session(session_str):
             """解析场次字符串，如 '第一场(08:00-10:00)' """
             import re
@@ -665,12 +667,15 @@ async def import_invigilation(
 
         if is_horizontal:
             # 横向布局：每行展开为多条slot记录
-            required_cols = ['年级', '日期', '场次', '学科']
+            required_cols = ['年级', '日期', '学科']
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 raise HTTPException(400, f"缺少必要列: {', '.join(missing_cols)}")
 
             room_cols = [col for col in df.columns if '考场监考' in col or ('第' in col and '监考' in col)]
+
+            # 检查是否有独立的时间列
+            has_time_cols = '开始时间' in df.columns and '结束时间' in df.columns
 
             for idx, row in df.iterrows():
                 try:
@@ -685,9 +690,18 @@ async def import_invigilation(
                         continue
 
                     exam_date = str(row['日期'])
-                    session = str(row['场次'])
-                    start_time, end_time = parse_session(session)
                     subject = str(row['学科'])
+
+                    # 获取时间：优先使用独立列，否则从场次解析
+                    if has_time_cols:
+                        start_time = str(row['开始时间'])
+                        end_time = str(row['结束时间'])
+                    elif '场次' in df.columns:
+                        session = str(row['场次'])
+                        start_time, end_time = parse_session(session)
+                    else:
+                        errors.append(f"第{idx+2}行: 缺少时间信息")
+                        continue
 
                     # 展开横向考场列
                     for room_col in room_cols:
