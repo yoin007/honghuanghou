@@ -498,13 +498,24 @@ async def get_changes_preview(
         current_slots = [dict(row) for row in cursor.fetchall()]
 
         # 获取上次通知时的安排（从通知日志中的slots_json）
+        # 查询最新版本的日志，而不是 current_version - 1
         cursor.execute("""
-            SELECT teacher_id, slots_json
-            FROM invigilation_notification_log
-            WHERE project_id = ? AND version_no = ?
-            ORDER BY sent_at DESC
-        """, (project_id, current_version - 1 if current_version > 0 else 0))
-        previous_logs = cursor.fetchall()
+            SELECT DISTINCT version_no FROM invigilation_notification_log
+            WHERE project_id = ?
+            ORDER BY version_no DESC LIMIT 1
+        """, (project_id,))
+        latest_log_version = cursor.fetchone()
+
+        if latest_log_version:
+            cursor.execute("""
+                SELECT teacher_id, slots_json
+                FROM invigilation_notification_log
+                WHERE project_id = ? AND version_no = ?
+                ORDER BY sent_at DESC
+            """, (project_id, latest_log_version[0]))
+            previous_logs = cursor.fetchall()
+        else:
+            previous_logs = []
 
         # 解析上次的安排
         previous_slots = []
@@ -693,13 +704,24 @@ async def send_notifications(
         current_slots = [dict(row) for row in cursor.fetchall()]
 
         # 获取上次通知时的安排
+        # 查询最新版本的日志
         cursor.execute("""
-            SELECT teacher_id, slots_json
-            FROM invigilation_notification_log
-            WHERE project_id = ? AND version_no = ?
-            ORDER BY sent_at DESC
-        """, (project_id, project['version_no'] if project['version_no'] > 0 else 0))
-        previous_logs = cursor.fetchall()
+            SELECT DISTINCT version_no FROM invigilation_notification_log
+            WHERE project_id = ?
+            ORDER BY version_no DESC LIMIT 1
+        """, (project_id,))
+        latest_log_version = cursor.fetchone()
+
+        if latest_log_version:
+            cursor.execute("""
+                SELECT teacher_id, slots_json
+                FROM invigilation_notification_log
+                WHERE project_id = ? AND version_no = ?
+                ORDER BY sent_at DESC
+            """, (project_id, latest_log_version[0]))
+            previous_logs = cursor.fetchall()
+        else:
+            previous_logs = []
 
         previous_slots = []
         for log in previous_logs:
