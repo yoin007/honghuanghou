@@ -104,10 +104,10 @@ def require_jiaowu(user: User = Depends(get_current_user)) -> User:
 @router.get("/teachers", summary="获取教师列表")
 async def get_teachers_for_invigilation(user: User = Depends(require_jiaowu)):
     """获取教师列表用于监考安排"""
-    moral_db = SQLiteMoralDatabase()
-    teachers_data = moral_db.query_all(
-        "SELECT teacher_id, name FROM teacher WHERE is_active = 1 ORDER BY name"
-    )
+    with SQLiteMoralDatabase() as moral_db:
+        teachers_data = moral_db.query_all(
+            "SELECT teacher_id, name FROM teacher WHERE is_active = 1 ORDER BY name"
+        )
     return {"success": True, "data": teachers_data}
 
 
@@ -661,8 +661,8 @@ async def import_invigilation(
         is_horizontal = any('考场监考' in col or '第' in col and '监考' in col for col in df.columns)
 
         # 获取教师列表用于匹配（从moral.db）
-        moral_db = SQLiteMoralDatabase()
-        teachers_data = moral_db.query_all("SELECT teacher_id, name FROM teacher WHERE is_active = 1")
+        with SQLiteMoralDatabase() as moral_db:
+            teachers_data = moral_db.query_all("SELECT teacher_id, name FROM teacher WHERE is_active = 1")
         teachers = {row['name']: row['teacher_id'] for row in teachers_data}
 
         # 导入数据
