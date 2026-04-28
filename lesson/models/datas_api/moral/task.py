@@ -15,9 +15,12 @@ from pydantic import BaseModel, Field
 from .base import (
     get_moral_db,
     get_current_school_year,
+    get_current_semester,
     get_student_class_snapshot,
     log_operation,
     require_permission,
+    check_moral_permission,
+    get_teacher_class_id,
 )
 from models.datas_api.auth import User, get_current_user
 
@@ -243,10 +246,15 @@ async def get_task_finish_records(
 async def finish_task(
     record: TaskFinishCreate,
     request: Request,
-    user: User = Depends(require_permission('moral_record_own_class'))
+    user: User = Depends(get_current_user)
 ):
     """记录任务完成"""
     with get_moral_db() as db:
+        can_manage_all = check_moral_permission(user, 'moral_record_manage')
+        can_manage_own_class = check_moral_permission(user, 'moral_record_own_class')
+        if not can_manage_all and not can_manage_own_class:
+            raise HTTPException(403, "权限不足：需要德育任务完成记录权限")
+
         current_year = get_current_school_year(db)
         if not current_year:
             raise HTTPException(400, "当前学年未配置")
@@ -268,6 +276,11 @@ async def finish_task(
         )
         if not student:
             raise HTTPException(404, "学生不存在或不在校")
+
+        if not can_manage_all:
+            my_class_id = get_teacher_class_id(user, db)
+            if my_class_id is None or my_class_id != student['class_id']:
+                raise HTTPException(403, "只能记录本班学生任务完成情况")
 
         # 检查是否已有记录
         existing = db.query_one(
@@ -302,6 +315,24 @@ async def finish_task(
                 (student_id, task_id, year_id, status, finish_date, finish_year_id, proof, current_score)
                 VALUES (%s, %s, %s, 1, %s, %s, %s, %s)""",
                 (record.student_id, record.task_id, year_id, finish_date, year_id, record.remark, task['score'])
+            )
+            finish_id = db.lastrowid()
+
+            log_operation(
+                db, user.username, user.role, 'INSERT', 'student_task_finish',
+                finish_id, new_data={'student_id': record.student_id, 'task_id': record.task_id, 'status': 1},
+                ip_address=request.client.host if request.client else None
+            )
+
+        current_semester = get_current_semester(db)
+        if current_semester:
+            from .evaluation import calculate_evaluation
+            calculate_evaluation(
+                db,
+                record.student_id,
+                current_semester['semester_id'],
+                student['class_id'],
+                student['grade_id'],
             )
 
         return {"success": True, "message": "任务完成记录已更新"}

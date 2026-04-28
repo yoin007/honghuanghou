@@ -112,7 +112,7 @@
             <el-table-column prop="remark" label="备注" show-overflow-tooltip />
             <el-table-column label="操作" width="100" fixed="right">
               <template #default="{ row }">
-                <el-button link type="danger" @click="handleDeleteFinish(row)">删除</el-button>
+                <el-button link type="danger" @click="handleDeleteFinish(row)" v-if="canDeleteFinishRecord">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -272,6 +272,7 @@ const canCreateTask = ref(false)
 const canUpdateTask = ref(false)
 const canDeleteTask = ref(false)
 const canFinishTask = ref(false)
+const canDeleteFinishRecord = ref(false)
 
 // Tab
 const activeTab = ref('tasks')

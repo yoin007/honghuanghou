@@ -11,7 +11,7 @@
 班级管理系统是一个综合性的学校管理平台，集成了课程管理、德育评价、用户管理、文件管理等多个功能模块。
 
 ### 技术栈
-- **后端**：Python 3.10 + FastAPI + MySQL + SQLite
+- **后端**：Python 3.10 + FastAPI + SQLite
 - **前端**：Vue 3 + Element Plus + Vite
 - **认证**：JWT Token
 
@@ -383,8 +383,9 @@
 - **API文档**：http://localhost:8000/docs
 
 ### 7.2 数据库
-- **MySQL**：172.31.25.228:3306
-- **数据库**：moral_evaluation
+- **主存储**：SQLite
+- **德育数据库**：`lesson/databases/moral.db`
+- **其他业务库**：`lesson/databases/*.db`
 
 ### 7.3 测试账号
 | 用户名 | 角色 |
@@ -428,8 +429,8 @@
 - 新增德育评价系统完整功能
 - 新增10个后端API模块，45个API端点
 - 新增7个前端页面组件
-- 新增MySQL连接池管理
-- 新增数据迁移脚本
+- 新增 SQLite 德育数据库访问层
+- 新增德育表结构初始化脚本
 - 139个测试用例全部通过
 
 ### v2.0.0

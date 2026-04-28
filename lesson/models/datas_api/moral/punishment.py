@@ -168,8 +168,8 @@ async def create_punishment(
         )
         if not event:
             # 如果不存在，创建一个新的事件类型
-            level_score_map = {1: -5, 2: -10, 3: -20, 4: -30}
-            score = punishment.score_deduct if punishment.score_deduct else level_score_map.get(punishment.punishment_level, -10)
+            level_score_map = {1: 5, 2: 10, 3: 20, 4: 30}
+            score = abs(punishment.score_deduct) if punishment.score_deduct else level_score_map.get(punishment.punishment_level, 10)
             db.execute(
                 """INSERT INTO school_event_type (event_name, event_type, score, is_active)
                 VALUES (%s, 2, %s, 1)""",
@@ -180,8 +180,8 @@ async def create_punishment(
             event_id = event['event_id']
 
         # 计算扣分
-        level_score_map = {1: -5, 2: -10, 3: -20, 4: -30}
-        score_deduct = punishment.score_deduct if punishment.score_deduct else level_score_map.get(punishment.punishment_level, -10)
+        level_score_map = {1: 5, 2: 10, 3: 20, 4: 30}
+        score_deduct = abs(punishment.score_deduct) if punishment.score_deduct else level_score_map.get(punishment.punishment_level, 10)
 
         # 处分等级文本
         level_map = {1: '一级', 2: '二级', 3: '三级', 4: '四级'}
@@ -238,13 +238,15 @@ async def update_punishment(
         # 处分等级文本
         level_map = {1: '一级', 2: '二级', 3: '三级', 4: '四级'}
         level_text = level_map.get(punishment.punishment_level, '二级')
+        level_score_map = {1: 5, 2: 10, 3: 20, 4: 30}
+        score_deduct = abs(punishment.score_deduct) if punishment.score_deduct else level_score_map.get(punishment.punishment_level, 10)
 
         db.execute(
             """UPDATE punishment_record SET
             punishment_date = %s, level = %s, reason = %s, score_deduct = %s
             WHERE id = %s""",
             (punishment.punishment_date, level_text, punishment.punishment_reason,
-             punishment.score_deduct, record_id)
+             score_deduct, record_id)
         )
 
         log_operation(

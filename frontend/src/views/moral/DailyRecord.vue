@@ -300,7 +300,7 @@ const handleClassChange = async (classId) => {
   if (!classId) return
 
   try {
-    const res = await getStudents({ class_id: classId, page_size: 100 })
+    const res = await getStudents({ class_id: classId, page_size: 10000, for_record_input: 1 })
     if (res.success) {
       classStudents.value = res.data.items || res.data || []
     }
@@ -346,7 +346,7 @@ const handleEdit = async (row) => {
   // 加载该班级的学生列表
   if (classId) {
     try {
-      const res = await getStudents({ class_id: classId, page_size: 100 })
+      const res = await getStudents({ class_id: classId, page_size: 10000, for_record_input: 1 })
       if (res.success) {
         classStudents.value = res.data.items || res.data || []
       }

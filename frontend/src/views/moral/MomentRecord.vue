@@ -36,7 +36,7 @@
           <span>我的点滴记录</span>
           <div class="header-actions">
             <el-button @click="handleExport">导出</el-button>
-            <el-button type="primary" @click="handleAdd">新增记录</el-button>
+            <el-button type="primary" @click="handleAdd" v-if="canCreateMomentRecord">新增记录</el-button>
           </div>
         </div>
       </template>
@@ -62,8 +62,8 @@
         <el-table-column prop="record_date" label="记录日期" width="100" />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateMomentRecord">编辑</el-button>
+            <el-button link type="danger" @click="handleDelete(row)" v-if="canDeleteMomentRecord">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -136,6 +136,12 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/utils/api'
 import { getGMT8DateString } from '@/utils/time'
+import { useApiPermission } from '@/composables/useApiPermission'
+
+const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
+const canCreateMomentRecord = ref(false)
+const canUpdateMomentRecord = ref(false)
+const canDeleteMomentRecord = ref(false)
 
 const loading = ref(false)
 const recordList = ref([])
@@ -232,7 +238,7 @@ const fetchClassesAndStudents = async () => {
     }
 
     // 获取每个班级的学生（简化处理，获取所有学生后按班级分组）
-    const studentRes = await api.get('/api/moral/admin/students', { params: { page: 1, page_size: 500 } })
+    const studentRes = await api.get('/api/moral/admin/students', { params: { page: 1, page_size: 10000, for_record_input: 1 } })
     if (studentRes.success) {
       const students = studentRes.data.items
       const grouped = {}
@@ -344,12 +350,12 @@ const handleExport = async () => {
   try {
     ElMessage.info('正在导出数据...')
     const res = await api.get('/api/moral/moment-records', { params })
-    if (!res.data?.success || !res.data?.data?.items || res.data.data.items.length === 0) {
+    if (!res.success || !res.data?.items || res.data.items.length === 0) {
       ElMessage.warning('暂无数据可导出')
       return
     }
 
-    const exportData = res.data.data.items
+    const exportData = res.data.items
     let csvContent = '学号,姓名,班级,记录类型,标题,内容,日期\n'
     exportData.forEach(row => {
       csvContent += `${row.student_id},${row.student_name},${row.class_name},${row.record_type},${row.title || ''},${row.content},${row.record_date}\n`
@@ -369,7 +375,11 @@ const handleExport = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadMyPermissions()
+  canCreateMomentRecord.value = hasApiPermissionSync('/api/moral/moment-records/create')
+  canUpdateMomentRecord.value = hasApiPermissionSync('/api/moral/moment-records/update')
+  canDeleteMomentRecord.value = hasApiPermissionSync('/api/moral/moment-records/delete')
   fetchRecords()
   fetchClassesAndStudents()
 })

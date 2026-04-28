@@ -20,6 +20,7 @@ from .base import (
     check_moral_permission,
     check_class_access,
     get_teacher_class_id,
+    has_user_role,
 )
 from models.datas_api.auth import User, get_current_user, is_admin_user
 
@@ -514,6 +515,7 @@ async def get_students(
     class_id: Optional[int] = Query(None),
     grade_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
+    for_record_input: int = Query(0, description="1=德育录入选择学生，仅返回最小字段"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=10000),  # 放开上限支持导出全量数据
     user: User = Depends(get_current_user)
@@ -532,8 +534,15 @@ async def get_students(
         # 班主任权限过滤
         my_class_id = get_teacher_class_id(user, db)
 
-        is_cleader_by_role = user.role == 'cleader' and not check_moral_permission(user, 'student_manage')
-        is_cleader_by_class = my_class_id is not None and not check_moral_permission(user, 'student_manage')
+        is_record_input_lookup = bool(for_record_input) and check_moral_permission(user, 'moral_record_input')
+        has_full_access = check_moral_permission(user, 'student_manage') or check_moral_permission(user, 'report_view_all')
+        has_own_class_access = check_moral_permission(user, 'student_manage_own_class')
+
+        if not has_full_access and not has_own_class_access and not is_record_input_lookup:
+            raise HTTPException(403, "权限不足：需要学生查看权限")
+
+        is_cleader_by_role = has_user_role(user, 'cleader') and not has_full_access and not is_record_input_lookup
+        is_cleader_by_class = my_class_id is not None and not has_full_access and not is_record_input_lookup
 
         if is_cleader_by_role or is_cleader_by_class:
             if my_class_id:
@@ -561,8 +570,13 @@ async def get_students(
         total = db.query_value(count_query, tuple(params))
 
         offset = (page - 1) * page_size
+        fields = (
+            "s.student_id, s.name, s.class_id, s.grade_id, s.status, c.class_name, g.grade_name"
+            if is_record_input_lookup
+            else "s.*, c.class_name, g.grade_name"
+        )
         data_query = f"""
-            SELECT s.*, c.class_name, g.grade_name
+            SELECT {fields}
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             JOIN grade g ON s.grade_id = g.grade_id

@@ -218,7 +218,7 @@ const selectedProjectId = ref(null)
 const currentProject = ref(null)
 const slots = ref([])  // 原始纵向数据
 const horizontalSlots = ref({})  // 转换后的横向数据
-const maxRooms = ref({ 1: 3, 2: 3, 3: 3 })  // 每个年级的考场数量
+const maxRooms = ref({ 1: 1, 2: 1, 3: 1 })  // 每个年级的考场数量
 const teachers = ref([])
 const hasChanges = ref(false)
 
@@ -319,7 +319,7 @@ function convertToHorizontal() {
     const gradeSlots = slots.value.filter(s => s.grade_id === grade.id)
     if (gradeSlots.length === 0) {
       result[grade.id] = []
-      roomCounts[grade.id] = 3
+      roomCounts[grade.id] = 1
       continue
     }
 
@@ -346,7 +346,7 @@ function convertToHorizontal() {
     }
 
     result[grade.id] = Object.values(groups)
-    roomCounts[grade.id] = Math.max(maxRoom, 3)  // 最少3个考场
+    roomCounts[grade.id] = Math.max(maxRoom, 1)  // 最少1个考场，根据实际数据
   }
 
   horizontalSlots.value = result

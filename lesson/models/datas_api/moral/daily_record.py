@@ -461,10 +461,13 @@ async def update_daily_record(
     record_id: int,
     update_data: DailyRecordUpdate,
     request: Request,
-    user: User = Depends(require_permission('moral_record_manage'))
+    user: User = Depends(get_current_user)
 ):
     """更新日常表现记录"""
     with get_moral_db() as db:
+        if not check_moral_permission(user, 'moral_record_manage') and not check_moral_permission(user, 'moral_record_input'):
+            raise HTTPException(403, "权限不足：需要日常表现记录权限")
+
         # 获取原记录
         old_record = db.query_one(
             "SELECT * FROM student_daily_record WHERE record_id = %s",
@@ -472,6 +475,9 @@ async def update_daily_record(
         )
         if not old_record:
             raise HTTPException(404, "记录不存在")
+
+        if not check_moral_permission(user, 'moral_record_manage') and old_record['recorder'] != user.username:
+            raise HTTPException(403, "只能编辑自己创建的记录")
 
         # 构建更新语句
         updates = []
@@ -514,7 +520,7 @@ async def update_daily_record(
 async def delete_daily_record(
     record_id: int,
     request: Request,
-    user: User = Depends(require_permission('moral_record_manage'))
+    user: User = Depends(get_current_user)
 ):
     """
     删除日常表现记录（软删除）
@@ -522,6 +528,9 @@ async def delete_daily_record(
     删除后会重新计算德育评价总分
     """
     with get_moral_db() as db:
+        if not check_moral_permission(user, 'moral_record_manage') and not check_moral_permission(user, 'moral_record_input'):
+            raise HTTPException(403, "权限不足：需要日常表现记录权限")
+
         # 获取原记录
         old_record = db.query_one(
             "SELECT * FROM student_daily_record WHERE record_id = %s",
@@ -530,6 +539,9 @@ async def delete_daily_record(
 
         if not old_record:
             raise HTTPException(404, "记录不存在")
+
+        if not check_moral_permission(user, 'moral_record_manage') and old_record['recorder'] != user.username:
+            raise HTTPException(403, "只能删除自己创建的记录")
 
         # 软删除
         db.execute(

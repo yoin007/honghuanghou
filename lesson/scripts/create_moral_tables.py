@@ -348,10 +348,12 @@ CREATE TABLE IF NOT EXISTS collective_event (
     event_type TEXT NOT NULL,
     semester_id INTEGER NOT NULL,
     event_date TEXT NOT NULL,
+    class_id INTEGER NOT NULL,
     score INTEGER NOT NULL,
     description TEXT,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
-    FOREIGN KEY (semester_id) REFERENCES semester(semester_id)
+    FOREIGN KEY (semester_id) REFERENCES semester(semester_id),
+    FOREIGN KEY (class_id) REFERENCES class(class_id)
 );
 """,
     # 19. 集体事件分配表
@@ -975,10 +977,12 @@ CREATE TABLE IF NOT EXISTS collective_event (
     event_type VARCHAR(20) NOT NULL COMMENT '班级荣誉/集体活动/集体违纪',
     semester_id INT NOT NULL COMMENT '所属学期',
     event_date DATE NOT NULL COMMENT '事件日期',
+    class_id INT NOT NULL COMMENT '班级ID',
     score INT NOT NULL COMMENT '每人得分/扣分',
     description TEXT COMMENT '事件描述',
     created_at DATETIME DEFAULT NOW(),
-    FOREIGN KEY (semester_id) REFERENCES semester(semester_id)
+    FOREIGN KEY (semester_id) REFERENCES semester(semester_id),
+    FOREIGN KEY (class_id) REFERENCES class(class_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='集体事件表';
 """,
     # 19. 集体事件分配表
@@ -1471,6 +1475,176 @@ SQLite_INITIAL_DATA_SQL = [
 ]
 
 
+def ensure_sqlite_schema(conn: sqlite3.Connection):
+    """补齐已有 SQLite 数据库的增量字段。"""
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(collective_event)").fetchall()
+    }
+    if columns and "class_id" not in columns:
+        logger.info("Adding missing SQLite column: collective_event.class_id")
+        conn.execute("ALTER TABLE collective_event ADD COLUMN class_id INTEGER")
+
+    permission_rows = [
+        (
+            "/api/moral/daily-records/update",
+            "更新日常记录",
+            "日常表现",
+            '["admin", "jiaowu", "xuefa", "cleader", "teacher"]',
+            10,
+            "更新自己创建的日常表现记录",
+        ),
+        (
+            "/api/moral/daily-records/delete",
+            "删除日常记录",
+            "日常表现",
+            '["admin", "jiaowu", "xuefa", "cleader", "teacher"]',
+            10,
+            "删除自己创建的日常表现记录",
+        ),
+        (
+            "/api/moral/collective-events",
+            "集体事件管理",
+            "集体事件",
+            '["admin", "jiaowu", "xuefa", "cleader"]',
+            30,
+            "集体事件列表、详情和分配管理",
+        ),
+        (
+            "/api/moral/collective-events/create",
+            "创建集体事件",
+            "集体事件",
+            '["admin", "jiaowu", "xuefa", "cleader"]',
+            30,
+            "创建班级集体事件并分配到学生",
+        ),
+        (
+            "/api/moral/collective-events/update",
+            "更新集体事件",
+            "集体事件",
+            '["admin", "jiaowu", "xuefa", "cleader"]',
+            30,
+            "更新集体事件基本信息",
+        ),
+        (
+            "/api/moral/collective-events/delete",
+            "删除集体事件",
+            "集体事件",
+            '["admin", "jiaowu", "xuefa", "cleader"]',
+            30,
+            "删除集体事件及分配记录",
+        ),
+        (
+            "/api/moral/collective-events/distributions/update",
+            "调整集体事件分配",
+            "集体事件",
+            '["admin", "jiaowu", "xuefa", "cleader"]',
+            30,
+            "调整学生是否参与集体事件及实际得分",
+        ),
+        (
+            "/api/moral/moment-records/update",
+            "更新点滴记录",
+            "点滴记录",
+            '["admin", "jiaowu", "xuefa", "cleader", "teacher"]',
+            10,
+            "更新自己创建的点滴记录",
+        ),
+        (
+            "/api/moral/moment-records/delete",
+            "删除点滴记录",
+            "点滴记录",
+            '["admin", "jiaowu", "xuefa", "cleader", "teacher"]',
+            10,
+            "删除自己创建的点滴记录",
+        ),
+        (
+            "/api/moral/profiles/student",
+            "获取学生画像",
+            "学生画像",
+            '["admin", "jiaowu", "xuefa", "cleader"]',
+            30,
+            "获取学生画像",
+        ),
+        (
+            "/api/moral/evaluations/class",
+            "班级评价查询",
+            "评价查询",
+            '["admin", "jiaowu", "xuefa", "cleader"]',
+            30,
+            "获取班级德育评价汇总",
+        ),
+    ]
+    conn.executemany(
+        """INSERT OR IGNORE INTO api_permission_config
+        (api_path, api_name, api_group, allowed_roles, min_level, description)
+        VALUES (?, ?, ?, ?, ?, ?)""",
+        permission_rows,
+    )
+    conn.execute(
+        """UPDATE api_permission_config
+        SET allowed_roles = ?, min_level = ?, description = ?
+        WHERE api_path = ?""",
+        (
+            '["admin", "jiaowu", "xuefa", "cleader", "teacher"]',
+            10,
+            "更新自己创建的日常表现记录",
+            "/api/moral/daily-records/update",
+        ),
+    )
+    conn.execute(
+        """UPDATE api_permission_config
+        SET allowed_roles = ?, min_level = ?, description = ?
+        WHERE api_path = ?""",
+        (
+            '["admin", "jiaowu", "xuefa", "cleader", "teacher"]',
+            10,
+            "删除自己创建的日常表现记录",
+            "/api/moral/daily-records/delete",
+        ),
+    )
+    conn.execute(
+        """UPDATE api_permission_config
+        SET allowed_roles = ?, min_level = ?, description = ?
+        WHERE api_path = ?""",
+        (
+            '["admin", "jiaowu", "xuefa", "cleader", "teacher"]',
+            10,
+            "更新自己创建的点滴记录",
+            "/api/moral/moment-records/update",
+        ),
+    )
+    conn.execute(
+        """UPDATE api_permission_config
+        SET allowed_roles = ?, min_level = ?, description = ?
+        WHERE api_path = ?""",
+        (
+            '["admin", "jiaowu", "xuefa", "cleader", "teacher"]',
+            10,
+            "删除自己创建的点滴记录",
+            "/api/moral/moment-records/delete",
+        ),
+    )
+    conn.execute(
+        """UPDATE api_permission_config
+        SET allowed_roles = ?, min_level = ?
+        WHERE api_path = ?""",
+        ('["admin", "jiaowu", "xuefa", "cleader"]', 30, "/api/moral/tasks"),
+    )
+    conn.execute(
+        """UPDATE api_permission_config
+        SET allowed_roles = ?, min_level = ?
+        WHERE api_path = ?""",
+        ('["admin", "jiaowu", "xuefa", "cleader"]', 30, "/api/moral/tasks/finish"),
+    )
+    conn.execute(
+        """UPDATE api_permission_config
+        SET allowed_roles = ?, min_level = ?
+        WHERE api_path = ?""",
+        ('["admin", "jiaowu", "xuefa", "cleader"]', 30, "/api/moral/evaluations/class"),
+    )
+
+
 def create_sqlite_tables(db_path: str = None, drop_existing: bool = False):
     """
     创建SQLite表
@@ -1509,6 +1683,8 @@ def create_sqlite_tables(db_path: str = None, drop_existing: bool = False):
                 if stmt:
                     conn.execute(stmt)
             logger.info(f"SQLite table '{table_name}' created")
+
+        ensure_sqlite_schema(conn)
 
         # 插入初始数据
         logger.info("Inserting SQLite initial data...")

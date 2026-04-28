@@ -39,7 +39,7 @@
 
     <!-- 学生选择 -->
     <el-card v-if="showStudentList" class="student-list-card">
-      <el-table :data="studentList" v-loading="studentLoading" stripe max-height="300">
+      <el-table :data="studentList" v-loading="studentLoading" stripe>
         <el-table-column prop="student_id" label="学号" min-width="120" />
         <el-table-column prop="name" label="姓名" min-width="100" />
         <el-table-column prop="class_name" label="班级" min-width="120" />
@@ -247,6 +247,9 @@ onMounted(() => {
 <style scoped>
 .life-book-page {
   padding: 20px;
+  min-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
 }
 
 .filter-card {
@@ -271,6 +274,13 @@ onMounted(() => {
 
 .student-list-card {
   margin-bottom: 20px;
+  flex: 1;
+}
+
+.student-list-card :deep(.el-card__body) {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .student-list-card .pagination {

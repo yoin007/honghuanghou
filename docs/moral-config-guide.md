@@ -366,7 +366,7 @@
 学生数据通过 Excel 模板导入：
 1. 准备 `checkTemplate.xlsx` 文件
 2. 在学生工作表填写数据
-3. 运行数据迁移脚本：`python scripts/migrate_to_mysql.py`
+3. 运行 SQLite 初始化/导入脚本，例如：`python scripts/create_moral_tables.py --sqlite`
 4. 验证导入结果
 
 ### Q2: 如何修改已毕业学生的状态？

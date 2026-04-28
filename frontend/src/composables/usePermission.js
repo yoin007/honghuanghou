@@ -27,6 +27,59 @@ export function usePermission() {
     return role.value.includes(targetRole)
   }
 
+  const permissionMap = {
+    admin: ['all'],
+    jiaowu: [
+      'moral_record_manage',
+      'moral_record_input',
+      'moral_record_own_class',
+      'student_manage',
+      'report_view_all',
+      'student_profile',
+      'birthday_reminder',
+      'collective_event_manage'
+    ],
+    xuefa: [
+      'moral_record_manage',
+      'moral_record_input',
+      'moral_record_own_class',
+      'punishment_manage',
+      'event_type_manage',
+      'student_manage',
+      'report_view_all',
+      'student_profile',
+      'ai_consultation',
+      'birthday_reminder',
+      'collective_event_manage'
+    ],
+    cleader: [
+      'moral_record_input',
+      'moral_record_own_class',
+      'report_view_own_class',
+      'student_manage_own_class',
+      'student_profile_own_class',
+      'ai_consultation_own_class',
+      'birthday_reminder_own_class',
+      'collective_event_manage',
+      'consultation_create',
+      'consultation_close'
+    ],
+    teacher: [
+      'moral_record_input',
+      'student_view'
+    ]
+  }
+
+  const hasPermission = (permission) => {
+    if (!permission || !role.value) return false
+    if (isAdmin.value) return true
+
+    return role.value.split('/').some((r) => {
+      const permissions = permissionMap[r] || []
+      return permissions.includes('all') || permissions.includes(permission)
+    })
+  }
+
   /**
    * 检查是否是教师（含学法权限）
    * @returns {boolean}
@@ -112,6 +165,7 @@ export function usePermission() {
     canManageTeachers,
     canManageSystem,
     // 方法
+    hasPermission,
     hasRole,
     isOwner,
     canEdit

@@ -21,6 +21,7 @@ from .base import (
     get_current_semester,
     require_permission,
     get_teacher_class_id,
+    has_user_role,
 )
 from models.datas_api.auth import User, get_current_user
 
@@ -71,7 +72,7 @@ async def get_student_profile(
     """
     with get_moral_db() as db:
         # 权限检查
-        if user.role == 'student' and user.username != student_id:
+        if has_user_role(user, 'student') and user.username != student_id:
             raise HTTPException(403, "只能查看自己的画像")
 
         # 获取学生信息
@@ -85,12 +86,13 @@ async def get_student_profile(
         if not student:
             raise HTTPException(404, "学生不存在")
 
-        # 班主任权限检查
-        if user.role == 'cleader':
+        if not check_moral_permission(user, 'student_profile') and not has_user_role(user, 'student'):
+            if not check_moral_permission(user, 'student_profile_own_class'):
+                raise HTTPException(403, "权限不足")
+
             my_class_id = get_teacher_class_id(user, db)
             if my_class_id is None or my_class_id != student['class_id']:
-                if not check_moral_permission(user, 'student_profile'):
-                    raise HTTPException(403, "只能查看本班学生画像")
+                raise HTTPException(403, "只能查看本班学生画像")
 
         # 获取最新画像
         profile = db.query_one(
@@ -158,23 +160,17 @@ async def generate_student_profile(
         # 获取配置
         config = get_all_profile_config(db)
 
-        # 生成画像
-        profile_summary = generate_profile_summary(analysis)
-        profile_tags = generate_profile_tags(analysis, config.get('tag_rules', {}))
-        strength_tags = [tag for tag in profile_tags if tag in ['责任担当', '诚实守信', '乐于助人', '勤奋刻苦', '积极进取', '团结协作', '文明礼貌']]
-        improvement_tags = [tag for tag in profile_tags if tag not in strength_tags]
-
-        # 计算各项评分（使用配置）
-        moral_score = calculate_moral_subscore(analysis, config.get('scoring_weights', {}).get('moral', {}))
-        attitude_score = calculate_attitude_subscore(analysis, config.get('scoring_weights', {}).get('attitude', {}))
-        social_score = calculate_social_subscore(analysis, config.get('scoring_weights', {}).get('social', {}))
-        growth_score = calculate_growth_subscore(analysis, config.get('scoring_weights', {}).get('growth', {}))
-
-        # 风险评估
-        risk_level = assess_risk_level(analysis, config.get('risk_thresholds', {}))
-
-        # 生成个性化建议
-        suggestions = generate_suggestions(analysis, risk_level)
+        profile_output = build_profile_output(student, analysis, config)
+        profile_summary = profile_output['profile_summary']
+        profile_tags = profile_output['profile_tags']
+        strength_tags = profile_output['strength_tags']
+        improvement_tags = profile_output['improvement_tags']
+        moral_score = profile_output['scores']['moral']
+        attitude_score = profile_output['scores']['attitude']
+        social_score = profile_output['scores']['social']
+        growth_score = profile_output['scores']['growth']
+        risk_level = profile_output['risk_level']
+        suggestions = profile_output['suggestions']
 
         # 获取当前版本号
         current_version = db.query_value(
@@ -251,7 +247,9 @@ async def generate_student_profile(
                     "attitude": attitude_score,
                     "social": social_score,
                     "growth": growth_score
-                }
+                },
+                "analysis": analysis,
+                "ai_used": profile_output.get('ai_used', False)
             }
         }
 
@@ -286,23 +284,17 @@ def generate_single_profile_internal(db, student_id: str, semester_id: int) -> d
     # 获取配置
     config = get_all_profile_config(db)
 
-    # 生成画像
-    profile_summary = generate_profile_summary(analysis)
-    profile_tags = generate_profile_tags(analysis, config.get('tag_rules', {}))
-    strength_tags = [tag for tag in profile_tags if tag in ['责任担当', '诚实守信', '乐于助人', '勤奋刻苦', '积极进取', '团结协作', '文明礼貌']]
-    improvement_tags = [tag for tag in profile_tags if tag not in strength_tags]
-
-    # 计算各项评分（使用配置）
-    moral_score = calculate_moral_subscore(analysis, config.get('scoring_weights', {}).get('moral', {}))
-    attitude_score = calculate_attitude_subscore(analysis, config.get('scoring_weights', {}).get('attitude', {}))
-    social_score = calculate_social_subscore(analysis, config.get('scoring_weights', {}).get('social', {}))
-    growth_score = calculate_growth_subscore(analysis, config.get('scoring_weights', {}).get('growth', {}))
-
-    # 风险评估
-    risk_level = assess_risk_level(analysis, config.get('risk_thresholds', {}))
-
-    # 生成个性化建议
-    suggestions = generate_suggestions(analysis, risk_level)
+    profile_output = build_profile_output(student, analysis, config, use_ai=False)
+    profile_summary = profile_output['profile_summary']
+    profile_tags = profile_output['profile_tags']
+    strength_tags = profile_output['strength_tags']
+    improvement_tags = profile_output['improvement_tags']
+    moral_score = profile_output['scores']['moral']
+    attitude_score = profile_output['scores']['attitude']
+    social_score = profile_output['scores']['social']
+    growth_score = profile_output['scores']['growth']
+    risk_level = profile_output['risk_level']
+    suggestions = profile_output['suggestions']
 
     # 获取当前版本号
     current_version = db.query_value(
@@ -537,6 +529,15 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         (student_id, semester_id)
     )
     analysis['daily_stats'] = {str(s['event_type']): {'count': s['count'], 'total': s['total_score']} for s in daily_stats}
+    analysis['daily_recent'] = db.query_all(
+        """SELECT dr.record_date, det.event_name, det.event_type, dr.score, dr.remark
+        FROM student_daily_record dr
+        JOIN daily_event_type det ON dr.event_id = det.event_id
+        WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+        ORDER BY dr.record_date DESC, dr.created_at DESC
+        LIMIT 8""",
+        (student_id, semester_id)
+    )
 
     # 校级事件统计
     school_stats = db.query_all(
@@ -548,30 +549,199 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         (student_id, semester_id)
     )
     analysis['school_stats'] = {str(s['event_type']): {'count': s['count'], 'total': s['total_score']} for s in school_stats}
+    analysis['school_recent'] = db.query_all(
+        """SELECT sr.get_date as record_date, setype.event_name, setype.event_type, sr.score, sr.proof
+        FROM student_school_record sr
+        JOIN school_event_type setype ON sr.event_id = setype.event_id
+        WHERE sr.student_id = %s AND sr.semester_id = %s AND sr.is_deleted = 0
+        ORDER BY sr.get_date DESC, sr.created_at DESC
+        LIMIT 8""",
+        (student_id, semester_id)
+    )
 
     # 任务完成情况
     task_stats = db.query_one(
         """SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as finished,
-        SUM(CASE WHEN status = 1 THEN current_score ELSE 0 END) as score
-        FROM student_task_finish
-        WHERE student_id = %s""",
-        (student_id,)
+        SUM(CASE WHEN stf.status = 1 THEN 1 ELSE 0 END) as finished,
+        SUM(CASE WHEN stf.status = 1 THEN stf.current_score ELSE 0 END) as score
+        FROM student_task_finish stf
+        JOIN semester sem ON sem.semester_id = %s
+        JOIN school_year sy ON sem.year_id = sy.year_id
+        WHERE stf.student_id = %s AND stf.year_id = sy.year_id""",
+        (semester_id, student_id)
     )
     analysis['task_stats'] = task_stats or {'total': 0, 'finished': 0, 'score': 0}
+    analysis['task_recent'] = db.query_all(
+        """SELECT gmt.task_name, gmt.deadline_type, stf.status, stf.current_score, stf.finish_date
+        FROM student_task_finish stf
+        JOIN grade_moral_task gmt ON stf.task_id = gmt.task_id
+        JOIN semester sem ON sem.semester_id = %s
+        JOIN school_year sy ON sem.year_id = sy.year_id
+        WHERE stf.student_id = %s AND stf.year_id = sy.year_id
+        ORDER BY COALESCE(stf.finish_date, stf.created_at) DESC
+        LIMIT 8""",
+        (semester_id, student_id)
+    )
 
     # 集体活动参与统计（用于社交评分）
     collective_stats = db.query_one(
-        """SELECT COUNT(*) as collective_count
+        """SELECT COUNT(*) as collective_count, COALESCE(SUM(d.score_assigned), 0) as score
         FROM collective_event_distribution d
         JOIN collective_event e ON d.event_id = e.event_id
-        WHERE d.student_id = %s AND e.semester_id = %s""",
+        WHERE d.student_id = %s AND e.semester_id = %s AND d.is_participant = 1""",
         (student_id, semester_id)
     )
-    analysis['collective_stats'] = collective_stats or {'collective_count': 0}
+    analysis['collective_stats'] = collective_stats or {'collective_count': 0, 'score': 0}
+    analysis['collective_recent'] = db.query_all(
+        """SELECT e.event_date, e.event_name, e.event_type, d.score_assigned, d.remark
+        FROM collective_event_distribution d
+        JOIN collective_event e ON d.event_id = e.event_id
+        WHERE d.student_id = %s AND e.semester_id = %s AND d.is_participant = 1
+        ORDER BY e.event_date DESC
+        LIMIT 8""",
+        (student_id, semester_id)
+    )
+
+    punishment_stats = db.query_one(
+        """SELECT COUNT(*) as count, COALESCE(SUM(ABS(score_deduct)), 0) as total_deduct,
+        SUM(CASE WHEN is_revoked = 1 THEN 1 ELSE 0 END) as revoked_count
+        FROM punishment_record
+        WHERE student_id = %s AND semester_id = %s""",
+        (student_id, semester_id)
+    )
+    analysis['punishment_stats'] = punishment_stats or {'count': 0, 'total_deduct': 0, 'revoked_count': 0}
+    analysis['punishment_recent'] = db.query_all(
+        """SELECT punishment_date, level, reason, ABS(score_deduct) as score_deduct, is_revoked
+        FROM punishment_record
+        WHERE student_id = %s AND semester_id = %s
+        ORDER BY punishment_date DESC, created_at DESC
+        LIMIT 5""",
+        (student_id, semester_id)
+    )
+
+    evaluation = db.query_one(
+        """SELECT total_score, level
+        FROM moral_evaluation
+        WHERE student_id = %s AND semester_id = %s""",
+        (student_id, semester_id)
+    )
+    analysis['evaluation'] = evaluation or {'total_score': None, 'level': None}
 
     return analysis
+
+
+def build_profile_output(student: dict, analysis: dict, config: dict, use_ai: bool = True) -> dict:
+    """生成画像内容，AI 不可用时退回本地规则。"""
+    profile_tags = generate_profile_tags(analysis, config.get('tag_rules', {}))
+    strength_tags = [
+        tag for tag in profile_tags
+        if tag in ['责任担当', '诚实守信', '乐于助人', '勤奋刻苦', '积极进取', '团结协作', '文明礼貌', '遵纪守法']
+    ]
+    improvement_tags = [tag for tag in profile_tags if tag not in strength_tags]
+
+    scores = {
+        'moral': calculate_moral_subscore(analysis, config.get('scoring_weights', {}).get('moral', {})),
+        'attitude': calculate_attitude_subscore(analysis, config.get('scoring_weights', {}).get('attitude', {})),
+        'social': calculate_social_subscore(analysis, config.get('scoring_weights', {}).get('social', {})),
+        'growth': calculate_growth_subscore(analysis, config.get('scoring_weights', {}).get('growth', {})),
+    }
+    risk_level = assess_risk_level(analysis, config.get('risk_thresholds', {}))
+
+    output = {
+        'profile_summary': generate_profile_summary(analysis),
+        'profile_tags': profile_tags,
+        'strength_tags': strength_tags,
+        'improvement_tags': improvement_tags,
+        'risk_level': risk_level,
+        'scores': scores,
+        'suggestions': generate_suggestions(analysis, risk_level),
+        'ai_used': False,
+    }
+
+    if not use_ai:
+        return output
+
+    ai_output = generate_ai_profile_output(student, analysis, output)
+    if ai_output:
+        output.update(ai_output)
+        output['ai_used'] = True
+
+    return output
+
+
+def generate_ai_profile_output(student: dict, analysis: dict, fallback: dict) -> Optional[dict]:
+    """调用项目现有大模型配置生成更自然的画像文本。"""
+    compact = {
+        'student': {
+            'name': student.get('name'),
+            'class_name': student.get('class_name'),
+            'grade_name': student.get('grade_name'),
+        },
+        'evaluation': analysis.get('evaluation', {}),
+        'daily_stats': analysis.get('daily_stats', {}),
+        'school_stats': analysis.get('school_stats', {}),
+        'task_stats': analysis.get('task_stats', {}),
+        'collective_stats': analysis.get('collective_stats', {}),
+        'punishment_stats': analysis.get('punishment_stats', {}),
+        'recent_evidence': {
+            'daily': analysis.get('daily_recent', [])[:5],
+            'school': analysis.get('school_recent', [])[:5],
+            'collective': analysis.get('collective_recent', [])[:5],
+            'punishment': analysis.get('punishment_recent', [])[:3],
+        },
+        'fallback': fallback,
+    }
+    prompt = f"""请基于以下学生德育真实数据生成学生画像，只能依据数据表达，不要编造事实。
+输出 JSON，字段为 profile_summary、suggestions，可选 profile_tags。
+profile_summary 用 2-4 句话概括，必须包含关键数字或事件依据。
+suggestions 用 2-4 条建议合成一段话，具体、可执行。
+
+数据：
+{json.dumps(compact, ensure_ascii=False, cls=DecimalEncoder)}
+"""
+    try:
+        from openai import OpenAI
+        from config.config import Config
+
+        client = OpenAI(
+            api_key=Config().get_config("bailian_token", "token.yaml"),
+            base_url="https://coding.dashscope.aliyuncs.com/v1",
+            timeout=8,
+        )
+        completion = client.chat.completions.create(
+            model="kimi-k2.5",
+            messages=[
+                {"role": "system", "content": "你是学校德育数据分析助手，擅长基于证据生成简洁、温和、具体的学生画像。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=800,
+        )
+        content = completion.choices[0].message.content.strip()
+        if content.startswith("```"):
+            content = content.strip("`")
+            if content.startswith("json"):
+                content = content[4:].strip()
+        parsed = json.loads(content)
+        result = {}
+        if parsed.get('profile_summary'):
+            result['profile_summary'] = str(parsed['profile_summary'])[:800]
+        if parsed.get('suggestions'):
+            result['suggestions'] = str(parsed['suggestions'])[:800]
+        if isinstance(parsed.get('profile_tags'), list):
+            tags = [str(tag)[:20] for tag in parsed['profile_tags'] if tag]
+            if tags:
+                result['profile_tags'] = tags[:8]
+                result['strength_tags'] = [
+                    tag for tag in tags
+                    if tag in ['责任担当', '诚实守信', '乐于助人', '勤奋刻苦', '积极进取', '团结协作', '文明礼貌', '遵纪守法']
+                ]
+                result['improvement_tags'] = [tag for tag in tags if tag not in result['strength_tags']]
+        return result or None
+    except Exception as e:
+        logger.warning(f"AI画像生成失败，使用本地规则: {e}")
+        return None
 
 
 def generate_profile_summary(analysis: dict) -> str:
@@ -579,29 +749,41 @@ def generate_profile_summary(analysis: dict) -> str:
     positive_count = analysis.get('daily_stats', {}).get('1', {}).get('count', 0)
     negative_count = analysis.get('daily_stats', {}).get('2', {}).get('count', 0)
     honor_count = analysis.get('school_stats', {}).get('1', {}).get('count', 0)
+    collective_count = analysis.get('collective_stats', {}).get('collective_count', 0) or 0
+    punishment_count = analysis.get('punishment_stats', {}).get('count', 0) or 0
+    evaluation = analysis.get('evaluation', {})
 
     parts = []
 
+    if evaluation.get('total_score') is not None:
+        parts.append(f"当前德育总分{float(evaluation['total_score']):.1f}，等级为{evaluation.get('level') or '未定级'}")
+
     if positive_count > negative_count * 2:
-        parts.append("日常表现良好")
+        parts.append(f"日常正向记录{positive_count}次，明显多于需改进记录{negative_count}次")
     elif positive_count > negative_count:
-        parts.append("日常表现较好")
+        parts.append(f"日常正向记录{positive_count}次、需改进记录{negative_count}次，整体表现较稳")
     else:
-        parts.append("日常表现有待提升")
+        parts.append(f"日常正向记录{positive_count}次、需改进记录{negative_count}次，行为习惯仍需持续关注")
 
     if honor_count > 0:
         parts.append(f"获得{honor_count}项荣誉")
+    if collective_count > 0:
+        parts.append(f"参与{collective_count}次集体事件")
+    if punishment_count > 0:
+        parts.append(f"有{punishment_count}条处分记录")
 
     task_finished = analysis.get('task_stats', {}).get('finished', 0) or 0
     task_total = analysis.get('task_stats', {}).get('total', 0) or 0
     if task_total > 0:
         rate = task_finished / task_total * 100
         if rate >= 80:
-            parts.append("德育任务完成情况优秀")
+            parts.append(f"德育任务完成率{rate:.0f}%，完成情况优秀")
         elif rate >= 60:
-            parts.append("德育任务完成情况良好")
+            parts.append(f"德育任务完成率{rate:.0f}%，完成情况良好")
+        else:
+            parts.append(f"德育任务完成率{rate:.0f}%，需要加强跟进")
 
-    return "，".join(parts) if parts else "暂无足够数据生成画像"
+    return "；".join(parts) if parts else "暂无足够数据生成画像"
 
 
 def generate_profile_tags(analysis: dict, config: dict = None) -> List[str]:
@@ -736,7 +918,7 @@ def assess_risk_level(analysis: dict, config: dict = None) -> str:
         config = DEFAULT_CONFIG['risk_thresholds']
 
     negative_count = analysis.get('daily_stats', {}).get('2', {}).get('count', 0) or 0
-    punishment_count = analysis.get('school_stats', {}).get('2', {}).get('count', 0) or 0
+    punishment_count = analysis.get('punishment_stats', {}).get('count', 0) or 0
 
     # 高风险阈值
     high_threshold = config.get('high', {})
@@ -768,7 +950,7 @@ def generate_suggestions(analysis: dict, risk_level: str) -> str:
         suggestions.append("日常行为规范方面需要关注，建议加强自律意识培养")
 
     # 根据惩罚事件
-    punishment_count = analysis.get('school_stats', {}).get('2', {}).get('count', 0) or 0
+    punishment_count = analysis.get('punishment_stats', {}).get('count', 0) or 0
     if punishment_count >= 2:
         suggestions.append("存在校级违纪记录，建议进行深度教育和家校沟通")
 

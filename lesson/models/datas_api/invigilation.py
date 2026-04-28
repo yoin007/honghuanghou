@@ -669,8 +669,8 @@ async def import_invigilation(
 
         # 获取教师列表用于匹配（从moral.db）
         with SQLiteMoralDatabase() as moral_db:
-            teachers_data = moral_db.query_all("SELECT teacher_id, name FROM teacher WHERE is_active = 1")
-        teachers = {row['name']: row['teacher_id'] for row in teachers_data}
+            teachers_data = moral_db.query_all("SELECT teacher_id, name, wxid FROM teacher WHERE is_active = 1")
+        teachers = {row['name']: {'teacher_id': row['teacher_id'], 'wxid': row['wxid']} for row in teachers_data}
 
         # 导入数据
         imported = []
@@ -743,8 +743,8 @@ async def import_invigilation(
                             continue  # 空单元格跳过
 
                         teacher_name = str(teacher_name)
-                        teacher_id = teachers.get(teacher_name)
-                        if not teacher_id:
+                        teacher_info = teachers.get(teacher_name)
+                        if not teacher_info:
                             errors.append(f"第{idx+2}行 {room_col}: 教师 '{teacher_name}' 未找到")
                             continue
 
@@ -757,8 +757,9 @@ async def import_invigilation(
                             'subject': subject,
                             'room_name': room_name,
                             'room_order': room_order,
-                            'teacher_id': teacher_id,
+                            'teacher_id': teacher_info['teacher_id'],
                             'teacher_name': teacher_name,
+                            'teacher_wxid': teacher_info['wxid'],
                             'source': 'import'
                         })
 
@@ -792,8 +793,8 @@ async def import_invigilation(
                     teacher_name = str(row['监考老师'])
                     room_order = int(row.get('考场序号', 0)) if '考场序号' in df.columns else 0
 
-                    teacher_id = teachers.get(teacher_name)
-                    if not teacher_id:
+                    teacher_info = teachers.get(teacher_name)
+                    if not teacher_info:
                         errors.append(f"第{idx+2}行: 教师 '{teacher_name}' 未找到")
                         continue
 
@@ -806,8 +807,9 @@ async def import_invigilation(
                         'subject': subject,
                         'room_name': room_name,
                         'room_order': room_order,
-                        'teacher_id': teacher_id,
+                        'teacher_id': teacher_info['teacher_id'],
                         'teacher_name': teacher_name,
+                        'teacher_wxid': teacher_info['wxid'],
                         'source': 'import'
                     })
 
@@ -831,12 +833,12 @@ async def import_invigilation(
         for slot in imported:
             cursor.execute("""
                 INSERT INTO invigilation_slot
-                (project_id, grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, room_order, teacher_id, teacher_name, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (project_id, grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, room_order, teacher_id, teacher_name, teacher_wxid, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 project_id, slot['grade_id'], slot['grade_name'], slot['exam_date'],
                 slot['start_time'], slot['end_time'], slot['subject'], slot['room_name'],
-                slot['room_order'], slot['teacher_id'], slot['teacher_name'], slot['source']
+                slot['room_order'], slot['teacher_id'], slot['teacher_name'], slot['teacher_wxid'], slot['source']
             ))
 
         db.commit()

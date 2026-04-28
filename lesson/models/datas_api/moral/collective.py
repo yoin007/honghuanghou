@@ -19,6 +19,8 @@ from .base import (
     log_operation,
     require_permission,
     check_moral_permission,
+    get_teacher_class_id,
+    has_user_role,
 )
 from models.datas_api.auth import User, get_current_user
 
@@ -57,6 +59,16 @@ class DistributionUpdate(BaseModel):
     remark: Optional[str] = Field(None, description="备注")
 
 
+def ensure_collective_class_access(user: User, db, class_id: int):
+    """校验集体事件班级访问范围。"""
+    if check_moral_permission(user, 'report_view_all'):
+        return
+
+    my_class_id = get_teacher_class_id(user, db)
+    if my_class_id is None or my_class_id != class_id:
+        raise HTTPException(403, "只能访问本班集体事件")
+
+
 # =============================================================================
 # API 路由 - 集体事件管理
 # =============================================================================
@@ -89,6 +101,13 @@ async def get_collective_events(
             conditions.append("ce.class_id = %s")
             params.append(class_id)
 
+        if not check_moral_permission(user, 'report_view_all'):
+            my_class_id = get_teacher_class_id(user, db)
+            if my_class_id is None:
+                raise HTTPException(403, "权限不足")
+            conditions.append("ce.class_id = %s")
+            params.append(my_class_id)
+
         if event_type:
             conditions.append("ce.event_type = %s")
             params.append(event_type)
@@ -102,7 +121,7 @@ async def get_collective_events(
 
         offset = (page - 1) * page_size
         data_query = f"""
-            SELECT ce.event_id, ce.event_name, ce.event_type, ce.event_date, ce.score,
+            SELECT ce.event_id, ce.event_name, ce.event_type, ce.event_date, ce.class_id, ce.score,
                    ce.description, ce.created_at, c.class_name, g.grade_name,
                    (SELECT COUNT(*) FROM collective_event_distribution ced
                     WHERE ced.event_id = ce.event_id AND ced.is_participant = 1) as participant_count
@@ -156,6 +175,8 @@ async def create_collective_event(
         if not class_info:
             raise HTTPException(404, "班级不存在")
 
+        ensure_collective_class_access(user, db, event.class_id)
+
         # 分值校验
         if event.event_type in ['班级荣誉', '集体活动']:
             if event.score <= 0:
@@ -189,6 +210,16 @@ async def create_collective_event(
                 (event_id, student_id, class_id, score_assigned, is_participant, remark)
                 VALUES (%s, %s, %s, %s, 1, NULL)""",
                 (event_id, student['student_id'], student['class_id'], event.score)
+            )
+
+        from .evaluation import calculate_evaluation
+        for student in students:
+            calculate_evaluation(
+                db,
+                student['student_id'],
+                semester_id,
+                student['class_id'],
+                class_info['grade_id'],
             )
 
         log_operation(
@@ -225,6 +256,8 @@ async def get_collective_event(
         if not event:
             raise HTTPException(404, "事件不存在")
 
+        ensure_collective_class_access(user, db, event['class_id'])
+
         # 获取分配列表
         distributions = db.query_all(
             """SELECT ced.*, s.name as student_name
@@ -255,6 +288,8 @@ async def update_collective_event(
         )
         if not old_event:
             raise HTTPException(404, "事件不存在")
+
+        ensure_collective_class_access(user, db, old_event['class_id'])
 
         # 构建更新语句
         updates = []
@@ -287,6 +322,31 @@ async def update_collective_event(
         update_query = f"UPDATE collective_event SET {', '.join(updates)} WHERE event_id = %s"
         db.execute(update_query, tuple(params))
 
+        if event.score is not None:
+            db.execute(
+                """UPDATE collective_event_distribution
+                SET score_assigned = %s
+                WHERE event_id = %s AND is_participant = 1""",
+                (event.score, event_id)
+            )
+
+        distributions = db.query_all(
+            """SELECT ced.student_id, ced.class_id, c.grade_id
+            FROM collective_event_distribution ced
+            JOIN class c ON ced.class_id = c.class_id
+            WHERE ced.event_id = %s""",
+            (event_id,)
+        )
+        from .evaluation import calculate_evaluation
+        for distribution in distributions:
+            calculate_evaluation(
+                db,
+                distribution['student_id'],
+                old_event['semester_id'],
+                distribution['class_id'],
+                distribution['grade_id'],
+            )
+
         log_operation(
             db, user.username, user.role, 'UPDATE', 'collective_event', event_id,
             old_event['semester_id'],
@@ -311,6 +371,16 @@ async def delete_collective_event(
         if not event:
             raise HTTPException(404, "事件不存在")
 
+        ensure_collective_class_access(user, db, event['class_id'])
+
+        distributions = db.query_all(
+            """SELECT ced.student_id, ced.class_id, c.grade_id
+            FROM collective_event_distribution ced
+            JOIN class c ON ced.class_id = c.class_id
+            WHERE ced.event_id = %s""",
+            (event_id,)
+        )
+
         # 删除分配记录
         db.execute(
             "DELETE FROM collective_event_distribution WHERE event_id = %s",
@@ -329,6 +399,16 @@ async def delete_collective_event(
             ip_address=request.client.host if request.client else None
         )
 
+        from .evaluation import calculate_evaluation
+        for distribution in distributions:
+            calculate_evaluation(
+                db,
+                distribution['student_id'],
+                event['semester_id'],
+                distribution['class_id'],
+                distribution['grade_id'],
+            )
+
         return {"success": True, "message": "事件已删除"}
 
 
@@ -343,6 +423,15 @@ async def get_distributions(
 ):
     """获取集体事件的学生分配列表"""
     with get_moral_db() as db:
+        event = db.query_one(
+            "SELECT class_id FROM collective_event WHERE event_id = %s",
+            (event_id,)
+        )
+        if not event:
+            raise HTTPException(404, "事件不存在")
+
+        ensure_collective_class_access(user, db, event['class_id'])
+
         distributions = db.query_all(
             """SELECT ced.id, ced.event_id, ced.student_id, ced.score_assigned,
                    ced.is_participant, ced.remark,
@@ -382,6 +471,8 @@ async def update_distribution(
         if not distribution:
             raise HTTPException(404, "分配记录不存在")
 
+        ensure_collective_class_access(user, db, distribution['class_id'])
+
         # 计算实际得分
         if update.is_participant == 0:
             score_assigned = 0
@@ -394,6 +485,24 @@ async def update_distribution(
             WHERE id = %s""",
             (update.is_participant, score_assigned, update.remark, distribution_id)
         )
+
+        event = db.query_one(
+            "SELECT semester_id FROM collective_event WHERE event_id = %s",
+            (event_id,)
+        )
+        class_info = db.query_one(
+            "SELECT grade_id FROM class WHERE class_id = %s",
+            (distribution['class_id'],)
+        )
+        if event and class_info:
+            from .evaluation import calculate_evaluation
+            calculate_evaluation(
+                db,
+                distribution['student_id'],
+                event['semester_id'],
+                distribution['class_id'],
+                class_info['grade_id'],
+            )
 
         log_operation(
             db, user.username, user.role, 'UPDATE', 'collective_event_distribution',
@@ -413,6 +522,19 @@ async def get_student_collective_score(
 ):
     """获取学生在某学期的集体事件得分汇总"""
     with get_moral_db() as db:
+        student = db.query_one(
+            "SELECT student_id, class_id FROM student WHERE student_id = %s",
+            (student_id,)
+        )
+        if not student:
+            raise HTTPException(404, "学生不存在")
+
+        if has_user_role(user, 'student'):
+            if user.username != student_id:
+                raise HTTPException(403, "只能查看自己的集体事件得分")
+        else:
+            ensure_collective_class_access(user, db, student['class_id'])
+
         if not semester_id:
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None

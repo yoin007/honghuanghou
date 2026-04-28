@@ -5,7 +5,7 @@
 | 文档 | 用途 |
 |------|------|
 | [system-architecture.md](system-architecture.md) | 当前系统功能、API、页面、角色权限、数据库和测试状态总览 |
-| [moral-evaluation-system.md](moral-evaluation-system.md) | 德育评价系统的业务规则、数据模型、API、迁移和实施要点 |
+| [moral-evaluation-system.md](moral-evaluation-system.md) | 德育评价系统的业务规则、SQLite 数据模型、API 和实施要点 |
 | [moral-config-guide.md](moral-config-guide.md) | 德育配置后台的操作手册，面向系统管理员和业务配置人员 |
 | [nginx-https-config.md](nginx-https-config.md) | Nginx HTTPS 反向代理和重定向配置说明 |
 

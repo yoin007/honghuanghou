@@ -114,7 +114,7 @@ class Task:
         self.__enter__()
 
     def __enter__(self, db=TASK_DB):
-        self.__conn__ = sqlite3.connect(db)
+        self.__conn__ = sqlite3.connect(db, check_same_thread=False)
         self.__cursor__ = self.__conn__.cursor()
         return self
 

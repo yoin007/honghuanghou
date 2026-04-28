@@ -21,6 +21,7 @@ from .base import (
     calculate_moral_level,
     get_current_user,
     get_teacher_class_id,
+    has_user_role,
 )
 from models.datas_api.auth import User, get_current_user
 
@@ -50,7 +51,7 @@ async def get_student_evaluation(
     """
     with get_moral_db() as db:
         # 权限检查
-        if user.role == 'student' and user.username != student_id:
+        if has_user_role(user, 'student') and user.username != student_id:
             raise HTTPException(403, "只能查看自己的评价")
 
         if not semester_id:
@@ -69,12 +70,10 @@ async def get_student_evaluation(
         if not student:
             raise HTTPException(404, "学生不存在")
 
-        # 班主任权限检查
-        if user.role == 'cleader':
+        if not check_moral_permission(user, 'report_view_all') and not has_user_role(user, 'student'):
             my_class_id = get_teacher_class_id(user, db)
-            if my_class_id is None or my_class_id != student['class_id']:
-                if not check_moral_permission(user, 'report_view_all'):
-                    raise HTTPException(403, "只能查看本班学生")
+            if not check_moral_permission(user, 'report_view_own_class') or my_class_id != student['class_id']:
+                raise HTTPException(403, "只能查看授权范围内学生")
 
         # 获取或计算评价
         evaluation = db.query_one(
@@ -119,19 +118,39 @@ async def get_student_evaluation(
                 (student_id, semester_id)
             ) or 0
 
+            collective_score = db.query_value(
+                """SELECT COALESCE(SUM(ced.score_assigned), 0)
+                FROM collective_event_distribution ced
+                JOIN collective_event ce ON ced.event_id = ce.event_id
+                WHERE ced.student_id = %s AND ce.semester_id = %s AND ced.is_participant = 1""",
+                (student_id, semester_id)
+            ) or 0
+
+            punishment_score = db.query_value(
+                """SELECT COALESCE(SUM(ABS(score_deduct)), 0)
+                FROM punishment_record
+                WHERE student_id = %s AND semester_id = %s AND is_revoked = 0""",
+                (student_id, semester_id)
+            ) or 0
+
             evaluation = {
                 'total_score': evaluation['total_score'],
                 'level': evaluation['level'],
                 'base_score': base_score,
                 'daily_score': float(daily_score),
                 'school_score': float(school_score),
-                'task_score': float(task_score)
+                'task_score': float(task_score),
+                'collective_score': float(collective_score),
+                'punishment_score': float(punishment_score)
             }
 
         # 获取详细统计
         daily_stats = get_daily_statistics(db, student_id, semester_id)
         school_stats = get_school_statistics(db, student_id, semester_id)
         task_stats = get_task_statistics(db, student_id, semester_id)
+        collective_stats = get_collective_statistics(db, student_id, semester_id)
+        punishment_stats = get_punishment_statistics(db, student_id, semester_id)
+        recent_records = get_recent_evaluation_records(db, student_id, semester_id)
 
         return {
             "success": True,
@@ -140,7 +159,10 @@ async def get_student_evaluation(
                 "evaluation": evaluation,
                 "daily_stats": daily_stats,
                 "school_stats": school_stats,
-                "task_stats": task_stats
+                "task_stats": task_stats,
+                "collective_stats": collective_stats,
+                "punishment_stats": punishment_stats,
+                "recent_records": recent_records
             }
         }
 
@@ -373,16 +395,32 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
         (student_id, semester_id)
     ) or 0
 
+    # 集体事件分
+    collective_score = db.query_value(
+        """SELECT COALESCE(SUM(ced.score_assigned), 0)
+        FROM collective_event_distribution ced
+        JOIN collective_event ce ON ced.event_id = ce.event_id
+        WHERE ced.student_id = %s AND ce.semester_id = %s AND ced.is_participant = 1""",
+        (student_id, semester_id)
+    ) or 0
+
     # 处分扣分（包括累进扣分）
     punishment_score = db.query_value(
-        """SELECT COALESCE(SUM(score_deduct), 0)
+        """SELECT COALESCE(SUM(ABS(score_deduct)), 0)
         FROM punishment_record
         WHERE student_id = %s AND semester_id = %s AND is_revoked = 0""",
         (student_id, semester_id)
     ) or 0
 
     # 总分
-    total_score = Decimal(str(base_score)) + Decimal(str(daily_score)) + Decimal(str(school_score)) + Decimal(str(task_score)) + Decimal(str(punishment_score))
+    total_score = (
+        Decimal(str(base_score))
+        + Decimal(str(daily_score))
+        + Decimal(str(school_score))
+        + Decimal(str(task_score))
+        + Decimal(str(collective_score))
+        - Decimal(str(punishment_score))
+    )
 
     # 等级
     level = calculate_moral_level(float(total_score))
@@ -417,6 +455,7 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
         'daily_score': float(daily_score),
         'school_score': float(school_score),
         'task_score': float(task_score),
+        'collective_score': float(collective_score),
         'punishment_score': float(punishment_score)
     }
 
@@ -486,3 +525,77 @@ def get_task_statistics(db, student_id: str, semester_id: int) -> dict:
     )
 
     return stats or {'total_tasks': 0, 'finished_tasks': 0, 'total_score': 0}
+
+
+def get_collective_statistics(db, student_id: str, semester_id: int) -> dict:
+    """获取集体事件统计"""
+    stats = db.query_one(
+        """SELECT COUNT(*) as count, COALESCE(SUM(ced.score_assigned), 0) as total_score,
+        COALESCE(SUM(CASE WHEN ced.is_participant = 1 THEN 1 ELSE 0 END), 0) as participant_count
+        FROM collective_event_distribution ced
+        JOIN collective_event ce ON ced.event_id = ce.event_id
+        WHERE ced.student_id = %s AND ce.semester_id = %s""",
+        (student_id, semester_id)
+    )
+    return stats or {'count': 0, 'total_score': 0, 'participant_count': 0}
+
+
+def get_punishment_statistics(db, student_id: str, semester_id: int) -> dict:
+    """获取处分统计"""
+    stats = db.query_one(
+        """SELECT COUNT(*) as count, COALESCE(SUM(ABS(score_deduct)), 0) as total_deduct,
+        SUM(CASE WHEN is_revoked = 1 THEN 1 ELSE 0 END) as revoked_count
+        FROM punishment_record
+        WHERE student_id = %s AND semester_id = %s""",
+        (student_id, semester_id)
+    )
+    return stats or {'count': 0, 'total_deduct': 0, 'revoked_count': 0}
+
+
+def get_recent_evaluation_records(db, student_id: str, semester_id: int) -> dict:
+    """获取评价详情所需的近期证据记录"""
+    daily = db.query_all(
+        """SELECT dr.record_date as date, det.event_name as title, det.event_type,
+        dr.score, dr.remark
+        FROM student_daily_record dr
+        JOIN daily_event_type det ON dr.event_id = det.event_id
+        WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+        ORDER BY dr.record_date DESC, dr.created_at DESC
+        LIMIT 8""",
+        (student_id, semester_id)
+    )
+    school = db.query_all(
+        """SELECT sr.get_date as date, setype.event_name as title, setype.event_type,
+        sr.score, sr.proof
+        FROM student_school_record sr
+        JOIN school_event_type setype ON sr.event_id = setype.event_id
+        WHERE sr.student_id = %s AND sr.semester_id = %s AND sr.is_deleted = 0
+        ORDER BY sr.get_date DESC, sr.created_at DESC
+        LIMIT 8""",
+        (student_id, semester_id)
+    )
+    collective = db.query_all(
+        """SELECT ce.event_date as date, ce.event_name as title, ce.event_type,
+        ced.score_assigned as score, ced.remark
+        FROM collective_event_distribution ced
+        JOIN collective_event ce ON ced.event_id = ce.event_id
+        WHERE ced.student_id = %s AND ce.semester_id = %s AND ced.is_participant = 1
+        ORDER BY ce.event_date DESC
+        LIMIT 8""",
+        (student_id, semester_id)
+    )
+    punishments = db.query_all(
+        """SELECT punishment_date as date, level as title, reason, ABS(score_deduct) as score,
+        is_revoked
+        FROM punishment_record
+        WHERE student_id = %s AND semester_id = %s
+        ORDER BY punishment_date DESC, created_at DESC
+        LIMIT 5""",
+        (student_id, semester_id)
+    )
+    return {
+        'daily': daily,
+        'school': school,
+        'collective': collective,
+        'punishments': punishments
+    }

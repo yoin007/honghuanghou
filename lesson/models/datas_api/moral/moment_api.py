@@ -201,6 +201,9 @@ async def update_moment_record(
     - 只能更新自己创建的记录
     """
     with get_moral_db() as db:
+        if not check_moral_permission(user, 'moment_create') and not check_moral_permission(user, 'moment_view_all'):
+            raise HTTPException(403, "权限不足：需要点滴记录权限")
+
         # 查询记录
         record = db.query_one(
             "SELECT * FROM moment_record WHERE record_id = %s",
@@ -209,8 +212,8 @@ async def update_moment_record(
         if not record:
             raise HTTPException(404, "记录不存在")
 
-        # 权限检查：只能更新自己的记录
-        if record['recorder'] != user.username:
+        # 普通教师/班主任只能更新自己的记录，管理角色可更新全部记录
+        if not check_moral_permission(user, 'moment_view_all') and record['recorder'] != user.username:
             raise HTTPException(403, "只能编辑自己创建的记录")
 
         # 构建更新
@@ -264,6 +267,9 @@ async def delete_moment_record(
     - 只能删除自己创建的记录
     """
     with get_moral_db() as db:
+        if not check_moral_permission(user, 'moment_create') and not check_moral_permission(user, 'moment_view_all'):
+            raise HTTPException(403, "权限不足：需要点滴记录权限")
+
         # 查询记录
         record = db.query_one(
             "SELECT * FROM moment_record WHERE record_id = %s",
@@ -272,8 +278,8 @@ async def delete_moment_record(
         if not record:
             raise HTTPException(404, "记录不存在")
 
-        # 权限检查：只能删除自己的记录
-        if record['recorder'] != user.username:
+        # 普通教师/班主任只能删除自己的记录，管理角色可删除全部记录
+        if not check_moral_permission(user, 'moment_view_all') and record['recorder'] != user.username:
             raise HTTPException(403, "只能删除自己创建的记录")
 
         db.execute("DELETE FROM moment_record WHERE record_id = %s", (record_id,))

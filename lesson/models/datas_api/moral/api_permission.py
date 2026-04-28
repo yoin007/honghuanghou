@@ -61,12 +61,14 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/daily-records/types", "api_name": "获取事件类型", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
     {"api_path": "/api/moral/daily-records/create", "api_name": "创建日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
     {"api_path": "/api/moral/daily-records/batch", "api_name": "批量创建记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/daily-records/update", "api_name": "更新日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/daily-records/delete", "api_name": "删除日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/daily-records/update", "api_name": "更新日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/daily-records/delete", "api_name": "删除日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
 
     # 点滴记录
     {"api_path": "/api/moral/moment-records", "api_name": "获取点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
     {"api_path": "/api/moral/moment-records/create", "api_name": "创建点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/moment-records/update", "api_name": "更新点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/moment-records/delete", "api_name": "删除点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
 
     # 校级事件
     {"api_path": "/api/moral/school-records", "api_name": "获取校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
@@ -79,8 +81,15 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/punishments/create", "api_name": "创建处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/punishments/revoke", "api_name": "撤销处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
 
+    # 集体事件
+    {"api_path": "/api/moral/collective-events", "api_name": "集体事件管理", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/collective-events/create", "api_name": "创建集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/collective-events/update", "api_name": "更新集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/collective-events/delete", "api_name": "删除集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/collective-events/distributions/update", "api_name": "调整集体事件分配", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+
     # 德育任务
-    {"api_path": "/api/moral/tasks", "api_name": "获取德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/tasks", "api_name": "获取德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/tasks/create", "api_name": "创建德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/tasks/update", "api_name": "更新德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/tasks/delete", "api_name": "删除德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
@@ -110,7 +119,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/profiles/student/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 
     # 评价查询
-    {"api_path": "/api/moral/evaluations/class", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/evaluations/class", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/evaluations/grade", "api_name": "年级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/evaluations/calculate", "api_name": "计算德育评价", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 ]

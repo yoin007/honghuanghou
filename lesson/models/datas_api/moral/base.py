@@ -38,6 +38,7 @@ MORAL_PERMISSIONS = {
         'permissions': [
             'moral_record_manage',
             'moral_record_input',     # 可以录入记录
+            'moral_record_own_class',
             'student_manage',         # 学生管理
             'student_manage_all',     # 全量学生管理（不限班级）
             'teacher_manage',
@@ -49,6 +50,7 @@ MORAL_PERMISSIONS = {
             'student_profile',
             'moment_view_all',
             'profile_view_all',
+            'collective_event_manage',
         ]
     },
     'xuefa': {
@@ -57,6 +59,7 @@ MORAL_PERMISSIONS = {
         'permissions': [
             'moral_record_manage',
             'moral_record_input',     # 可以录入记录
+            'moral_record_own_class',
             'punishment_manage',
             'event_type_manage',
             'class_change_approve',
@@ -68,6 +71,7 @@ MORAL_PERMISSIONS = {
             'student_profile',
             'moment_view_all',
             'profile_view_all',
+            'collective_event_manage',
         ]
     },
     'cleader': {
@@ -75,7 +79,9 @@ MORAL_PERMISSIONS = {
         'level': 30,
         'permissions': [
             'moral_record_input',      # 可以录入记录
+            'moral_record_own_class',  # 本班德育记录/任务管理
             'moral_record_view_own',   # 只能查看自己创建的记录
+            'report_view_own_class',
             'student_manage_own_class', # 只能管理本班学生（新增、导入）
             'homework_publish',
             'announcement_publish',
@@ -86,6 +92,7 @@ MORAL_PERMISSIONS = {
             'moment_create',
             'moment_view_own',
             'profile_view_own_class',
+            'collective_event_manage',
         ]
     },
     'teacher': {
@@ -184,6 +191,20 @@ def get_user_role_level(user: User) -> int:
         max_level = max(max_level, level)
 
     return max_level
+
+
+def get_user_roles(user: User) -> List[str]:
+    """获取用户角色列表，兼容 teacher/xuefa 这类多角色格式。"""
+    if not user:
+        return []
+
+    role = user.role if hasattr(user, 'role') else ''
+    return [r for r in str(role).split('/') if r]
+
+
+def has_user_role(user: User, role: str) -> bool:
+    """检查用户是否包含指定角色。"""
+    return role in get_user_roles(user)
 
 
 def check_moral_permission(user: User, permission: str) -> bool:
@@ -592,6 +613,8 @@ __all__ = [
     'get_moral_db',
     'MoralDB',
     'get_user_role_level',
+    'get_user_roles',
+    'has_user_role',
     'check_moral_permission',
     'check_class_access',
     'require_permission',

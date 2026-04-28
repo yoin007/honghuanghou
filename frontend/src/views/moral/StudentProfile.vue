@@ -33,6 +33,7 @@
 
       <el-divider content-position="left">画像摘要</el-divider>
       <p class="profile-summary">{{ profile.profile_summary || '暂无画像摘要' }}</p>
+      <el-tag v-if="profile.ai_used" type="success" effect="plain">AI 辅助生成</el-tag>
 
       <el-divider content-position="left">画像标签</el-divider>
       <div class="tags-container">
@@ -93,6 +94,38 @@
 
       <el-divider content-position="left" v-if="profile.suggestions">个性化建议</el-divider>
       <p v-if="profile.suggestions" class="suggestions">{{ profile.suggestions }}</p>
+
+      <el-divider content-position="left">数据依据</el-divider>
+      <el-row :gutter="12" class="evidence-grid">
+        <el-col :xs="24" :sm="12" :md="6">
+          <div class="evidence-card">
+            <div class="evidence-label">日常表现</div>
+            <div>正向 {{ analysis.daily_stats?.['1']?.count || 0 }} 次，{{ formatSigned(analysis.daily_stats?.['1']?.total || 0) }}</div>
+            <div>需改进 {{ analysis.daily_stats?.['2']?.count || 0 }} 次，{{ formatSigned(analysis.daily_stats?.['2']?.total || 0) }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="6">
+          <div class="evidence-card">
+            <div class="evidence-label">德育任务</div>
+            <div>完成 {{ analysis.task_stats?.finished || 0 }}/{{ analysis.task_stats?.total || 0 }}</div>
+            <div>得分 {{ formatSigned(analysis.task_stats?.score || 0) }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="6">
+          <div class="evidence-card">
+            <div class="evidence-label">集体事件</div>
+            <div>参与 {{ analysis.collective_stats?.collective_count || 0 }} 次</div>
+            <div>得分 {{ formatSigned(analysis.collective_stats?.score || 0) }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="6">
+          <div class="evidence-card">
+            <div class="evidence-label">处分记录</div>
+            <div>{{ analysis.punishment_stats?.count || 0 }} 条</div>
+            <div>扣分 {{ analysis.punishment_stats?.total_deduct || 0 }}</div>
+          </div>
+        </el-col>
+      </el-row>
     </el-card>
 
     <el-empty v-else description="请输入学号查询学生画像" />
@@ -132,6 +165,16 @@ const profileTags = computed(() => {
       : profile.value.profile_tags
   } catch {
     return []
+  }
+})
+const analysis = computed(() => {
+  const source = profile.value?.data_source_summary || profile.value?.analysis
+  if (!source) return {}
+  if (typeof source === 'object') return source
+  try {
+    return JSON.parse(source)
+  } catch {
+    return {}
   }
 })
 
@@ -179,7 +222,9 @@ const handleGenerate = async () => {
         attitude_score: res.data.scores?.attitude || 0,
         social_score: res.data.scores?.social || 0,
         growth_score: res.data.scores?.growth || 0,
-        generated_at: res.data.generated_at || new Date().toISOString()
+        generated_at: res.data.generated_at || new Date().toISOString(),
+        data_source_summary: res.data.analysis,
+        ai_used: res.data.ai_used
       }
     }
   } catch (error) {
@@ -213,6 +258,11 @@ const getProgressColor = (score) => {
 const formatDateTime = (datetime) => {
   if (!datetime) return '-'
   return new Date(datetime).toLocaleString('zh-CN')
+}
+
+const formatSigned = (score) => {
+  const value = Number(score || 0)
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1).replace(/\.0$/, '')}`
 }
 
 // 页面加载时检查 query 参数
@@ -276,5 +326,25 @@ onMounted(async () => {
   background: #f5f7fa;
   padding: 15px;
   border-radius: 4px;
+}
+
+.evidence-grid {
+  row-gap: 12px;
+}
+
+.evidence-card {
+  min-height: 92px;
+  padding: 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  color: #606266;
+  line-height: 1.8;
+  background: #fafafa;
+}
+
+.evidence-label {
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: #303133;
 }
 </style>

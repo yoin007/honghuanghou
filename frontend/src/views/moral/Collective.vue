@@ -62,7 +62,7 @@
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="handleView(row)">查看分配</el-button>
-            <el-button link type="primary" @click="handleEdit(row)" v-if="canEdit">编辑</el-button>
+            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateEvent">编辑</el-button>
             <el-button link type="danger" @click="handleDelete(row)" v-if="canDelete">删除</el-button>
           </template>
         </el-table-column>
@@ -152,7 +152,7 @@
         <el-table-column prop="remark" label="备注" show-overflow-tooltip />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEditDistribution(row)" v-if="canEdit">
+            <el-button link type="primary" @click="handleEditDistribution(row)" v-if="canUpdateDistribution">
               调整
             </el-button>
           </template>
@@ -185,16 +185,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { usePermission } from '@/composables/usePermission'
+import { useApiPermission } from '@/composables/useApiPermission'
 import request from '@/utils/api'
 
 // 权限检查
-const { hasPermission } = usePermission()
-const canCreate = computed(() => hasPermission('collective_event_manage'))
-const canEdit = computed(() => hasPermission('collective_event_manage'))
-const canDelete = computed(() => hasPermission('collective_event_manage'))
+const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
+const canCreate = ref(false)
+const canUpdateEvent = ref(false)
+const canUpdateDistribution = ref(false)
+const canDelete = ref(false)
 
 // 数据
 const loading = ref(false)
@@ -267,8 +268,8 @@ const getEventTypeTag = (type) => {
 const fetchGrades = async () => {
   try {
     const res = await request.get('/api/moral/admin/grades')
-    if (res.data.success) {
-      gradeList.value = res.data.data
+    if (res.success) {
+      gradeList.value = res.data
     }
   } catch (e) {
     console.error('获取年级列表失败', e)
@@ -278,8 +279,8 @@ const fetchGrades = async () => {
 const fetchClasses = async () => {
   try {
     const res = await request.get('/api/moral/admin/classes')
-    if (res.data.success) {
-      classList.value = res.data.data
+    if (res.success) {
+      classList.value = res.data
     }
   } catch (e) {
     console.error('获取班级列表失败', e)
@@ -297,9 +298,9 @@ const fetchEvents = async () => {
     if (filterForm.event_type) params.event_type = filterForm.event_type
 
     const res = await request.get('/api/moral/collective-events', { params })
-    if (res.data.success) {
-      eventList.value = res.data.data.items
-      pagination.total = res.data.data.total
+    if (res.success) {
+      eventList.value = res.data.items
+      pagination.total = res.data.total
     }
   } catch (e) {
     ElMessage.error('获取数据失败')
@@ -361,8 +362,8 @@ const handleSubmit = async () => {
     } else {
       // 新增
       const res = await request.post('/api/moral/collective-events', eventForm)
-      if (res.data.success) {
-        ElMessage.success(res.data.message)
+      if (res.success) {
+        ElMessage.success(res.message)
       }
     }
     dialogVisible.value = false
@@ -395,8 +396,8 @@ const handleView = async (row) => {
   distributionLoading.value = true
   try {
     const res = await request.get(`/api/moral/collective-events/${row.event_id}`)
-    if (res.data.success) {
-      distributions.value = res.data.data.distributions
+    if (res.success) {
+      distributions.value = res.data.distributions
     }
   } catch (e) {
     ElMessage.error('获取分配详情失败')
@@ -438,6 +439,12 @@ const handleAdjustSubmit = async () => {
 
 // 初始化
 onMounted(() => {
+  loadMyPermissions().then(() => {
+    canCreate.value = hasApiPermissionSync('/api/moral/collective-events/create')
+    canUpdateEvent.value = hasApiPermissionSync('/api/moral/collective-events/update')
+    canUpdateDistribution.value = hasApiPermissionSync('/api/moral/collective-events/distributions/update')
+    canDelete.value = hasApiPermissionSync('/api/moral/collective-events/delete')
+  })
   fetchGrades()
   fetchClasses()
   fetchEvents()
