@@ -648,6 +648,15 @@ async def get_changes_preview(
             elif (old_id, new_id) not in processed_keys:
                 remaining_changed.append(ch)
 
+        # 交换处理后，从removed/added中删除已被swap处理的教师（避免重复通知）
+        swap_teacher_ids = set()
+        for sw in swaps:
+            swap_teacher_ids.add(sw['teacher_a_id'])
+            swap_teacher_ids.add(sw['teacher_b_id'])
+
+        removed = [r for r in removed if r['teacher_id'] not in swap_teacher_ids]
+        added = [a for a in added if a['teacher_id'] not in swap_teacher_ids]
+
         # 汇总统计
         stats = {
             'added_count': len(added),
@@ -830,6 +839,15 @@ async def send_notifications(
                 processed_keys.add((new_id, old_id))
             elif (old_id, new_id) not in processed_keys:
                 remaining_changed.append(ch)
+
+        # 交换处理后，从removed/added中删除已被swap处理的教师（避免重复通知）
+        swap_teacher_ids = set()
+        for sw in swaps:
+            swap_teacher_ids.add(sw['teacher_a_id'])
+            swap_teacher_ids.add(sw['teacher_b_id'])
+
+        removed = [r for r in removed if r['teacher_id'] not in swap_teacher_ids]
+        added = [a for a in added if a['teacher_id'] not in swap_teacher_ids]
 
         # 发送通知
         success_count = 0
