@@ -106,7 +106,10 @@ async def get_teachers_for_invigilation(user: User = Depends(require_jiaowu)):
     """获取教师列表用于监考安排"""
     with SQLiteMoralDatabase() as moral_db:
         teachers_data = moral_db.query_all(
-            "SELECT teacher_id, name FROM teacher WHERE is_active = 1 ORDER BY name"
+            """SELECT teacher_id, name
+            FROM teacher
+            WHERE is_active = 1 AND COALESCE(identity_type, 'teacher') = 'teacher'
+            ORDER BY name"""
         )
     return {"success": True, "data": teachers_data}
 
@@ -378,16 +381,24 @@ async def save_invigilation_slots(
         # 删除旧安排
         cursor.execute("DELETE FROM invigilation_slot WHERE project_id = ?", (project_id,))
 
+        # 获取教师wxid映射（从moral.db）
+        with SQLiteMoralDatabase() as moral_db:
+            teacher_wxid_map = moral_db.query_all(
+                """SELECT teacher_id, wxid FROM teacher WHERE is_active = 1"""
+            )
+        wxid_dict = {row['teacher_id']: row['wxid'] for row in teacher_wxid_map}
+
         # 插入新安排
         for slot in batch.slots:
+            teacher_wxid = wxid_dict.get(slot.teacher_id)
             cursor.execute("""
                 INSERT INTO invigilation_slot
-                (project_id, grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, room_order, teacher_id, teacher_name, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')
+                (project_id, grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, room_order, teacher_id, teacher_name, teacher_wxid, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')
             """, (
                 project_id, slot.grade_id, slot.grade_name, slot.exam_date,
                 slot.start_time, slot.end_time, slot.subject, slot.room_name,
-                slot.room_order or 0, slot.teacher_id, slot.teacher_name
+                slot.room_order or 0, slot.teacher_id, slot.teacher_name, teacher_wxid
             ))
 
         # 更新项目状态
@@ -669,7 +680,11 @@ async def import_invigilation(
 
         # 获取教师列表用于匹配（从moral.db）
         with SQLiteMoralDatabase() as moral_db:
-            teachers_data = moral_db.query_all("SELECT teacher_id, name, wxid FROM teacher WHERE is_active = 1")
+            teachers_data = moral_db.query_all(
+                """SELECT teacher_id, name, wxid
+                FROM teacher
+                WHERE is_active = 1 AND COALESCE(identity_type, 'teacher') = 'teacher'"""
+            )
         teachers = {row['name']: {'teacher_id': row['teacher_id'], 'wxid': row['wxid']} for row in teachers_data}
 
         # 导入数据
