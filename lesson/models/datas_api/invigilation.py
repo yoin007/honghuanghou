@@ -502,32 +502,17 @@ async def get_changes_preview(
         """, (project_id,))
         current_slots = [dict(row) for row in cursor.fetchall()]
 
-        # 获取上次通知时的安排（从通知日志中的slots_json）
-        # 查询最新版本的日志，而不是 current_version - 1
+        # 从快照表获取上次通知时的全量安排
         cursor.execute("""
-            SELECT DISTINCT version_no FROM invigilation_notification_log
-            WHERE project_id = ?
+            SELECT slots_json FROM invigilation_snapshot
+            WHERE project_id = ? AND version_no = ?
             ORDER BY version_no DESC LIMIT 1
-        """, (project_id,))
-        latest_log_version = cursor.fetchone()
+        """, (project_id, current_version))
+        snapshot_row = cursor.fetchone()
 
-        if latest_log_version:
-            cursor.execute("""
-                SELECT teacher_id, slots_json
-                FROM invigilation_notification_log
-                WHERE project_id = ? AND version_no = ?
-                ORDER BY sent_at DESC
-            """, (project_id, latest_log_version[0]))
-            previous_logs = cursor.fetchall()
-        else:
-            previous_logs = []
-
-        # 解析上次的安排
         previous_slots = []
-        for log in previous_logs:
-            if log['slots_json']:
-                slots_list = json.loads(log['slots_json'])
-                previous_slots.extend(slots_list)
+        if snapshot_row and snapshot_row['slots_json']:
+            previous_slots = json.loads(snapshot_row['slots_json'])
 
         # 构建唯一键：grade_id + exam_date + start_time + room_name
         def get_key(slot):
@@ -582,7 +567,21 @@ async def get_changes_preview(
                 if prev_teacher != curr_teacher:
                     # 教师变更
                     if prev_teacher and curr_teacher:
-                        # 替换
+                        # 替换：拆成取消原教师 + 新增新教师
+                        removed.append({
+                            'teacher_id': prev_teacher,
+                            'teacher_name': previous_slot['teacher_name'],
+                            'teacher_wxid': previous_slot['teacher_wxid'],
+                            'slot': previous_slot,
+                            'reason': '教师替换'
+                        })
+                        added.append({
+                            'teacher_id': curr_teacher,
+                            'teacher_name': current_slot['teacher_name'],
+                            'teacher_wxid': current_slot['teacher_wxid'],
+                            'slot': current_slot
+                        })
+                        # 同时记录changed用于交换检测
                         changed.append({
                             'type': 'replace',
                             'old_teacher_id': prev_teacher,
@@ -695,7 +694,8 @@ async def send_notifications(
             raise HTTPException(404, "考试项目不存在")
 
         project_name = project['name']
-        new_version = project['version_no'] + 1
+        current_version = project['version_no']
+        new_version = current_version + 1
 
         # 获取变更数据
         subject_filter = request.subjects
@@ -708,30 +708,17 @@ async def send_notifications(
         """, (project_id,))
         current_slots = [dict(row) for row in cursor.fetchall()]
 
-        # 获取上次通知时的安排
-        # 查询最新版本的日志
+        # 从快照表获取上次通知时的全量安排
         cursor.execute("""
-            SELECT DISTINCT version_no FROM invigilation_notification_log
-            WHERE project_id = ?
+            SELECT slots_json FROM invigilation_snapshot
+            WHERE project_id = ? AND version_no = ?
             ORDER BY version_no DESC LIMIT 1
-        """, (project_id,))
-        latest_log_version = cursor.fetchone()
-
-        if latest_log_version:
-            cursor.execute("""
-                SELECT teacher_id, slots_json
-                FROM invigilation_notification_log
-                WHERE project_id = ? AND version_no = ?
-                ORDER BY sent_at DESC
-            """, (project_id, latest_log_version[0]))
-            previous_logs = cursor.fetchall()
-        else:
-            previous_logs = []
+        """, (project_id, current_version))
+        snapshot_row = cursor.fetchone()
 
         previous_slots = []
-        for log in previous_logs:
-            if log['slots_json']:
-                previous_slots.extend(json.loads(log['slots_json']))
+        if snapshot_row and snapshot_row['slots_json']:
+            previous_slots = json.loads(snapshot_row['slots_json'])
 
         # 检测变更（复用get_changes_preview的逻辑）
         def get_key(slot):
@@ -771,6 +758,21 @@ async def send_notifications(
 
                 if prev_teacher != curr_teacher:
                     if prev_teacher and curr_teacher:
+                        # 替换：拆成取消原教师 + 新增新教师
+                        removed.append({
+                            'teacher_id': prev_teacher,
+                            'teacher_name': previous_slot['teacher_name'],
+                            'teacher_wxid': previous_slot['teacher_wxid'],
+                            'slot': previous_slot,
+                            'reason': '教师替换'
+                        })
+                        added.append({
+                            'teacher_id': curr_teacher,
+                            'teacher_name': current_slot['teacher_name'],
+                            'teacher_wxid': current_slot['teacher_wxid'],
+                            'slot': current_slot
+                        })
+                        # 同时记录changed用于交换检测
                         changed.append({
                             'old_teacher_id': prev_teacher,
                             'old_teacher_name': previous_slot['teacher_name'],
@@ -899,28 +901,8 @@ async def send_notifications(
                 send_and_log(content, item['teacher_id'], item['teacher_name'],
                            item['teacher_wxid'], 'removed', [item['slot']])
 
-        # 3. 发送替换通知（通知双方）
-        if request.notify_changed:
-            for ch in remaining_changed:
-                # 通知被替换的教师（取消）
-                content_old = f"""【监考变更】
-考试：{project_name}
-{ch['old_teacher_name']}老师，您的监考安排已变更：
-原安排：{format_slot(ch['old_slot'])}
-现由 {ch['new_teacher_name']} 老师接替。
-感谢您的配合。"""
-                send_and_log(content_old, ch['old_teacher_id'], ch['old_teacher_name'],
-                           ch['old_teacher_wxid'], 'changed_old', [ch['old_slot']])
-
-                # 通知新接替的教师（新增）
-                content_new = f"""【新增监考】
-考试：{project_name}
-{ch['new_teacher_name']}老师，新增您的监考安排：
-{format_slot(ch['slot'])}
-（原监考教师：{ch['old_teacher_name']}）
-请准时到岗。"""
-                send_and_log(content_new, ch['new_teacher_id'], ch['new_teacher_name'],
-                           ch['new_teacher_wxid'], 'changed_new', [ch['slot']])
+        # 3. 替换已通过removed+added通知，这里跳过
+        # remaining_changed只用于交换检测的中间数据，不直接发通知
 
         # 4. 发送交换通知（通知双方）
         if request.notify_changed:
@@ -983,6 +965,12 @@ async def send_notifications(
                 log['change_type'], log['slots_json'], log['sent_status'],
                 log['error_message'], log['sent_at']
             ))
+
+        # 存快照到snapshot表（新版本）
+        cursor.execute("""
+            INSERT INTO invigilation_snapshot (project_id, version_no, slots_json, created_at)
+            VALUES (?, ?, ?, datetime('now', 'localtime'))
+        """, (project_id, new_version, json.dumps(current_slots)))
 
         # 更新项目版本和通知时间
         cursor.execute("""
