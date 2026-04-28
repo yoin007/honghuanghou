@@ -1280,7 +1280,7 @@ async def export_invigilation(
     project_id: int,
     user: User = Depends(require_jiaowu)
 ):
-    """导出监考安排 Excel"""
+    """导出监考安排 Excel（横向布局，同一学科不同考场横向排列）"""
     import pandas as pd
 
     with get_invigilation_db() as db:
@@ -1294,7 +1294,7 @@ async def export_invigilation(
 
         # 获取所有安排
         cursor.execute("""
-            SELECT grade_name, exam_date, start_time, end_time, subject, room_name, teacher_name, room_order
+            SELECT grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, teacher_name, room_order
             FROM invigilation_slot
             WHERE project_id = ?
             ORDER BY grade_id, exam_date, start_time, room_order
@@ -1302,26 +1302,66 @@ async def export_invigilation(
 
         slots = [dict(row) for row in cursor.fetchall()]
 
-        # 按年级分组
+        # 按年级分组，转换为横向布局
         grade_slots = {}
         for slot in slots:
             grade = slot['grade_name']
             if grade not in grade_slots:
                 grade_slots[grade] = []
-            grade_slots[grade].append(slot)
 
+        # 每个年级单独处理
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # 每个年级一个 sheet
-            for grade_name, grade_data in grade_slots.items():
-                df = pd.DataFrame(grade_data)
-                df = df[['exam_date', 'start_time', 'end_time', 'subject', 'room_name', 'teacher_name', 'room_order']]
-                df.columns = ['日期', '开始时间', '结束时间', '学科', '考场', '监考老师', '考场序号']
-                df.to_excel(writer, index=False, sheet_name=grade_name)
+            for grade_name in sorted(grade_slots.keys(), key=lambda x: {'高一': 1, '高二': 2, '高三': 3}.get(x, 0)):
+                grade_slots_raw = [s for s in slots if s['grade_name'] == grade_name]
 
-            # 如果没有数据，创建空sheet
+                # 转换为横向布局：按 (日期, 开始时间, 学科) 分组
+                horizontal_data = []
+                grouped = {}
+
+                for slot in grade_slots_raw:
+                    key = (slot['exam_date'], slot['start_time'], slot['end_time'], slot['subject'])
+                    if key not in grouped:
+                        grouped[key] = {
+                            '年级': grade_name,
+                            '日期': slot['exam_date'],
+                            '开始时间': slot['start_time'],
+                            '结束时间': slot['end_time'],
+                            '学科': slot['subject']
+                        }
+                    # 添加考场列
+                    room_col = f"考场{slot['room_order']}"
+                    grouped[key][room_col] = slot['teacher_name']
+
+                # 获取最大考场数
+                max_room = max(
+                    (s['room_order'] for s in grade_slots_raw),
+                    default=0
+                )
+
+                # 构建DataFrame
+                for key in sorted(grouped.keys()):
+                    row_data = grouped[key]
+                    # 确保所有考场列都存在
+                    for i in range(1, max_room + 1):
+                        if f"考场{i}" not in row_data:
+                            row_data[f"考场{i}"] = ''
+                    horizontal_data.append(row_data)
+
+                if horizontal_data:
+                    # 按列顺序排列
+                    columns = ['年级', '日期', '开始时间', '结束时间', '学科'] + [f"考场{i}" for i in range(1, max_room + 1)]
+                    df = pd.DataFrame(horizontal_data)
+                    df = df[columns]
+                    df.to_excel(writer, index=False, sheet_name=grade_name)
+                else:
+                    # 空sheet
+                    df = pd.DataFrame(columns=['年级', '日期', '开始时间', '结束时间', '学科', '考场1'])
+                    df.to_excel(writer, index=False, sheet_name=grade_name)
+
+            # 如果没有任何数据
             if not grade_slots:
-                df = pd.DataFrame(columns=['年级', '日期', '开始时间', '结束时间', '学科', '考场', '监考老师', '考场序号'])
+                df = pd.DataFrame(columns=['年级', '日期', '开始时间', '结束时间', '学科', '考场1'])
                 df.to_excel(writer, index=False, sheet_name='监考安排')
 
         output.seek(0)
