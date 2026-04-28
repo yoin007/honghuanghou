@@ -4,7 +4,7 @@
       <el-header class="app-header" height="auto">
         <div class="header-inner">
           <div class="header-top">
-            <h1 class="app-title">班级数据展示系统</h1>
+            <h1 class="app-title">数字天龙</h1>
             <div class="header-right-actions">
               <el-select
                 v-model="classCode"

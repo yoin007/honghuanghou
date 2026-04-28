@@ -224,8 +224,7 @@
         <div class="changes-stats">
           <el-tag type="success">新增 {{ changesPreview.stats.added_count }}人</el-tag>
           <el-tag type="danger">取消 {{ changesPreview.stats.removed_count }}人</el-tag>
-          <el-tag type="warning">变更 {{ changesPreview.stats.changed_count }}人</el-tag>
-          <el-tag type="info">交换 {{ changesPreview.stats.swapped_count }}对</el-tag>
+          <el-tag type="info">互换 {{ changesPreview.stats.swapped_count }}对</el-tag>
           <el-tag>无变化 {{ changesPreview.stats.unchanged_count }}人</el-tag>
         </div>
 
@@ -262,8 +261,8 @@
           </el-table>
         </div>
 
-        <!-- 交换列表 -->
-        <div v-if="changesPreview.swapped.length" class="change-section">
+        <!-- 互换列表 -->
+        <div v-if="changesPreview.swapped && changesPreview.swapped.length" class="change-section">
           <div class="section-title">教师互换</div>
           <el-table :data="changesPreview.swapped" size="small" border>
             <el-table-column prop="teacher_a_name" label="教师A" width="100" />
@@ -276,20 +275,6 @@
             <el-table-column label="B原位置">
               <template #default="{ row }">
                 {{ row.slot_b.exam_date }} {{ row.slot_b.subject }} {{ row.slot_b.room_name }}
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-
-        <!-- 替换列表 -->
-        <div v-if="changesPreview.changed.length" class="change-section">
-          <div class="section-title">教师替换</div>
-          <el-table :data="changesPreview.changed" size="small" border>
-            <el-table-column prop="old_teacher_name" label="原教师" width="100" />
-            <el-table-column prop="new_teacher_name" label="新教师" width="100" />
-            <el-table-column label="安排">
-              <template #default="{ row }">
-                {{ row.slot.exam_date }} {{ row.slot.subject }} {{ row.slot.room_name }}
               </template>
             </el-table-column>
           </el-table>

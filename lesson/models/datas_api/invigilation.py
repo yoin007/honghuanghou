@@ -617,8 +617,6 @@ async def get_changes_preview(
 
         # 检测交换：old→new 和 new→old 同时存在
         swaps = []
-        remaining_changed = []
-
         # 构建替换映射
         replace_map = {}
         for ch in changed:
@@ -626,11 +624,12 @@ async def get_changes_preview(
                 key_pair = (ch['old_teacher_id'], ch['new_teacher_id'])
                 replace_map[key_pair] = ch
 
-        # 检测交换
+        # 检测交换并从removed/added中过滤
         processed_keys = set()
+        swap_teacher_ids = set()
         for (old_id, new_id), ch in replace_map.items():
             if (new_id, old_id) in replace_map and (new_id, old_id) not in processed_keys:
-                # 发现交换
+                # 发现交换：A→B 和 B→A 同时存在
                 ch2 = replace_map[(new_id, old_id)]
                 swaps.append({
                     'type': 'swap',
@@ -643,30 +642,24 @@ async def get_changes_preview(
                     'slot_a': ch['slot'],  # A原位置
                     'slot_b': ch2['slot']  # B原位置
                 })
+                # 交换教师从removed/added中移除（避免重复）
+                swap_teacher_ids.add(old_id)
+                swap_teacher_ids.add(new_id)
                 processed_keys.add((old_id, new_id))
                 processed_keys.add((new_id, old_id))
-            elif (old_id, new_id) not in processed_keys:
-                remaining_changed.append(ch)
 
-        # 交换处理后，从removed/added中删除已被swap处理的教师（避免重复通知）
-        swap_teacher_ids = set()
-        for sw in swaps:
-            swap_teacher_ids.add(sw['teacher_a_id'])
-            swap_teacher_ids.add(sw['teacher_b_id'])
-
+        # 从removed/added过滤掉交换教师
         removed = [r for r in removed if r['teacher_id'] not in swap_teacher_ids]
         added = [a for a in added if a['teacher_id'] not in swap_teacher_ids]
 
-        # 汇总统计
+        # 汇总统计（changed仅用于交换检测，不再单独统计）
         stats = {
             'added_count': len(added),
             'removed_count': len(removed),
-            'changed_count': len(remaining_changed),
             'swapped_count': len(swaps),
             'unchanged_count': len(unchanged),
             'has_wxid_added': sum(1 for a in added if a['teacher_wxid']),
             'has_wxid_removed': sum(1 for r in removed if r['teacher_wxid']),
-            'has_wxid_changed': sum(1 for c in remaining_changed if c['old_teacher_wxid'] or c['new_teacher_wxid']),
             'has_wxid_swapped': sum(1 for s in swaps if s['teacher_a_wxid'] or s['teacher_b_wxid']),
         }
 
@@ -675,7 +668,6 @@ async def get_changes_preview(
             "data": {
                 "added": added,
                 "removed": removed,
-                "changed": remaining_changed,
                 "swapped": swaps,
                 "unchanged": unchanged,
                 "stats": stats
@@ -814,14 +806,15 @@ async def send_notifications(
 
         # 检测交换
         swaps = []
-        remaining_changed = []
 
         replace_map = {}
         for ch in changed:
             key_pair = (ch['old_teacher_id'], ch['new_teacher_id'])
             replace_map[key_pair] = ch
 
+        # 检测交换并过滤
         processed_keys = set()
+        swap_teacher_ids = set()
         for (old_id, new_id), ch in replace_map.items():
             if (new_id, old_id) in replace_map and (new_id, old_id) not in processed_keys:
                 ch2 = replace_map[(new_id, old_id)]
@@ -835,17 +828,12 @@ async def send_notifications(
                     'slot_a': ch['slot'],
                     'slot_b': ch2['slot']
                 })
+                swap_teacher_ids.add(old_id)
+                swap_teacher_ids.add(new_id)
                 processed_keys.add((old_id, new_id))
                 processed_keys.add((new_id, old_id))
-            elif (old_id, new_id) not in processed_keys:
-                remaining_changed.append(ch)
 
-        # 交换处理后，从removed/added中删除已被swap处理的教师（避免重复通知）
-        swap_teacher_ids = set()
-        for sw in swaps:
-            swap_teacher_ids.add(sw['teacher_a_id'])
-            swap_teacher_ids.add(sw['teacher_b_id'])
-
+        # 从removed/added过滤掉交换教师
         removed = [r for r in removed if r['teacher_id'] not in swap_teacher_ids]
         added = [a for a in added if a['teacher_id'] not in swap_teacher_ids]
 
@@ -918,16 +906,15 @@ async def send_notifications(
         # 3. 替换已通过removed+added通知，这里跳过
         # remaining_changed只用于交换检测的中间数据，不直接发通知
 
-        # 4. 发送交换通知（通知双方）
+        # 4. 发送交换通知（通知双方，不显示对方名字）
         if request.notify_changed:
             for sw in swaps:
                 # 通知教师A
                 content_a = f"""【监考调整】
 考试：{project_name}
-{sw['teacher_a_name']}老师，您的监考已调整：
+{sw['teacher_a_name']}老师，您的监考安排已调整：
 原安排：{format_slot(sw['slot_a'])}
 新安排：{format_slot(sw['slot_b'])}
-（与 {sw['teacher_b_name']} 老师互换）
 请准时到岗。"""
                 send_and_log(content_a, sw['teacher_a_id'], sw['teacher_a_name'],
                            sw['teacher_a_wxid'], 'swap', [sw['slot_a'], sw['slot_b']])
@@ -935,10 +922,9 @@ async def send_notifications(
                 # 通知教师B
                 content_b = f"""【监考调整】
 考试：{project_name}
-{sw['teacher_b_name']}老师，您的监考已调整：
+{sw['teacher_b_name']}老师，您的监考安排已调整：
 原安排：{format_slot(sw['slot_b'])}
 新安排：{format_slot(sw['slot_a'])}
-（与 {sw['teacher_a_name']} 老师互换）
 请准时到岗。"""
                 send_and_log(content_b, sw['teacher_b_id'], sw['teacher_b_name'],
                            sw['teacher_b_wxid'], 'swap', [sw['slot_a'], sw['slot_b']])
@@ -1004,7 +990,6 @@ async def send_notifications(
                 "skipped": skipped_count,
                 "added": len(added),
                 "removed": len(removed),
-                "changed": len(remaining_changed),
                 "swapped": len(swaps),
                 "reminded": len(unchanged) if request.notify_reminder else 0
             }
