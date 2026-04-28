@@ -584,18 +584,18 @@ async def get_notification_logs(
 
 @router.get("/template", summary="下载导入模板")
 async def download_template(user: User = Depends(require_jiaowu)):
-    """下载监考安排导入模板"""
+    """下载监考安排导入模板（横向布局）"""
     import pandas as pd
 
+    # 横向布局：同一学科不同考场横向排列
     template_data = {
-        '年级': ['高一', '高一', '高一', '高二'],
-        '日期': ['2026-05-10', '2026-05-10', '2026-05-10', '2026-05-11'],
-        '开始时间': ['08:00', '10:20', '14:00', '08:00'],
-        '结束时间': ['10:00', '12:00', '16:00', '10:00'],
-        '学科': ['语文', '数学', '英语', '语文'],
-        '考场': ['第1考场', '第1考场', '第2考场', '第1考场'],
-        '监考老师': ['张三', '李四', '王五', '赵六'],
-        '考场序号': [1, 1, 2, 1]
+        '年级': ['高一', '高一', '高一', '高二', '高二', '高三'],
+        '日期': ['2026-05-10', '2026-05-10', '2026-05-11', '2026-05-10', '2026-05-10', '2026-05-11'],
+        '场次': ['第一场(08:00-10:00)', '第二场(10:20-12:00)', '第三场(14:00-16:00)', '第一场(08:00-10:00)', '第二场(10:20-12:00)', '第一场(08:00-10:00)'],
+        '学科': ['语文', '数学', '英语', '语文', '数学', '物理'],
+        '第1考场监考': ['张三', '王五', '周九', '赵六', '吴十', '孙八'],
+        '第2考场监考': ['李四', '钱七', '郑十一', '冯十二', '陈十三', '褚十四'],
+        '第3考场监考': ['卫十五', '蒋十六', '沈十七', '韩十八', '杨十九', '朱二十']
     }
 
     df = pd.DataFrame(template_data)
@@ -640,11 +640,8 @@ async def import_invigilation(
         content = await file.read()
         df = pd.read_excel(io.BytesIO(content))
 
-        # 校验必要列
-        required_cols = ['年级', '日期', '开始时间', '结束时间', '学科', '考场', '监考老师']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            raise HTTPException(400, f"缺少必要列: {', '.join(missing_cols)}")
+        # 检测布局格式：横向布局有"第X考场监考"列
+        is_horizontal = any('考场监考' in col or '第' in col and '监考' in col for col in df.columns)
 
         # 获取教师列表用于匹配
         cursor.execute("SELECT teacher_id, name FROM teacher WHERE is_active = 1")
@@ -657,47 +654,128 @@ async def import_invigilation(
         # 年级名称映射
         grade_map = {'高一': 1, '高二': 2, '高三': 3}
 
-        for idx, row in df.iterrows():
-            try:
-                grade_name = str(row['年级'])
-                grade_id = grade_map.get(grade_name)
-                if grade_id is None:
-                    errors.append(f"第{idx+2}行: 年级 '{grade_name}' 无法识别")
-                    continue
+        # 场次时间解析：从"场次"列解析时间
+        def parse_session(session_str):
+            """解析场次字符串，如 '第一场(08:00-10:00)' """
+            import re
+            match = re.search(r'\((\d{2}:\d{2})-(\d{2}:\d{2})\)', session_str)
+            if match:
+                return match.group(1), match.group(2)
+            return '08:00', '10:00'  # 默认值
 
-                if grade_id not in allowed_grades:
-                    errors.append(f"第{idx+2}行: 年级 '{grade_name}' 不属于该考试项目")
-                    continue
+        if is_horizontal:
+            # 横向布局：每行展开为多条slot记录
+            required_cols = ['年级', '日期', '场次', '学科']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                raise HTTPException(400, f"缺少必要列: {', '.join(missing_cols)}")
 
-                exam_date = str(row['日期'])
-                start_time = str(row['开始时间'])
-                end_time = str(row['结束时间'])
-                subject = str(row['学科'])
-                room_name = str(row['考场'])
-                teacher_name = str(row['监考老师'])
-                room_order = int(row.get('考场序号', 0)) if '考场序号' in df.columns else 0
+            room_cols = [col for col in df.columns if '考场监考' in col or ('第' in col and '监考' in col)]
 
-                teacher_id = teachers.get(teacher_name)
-                if not teacher_id:
-                    errors.append(f"第{idx+2}行: 教师 '{teacher_name}' 未找到")
-                    continue
+            for idx, row in df.iterrows():
+                try:
+                    grade_name = str(row['年级'])
+                    grade_id = grade_map.get(grade_name)
+                    if grade_id is None:
+                        errors.append(f"第{idx+2}行: 年级 '{grade_name}' 无法识别")
+                        continue
 
-                imported.append({
-                    'grade_id': grade_id,
-                    'grade_name': grade_name,
-                    'exam_date': exam_date,
-                    'start_time': start_time,
-                    'end_time': end_time,
-                    'subject': subject,
-                    'room_name': room_name,
-                    'room_order': room_order,
-                    'teacher_id': teacher_id,
-                    'teacher_name': teacher_name,
-                    'source': 'import'
-                })
+                    if grade_id not in allowed_grades:
+                        errors.append(f"第{idx+2}行: 年级 '{grade_name}' 不属于该考试项目")
+                        continue
 
-            except Exception as e:
-                errors.append(f"第{idx+2}行: 数据格式错误 - {str(e)}")
+                    exam_date = str(row['日期'])
+                    session = str(row['场次'])
+                    start_time, end_time = parse_session(session)
+                    subject = str(row['学科'])
+
+                    # 展开横向考场列
+                    for room_col in room_cols:
+                        # 解析考场名称：如 "第1考场监考" → "第1考场"，序号=1
+                        import re
+                        room_match = re.search(r'第(\d+)考场', room_col)
+                        if room_match:
+                            room_order = int(room_match.group(1))
+                            room_name = f"第{room_order}考场"
+                        else:
+                            room_order = 0
+                            room_name = room_col.replace('监考', '').strip()
+
+                        teacher_name = row.get(room_col)
+                        if pd.isna(teacher_name) or not teacher_name:
+                            continue  # 空单元格跳过
+
+                        teacher_name = str(teacher_name)
+                        teacher_id = teachers.get(teacher_name)
+                        if not teacher_id:
+                            errors.append(f"第{idx+2}行 {room_col}: 教师 '{teacher_name}' 未找到")
+                            continue
+
+                        imported.append({
+                            'grade_id': grade_id,
+                            'grade_name': grade_name,
+                            'exam_date': exam_date,
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'subject': subject,
+                            'room_name': room_name,
+                            'room_order': room_order,
+                            'teacher_id': teacher_id,
+                            'teacher_name': teacher_name,
+                            'source': 'import'
+                        })
+
+                except Exception as e:
+                    errors.append(f"第{idx+2}行: 数据格式错误 - {str(e)}")
+
+        else:
+            # 纵向布局（传统格式）
+            required_cols = ['年级', '日期', '开始时间', '结束时间', '学科', '考场', '监考老师']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                raise HTTPException(400, f"缺少必要列: {', '.join(missing_cols)}")
+
+            for idx, row in df.iterrows():
+                try:
+                    grade_name = str(row['年级'])
+                    grade_id = grade_map.get(grade_name)
+                    if grade_id is None:
+                        errors.append(f"第{idx+2}行: 年级 '{grade_name}' 无法识别")
+                        continue
+
+                    if grade_id not in allowed_grades:
+                        errors.append(f"第{idx+2}行: 年级 '{grade_name}' 不属于该考试项目")
+                        continue
+
+                    exam_date = str(row['日期'])
+                    start_time = str(row['开始时间'])
+                    end_time = str(row['结束时间'])
+                    subject = str(row['学科'])
+                    room_name = str(row['考场'])
+                    teacher_name = str(row['监考老师'])
+                    room_order = int(row.get('考场序号', 0)) if '考场序号' in df.columns else 0
+
+                    teacher_id = teachers.get(teacher_name)
+                    if not teacher_id:
+                        errors.append(f"第{idx+2}行: 教师 '{teacher_name}' 未找到")
+                        continue
+
+                    imported.append({
+                        'grade_id': grade_id,
+                        'grade_name': grade_name,
+                        'exam_date': exam_date,
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'subject': subject,
+                        'room_name': room_name,
+                        'room_order': room_order,
+                        'teacher_id': teacher_id,
+                        'teacher_name': teacher_name,
+                        'source': 'import'
+                    })
+
+                except Exception as e:
+                    errors.append(f"第{idx+2}行: 数据格式错误 - {str(e)}")
 
         if errors:
             return {
