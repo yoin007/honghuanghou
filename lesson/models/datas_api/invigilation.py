@@ -374,23 +374,19 @@ async def save_invigilation_slots(
         except:
             allowed_grades = []
 
-        # 检查冲突
+        # 检查年级是否属于项目
         for slot in batch.slots:
-            # 检查年级是否属于项目
             if slot.grade_id not in allowed_grades:
                 raise HTTPException(400, f"年级 {slot.grade_id} 不属于该考试项目")
 
-            # 检查同一老师同一时间是否在多个考场
+        # 检查batch内部是否有冲突（同一教师同一时间多个考场）
+        teacher_time_map = {}
+        for slot in batch.slots:
             if slot.teacher_id:
-                cursor.execute("""
-                    SELECT id FROM invigilation_slot
-                    WHERE project_id = ? AND teacher_id = ?
-                    AND exam_date = ? AND start_time = ?
-                    AND room_name != ?
-                """, (project_id, slot.teacher_id, slot.exam_date, slot.start_time, slot.room_name))
-                conflict = cursor.fetchone()
-                if conflict:
-                    raise HTTPException(400, f"教师 {slot.teacher_name} 在 {slot.exam_date} {slot.start_time} 已有其他考场安排")
+                key = f"{slot.teacher_id}|{slot.exam_date}|{slot.start_time}"
+                if key in teacher_time_map:
+                    raise HTTPException(400, f"教师 {slot.teacher_name} 在 {slot.exam_date} {slot.start_time} 安排了多个考场")
+                teacher_time_map[key] = slot.room_name
 
         # 删除旧安排
         cursor.execute("DELETE FROM invigilation_slot WHERE project_id = ?", (project_id,))
