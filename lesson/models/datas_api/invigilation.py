@@ -816,6 +816,7 @@ async def send_notifications(
             return f"{slot['exam_date']} {slot['start_time']}-{slot['end_time']} {slot['subject']} {slot['grade_name']} {slot['room_name']}"
 
         def send_and_log(content, teacher_id, teacher_name, teacher_wxid, change_type, slots_json):
+            nonlocal success_count, failed_count, skipped_count, logs
             log_entry = {
                 'project_id': project_id,
                 'version_no': new_version,
