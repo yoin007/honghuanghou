@@ -108,18 +108,49 @@ def ensure_teacher_schema(conn: sqlite3.Connection = None):
     )
 
     columns = {row[1] for row in cursor.execute("PRAGMA table_info(teacher)").fetchall()}
+    if "alias" in columns:
+        cursor.execute(
+            "UPDATE teacher SET name = alias WHERE (name IS NULL OR name = '') AND alias IS NOT NULL AND alias != ''"
+        )
+        try:
+            cursor.execute("ALTER TABLE teacher DROP COLUMN alias")
+            columns.remove("alias")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not drop obsolete teacher.alias column: {e}")
+    if "member_active" in columns:
+        cursor.execute(
+            "UPDATE teacher SET is_active = COALESCE(is_active, member_active) WHERE is_active IS NULL"
+        )
+        try:
+            cursor.execute("ALTER TABLE teacher DROP COLUMN member_active")
+            columns.remove("member_active")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not drop obsolete teacher.member_active column: {e}")
+    if "uuid" in columns:
+        cursor.execute(
+            "UPDATE teacher SET wxid = uuid WHERE (wxid IS NULL OR wxid = '') AND uuid IS NOT NULL AND uuid != ''"
+        )
+        cursor.execute("DROP INDEX IF EXISTS idx_teacher_uuid")
+        try:
+            cursor.execute("ALTER TABLE teacher DROP COLUMN uuid")
+            columns.remove("uuid")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not drop obsolete teacher.uuid column: {e}")
+    if "priority" in columns:
+        try:
+            cursor.execute("ALTER TABLE teacher DROP COLUMN priority")
+            columns.remove("priority")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not drop obsolete teacher.priority column: {e}")
+
     additions = {
         "course": "TEXT",
         "raw_pwd": "TEXT",
-        "uuid": "TEXT",
-        "alias": "TEXT",
         "score": "INTEGER DEFAULT 50",
         "balance": "INTEGER DEFAULT 0",
         "model": "TEXT DEFAULT 'basic'",
         "ai_flag": "INTEGER DEFAULT 0",
         "birthday": "TEXT",
-        "member_active": "INTEGER DEFAULT 1",
-        "priority": "INTEGER DEFAULT 99",
         "note": "TEXT",
         "identity_type": "TEXT DEFAULT 'teacher'",
     }
@@ -128,12 +159,7 @@ def ensure_teacher_schema(conn: sqlite3.Connection = None):
             cursor.execute(f"ALTER TABLE teacher ADD COLUMN {column} {definition}")
 
     cursor.execute("UPDATE teacher SET identity_type = 'teacher' WHERE identity_type IS NULL")
-    cursor.execute("UPDATE teacher SET alias = name WHERE alias IS NULL OR alias = ''")
-    cursor.execute(
-        "UPDATE teacher SET uuid = wxid WHERE (uuid IS NULL OR uuid = '') AND wxid IS NOT NULL AND wxid != ''"
-    )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_name ON teacher(name)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_uuid ON teacher(uuid)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_identity_type ON teacher(identity_type)")
     conn.commit()
 
@@ -180,8 +206,8 @@ def migrate_auth_teachers_to_moral() -> int:
             """
             INSERT INTO teacher
             (teacher_id, name, subject, course, password_hash, raw_pwd, role, level,
-             is_active, notice_enabled, is_password_changed, alias, identity_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher')
+             is_active, notice_enabled, is_password_changed, identity_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher')
             ON CONFLICT(teacher_id) DO UPDATE SET
                 name = COALESCE(NULLIF(teacher.name, ''), excluded.name),
                 subject = COALESCE(NULLIF(teacher.subject, ''), excluded.subject),
@@ -193,7 +219,6 @@ def migrate_auth_teachers_to_moral() -> int:
                 is_active = COALESCE(teacher.is_active, excluded.is_active),
                 notice_enabled = COALESCE(teacher.notice_enabled, excluded.notice_enabled),
                 is_password_changed = COALESCE(teacher.is_password_changed, excluded.is_password_changed),
-                alias = COALESCE(NULLIF(teacher.alias, ''), excluded.alias),
                 identity_type = 'teacher',
                 updated_at = datetime('now', 'localtime')
             """,
@@ -209,7 +234,6 @@ def migrate_auth_teachers_to_moral() -> int:
                 teacher.get("active", 1),
                 teacher.get("notice", 1),
                 teacher.get("is_password_changed", 0),
-                name,
             ),
         )
         migrated += 1
@@ -221,7 +245,8 @@ def migrate_auth_teachers_to_moral() -> int:
     return migrated
 
 
-def _teacher_select_sql(where: str = "") -> str:
+def _teacher_select_sql(where: str = "", teacher_only: bool = True) -> str:
+    identity_filter = "WHERE COALESCE(identity_type, 'teacher') = 'teacher'" if teacher_only else "WHERE 1 = 1"
     return f"""
         SELECT
             teacher_id,
@@ -236,10 +261,18 @@ def _teacher_select_sql(where: str = "") -> str:
             COALESCE(is_active, 1) AS active,
             COALESCE(is_password_changed, 0) AS is_password_changed,
             wxid,
-            alias,
-            identity_type
+            name AS alias,
+            COALESCE(score, 50) AS score,
+            COALESCE(balance, 0) AS balance,
+            COALESCE(model, 'basic') AS model,
+            COALESCE(ai_flag, 0) AS ai_flag,
+            COALESCE(birthday, '') AS birthday,
+            COALESCE(note, '') AS note,
+            COALESCE(identity_type, 'teacher') AS identity_type,
+            created_at,
+            updated_at
         FROM teacher
-        WHERE COALESCE(identity_type, 'teacher') = 'teacher'
+        {identity_filter}
         {where}
     """
 
@@ -248,6 +281,17 @@ def get_all_teachers() -> List[Dict]:
     """获取所有教师列表"""
     with get_teacher_db() as db:
         return db.query_all(_teacher_select_sql("ORDER BY name"))
+
+
+def get_all_teacher_records() -> List[Dict]:
+    """获取 teacher 表全部身份记录。仅供管理员维护统一身份表。"""
+    with get_teacher_db() as db:
+        return db.query_all(
+            _teacher_select_sql(
+                "ORDER BY CASE COALESCE(identity_type, 'teacher') WHEN 'teacher' THEN 0 WHEN 'member' THEN 1 ELSE 2 END, name",
+                teacher_only=False,
+            )
+        )
 
 
 def get_teacher_by_name(name: str) -> Optional[Dict]:
@@ -290,8 +334,8 @@ def create_teacher_record(
             """
             INSERT INTO teacher
             (teacher_id, name, subject, course, notice_enabled, password_hash, raw_pwd,
-             role, level, is_active, is_password_changed, alias, identity_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher')
+             role, level, is_active, is_password_changed, identity_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher')
             """,
             (
                 _teacher_id_from_name(name),
@@ -305,12 +349,11 @@ def create_teacher_record(
                 level,
                 active,
                 is_password_changed,
-                name,
             ),
         )
 
 
-def update_teacher_record(name: str, **kwargs) -> int:
+def update_teacher_record(current_name: str, **kwargs) -> int:
     """按教师姓名更新教师字段。"""
     allowed = {
         "subject": "subject",
@@ -324,7 +367,14 @@ def update_teacher_record(name: str, **kwargs) -> int:
         "raw_pwd": "raw_pwd",
         "is_password_changed": "is_password_changed",
         "wxid": "wxid",
-        "alias": "alias",
+        "name": "name",
+        "score": "score",
+        "balance": "balance",
+        "model": "model",
+        "ai_flag": "ai_flag",
+        "birthday": "birthday",
+        "note": "note",
+        "identity_type": "identity_type",
     }
     updates = []
     params = []
@@ -336,12 +386,14 @@ def update_teacher_record(name: str, **kwargs) -> int:
     if not updates:
         return 0
 
-    params.append(name)
+    all_records = bool(kwargs.pop("all_records", False))
+    params.append(current_name)
     with get_teacher_db() as db:
+        identity_condition = "" if all_records else "AND COALESCE(identity_type, 'teacher') = 'teacher'"
         rowcount = db.execute(
             f"""UPDATE teacher
             SET {', '.join(updates)}, updated_at = datetime('now', 'localtime')
-            WHERE name = ? AND COALESCE(identity_type, 'teacher') = 'teacher'""",
+            WHERE name = ? {identity_condition}""",
             tuple(params),
         )
         if rowcount == 0:
@@ -349,15 +401,16 @@ def update_teacher_record(name: str, **kwargs) -> int:
         return rowcount
 
 
-def delete_teacher_record(name: str) -> int:
+def delete_teacher_record(name: str, all_records: bool = False) -> int:
     """删除教师账号。为保留历史引用，实际改为非教师身份并禁用登录。"""
     with get_teacher_db() as db:
+        identity_condition = "" if all_records else "AND COALESCE(identity_type, 'teacher') = 'teacher'"
         rowcount = db.execute(
-            """UPDATE teacher
+            f"""UPDATE teacher
             SET is_active = 0,
                 identity_type = 'deleted_teacher',
                 updated_at = datetime('now', 'localtime')
-            WHERE name = ? AND COALESCE(identity_type, 'teacher') = 'teacher'""",
+            WHERE name = ? {identity_condition}""",
             (name,),
         )
         if rowcount == 0:

@@ -43,6 +43,9 @@
           <span class="label">状态:</span>
           <el-tag :type="getStatusType(currentProject.status)">{{ getStatusName(currentProject.status) }}</el-tag>
         </div>
+        <div class="info-item">
+          <el-button type="danger" size="small" @click="confirmDeleteProject">删除项目</el-button>
+        </div>
       </div>
     </el-card>
 
@@ -839,6 +842,53 @@ function getStatusType(status) {
 function getStatusName(status) {
   const map = { draft: '草稿', saved: '已保存', notified: '已通知', archived: '已归档' }
   return map[status] || status
+}
+
+// 删除项目（两次确认）
+async function confirmDeleteProject() {
+  if (!selectedProjectId.value || !currentProject.value) return
+
+  const projectName = currentProject.value.name
+
+  // 第一次确认
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除考试项目「${projectName}」吗？\n\n这将删除该项目下所有监考安排数据！`,
+      '删除确认（第一步）',
+      {
+        confirmButtonText: '继续删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+
+    // 第二次确认
+    await ElMessageBox.confirm(
+      `⚠️ 最后确认：删除「${projectName}」\n\n此操作不可恢复，所有监考安排、通知日志将永久删除！`,
+      '删除确认（第二步）',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'error',
+      }
+    )
+
+    // 执行删除
+    const res = await api.delete(`/api/invigilation/projects/${selectedProjectId.value}`)
+    if (res.success) {
+      ElMessage.success('项目已删除')
+      selectedProjectId.value = null
+      currentProject.value = null
+      slots.value = []
+      horizontalSlots.value = {}
+      await loadProjects()
+    }
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      console.error('删除失败:', e)
+      ElMessage.error('删除失败')
+    }
+  }
 }
 </script>
 

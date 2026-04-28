@@ -150,15 +150,11 @@ CREATE TABLE IF NOT EXISTS teacher (
     is_active INTEGER DEFAULT 1,
     notice_enabled INTEGER DEFAULT 1,
     is_password_changed INTEGER DEFAULT 0,
-    uuid TEXT,
-    alias TEXT,
     score INTEGER DEFAULT 50,
     balance INTEGER DEFAULT 0,
     model TEXT DEFAULT 'basic',
     ai_flag INTEGER DEFAULT 0,
     birthday TEXT,
-    member_active INTEGER DEFAULT 1,
-    priority INTEGER DEFAULT 99,
     note TEXT,
     identity_type TEXT DEFAULT 'teacher',
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -792,15 +788,11 @@ CREATE TABLE IF NOT EXISTS teacher (
     is_active TINYINT DEFAULT 1 COMMENT '登录权限',
     notice_enabled TINYINT DEFAULT 1 COMMENT '通知开关',
     is_password_changed TINYINT DEFAULT 0,
-    uuid VARCHAR(150) COMMENT '统一会员UUID',
-    alias VARCHAR(100) COMMENT '会员别名',
     score INT DEFAULT 50 COMMENT '会员积分',
     balance INT DEFAULT 0 COMMENT '会员余额',
     model VARCHAR(100) DEFAULT 'basic' COMMENT '会员模块',
     ai_flag TINYINT DEFAULT 0 COMMENT 'AI标记',
     birthday VARCHAR(20) COMMENT '生日',
-    member_active TINYINT DEFAULT 1 COMMENT '会员是否启用',
-    priority INT DEFAULT 99 COMMENT '会员优先级',
     note TEXT COMMENT '会员备注',
     identity_type VARCHAR(20) DEFAULT 'teacher' COMMENT '身份类型：teacher/member',
     created_at DATETIME DEFAULT NOW(),
@@ -1515,18 +1507,53 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
         row[1]
         for row in conn.execute("PRAGMA table_info(teacher)").fetchall()
     }
+    if "alias" in teacher_columns:
+        conn.execute(
+            "UPDATE teacher SET name = alias WHERE (name IS NULL OR name = '') AND alias IS NOT NULL AND alias != ''"
+        )
+        try:
+            logger.info("Dropping obsolete SQLite column: teacher.alias")
+            conn.execute("ALTER TABLE teacher DROP COLUMN alias")
+            teacher_columns.remove("alias")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not drop obsolete teacher.alias column: {e}")
+    if "member_active" in teacher_columns:
+        conn.execute(
+            "UPDATE teacher SET is_active = COALESCE(is_active, member_active) WHERE is_active IS NULL"
+        )
+        try:
+            logger.info("Dropping obsolete SQLite column: teacher.member_active")
+            conn.execute("ALTER TABLE teacher DROP COLUMN member_active")
+            teacher_columns.remove("member_active")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not drop obsolete teacher.member_active column: {e}")
+    if "uuid" in teacher_columns:
+        conn.execute(
+            "UPDATE teacher SET wxid = uuid WHERE (wxid IS NULL OR wxid = '') AND uuid IS NOT NULL AND uuid != ''"
+        )
+        conn.execute("DROP INDEX IF EXISTS idx_teacher_uuid")
+        try:
+            logger.info("Dropping obsolete SQLite column: teacher.uuid")
+            conn.execute("ALTER TABLE teacher DROP COLUMN uuid")
+            teacher_columns.remove("uuid")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not drop obsolete teacher.uuid column: {e}")
+    if "priority" in teacher_columns:
+        try:
+            logger.info("Dropping obsolete SQLite column: teacher.priority")
+            conn.execute("ALTER TABLE teacher DROP COLUMN priority")
+            teacher_columns.remove("priority")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not drop obsolete teacher.priority column: {e}")
+
     teacher_additions = {
         "course": "TEXT",
         "raw_pwd": "TEXT",
-        "uuid": "TEXT",
-        "alias": "TEXT",
         "score": "INTEGER DEFAULT 50",
         "balance": "INTEGER DEFAULT 0",
         "model": "TEXT DEFAULT 'basic'",
         "ai_flag": "INTEGER DEFAULT 0",
         "birthday": "TEXT",
-        "member_active": "INTEGER DEFAULT 1",
-        "priority": "INTEGER DEFAULT 99",
         "note": "TEXT",
         "identity_type": "TEXT DEFAULT 'teacher'",
     }
@@ -1537,11 +1564,6 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
 
     if teacher_columns:
         conn.execute("UPDATE teacher SET identity_type = 'teacher' WHERE identity_type IS NULL")
-        conn.execute("UPDATE teacher SET alias = name WHERE alias IS NULL OR alias = ''")
-        conn.execute(
-            "UPDATE teacher SET uuid = wxid WHERE (uuid IS NULL OR uuid = '') AND wxid IS NOT NULL AND wxid != ''"
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_teacher_uuid ON teacher(uuid)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_teacher_identity_type ON teacher(identity_type)")
 
         member_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases", "member.db")
@@ -1549,6 +1571,13 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
             try:
                 legacy_conn = sqlite3.connect(member_db_path)
                 legacy_conn.row_factory = sqlite3.Row
+                has_member_table = legacy_conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='member'"
+                ).fetchone()
+                if not has_member_table:
+                    legacy_conn.close()
+                    legacy_conn = None
+                    raise FileNotFoundError("legacy member table removed")
                 legacy_rows = legacy_conn.execute("SELECT * FROM member").fetchall()
                 migrated = 0
                 for row in legacy_rows:
@@ -1559,24 +1588,26 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
                     if not uuid:
                         continue
                     existing = conn.execute(
-                        "SELECT teacher_id FROM teacher WHERE uuid = ? OR wxid = ? OR name = ?",
-                        (uuid, wxid, alias),
+                        "SELECT teacher_id FROM teacher WHERE wxid = ? OR name = ?",
+                        (wxid, alias),
                     ).fetchone()
                     if existing:
                         conn.execute(
                             """UPDATE teacher
-                            SET uuid = ?, wxid = COALESCE(NULLIF(wxid, ''), ?), alias = ?,
+                            SET wxid = COALESCE(NULLIF(wxid, ''), ?),
+                                name = CASE WHEN identity_type = 'teacher' THEN name ELSE ? END,
                                 score = ?, balance = ?,
                                 level = CASE WHEN level IS NULL OR level = 0 THEN ? ELSE level END,
                                 model = ?, ai_flag = ?, birthday = ?,
-                                member_active = ?, priority = ?, note = COALESCE(NULLIF(note, ''), ?),
+                                is_active = CASE WHEN identity_type = 'member' THEN ? ELSE is_active END,
+                                note = COALESCE(NULLIF(note, ''), ?),
                                 updated_at = datetime('now', 'localtime')
                             WHERE teacher_id = ?""",
                             (
-                                uuid, wxid, alias,
+                                wxid, alias,
                                 member.get("score", 50), member.get("balance", 0), member.get("level", 1),
                                 member.get("model", "basic"), member.get("ai_flag", 0), member.get("birthday", ""),
-                                member.get("active", 1), member.get("priority", 99), member.get("note", ""),
+                                member.get("active", 1), member.get("note", ""),
                                 existing[0],
                             ),
                         )
@@ -1585,16 +1616,16 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
                         conn.execute(
                             """INSERT INTO teacher
                             (teacher_id, name, wxid, role, level, is_active, notice_enabled,
-                             uuid, alias, score, balance, model, ai_flag, birthday, member_active,
-                             priority, note, identity_type, created_at)
-                            VALUES (?, ?, ?, 'member', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'member',
+                             score, balance, model, ai_flag, birthday,
+                             note, identity_type, created_at)
+                            VALUES (?, ?, ?, 'member', ?, ?, 1, ?, ?, ?, ?, ?, ?, 'member',
                                     COALESCE(?, datetime('now', 'localtime')))""",
                             (
                                 f"M_{safe_uuid}", alias, wxid,
                                 member.get("level", 1), member.get("active", 1),
-                                uuid, alias, member.get("score", 50), member.get("balance", 0),
+                                member.get("score", 50), member.get("balance", 0),
                                 member.get("model", "basic"), member.get("ai_flag", 0), member.get("birthday", ""),
-                                member.get("active", 1), member.get("priority", 99), member.get("note", ""),
+                                member.get("note", ""),
                                 member.get("create_at"),
                             ),
                         )
@@ -1602,7 +1633,11 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
                 legacy_conn.close()
                 if migrated:
                     logger.info(f"Migrated legacy member rows into teacher: {migrated}")
+            except FileNotFoundError:
+                pass
             except Exception as e:
+                if 'legacy_conn' in locals() and legacy_conn:
+                    legacy_conn.close()
                 logger.warning(f"Skip legacy member migration: {e}")
 
         auth_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases", "auth.db")
@@ -1625,8 +1660,8 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
                     conn.execute(
                         """INSERT INTO teacher
                         (teacher_id, name, subject, course, password_hash, raw_pwd, role, level,
-                         is_active, notice_enabled, is_password_changed, alias, identity_type)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher')
+                         is_active, notice_enabled, is_password_changed, identity_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher')
                         ON CONFLICT(teacher_id) DO UPDATE SET
                             name = COALESCE(NULLIF(teacher.name, ''), excluded.name),
                             subject = COALESCE(NULLIF(teacher.subject, ''), excluded.subject),
@@ -1638,7 +1673,6 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
                             is_active = COALESCE(teacher.is_active, excluded.is_active),
                             notice_enabled = COALESCE(teacher.notice_enabled, excluded.notice_enabled),
                             is_password_changed = COALESCE(teacher.is_password_changed, excluded.is_password_changed),
-                            alias = COALESCE(NULLIF(teacher.alias, ''), excluded.alias),
                             identity_type = 'teacher',
                             updated_at = datetime('now', 'localtime')""",
                         (
@@ -1653,7 +1687,6 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
                             teacher.get("active", 1),
                             teacher.get("notice", 1),
                             teacher.get("is_password_changed", 0),
-                            name,
                         ),
                     )
                     migrated += 1

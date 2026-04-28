@@ -286,22 +286,27 @@ async def delete_exam_project(
     project_id: int,
     user: User = Depends(require_jiaowu)
 ):
-    """删除考试项目（归档）"""
+    """删除考试项目及相关数据（真删除）"""
     with get_invigilation_db() as db:
         cursor = db.cursor()
 
-        cursor.execute("SELECT id FROM exam_project WHERE id = ?", (project_id,))
-        if not cursor.fetchone():
+        cursor.execute("SELECT id, name FROM exam_project WHERE id = ?", (project_id,))
+        project = cursor.fetchone()
+        if not project:
             raise HTTPException(404, "考试项目不存在")
 
-        # 软删除：改为归档状态
-        cursor.execute(
-            "UPDATE exam_project SET status = 'archived', updated_at = datetime('now', 'localtime') WHERE id = ?",
-            (project_id,)
-        )
+        # 删除通知日志
+        cursor.execute("DELETE FROM invigilation_notification_log WHERE project_id = ?", (project_id,))
+
+        # 删除监考安排
+        cursor.execute("DELETE FROM invigilation_slot WHERE project_id = ?", (project_id,))
+
+        # 删除项目
+        cursor.execute("DELETE FROM exam_project WHERE id = ?", (project_id,))
+
         db.commit()
 
-        return {"success": True, "message": "已归档"}
+        return {"success": True, "message": f"项目「{project['name']}」已删除"}
 
 
 # =============================================================================

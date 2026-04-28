@@ -8,9 +8,9 @@
 
 | 数据库 | 主要表 | 处理建议 |
 |------|--------|----------|
-| `auth.db` | `teacher` | 已合并到 `moral.db.teacher`，后续仅作历史来源 |
+| `auth.db` | 无业务表 | `teacher` 已合并并删除，后续不再作为账号主库 |
 | `moral.db` | 德育、学生、班级、教师、评价等 | 保留，教师统一主表在此库 |
-| `member.db` | `member`、`permission`、`contacts`、`chatroom`、`chatroom_member` | `member` 已并入 `moral.db.teacher`；其他表保留 |
+| `member.db` | `permission`、`contacts`、`chatroom`、`chatroom_member` | `member` 已并入 `moral.db.teacher` 并删除；其他表保留 |
 | `invigilation.db` | 监考项目、安排、通知日志 | 保留，属于独立业务数据 |
 | `homework.db` | 作业、晨读、公告 | 保留，业务独立 |
 | `inout.db` | 请假/出入校 | 保留，业务独立 |
@@ -21,8 +21,8 @@
 | `daily.db` | 旧日常记录 | 与德育日常表现业务相似，但字段语义不同，暂不自动合并 |
 | `notes.db` | 笔记 | 保留 |
 | `colleges.db` | 高考/院校数据 | 保留，独立数据集 |
-| `lesson.db` | 当前为空 | 可后续评估是否移除 |
-| `main.db` | 当前为空 | 可后续评估是否移除 |
+| `lesson.db` | 已删除 | 空库，且无业务读写引用 |
+| `main.db` | 已删除 | 空库，且无业务读写引用 |
 
 ## 已合并的数据
 
@@ -57,17 +57,16 @@
 
 | 原字段 `member.member` | 目标字段 `moral.teacher` | 说明 |
 |------|------|------|
-| `uuid` | `uuid` | 会员唯一标识 |
+| `uuid` | `wxid` | 历史接口字段，底层已统一为 `wxid` |
 | `wxid` | `wxid` | 微信 ID |
-| `alias` | `alias` | 昵称/姓名 |
-| `active` | `member_active` | 会员是否启用 |
+| `alias` | `name` | 昵称/姓名，与姓名完全一致，已合并为 `name` |
+| `active` | `is_active` | 会员是否启用，与登录启用状态完全一致，已合并为 `is_active` |
 | `score` | `score` | 积分 |
 | `balance` | `balance` | 余额 |
 | `level` | `level` | 权限等级 |
 | `model` | `model` | 可用模块 |
 | `ai_flag` | `ai_flag` | AI 标记 |
 | `birthday` | `birthday` | 生日 |
-| `priority` | `priority` | 优先级 |
 | `note` | `note` | 备注 |
 
 代码调整：
@@ -75,7 +74,7 @@
 - `Member.member_info()` 改为从 `moral.teacher` 读取并返回旧字段顺序。
 - `Member.insert_member()` 改为写入或更新 `moral.teacher`。
 - `Member.update_member()` 改为更新 `moral.teacher`。
-- `Member.delte_member()` 改为软禁用 `member_active`，不再物理删除旧身份。
+- `Member.delte_member()` 改为按 `identity_type` 软禁用仅会员身份，不再物理删除旧身份。
 - `Member.member_wxid()` 改为从 `moral.teacher` 查找。
 - 旧 `/api/members` 接口改为走兼容方法，不再直接 SQL 查询 `member.db.member`。
 
@@ -111,11 +110,12 @@ moral.db.teacher
 | `member` | 仅微信会员，不是正式教师 |
 | `deleted_teacher` | 已删除或禁用的教师账号历史记录 |
 
+`identity_type` 仍需保留：它用于区分正式教师账号与仅微信会员身份，登录、监考教师列表、教师管理等接口会用它过滤正式教师；如果删除该字段，仅会员身份会被误识别为教师账号。
+
 ## 后续建议
 
 1. 新增教师、修改教师、重置密码都只写 `moral.teacher`。
-2. `auth.db.teacher` 后续不再新增数据，可在稳定运行一段时间后改名备份为 `auth_teacher_legacy` 或停止初始化。
-3. `member.db.member` 后续不再新增数据，可保留只读备份。
+2. `auth.db.teacher` 已删除，后续教师账号只写 `moral.teacher`。
+3. `member.db.member` 已删除，后续微信会员身份只写 `moral.teacher`。
 4. 若要合并 `daily.db.daily` 到德育日常表现，应单独制定历史导入规则，不能按字段相似直接并表。
 5. 文档和驾驶舱方案里的教师数据来源应统一改为 `moral.db.teacher`。
-

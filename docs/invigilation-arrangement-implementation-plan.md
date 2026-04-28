@@ -70,7 +70,7 @@
 
 ## 数据模型设计
 
-建议新建独立 SQLite 数据库 `lesson/databases/invigilation.db`，避免与德育业务耦合。也可以放入现有 `lesson.db`，但独立库更清晰。
+建议使用独立 SQLite 数据库 `lesson/databases/invigilation.db`，避免与德育业务耦合。
 
 ### 1. 考试项目表 `exam_project`
 
@@ -534,4 +534,3 @@ grade_id + exam_date + start_time + end_time + subject + room_name
 文档：
 
 - `docs/invigilation-arrangement-implementation-plan.md`
-

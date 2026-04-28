@@ -300,7 +300,6 @@
 | `auth.db` | 用户/教师登录信息 | 用户、教师、角色 |
 | `homework.db` | 作业、公告 | 教学活动 |
 | `filegather.db` | 文件上传与查阅 | 文件流转 |
-| `lesson.db` | 课表/课程相关数据 | 课表统计 |
 | `inout.db` | 请假/出入校 | 出勤事务 |
 | `task.db` | 定时任务/提醒 | 运维和待办 |
 | `invigilation.db` | 监考项目与通知 | 监考驾驶舱 |
@@ -732,4 +731,3 @@
 文档：
 
 - `docs/data-dashboard-implementation-plan.md`
-

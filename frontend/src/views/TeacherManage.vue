@@ -31,15 +31,30 @@
           <el-option label="允许" :value="1" />
           <el-option label="禁止" :value="0" />
         </el-select>
+        <el-select v-model="identityFilter" placeholder="身份筛选" clearable style="width: 130px" @change="handleSearch">
+          <el-option label="全部" value="" />
+          <el-option label="教师账号" value="teacher" />
+          <el-option label="微信会员" value="member" />
+          <el-option label="已删除" value="deleted_teacher" />
+        </el-select>
         <el-button type="primary" @click="handleSearch" :icon="Search">搜索</el-button>
         <el-button @click="handleReset">重置</el-button>
       </div>
 
       <el-table :data="teacherList" v-loading="loading" style="width: 100%" border stripe>
+        <el-table-column prop="teacher_id" label="ID" min-width="130" show-overflow-tooltip />
         <el-table-column prop="username" label="用户名" min-width="120" />
-        <el-table-column prop="subject" label="科目" width="120" />
-        <el-table-column prop="course" label="课程" min-width="150" />
-        <el-table-column prop="role" label="角色" width="100" align="center">
+        <el-table-column prop="identity_type" label="身份" width="100" align="center">
+          <template #default="scope">
+            <el-tag :type="getIdentityType(scope.row.identity_type)">
+              {{ getIdentityText(scope.row.identity_type) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="wxid" label="微信ID" min-width="170" show-overflow-tooltip />
+        <el-table-column prop="subject" label="任教展示" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="course" label="课程" min-width="100" />
+        <el-table-column prop="role" label="角色" min-width="120" align="center">
           <template #default="scope">
             <el-tag :type="getRoleType(scope.row.role)">
               {{ getRoleText(scope.row.role) }}
@@ -65,10 +80,26 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="score" label="积分" width="80" align="center" />
+        <el-table-column prop="balance" label="余额" width="80" align="center" />
+        <el-table-column prop="model" label="模块" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="ai_flag" label="AI" width="70" align="center">
+          <template #default="scope">{{ scope.row.ai_flag ? '是' : '否' }}</template>
+        </el-table-column>
+        <el-table-column prop="birthday" label="生日" width="110" />
+        <el-table-column prop="is_password_changed" label="密码状态" width="100" align="center">
+          <template #default="scope">
+            <el-tag :type="scope.row.is_password_changed ? 'success' : 'warning'">
+              {{ scope.row.is_password_changed ? '已加密' : '兼容明文' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="note" label="备注" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="updated_at" label="更新时间" min-width="160" show-overflow-tooltip />
         <el-table-column label="操作" width="240" fixed="right" align="center" v-if="isAdmin">
           <template #default="scope">
             <el-button size="small" type="primary" @click="handleEdit(scope.row)">编辑</el-button>
-            <el-button size="small" type="warning" @click="handleResetPassword(scope.row)">重置密码</el-button>
+            <el-button size="small" type="warning" @click="handleResetPassword(scope.row)" :disabled="scope.row.identity_type !== 'teacher'">重置密码</el-button>
             <el-button size="small" type="danger" @click="handleDelete(scope.row)" :disabled="scope.row.role === 'admin'">删除</el-button>
           </template>
         </el-table-column>
@@ -127,10 +158,23 @@
     </el-dialog>
 
     <!-- 编辑教师对话框 -->
-    <el-dialog v-model="editDialogVisible" title="编辑教师" width="500px" :close-on-click-modal="false">
-      <el-form :model="editForm" :rules="editRules" ref="editFormRef" label-width="80px">
-        <el-form-item label="用户名">
-          <el-input v-model="editForm.username" disabled />
+    <el-dialog v-model="editDialogVisible" title="编辑身份记录" width="720px" :close-on-click-modal="false">
+      <el-form :model="editForm" :rules="editRules" ref="editFormRef" label-width="96px">
+        <el-form-item label="原用户名">
+          <el-input v-model="editForm.originalUsername" disabled />
+        </el-form-item>
+        <el-form-item label="用户名" prop="username">
+          <el-input v-model="editForm.username" placeholder="请输入用户名" />
+        </el-form-item>
+        <el-form-item label="身份" prop="identity_type">
+          <el-select v-model="editForm.identity_type" placeholder="请选择身份">
+            <el-option label="教师账号" value="teacher" />
+            <el-option label="微信会员" value="member" />
+            <el-option label="已删除" value="deleted_teacher" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="微信ID" prop="wxid">
+          <el-input v-model="editForm.wxid" placeholder="请输入微信ID" />
         </el-form-item>
         <el-form-item label="科目" prop="subject">
           <el-input v-model="editForm.subject" placeholder="请输入科目" />
@@ -155,6 +199,24 @@
         </el-form-item>
         <el-form-item label="登录权限" prop="active">
           <el-switch v-model="editForm.active" :active-value="1" :inactive-value="0" />
+        </el-form-item>
+        <el-form-item label="积分" prop="score">
+          <el-input-number v-model="editForm.score" :min="0" :max="999999" />
+        </el-form-item>
+        <el-form-item label="余额" prop="balance">
+          <el-input-number v-model="editForm.balance" :min="0" :max="999999" />
+        </el-form-item>
+        <el-form-item label="模块" prop="model">
+          <el-input v-model="editForm.model" placeholder="basic/lesson/inout" />
+        </el-form-item>
+        <el-form-item label="AI标记" prop="ai_flag">
+          <el-switch v-model="editForm.ai_flag" :active-value="1" :inactive-value="0" />
+        </el-form-item>
+        <el-form-item label="生日" prop="birthday">
+          <el-input v-model="editForm.birthday" placeholder="例如 2000-01-01" />
+        </el-form-item>
+        <el-form-item label="备注" prop="note">
+          <el-input v-model="editForm.note" type="textarea" :rows="3" placeholder="请输入备注" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -230,6 +292,7 @@ const pageSize = ref(10)
 const searchKeyword = ref('')
 const noticeFilter = ref('')
 const activeFilter = ref('')
+const identityFilter = ref('')
 const submitLoading = ref(false)
 
 // 添加对话框
@@ -257,17 +320,27 @@ const teacherRules = {
 const editDialogVisible = ref(false)
 const editFormRef = ref(null)
 const editForm = reactive({
+  originalUsername: '',
   username: '',
+  wxid: '',
   subject: '',
   course: '',
   role: ['teacher'],
   notice: 1,
   active: 1,
-  level: 1
+  level: 1,
+  score: 50,
+  balance: 0,
+  model: 'basic',
+  ai_flag: 0,
+  birthday: '',
+  note: '',
+  identity_type: 'teacher'
 })
 
 const editRules = {
-  subject: [{ required: true, message: '请输入科目', trigger: 'blur' }]
+  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  identity_type: [{ required: true, message: '请选择身份', trigger: 'change' }]
 }
 
 // 重置密码对话框
@@ -356,6 +429,24 @@ const getRoleText = (role) => {
   return role.split('/').map(r => roleMap[r] || r).join('/')
 }
 
+const getIdentityText = (identityType) => {
+  const map = {
+    teacher: '教师账号',
+    member: '微信会员',
+    deleted_teacher: '已删除'
+  }
+  return map[identityType] || identityType || '-'
+}
+
+const getIdentityType = (identityType) => {
+  const map = {
+    teacher: 'success',
+    member: 'info',
+    deleted_teacher: 'danger'
+  }
+  return map[identityType] || 'warning'
+}
+
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -370,8 +461,12 @@ const updatePagination = () => {
     const keyword = searchKeyword.value.toLowerCase()
     filteredData = filteredData.filter(teacher =>
       teacher.username.toLowerCase().includes(keyword) ||
+      (teacher.teacher_id && teacher.teacher_id.toLowerCase().includes(keyword)) ||
+      (teacher.wxid && teacher.wxid.toLowerCase().includes(keyword)) ||
       (teacher.subject && teacher.subject.toLowerCase().includes(keyword)) ||
-      (teacher.course && teacher.course.toLowerCase().includes(keyword))
+      (teacher.course && teacher.course.toLowerCase().includes(keyword)) ||
+      (teacher.model && teacher.model.toLowerCase().includes(keyword)) ||
+      (teacher.note && teacher.note.toLowerCase().includes(keyword))
     )
   }
   // 通知状态筛选
@@ -381,6 +476,9 @@ const updatePagination = () => {
   // 登录权限筛选
   if (activeFilter.value !== '') {
     filteredData = filteredData.filter(teacher => teacher.active === activeFilter.value)
+  }
+  if (identityFilter.value !== '') {
+    filteredData = filteredData.filter(teacher => teacher.identity_type === identityFilter.value)
   }
   // 分页
   const start = (currentPage.value - 1) * pageSize.value
@@ -393,7 +491,7 @@ const updatePagination = () => {
 const fetchTeachers = async () => {
   loading.value = true
   try {
-    const res = await api.get('/api/teachers', { params: { _t: Date.now() } })
+    const res = await api.get('/api/teachers', { params: { include_all: 1, _t: Date.now() } })
     allTeachers.value = res.data.teachers || []
     total.value = allTeachers.value.length
     updatePagination()
@@ -429,6 +527,7 @@ const handleReset = () => {
   searchKeyword.value = ''
   noticeFilter.value = ''
   activeFilter.value = ''
+  identityFilter.value = ''
   currentPage.value = 1
   updatePagination()
 }
@@ -475,7 +574,9 @@ const handleAddSubmit = async () => {
 
 // 编辑教师
 const handleEdit = (row) => {
+  editForm.originalUsername = row.username
   editForm.username = row.username
+  editForm.wxid = row.wxid || ''
   editForm.subject = row.subject || ''
   editForm.course = row.course || ''
   // 将角色字符串拆分为数组（支持多角色如 "teacher/cleader"）
@@ -483,6 +584,13 @@ const handleEdit = (row) => {
   editForm.notice = row.notice !== undefined ? row.notice : 1
   editForm.active = row.active !== undefined ? row.active : 1
   editForm.level = row.level || 1
+  editForm.score = row.score ?? 50
+  editForm.balance = row.balance ?? 0
+  editForm.model = row.model || ''
+  editForm.ai_flag = row.ai_flag ?? 0
+  editForm.birthday = row.birthday || ''
+  editForm.note = row.note || ''
+  editForm.identity_type = row.identity_type || 'teacher'
   editDialogVisible.value = true
 }
 
@@ -492,13 +600,22 @@ const handleEditSubmit = async () => {
     if (valid) {
       submitLoading.value = true
       try {
-        await api.put(`/api/teachers/${editForm.username}`, {
+        await api.put(`/api/teachers/${editForm.originalUsername}`, {
+          username: editForm.username,
+          wxid: editForm.wxid,
           subject: editForm.subject,
           course: editForm.course,
           role: editForm.role.join('/'), // 将数组连接为字符串
           notice: editForm.notice,
           active: editForm.active,
-          level: editForm.level
+          level: editForm.level,
+          score: editForm.score,
+          balance: editForm.balance,
+          model: editForm.model,
+          ai_flag: editForm.ai_flag,
+          birthday: editForm.birthday,
+          note: editForm.note,
+          identity_type: editForm.identity_type
         })
         ElMessage.success('更新成功')
         editDialogVisible.value = false

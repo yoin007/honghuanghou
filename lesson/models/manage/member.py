@@ -28,7 +28,6 @@ MEMBER_COLUMNS = [
     "birthday",
     "create_at",
     "note",
-    "priority",
 ]
 
 
@@ -53,44 +52,6 @@ class Member:
             self.__conn__.close()
 
     def __create_table__(self):
-        try:
-            self.__cursor__.execute(
-                """
-                CREATE TABLE IF NOT EXISTS member (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    uuid TEXT,
-                    wxid TEXT,
-                    alias TEXT,
-                    active BOOLEAN DEFAULT 1,
-                    score INTEGER DEFAULT 50,
-                    balance INTEGER DEFAULT 0,
-                    level INTEGER DEFAULT 1,
-                    model Text,
-                    ai_flag BOOLEAN DEFAULT 0,
-                    birthday TEXT,
-                    priority INTEGER DEFAULT 99,
-                    create_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    note TEXT
-                )
-            """
-            )
-            self.__conn__.commit()
-            
-            try:
-                self.__cursor__.execute("SELECT priority FROM member LIMIT 1")
-            except sqlite3.OperationalError:
-                self.__cursor__.execute("ALTER TABLE member ADD COLUMN priority INTEGER DEFAULT 99")
-                self.log.info("Added priority column to member table.")
-                self.__conn__.commit()
-            
-            self.log.info("Member table created successfully.")
-        except sqlite3.OperationalError as e:
-            if "already exists" in str(e):
-                self.log.warning("Member table already exists.")
-            else:
-                self.log.error(f"Error creating Member table: {e}")
-                raise e
-
         self.ensure_unified_member_schema()
         self.migrate_legacy_members_to_teacher()
 
@@ -549,24 +510,26 @@ class Member:
         self.ensure_unified_member_schema()
         with sqlite3.connect(MORAL_DB) as conn:
             cursor = conn.cursor()
+            wxid = wxid or uuid
             existing = cursor.execute(
-                "SELECT teacher_id FROM teacher WHERE uuid = ? OR wxid = ?",
-                (uuid, wxid),
+                "SELECT teacher_id FROM teacher WHERE wxid = ?",
+                (wxid,),
             ).fetchone()
 
             if existing:
                 cursor.execute(
                     """
                     UPDATE teacher
-                    SET uuid = ?, wxid = ?, alias = ?, score = ?, balance = ?,
+                    SET wxid = ?,
+                        name = CASE WHEN identity_type = 'teacher' THEN name ELSE ? END,
+                        score = ?, balance = ?,
                         level = ?, model = ?, ai_flag = ?, birthday = ?,
-                        is_active = ?, member_active = ?, note = ?,
+                        is_active = ?, note = ?,
                         identity_type = CASE WHEN identity_type = 'teacher' THEN identity_type ELSE 'member' END,
                         updated_at = datetime('now', 'localtime')
                     WHERE teacher_id = ?
                     """,
                     (
-                        uuid,
                         wxid,
                         alias,
                         score,
@@ -575,7 +538,6 @@ class Member:
                         model,
                         ai_flag,
                         birthday,
-                        active,
                         active,
                         note,
                         existing[0],
@@ -586,24 +548,21 @@ class Member:
                     """
                     INSERT INTO teacher
                     (teacher_id, name, wxid, role, level, is_active, notice_enabled,
-                     uuid, alias, score, balance, model, ai_flag, birthday, member_active,
+                     score, balance, model, ai_flag, birthday,
                      note, identity_type)
-                    VALUES (?, ?, ?, 'member', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'member')
+                    VALUES (?, ?, ?, 'member', ?, ?, 1, ?, ?, ?, ?, ?, ?, 'member')
                     """,
                     (
-                        _member_teacher_id(uuid),
+                        _member_teacher_id(wxid),
                         alias or uuid,
                         wxid,
                         level,
                         active,
-                        uuid,
-                        alias,
                         score,
                         balance,
                         model,
                         ai_flag,
                         birthday,
-                        active,
                         note,
                     ),
                 )
@@ -618,10 +577,9 @@ class Member:
             cursor.execute(
                 """
                 UPDATE teacher
-                SET member_active = 0,
-                    is_active = CASE WHEN identity_type = 'member' THEN 0 ELSE is_active END,
+                SET is_active = CASE WHEN identity_type = 'member' THEN 0 ELSE is_active END,
                     updated_at = datetime('now', 'localtime')
-                WHERE uuid = ?
+                WHERE wxid = ?
                 """,
                 (uuid,),
             )
@@ -635,12 +593,12 @@ class Member:
         with sqlite3.connect(MORAL_DB) as conn:
             if uuid == "":
                 rows = conn.execute(
-                    self._member_select_sql() + " ORDER BY COALESCE(priority, 99), id"
+                    self._member_select_sql() + " ORDER BY id"
                 ).fetchall()
                 return rows if rows else None
 
             row = conn.execute(
-                self._member_select_sql() + " WHERE uuid = ?",
+                self._member_select_sql() + " WHERE wxid = ?",
                 (uuid,),
             ).fetchone()
             return row if row else None
@@ -652,7 +610,7 @@ class Member:
         
         valid_columns = self.member_columns()
         column_map = {
-            "active": "member_active",
+            "active": "is_active",
             "create_at": "created_at",
         }
         set_clauses = []
@@ -660,15 +618,19 @@ class Member:
         for key, value in kwargs.items():
             if key in valid_columns and key != 'uuid':  # uuid 是主键，通常不更新
                 db_column = column_map.get(key, key)
-                set_clauses.append(f"{db_column} = ?")
-                values.append(value)
+                if key == "alias":
+                    set_clauses.append("name = CASE WHEN identity_type = 'teacher' THEN name ELSE ? END")
+                    values.append(value)
+                else:
+                    set_clauses.append(f"{db_column} = ?")
+                    values.append(value)
         
         if not set_clauses:
             return 0
             
         values.append(uuid)
         
-        sql = f"UPDATE teacher SET {', '.join(set_clauses)}, updated_at = datetime('now', 'localtime') WHERE uuid = ?"
+        sql = f"UPDATE teacher SET {', '.join(set_clauses)}, updated_at = datetime('now', 'localtime') WHERE wxid = ?"
         self.ensure_unified_member_schema()
         with sqlite3.connect(MORAL_DB) as conn:
             cursor = conn.cursor()
@@ -688,11 +650,11 @@ class Member:
             result = conn.execute(
                 """
                 SELECT wxid FROM teacher
-                WHERE (alias = ? OR name = ?) AND COALESCE(member_active, is_active, 1) = ?
+                WHERE name = ? AND COALESCE(is_active, 1) = ?
                 ORDER BY CASE WHEN identity_type = 'teacher' THEN 0 ELSE 1 END
                 LIMIT 1
                 """,
-                (name, name, 1 if active else 0),
+                (name, 1 if active else 0),
             ).fetchone()
         return result if result else ""
 
@@ -701,10 +663,10 @@ class Member:
         return """
             SELECT
                 rowid AS id,
-                COALESCE(uuid, wxid, teacher_id) AS uuid,
+                COALESCE(wxid, teacher_id) AS uuid,
                 wxid,
-                COALESCE(alias, name) AS alias,
-                COALESCE(member_active, is_active, 1) AS active,
+                name AS alias,
+                COALESCE(is_active, 1) AS active,
                 COALESCE(score, 50) AS score,
                 COALESCE(balance, 0) AS balance,
                 COALESCE(level, 1) AS level,
@@ -712,8 +674,7 @@ class Member:
                 COALESCE(ai_flag, 0) AS ai_flag,
                 COALESCE(birthday, '') AS birthday,
                 created_at AS create_at,
-                COALESCE(note, '') AS note,
-                COALESCE(priority, 99) AS priority
+                COALESCE(note, '') AS note
             FROM teacher
         """
 
@@ -745,16 +706,47 @@ class Member:
                 row[1]
                 for row in cursor.execute("PRAGMA table_info(teacher)").fetchall()
             }
+            if "alias" in columns:
+                cursor.execute(
+                    "UPDATE teacher SET name = alias WHERE (name IS NULL OR name = '') AND alias IS NOT NULL AND alias != ''"
+                )
+                try:
+                    cursor.execute("ALTER TABLE teacher DROP COLUMN alias")
+                    columns.remove("alias")
+                except sqlite3.OperationalError as e:
+                    self.log.warning(f"Could not drop obsolete teacher.alias column: {e}")
+            if "member_active" in columns:
+                cursor.execute(
+                    "UPDATE teacher SET is_active = COALESCE(is_active, member_active) WHERE is_active IS NULL"
+                )
+                try:
+                    cursor.execute("ALTER TABLE teacher DROP COLUMN member_active")
+                    columns.remove("member_active")
+                except sqlite3.OperationalError as e:
+                    self.log.warning(f"Could not drop obsolete teacher.member_active column: {e}")
+            if "uuid" in columns:
+                cursor.execute(
+                    "UPDATE teacher SET wxid = uuid WHERE (wxid IS NULL OR wxid = '') AND uuid IS NOT NULL AND uuid != ''"
+                )
+                cursor.execute("DROP INDEX IF EXISTS idx_teacher_uuid")
+                try:
+                    cursor.execute("ALTER TABLE teacher DROP COLUMN uuid")
+                    columns.remove("uuid")
+                except sqlite3.OperationalError as e:
+                    self.log.warning(f"Could not drop obsolete teacher.uuid column: {e}")
+            if "priority" in columns:
+                try:
+                    cursor.execute("ALTER TABLE teacher DROP COLUMN priority")
+                    columns.remove("priority")
+                except sqlite3.OperationalError as e:
+                    self.log.warning(f"Could not drop obsolete teacher.priority column: {e}")
+
             additions = {
-                "uuid": "TEXT",
-                "alias": "TEXT",
                 "score": "INTEGER DEFAULT 50",
                 "balance": "INTEGER DEFAULT 0",
                 "model": "TEXT DEFAULT 'basic'",
                 "ai_flag": "INTEGER DEFAULT 0",
                 "birthday": "TEXT",
-                "member_active": "INTEGER DEFAULT 1",
-                "priority": "INTEGER DEFAULT 99",
                 "note": "TEXT",
                 "identity_type": "TEXT DEFAULT 'teacher'",
             }
@@ -765,13 +757,6 @@ class Member:
             cursor.execute(
                 "UPDATE teacher SET identity_type = 'teacher' WHERE identity_type IS NULL"
             )
-            cursor.execute(
-                "UPDATE teacher SET alias = name WHERE alias IS NULL OR alias = ''"
-            )
-            cursor.execute(
-                "UPDATE teacher SET uuid = wxid WHERE (uuid IS NULL OR uuid = '') AND wxid IS NOT NULL AND wxid != ''"
-            )
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_uuid ON teacher(uuid)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_identity_type ON teacher(identity_type)")
             conn.commit()
 
@@ -799,11 +784,10 @@ class Member:
                     continue
 
                 existing = cursor.execute(
-                    "SELECT teacher_id FROM teacher WHERE uuid = ? OR wxid = ? OR name = ?",
-                    (uuid, wxid, alias),
+                    "SELECT teacher_id FROM teacher WHERE wxid = ? OR name = ?",
+                    (wxid, alias),
                 ).fetchone()
                 values = (
-                    uuid,
                     wxid,
                     alias,
                     member.get("score", 50),
@@ -813,19 +797,18 @@ class Member:
                     member.get("ai_flag", 0),
                     member.get("birthday", ""),
                     member.get("active", 1),
-                    member.get("active", 1),
-                    member.get("priority", 99),
                     member.get("note", ""),
                 )
                 if existing:
                     cursor.execute(
                         """
                         UPDATE teacher
-                        SET uuid = ?, wxid = COALESCE(NULLIF(wxid, ''), ?), alias = ?,
+                        SET wxid = COALESCE(NULLIF(wxid, ''), ?),
+                            name = CASE WHEN identity_type = 'teacher' THEN name ELSE ? END,
                             score = ?, balance = ?, level = CASE WHEN level IS NULL OR level = 0 THEN ? ELSE level END,
                             model = ?, ai_flag = ?, birthday = ?,
-                            member_active = ?, is_active = CASE WHEN identity_type = 'member' THEN ? ELSE is_active END,
-                            priority = ?, note = COALESCE(NULLIF(note, ''), ?),
+                            is_active = CASE WHEN identity_type = 'member' THEN ? ELSE is_active END,
+                            note = COALESCE(NULLIF(note, ''), ?),
                             updated_at = datetime('now', 'localtime')
                         WHERE teacher_id = ?
                         """,
@@ -836,26 +819,22 @@ class Member:
                         """
                         INSERT INTO teacher
                         (teacher_id, name, wxid, role, level, is_active, notice_enabled,
-                         uuid, alias, score, balance, model, ai_flag, birthday, member_active,
-                         priority, note, identity_type, created_at)
-                        VALUES (?, ?, ?, 'member', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'member',
+                         score, balance, model, ai_flag, birthday,
+                         note, identity_type, created_at)
+                        VALUES (?, ?, ?, 'member', ?, ?, 1, ?, ?, ?, ?, ?, ?, 'member',
                                 COALESCE(?, datetime('now', 'localtime')))
                         """,
                         (
-                            _member_teacher_id(uuid),
+                            _member_teacher_id(wxid),
                             alias,
                             wxid,
                             member.get("level", 1),
                             member.get("active", 1),
-                            uuid,
-                            alias,
                             member.get("score", 50),
                             member.get("balance", 0),
                             member.get("model", "basic"),
                             member.get("ai_flag", 0),
                             member.get("birthday", ""),
-                            member.get("active", 1),
-                            member.get("priority", 99),
                             member.get("note", ""),
                             member.get("create_at"),
                         ),

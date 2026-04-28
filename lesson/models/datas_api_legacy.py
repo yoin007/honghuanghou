@@ -90,11 +90,8 @@ def get_teacher_data():
     subject_teacher = l.get_cache_data("teacher_template")
     teachers_data = {}
     for teacher in subject_teacher["name"].tolist():
-        teachers_data[teacher] = (
-            subject_teacher[subject_teacher["name"] == teacher]["subject"]
-            .values[0]
-            .split("/")
-        )
+        subject = subject_teacher[subject_teacher["name"] == teacher]["subject"].values[0]
+        teachers_data[teacher] = str(subject).split("/") if subject else []
     return teachers_data
 
 

@@ -2,6 +2,7 @@
 # SQLite 数据库优化工具
 
 import sqlite3
+import os
 from contextlib import contextmanager
 from functools import wraps
 import logging
@@ -37,13 +38,14 @@ class DatabaseOptimized:
         """设置数据库优化参数"""
         common_dbs = [
             "databases/member.db",
-            "databases/lesson.db",
             "databases/homework.db",
             "databases/daily.db"
         ]
 
         for db_path in common_dbs:
             try:
+                if not os.path.exists(db_path):
+                    continue
                 conn = sqlite3.connect(db_path)
                 # 启用 WAL 模式
                 conn.execute("PRAGMA journal_mode=WAL")
@@ -76,8 +78,8 @@ def get_db_connection(db_path: str):
     获取优化后的数据库连接
 
     用法:
-    with get_db_connection("databases/member.db") as conn:
-        conn.execute("SELECT * FROM member")
+    with get_db_connection("databases/homework.db") as conn:
+        conn.execute("SELECT * FROM homework")
     """
     conn = sqlite3.connect(db_path)
     # 每次获取连接时设置优化参数
