@@ -525,6 +525,7 @@ async def send_notifications(
                 try:
                     send_text(content, teacher_wxid, producer='invigilation')
                     log_entry['sent_status'] = 'success'
+                    log_entry['error_message'] = None
                     log_entry['sent_at'] = datetime.now().isoformat()
                     success_count += 1
                 except Exception as e:
@@ -536,6 +537,7 @@ async def send_notifications(
             else:
                 log_entry['sent_status'] = 'skipped'
                 log_entry['error_message'] = '未配置接收人'
+                log_entry['sent_at'] = None
                 skipped_count += 1
 
             logs.append(log_entry)
