@@ -9,6 +9,7 @@ import sqlite3
 import os
 import json
 import logging
+import re
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from decimal import Decimal
@@ -594,9 +595,9 @@ async def download_template(user: User = Depends(require_jiaowu)):
         '开始时间': ['08:00', '10:20', '14:00', '08:00', '10:20', '08:00'],
         '结束时间': ['10:00', '12:00', '16:00', '10:00', '12:00', '10:00'],
         '学科': ['语文', '数学', '英语', '语文', '数学', '物理'],
-        '第1考场监考': ['张三', '王五', '周九', '赵六', '吴十', '孙八'],
-        '第2考场监考': ['李四', '钱七', '郑十一', '冯十二', '陈十三', '褚十四'],
-        '第3考场监考': ['卫十五', '蒋十六', '沈十七', '韩十八', '杨十九', '朱二十']
+        '考场1': ['张三', '王五', '周九', '赵六', '吴十', '孙八'],
+        '考场2': ['李四', '钱七', '郑十一', '冯十二', '陈十三', '褚十四'],
+        '考场3': ['卫十五', '蒋十六', '沈十七', '韩十八', '杨十九', '朱二十']
     }
 
     df = pd.DataFrame(template_data)
@@ -671,7 +672,7 @@ async def import_invigilation(
             if missing_cols:
                 raise HTTPException(400, f"缺少必要列: {', '.join(missing_cols)}")
 
-            room_cols = [col for col in df.columns if '考场监考' in col or ('第' in col and '监考' in col)]
+            room_cols = [col for col in df.columns if re.match(r'(?:考场\d+|第?\d+考场)', col)]
 
             # 检查是否有独立的时间列
             has_time_cols = '开始时间' in df.columns and '结束时间' in df.columns
@@ -704,15 +705,14 @@ async def import_invigilation(
 
                     # 展开横向考场列
                     for room_col in room_cols:
-                        # 解析考场名称：如 "第1考场监考" → "第1考场"，序号=1
-                        import re
-                        room_match = re.search(r'第(\d+)考场', room_col)
+                        # 解析考场名称：支持 "考场1" 或 "第1考场监考" 格式
+                        room_match = re.search(r'(?:第)?(\d+)考场', room_col)
                         if room_match:
                             room_order = int(room_match.group(1))
-                            room_name = f"第{room_order}考场"
+                            room_name = f"考场{room_order}"
                         else:
                             room_order = 0
-                            room_name = room_col.replace('监考', '').strip()
+                            room_name = room_col
 
                         teacher_name = row.get(room_col)
                         if pd.isna(teacher_name) or not teacher_name:
