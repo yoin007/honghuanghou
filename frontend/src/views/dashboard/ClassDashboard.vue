@@ -99,8 +99,10 @@ import { useRouter } from 'vue-router'
 import DashboardChart from '@/components/dashboard/DashboardChart.vue'
 import { getClassDashboardSummary } from '@/api/modules/dashboard'
 import api from '@/utils/api'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const summary = ref({ cards: [], charts: {}, tables: {}, class_info: {} })
 const classList = ref([])
 const selectedClassId = ref(null)
@@ -117,10 +119,9 @@ const onClassChange = (newClassId) => {
   }
 }
 
+// 教务/管理员/学发可切换班级（使用 authStore，与 App.vue 一致）
 const _isManager = computed(() => {
-  // 教务/管理员可切换班级
-  const role = localStorage.getItem('role') || ''
-  return role.includes('admin') || role.includes('jiaowu') || role.includes('xuefa')
+  return authStore.isAdmin || authStore.isJiaowu || authStore.isXuefa
 })
 
 const classInfo = computed(() => summary.value.class_info || {})
