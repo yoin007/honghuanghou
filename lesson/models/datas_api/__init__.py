@@ -42,6 +42,7 @@ from .auth import (
 from .admin import router as admin_router
 from .teachers import router as teachers_router
 from .filegather import router as filegather_router
+from .dashboard import router as dashboard_router
 
 # 导入德育评价模块
 from .moral import router as moral_router
@@ -72,6 +73,7 @@ router.include_router(auth_router)
 router.include_router(admin_router)
 router.include_router(teachers_router)
 router.include_router(filegather_router)
+router.include_router(dashboard_router)
 # 包含德育评价路由
 router.include_router(moral_router)
 # 包含监考安排路由
@@ -87,6 +89,7 @@ __all__ = [
     'admin_router',
     'teachers_router',
     'filegather_router',
+    'dashboard_router',
     'moral_router',
     'invigilation_router',
     # 认证相关

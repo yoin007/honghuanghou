@@ -49,6 +49,12 @@
               <el-menu-item index="/current-classes">实时课程</el-menu-item>
               <el-menu-item index="/schedules">总课表</el-menu-item>
             </el-sub-menu>
+            <el-sub-menu v-if="isLoggedIn" index="dashboard">
+              <template #title>驾驶舱</template>
+              <el-menu-item index="/dashboard">总览</el-menu-item>
+              <el-menu-item v-if="showMoralMenu" index="/dashboard/moral">德育驾驶舱</el-menu-item>
+              <el-menu-item v-if="isJiaowu" index="/dashboard/teaching">教务驾驶舱</el-menu-item>
+            </el-sub-menu>
             <el-sub-menu index="fun">
               <template #title>趣味</template>
               <el-menu-item index="/random-call">随机点名</el-menu-item>

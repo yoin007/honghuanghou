@@ -5,6 +5,24 @@ const publicRoutes = ['/', '/zhf']
 
 const routes = [
   {
+    path: '/dashboard',
+    name: 'DashboardOverview',
+    component: () => import('../views/dashboard/Overview.vue'),
+    meta: { requiresAuth: true, title: '数据驾驶舱' }
+  },
+  {
+    path: '/dashboard/moral',
+    name: 'MoralDashboard',
+    component: () => import('../views/dashboard/MoralDashboard.vue'),
+    meta: { requiresAuth: true, title: '德育驾驶舱' }
+  },
+  {
+    path: '/dashboard/teaching',
+    name: 'TeachingDashboard',
+    component: () => import('../views/dashboard/TeachingDashboard.vue'),
+    meta: { requiresAuth: true, title: '教务驾驶舱' }
+  },
+  {
     path: '/schedule',
     name: 'Schedule',
     component: () => import('../views/Schedule.vue'),
