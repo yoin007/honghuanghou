@@ -407,6 +407,9 @@ async def get_class_dashboard_summary(
 ):
     """班级驾驶舱：班级基础、学习活动、德育表现、出勤事务、生日关怀"""
     with get_moral_db() as db:
+        if not isinstance(class_id, int):
+            class_id = None
+
         # 确定查询班级
         if not class_id:
             if has_user_role(user, "cleader") and not _is_moral_manager(user):
@@ -423,6 +426,13 @@ async def get_class_dashboard_summary(
         if not class_id:
             raise HTTPException(status_code=404, detail="班级不存在")
 
+        if not (_is_moral_manager(user) or _is_jiaowu(user)):
+            if not has_user_role(user, "cleader"):
+                raise HTTPException(status_code=403, detail="无班级驾驶舱权限")
+            my_class_id = get_teacher_class_id(user, db)
+            if not my_class_id or my_class_id != class_id:
+                raise HTTPException(status_code=403, detail="只能查看自己班级的驾驶舱")
+
         # 班级基础信息
         class_info = db.query_one("SELECT * FROM class WHERE class_id = %s AND is_active = 1", (class_id,))
         if not class_info:
@@ -437,7 +447,8 @@ async def get_class_dashboard_summary(
         )
         student_count = len(students)
         male_count = sum(1 for s in students if s.get("gender") == "男")
-        female_count = student_count - male_count
+        female_count = sum(1 for s in students if s.get("gender") == "女")
+        unknown_gender_count = student_count - male_count - female_count
 
         # 德育评价统计
         eval_stats = db.query_one(
@@ -445,11 +456,17 @@ async def get_class_dashboard_summary(
                 AVG(total_score) AS avg_score,
                 MIN(total_score) AS min_score,
                 MAX(total_score) AS max_score,
-                SUM(CASE WHEN total_score < 60 THEN 1 ELSE 0 END) AS low_count
+                COUNT(*) AS evaluated_count,
+                SUM(CASE WHEN total_score < 60 THEN 1 ELSE 0 END) AS low_count,
+                SUM(CASE WHEN total_score >= 60 THEN 1 ELSE 0 END) AS pass_count
             FROM moral_evaluation WHERE class_id = %s""",
             (class_id,)
         )
         avg_score = round(float(eval_stats.get("avg_score") or 0), 1)
+        evaluated_count = int(eval_stats.get("evaluated_count") or 0)
+        low_count = int(eval_stats.get("low_count") or 0)
+        pass_count = int(eval_stats.get("pass_count") or 0)
+        unevaluated_count = max(student_count - evaluated_count, 0)
         low_students = db.query_all(
             """SELECT s.student_id, s.name, me.total_score
             FROM moral_evaluation me
@@ -461,8 +478,6 @@ async def get_class_dashboard_summary(
 
         # 本月生日学生
         today = date.today()
-        month_start = today.replace(day=1)
-        month_end = (month_start.replace(month=month_start.month % 12 + 1, day=1) - timedelta(days=1)).isoformat()
         birthday_this_month = [
             s for s in students
             if s.get("birthday") and str(s["birthday"])[5:7] == str(today.month).zfill(2)
@@ -534,8 +549,9 @@ async def get_class_dashboard_summary(
                 _metric("班级人数", student_count, "人", "/moral/config/student"),
                 _metric("男生", male_count, "人"),
                 _metric("女生", female_count, "人"),
+                _metric("性别未维护", unknown_gender_count, "人"),
                 _metric("平均德育分", avg_score, "分", "/moral/evaluation"),
-                _metric("低分学生", len(low_students), "人"),
+                _metric("低分学生", low_count, "人"),
                 _metric("本月作业", homework_count, "份", "/homework"),
                 _metric("本月公告", announcement_count, "份"),
                 _metric("请假人数", active_leave_count, "人"),
@@ -544,10 +560,12 @@ async def get_class_dashboard_summary(
                 "gender_mix": [
                     {"name": "男生", "value": male_count},
                     {"name": "女生", "value": female_count},
+                    {"name": "未维护", "value": unknown_gender_count},
                 ],
                 "score_band": [
-                    {"name": "60分以下", "value": len(low_students)},
-                    {"name": "60分以上", "value": student_count - len(low_students)},
+                    {"name": "60分以下", "value": low_count},
+                    {"name": "60分以上", "value": pass_count},
+                    {"name": "未评价", "value": unevaluated_count},
                 ],
             },
             "tables": {
@@ -664,6 +682,436 @@ async def get_teacher_workbench(user: User = Depends(get_current_user)):
                 "today_lessons": today_lessons,
                 "invigilation_tasks": invigilation_tasks,
             },
+            "updated_at": _now_text(),
+        },
+    }
+
+
+def _get_invigilation_db():
+    """获取监考数据库连接"""
+    import sqlite3
+    db_path = os.path.join(os.path.dirname(__file__), "..", "..", "databases", "invigilation.db")
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+@router.get("/invigilation/summary", summary="监考驾驶舱总览")
+async def get_invigilation_dashboard_summary(user: User = Depends(get_current_user)):
+    """监考驾驶舱：考试项目状态、安排完整度、通知状态、教师负载、预警列表"""
+    if not _is_jiaowu(user):
+        raise HTTPException(status_code=403, detail="无监考驾驶舱权限")
+
+    today_str = date.today().isoformat()
+
+    # 监考数据库统计
+    project_stats = {"total": 0, "draft": 0, "saved": 0, "notified": 0}
+    slot_stats = {"total": 0, "arranged": 0, "unarranged": 0, "conflict": 0}
+    notification_stats = {"success": 0, "failed": 0, "skipped": 0, "pending": 0}
+    teacher_workload = []
+    unarranged_slots = []
+    conflict_slots = []
+    notification_failed = []
+    recent_projects = []
+
+    try:
+        with _get_invigilation_db() as inv_db:
+            cursor = inv_db.cursor()
+
+            # 1. 考试项目状态统计
+            cursor.execute(
+                """SELECT status, COUNT(*) AS count FROM exam_project GROUP BY status"""
+            )
+            for row in cursor.fetchall():
+                status = row["status"]
+                count = row["count"]
+                project_stats["total"] += count
+                if status in project_stats:
+                    project_stats[status] = count
+
+            # 2. 监考场次统计（已安排/未安排）
+            cursor.execute(
+                """SELECT COUNT(*) FROM invigilation_slot WHERE exam_date >= ?""",
+                (today_str,)
+            )
+            slot_stats["total"] = cursor.fetchone()[0] or 0
+
+            cursor.execute(
+                """SELECT COUNT(*) FROM invigilation_slot
+                   WHERE exam_date >= ? AND teacher_id IS NOT NULL AND teacher_id != ''""",
+                (today_str,)
+            )
+            slot_stats["arranged"] = cursor.fetchone()[0] or 0
+            slot_stats["unarranged"] = slot_stats["total"] - slot_stats["arranged"]
+
+            # 3. 冲突场次检测（同一教师同一时间）
+            cursor.execute(
+                """SELECT teacher_name, exam_date, start_time, COUNT(*) AS count
+                   FROM invigilation_slot
+                   WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                   GROUP BY teacher_name, exam_date, start_time
+                   HAVING count > 1""",
+                (today_str,)
+            )
+            conflict_count = 0
+            for row in cursor.fetchall():
+                conflict_count += row["count"] - 1  # 冒泡数减1为冲突数
+            slot_stats["conflict"] = conflict_count
+
+            # 4. 通知状态统计
+            cursor.execute(
+                """SELECT sent_status, COUNT(*) AS count
+                   FROM invigilation_notification_log
+                   GROUP BY sent_status"""
+            )
+            for row in cursor.fetchall():
+                status = row["sent_status"]
+                count = row["count"]
+                if status in notification_stats:
+                    notification_stats[status] = count
+
+            # 5. 教师监考负载 Top5
+            cursor.execute(
+                """SELECT teacher_name, COUNT(*) AS invigilation_count
+                   FROM invigilation_slot
+                   WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                   GROUP BY teacher_name
+                   ORDER BY invigilation_count DESC
+                   LIMIT 5""",
+                (today_str,)
+            )
+            for row in cursor.fetchall():
+                teacher_workload.append({
+                    "teacher_name": row["teacher_name"],
+                    "invigilation_count": row["invigilation_count"],
+                })
+
+            # 6. 未安排场次列表
+            cursor.execute(
+                """SELECT s.project_id, p.name AS project_name, s.exam_date,
+                          s.start_time, s.end_time, s.subject, s.room_name, s.grade_name
+                   FROM invigilation_slot s
+                   LEFT JOIN exam_project p ON s.project_id = p.id
+                   WHERE s.exam_date >= ?
+                     AND (s.teacher_id IS NULL OR s.teacher_id = '')
+                   ORDER BY s.exam_date, s.start_time
+                   LIMIT 10""",
+                (today_str,)
+            )
+            for row in cursor.fetchall():
+                unarranged_slots.append(dict(row))
+
+            # 7. 冲突场次详情
+            cursor.execute(
+                """SELECT teacher_name, exam_date, start_time,
+                          GROUP_CONCAT(subject || ' (' || room_name || ')', ', ') AS subjects
+                   FROM invigilation_slot
+                   WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                   GROUP BY teacher_name, exam_date, start_time
+                   HAVING COUNT(*) > 1
+                   ORDER BY exam_date, start_time
+                   LIMIT 10""",
+                (today_str,)
+            )
+            for row in cursor.fetchall():
+                conflict_slots.append(dict(row))
+
+            # 8. 通知失败记录
+            cursor.execute(
+                """SELECT n.project_id, p.name AS project_name, n.teacher_name,
+                          n.sent_status, n.sent_at, n.error_message
+                   FROM invigilation_notification_log n
+                   LEFT JOIN exam_project p ON n.project_id = p.id
+                   WHERE n.sent_status IN ('failed', 'skipped')
+                   ORDER BY n.sent_at DESC
+                   LIMIT 10"""
+            )
+            for row in cursor.fetchall():
+                notification_failed.append(dict(row))
+
+            # 9. 近期考试项目
+            cursor.execute(
+                """SELECT id, name, status, grade_ids, version_no, updated_at
+                   FROM exam_project
+                   ORDER BY updated_at DESC
+                   LIMIT 5"""
+            )
+            for row in cursor.fetchall():
+                recent_projects.append(dict(row))
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+
+    # 计算通知成功率
+    total_notifications = sum(notification_stats.values())
+    notification_success_rate = 0
+    if total_notifications > 0:
+        notification_success_rate = round(
+            notification_stats["success"] / total_notifications * 100, 1
+        )
+
+    # 计算安排完整率
+    arrangement_rate = 0
+    if slot_stats["total"] > 0:
+        arrangement_rate = round(
+            slot_stats["arranged"] / slot_stats["total"] * 100, 1
+        )
+
+    return {
+        "success": True,
+        "data": {
+            "cards": [
+                _metric("考试项目", project_stats["total"], "个", "/invigilation"),
+                _metric("待安排场次", slot_stats["unarranged"], "场"),
+                _metric("冲突场次", slot_stats["conflict"], "场"),
+                _metric("安排完整率", arrangement_rate, "%"),
+                _metric("通知成功率", notification_success_rate, "%"),
+                _metric("通知失败", notification_stats["failed"] + notification_stats["skipped"], "条"),
+            ],
+            "charts": {
+                "project_status": [
+                    {"name": "草稿", "value": project_stats["draft"]},
+                    {"name": "已保存", "value": project_stats["saved"]},
+                    {"name": "已通知", "value": project_stats["notified"]},
+                ],
+                "notification_status": [
+                    {"name": "成功", "value": notification_stats["success"]},
+                    {"name": "失败", "value": notification_stats["failed"]},
+                    {"name": "跳过", "value": notification_stats["skipped"]},
+                    {"name": "待发送", "value": notification_stats["pending"]},
+                ],
+                "teacher_workload_top5": teacher_workload,
+            },
+            "tables": {
+                "unarranged_slots": unarranged_slots,
+                "conflict_slots": conflict_slots,
+                "notification_failed": notification_failed,
+                "recent_projects": recent_projects,
+                "teacher_workload_top5": teacher_workload,
+            },
+            "updated_at": _now_text(),
+        },
+    }
+
+
+# =============================================================================
+# 第四阶段：系统运维驾驶舱
+# =============================================================================
+
+import glob as glob_module
+
+
+def _get_db_stats(db_path: str) -> Dict[str, object]:
+    """获取数据库统计信息"""
+    if not os.path.exists(db_path):
+        return {"exists": False, "size_kb": 0, "tables": []}
+    size_kb = os.path.getsize(db_path) / 1024
+    tables = []
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        table_names = [row["name"] for row in cursor.fetchall()]
+        for table_name in table_names:
+            cursor.execute(f"SELECT COUNT(*) AS count FROM {table_name}")
+            count = cursor.fetchone()["count"]
+            tables.append({"name": table_name, "count": count})
+        conn.close()
+    except Exception:
+        pass
+    return {"exists": True, "size_kb": round(size_kb, 1), "tables": tables}
+
+
+@router.get("/system/summary", summary="系统运维驾驶舱总览")
+async def get_system_dashboard_summary(user: User = Depends(get_current_user)):
+    """系统运维驾驶舱：服务状态、数据库统计、用户权限、操作审计"""
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="无系统运维驾驶舱权限")
+
+    # 1. 数据库统计
+    db_dir = os.path.join(os.path.dirname(__file__), "..", "..", "databases")
+    db_files = []
+    total_size_kb = 0
+    for db_name in ["moral.db", "auth.db", "homework.db", "inout.db", "invigilation.db", "task.db"]:
+        db_path = os.path.join(db_dir, db_name)
+        stats = _get_db_stats(db_path)
+        stats["name"] = db_name
+        db_files.append(stats)
+        if stats["exists"]:
+            total_size_kb += stats["size_kb"]
+
+    # 2. 用户统计（从 auth.db）
+    user_count = 0
+    role_distribution = []
+    try:
+        auth_db_path = os.path.join(db_dir, "auth.db")
+        if os.path.exists(auth_db_path):
+            conn = sqlite3.connect(auth_db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) AS count FROM users WHERE is_active = 1")
+            user_count = cursor.fetchone()["count"]
+            cursor.execute(
+                """SELECT r.role_name, COUNT(ur.user_id) AS count
+                   FROM user_roles ur
+                   JOIN roles r ON ur.role_id = r.id
+                   GROUP BY r.role_name"""
+            )
+            for row in cursor.fetchall():
+                role_distribution.append({"role": row["role_name"], "count": row["count"]})
+            conn.close()
+    except Exception:
+        pass
+
+    # 3. 教师统计（从 moral.db teacher 表）
+    teacher_stats = {"total": 0, "teacher": 0, "admin": 0, "other": 0}
+    try:
+        moral_db_path = os.path.join(db_dir, "moral.db")
+        if os.path.exists(moral_db_path):
+            conn = sqlite3.connect(moral_db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN COALESCE(identity_type, 'teacher') = 'teacher' THEN 1 ELSE 0 END) AS teacher,
+                    SUM(CASE WHEN identity_type = 'admin' THEN 1 ELSE 0 END) AS admin,
+                    SUM(CASE WHEN identity_type IS NOT NULL AND identity_type NOT IN ('teacher', 'admin') THEN 1 ELSE 0 END) AS other
+                FROM teacher WHERE is_active = 1"""
+            )
+            row = cursor.fetchone()
+            teacher_stats = dict(row) if row else teacher_stats
+            conn.close()
+    except Exception:
+        pass
+
+    # 4. API 权限风险检测（从 moral.db api_permission_config）
+    api_permission_risks = []
+    try:
+        moral_db_path = os.path.join(db_dir, "moral.db")
+        if os.path.exists(moral_db_path):
+            conn = sqlite3.connect(moral_db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            # 查找敏感 API 允许了普通教师权限的配置
+            cursor.execute(
+                """SELECT api_path, allowed_roles, policy_mode, description
+                   FROM api_permission_config
+                   WHERE is_active = 1
+                     AND (
+                       (policy_mode = 'any_role' AND allowed_roles LIKE '%teacher%')
+                       OR (policy_mode = 'any_role' AND allowed_roles LIKE '%student%')
+                       OR (policy_mode = 'any_role' AND allowed_roles LIKE '%parent%')
+                     )"""
+            )
+            for row in cursor.fetchall():
+                api_permission_risks.append({
+                    "api_path": row["api_path"],
+                    "allowed_roles": row["allowed_roles"],
+                    "policy_mode": row["policy_mode"],
+                    "description": row["description"],
+                })
+            conn.close()
+    except Exception:
+        pass
+
+    # 5. 操作日志统计（从 moral_operation_log）
+    operation_stats = []
+    recent_operations = []
+    try:
+        moral_db_path = os.path.join(db_dir, "moral.db")
+        if os.path.exists(moral_db_path):
+            conn = sqlite3.connect(moral_db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            # 操作类型统计
+            cursor.execute(
+                """SELECT operation, COUNT(*) AS count
+                   FROM moral_operation_log
+                   GROUP BY operation
+                   ORDER BY count DESC"""
+            )
+            for row in cursor.fetchall():
+                operation_stats.append({"type": row["operation"], "count": row["count"]})
+            # 最近敏感操作（删除、更新）
+            cursor.execute(
+                """SELECT operation, table_name, record_id, operator, created_at, reason, new_data
+                   FROM moral_operation_log
+                   WHERE operation IN ('DELETE', 'UPDATE')
+                   ORDER BY created_at DESC
+                   LIMIT 10"""
+            )
+            for row in cursor.fetchall():
+                recent_operations.append({
+                    "operation_type": row["operation"],
+                    "table_name": row["table_name"],
+                    "record_id": row["record_id"],
+                    "operator": row["operator"],
+                    "operated_at": row["created_at"],
+                    "detail": row["reason"] or row["new_data"] or "",
+                })
+            conn.close()
+    except Exception:
+        pass
+
+    # 6. 任务状态（从 task.db）
+    task_stats = {"total": 0, "running": 0, "failed": 0, "success": 0}
+    try:
+        task_db_path = os.path.join(db_dir, "task.db")
+        if os.path.exists(task_db_path):
+            conn = sqlite3.connect(task_db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='scheduled_tasks'")
+            if cursor.fetchone():
+                cursor.execute(
+                    """SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running,
+                        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success
+                    FROM scheduled_tasks"""
+                )
+                row = cursor.fetchone()
+                task_stats = dict(row) if row else task_stats
+            conn.close()
+    except Exception:
+        pass
+
+    # 计算表记录总数
+    total_records = 0
+    for db in db_files:
+        if db["exists"]:
+            total_records += sum(t["count"] for t in db["tables"])
+
+    return {
+        "success": True,
+        "data": {
+            "cards": [
+                _metric("数据库文件", len([d for d in db_files if d["exists"]]), "个"),
+                _metric("总大小", round(total_size_kb / 1024, 2), "MB"),
+                _metric("总记录数", total_records, "条"),
+                _metric("活跃用户", user_count, "人", "/member-manage"),
+                _metric("教师账号", teacher_stats.get("teacher", 0), "人", "/teacher-manage"),
+                _metric("权限风险", len(api_permission_risks), "项", "/moral/config/api-permission"),
+            ],
+            "charts": {
+                "role_distribution": role_distribution,
+                "operation_stats": operation_stats,
+                "teacher_identity": [
+                    {"name": "教师", "value": teacher_stats.get("teacher", 0)},
+                    {"name": "管理员", "value": teacher_stats.get("admin", 0)},
+                    {"name": "其他", "value": teacher_stats.get("other", 0)},
+                ],
+            },
+            "tables": {
+                "db_files": db_files,
+                "api_permission_risks": api_permission_risks,
+                "recent_operations": recent_operations,
+            },
+            "task_stats": task_stats,
             "updated_at": _now_text(),
         },
     }

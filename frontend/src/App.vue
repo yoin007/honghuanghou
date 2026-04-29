@@ -54,8 +54,10 @@
               <el-menu-item index="/dashboard">总览</el-menu-item>
               <el-menu-item v-if="showMoralMenu" index="/dashboard/moral">德育驾驶舱</el-menu-item>
               <el-menu-item v-if="isJiaowu" index="/dashboard/teaching">教务驾驶舱</el-menu-item>
-              <el-menu-item v-if="showMoralMenu" index="/dashboard/class">班级驾驶舱</el-menu-item>
+              <el-menu-item v-if="canViewClassDashboard" index="/dashboard/class">班级驾驶舱</el-menu-item>
               <el-menu-item index="/dashboard/teacher">教师工作台</el-menu-item>
+              <el-menu-item v-if="isJiaowu" index="/dashboard/invigilation">监考驾驶舱</el-menu-item>
+              <el-menu-item v-if="isAdmin" index="/dashboard/system">系统运维</el-menu-item>
             </el-sub-menu>
             <el-sub-menu index="fun">
               <template #title>趣味</template>
@@ -192,9 +194,11 @@ const isLoggedIn = computed(() => authStore.isLoggedIn)
 const username = computed(() => authStore.username)
 const isAdmin = computed(() => authStore.isAdmin)
 const isJiaowu = computed(() => authStore.isJiaowu)
+const isXuefa = computed(() => authStore.isXuefa)
 const isCleader = computed(() => authStore.isCleader)
 const classCode = computed(() => appStore.classCode)
 const classCodes = computed(() => appStore.classCodes)
+const canViewClassDashboard = computed(() => isAdmin.value || isJiaowu.value || isXuefa.value || isCleader.value)
 
 // 德育菜单是否显示（有任一子菜单权限才显示）
 const showMoralMenu = computed(() => {

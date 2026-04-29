@@ -35,6 +35,18 @@ const routes = [
     meta: { requiresAuth: true, title: '教师工作台' }
   },
   {
+    path: '/dashboard/invigilation',
+    name: 'InvigilationDashboard',
+    component: () => import('../views/dashboard/InvigilationDashboard.vue'),
+    meta: { requiresAuth: true, title: '监考驾驶舱' }
+  },
+  {
+    path: '/dashboard/system',
+    name: 'SystemDashboard',
+    component: () => import('../views/dashboard/SystemDashboard.vue'),
+    meta: { requiresAuth: true, title: '系统运维驾驶舱' }
+  },
+  {
     path: '/schedule',
     name: 'Schedule',
     component: () => import('../views/Schedule.vue'),

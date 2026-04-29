@@ -20,10 +20,20 @@ export function getTeacherWorkbench() {
   return request.get('/api/dashboard/teacher/workbench')
 }
 
+export function getInvigilationDashboardSummary() {
+  return request.get('/api/dashboard/invigilation/summary')
+}
+
+export function getSystemDashboardSummary() {
+  return request.get('/api/dashboard/system/summary')
+}
+
 export default {
   getDashboardOverview,
   getMoralDashboardSummary,
   getTeachingDashboardSummary,
   getClassDashboardSummary,
-  getTeacherWorkbench
+  getTeacherWorkbench,
+  getInvigilationDashboardSummary,
+  getSystemDashboardSummary
 }

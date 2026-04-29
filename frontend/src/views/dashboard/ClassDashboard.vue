@@ -131,7 +131,7 @@ const birthdayWeek = computed(() => summary.value.tables?.birthday_this_week || 
 
 const genderMixOption = computed(() => ({
   backgroundColor: 'transparent',
-  color: ['#34d399', '#f472b6'],
+  color: ['#34d399', '#f472b6', '#94a3b8'],
   tooltip: { trigger: 'item' },
   legend: { bottom: 0, textStyle: { color: '#cbd5e1' } },
   series: [{
@@ -146,7 +146,7 @@ const genderMixOption = computed(() => ({
 
 const scoreBandOption = computed(() => ({
   backgroundColor: 'transparent',
-  color: ['#fb7185', '#34d399'],
+  color: ['#fb7185', '#34d399', '#94a3b8'],
   tooltip: { trigger: 'item' },
   legend: { bottom: 0, textStyle: { color: '#cbd5e1' } },
   series: [{
