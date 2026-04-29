@@ -54,6 +54,8 @@
               <el-menu-item index="/dashboard">总览</el-menu-item>
               <el-menu-item v-if="showMoralMenu" index="/dashboard/moral">德育驾驶舱</el-menu-item>
               <el-menu-item v-if="isJiaowu" index="/dashboard/teaching">教务驾驶舱</el-menu-item>
+              <el-menu-item v-if="showMoralMenu" index="/dashboard/class">班级驾驶舱</el-menu-item>
+              <el-menu-item index="/dashboard/teacher">教师工作台</el-menu-item>
             </el-sub-menu>
             <el-sub-menu index="fun">
               <template #title>趣味</template>

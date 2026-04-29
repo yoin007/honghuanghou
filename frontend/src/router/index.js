@@ -23,6 +23,18 @@ const routes = [
     meta: { requiresAuth: true, title: '教务驾驶舱' }
   },
   {
+    path: '/dashboard/class',
+    name: 'ClassDashboard',
+    component: () => import('../views/dashboard/ClassDashboard.vue'),
+    meta: { requiresAuth: true, title: '班级驾驶舱' }
+  },
+  {
+    path: '/dashboard/teacher',
+    name: 'TeacherWorkbench',
+    component: () => import('../views/dashboard/TeacherWorkbench.vue'),
+    meta: { requiresAuth: true, title: '教师工作台' }
+  },
+  {
     path: '/schedule',
     name: 'Schedule',
     component: () => import('../views/Schedule.vue'),
