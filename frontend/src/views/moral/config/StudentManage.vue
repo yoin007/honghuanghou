@@ -50,9 +50,9 @@
         <el-table-column prop="created_at" label="入学时间" width="180" />
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateStudent">编辑</el-button>
+            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateStudent && row.can_edit">编辑</el-button>
             <el-button link type="info" @click="handleViewDetail(row)">详情</el-button>
-            <el-button link type="warning" @click="handleUpdateStatus(row)">状态</el-button>
+            <el-button link type="warning" @click="handleUpdateStatus(row)" v-if="canUpdateStudent && row.can_update_status">状态</el-button>
           </template>
         </el-table-column>
       </el-table>

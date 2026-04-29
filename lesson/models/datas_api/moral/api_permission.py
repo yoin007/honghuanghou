@@ -7,18 +7,20 @@ API权限管理模块
 
 import logging
 import json
-from datetime import datetime
-from typing import Optional, List
+import re
+import hashlib
+from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from .base import (
     get_moral_db,
-    check_moral_permission,
     get_current_user,
     log_operation,
     is_admin_user,
+    get_user_role_level,
+    get_user_roles,
 )
 from models.datas_api.auth import User
 
@@ -38,6 +40,15 @@ class ApiPermissionCreate(BaseModel):
     api_group: str = Field(..., description="API分组")
     allowed_roles: List[str] = Field(..., description="允许访问的角色列表")
     min_level: int = Field(default=0, description="最低等级要求")
+    module_id: Optional[int] = Field(None, description="所属模块ID")
+    http_method: str = Field(default="*", description="HTTP方法")
+    match_type: str = Field(default="exact", description="匹配方式：exact/prefix/pattern")
+    policy_mode: str = Field(default="role_and_level", description="鉴权策略")
+    inherit_from_module: int = Field(default=0, description="是否继承模块权限")
+    is_public: int = Field(default=0, description="是否无需鉴权")
+    enforce_backend: int = Field(default=1, description="是否用于后端鉴权")
+    data_scope_rules: Optional[Dict[str, List[str]]] = Field(default_factory=dict, description="角色数据范围规则")
+    target_scope_rules: Optional[Dict[str, List[str]]] = Field(default_factory=dict, description="角色目标对象范围规则")
     description: Optional[str] = Field(None, description="描述")
 
 
@@ -47,7 +58,41 @@ class ApiPermissionUpdate(BaseModel):
     api_group: Optional[str] = Field(None, description="API分组")
     allowed_roles: Optional[List[str]] = Field(None, description="允许访问的角色列表")
     min_level: Optional[int] = Field(None, description="最低等级要求")
+    module_id: Optional[int] = Field(None, description="所属模块ID")
+    http_method: Optional[str] = Field(None, description="HTTP方法")
+    match_type: Optional[str] = Field(None, description="匹配方式：exact/prefix/pattern")
+    policy_mode: Optional[str] = Field(None, description="鉴权策略")
+    inherit_from_module: Optional[int] = Field(None, description="是否继承模块权限")
+    is_public: Optional[int] = Field(None, description="是否无需鉴权")
+    enforce_backend: Optional[int] = Field(None, description="是否用于后端鉴权")
+    data_scope_rules: Optional[Dict[str, List[str]]] = Field(None, description="角色数据范围规则")
+    target_scope_rules: Optional[Dict[str, List[str]]] = Field(None, description="角色目标对象范围规则")
     description: Optional[str] = Field(None, description="描述")
+    is_active: Optional[int] = Field(None, description="是否启用")
+
+
+class ApiPermissionModuleCreate(BaseModel):
+    """创建API权限模块"""
+    module_key: str = Field(..., description="模块标识")
+    module_name: str = Field(..., description="模块名称")
+    parent_id: Optional[int] = Field(None, description="父模块ID")
+    allowed_roles: List[str] = Field(default_factory=list, description="模块默认允许角色")
+    min_level: int = Field(default=0, description="模块默认最低等级")
+    policy_mode: str = Field(default="role_and_level", description="模块默认鉴权策略")
+    description: Optional[str] = Field(None, description="描述")
+    sort_order: int = Field(default=0, description="排序")
+
+
+class ApiPermissionModuleUpdate(BaseModel):
+    """更新API权限模块"""
+    module_key: Optional[str] = Field(None, description="模块标识")
+    module_name: Optional[str] = Field(None, description="模块名称")
+    parent_id: Optional[int] = Field(None, description="父模块ID")
+    allowed_roles: Optional[List[str]] = Field(None, description="模块默认允许角色")
+    min_level: Optional[int] = Field(None, description="模块默认最低等级")
+    policy_mode: Optional[str] = Field(None, description="模块默认鉴权策略")
+    description: Optional[str] = Field(None, description="描述")
+    sort_order: Optional[int] = Field(None, description="排序")
     is_active: Optional[int] = Field(None, description="是否启用")
 
 
@@ -124,6 +169,513 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/evaluations/calculate", "api_name": "计算德育评价", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 ]
 
+VALID_POLICY_MODES = {"role_and_level", "role_or_level", "role_only", "level_only", "public"}
+VALID_MATCH_TYPES = {"exact", "prefix", "pattern"}
+
+DEFAULT_DATA_SCOPE_RULES = {
+    "/api/moral/daily-records": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_created", "own_class"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/daily-records/update": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/daily-records/delete": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/moment-records": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_created", "own_class"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/moment-records/update": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/moment-records/delete": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/profiles/student": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/profiles/student/generate": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/evaluations/class": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/evaluations/calculate": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/admin/students": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/admin/students/create": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/admin/students/update": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/admin/students/batch": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["own_class"],
+    },
+}
+
+DEFAULT_TARGET_SCOPE_RULES = {
+    "/api/moral/daily-records/create": {
+        "admin": ["all_students"],
+        "jiaowu": ["all_students"],
+        "xuefa": ["all_students"],
+        "cleader": ["all_students"],
+        "teacher": ["all_students"],
+    },
+    "/api/moral/moment-records/create": {
+        "admin": ["all_students"],
+        "jiaowu": ["all_students"],
+        "xuefa": ["all_students"],
+        "cleader": ["all_students"],
+        "teacher": ["all_students"],
+    },
+}
+
+
+def _json_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return value
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def _json_dump(value: Optional[List[str]]) -> str:
+    return json.dumps(value or [], ensure_ascii=False)
+
+
+def _json_dict(value: Any) -> Dict[str, List[str]]:
+    if isinstance(value, dict):
+        return {
+            str(role): [str(scope) for scope in scopes]
+            for role, scopes in value.items()
+            if isinstance(scopes, list)
+        }
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, dict):
+            return {
+                str(role): [str(scope) for scope in scopes]
+                for role, scopes in parsed.items()
+                if isinstance(scopes, list)
+            }
+    except Exception:
+        pass
+    return {}
+
+
+def _json_dict_dump(value: Optional[Dict[str, List[str]]]) -> str:
+    return json.dumps(_json_dict(value), ensure_ascii=False)
+
+
+def _normalize_policy_mode(policy_mode: Optional[str]) -> str:
+    return policy_mode if policy_mode in VALID_POLICY_MODES else "role_and_level"
+
+
+def _normalize_match_type(match_type: Optional[str]) -> str:
+    return match_type if match_type in VALID_MATCH_TYPES else "exact"
+
+
+def _table_columns(db, table_name: str) -> set:
+    rows = db.query_all(f"PRAGMA table_info({table_name})")
+    return {row["name"] for row in rows}
+
+
+def ensure_api_permission_schema(db) -> None:
+    """兼容式补齐API权限模块表和扩展列。"""
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS api_permission_module (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_key TEXT NOT NULL UNIQUE,
+            module_name TEXT NOT NULL,
+            parent_id INTEGER,
+            allowed_roles TEXT NOT NULL DEFAULT '[]',
+            min_level INTEGER DEFAULT 0,
+            policy_mode TEXT DEFAULT 'role_and_level',
+            description TEXT,
+            sort_order INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+        """
+    )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_api_permission_module_key ON api_permission_module(module_key)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_api_permission_module_parent ON api_permission_module(parent_id)")
+
+    columns = _table_columns(db, "api_permission_config")
+    migrations = [
+        ("module_id", "ALTER TABLE api_permission_config ADD COLUMN module_id INTEGER"),
+        ("http_method", "ALTER TABLE api_permission_config ADD COLUMN http_method TEXT DEFAULT '*'"),
+        ("match_type", "ALTER TABLE api_permission_config ADD COLUMN match_type TEXT DEFAULT 'exact'"),
+        ("policy_mode", "ALTER TABLE api_permission_config ADD COLUMN policy_mode TEXT DEFAULT 'role_and_level'"),
+        ("inherit_from_module", "ALTER TABLE api_permission_config ADD COLUMN inherit_from_module INTEGER DEFAULT 0"),
+        ("is_public", "ALTER TABLE api_permission_config ADD COLUMN is_public INTEGER DEFAULT 0"),
+        ("enforce_backend", "ALTER TABLE api_permission_config ADD COLUMN enforce_backend INTEGER DEFAULT 1"),
+        ("data_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN data_scope_rules TEXT DEFAULT '{}'"),
+        ("target_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN target_scope_rules TEXT DEFAULT '{}'"),
+    ]
+    for column, sql in migrations:
+        if column not in columns:
+            db.execute(sql)
+
+    db.execute("CREATE INDEX IF NOT EXISTS idx_api_permission_module_id ON api_permission_config(module_id)")
+    _dedupe_permission_modules(db)
+
+    # 为既有 api_group 自动生成模块，并回填 module_id。
+    groups = db.query_all(
+        "SELECT api_group, MIN(min_level) AS min_level FROM api_permission_config GROUP BY api_group"
+    )
+    for group in groups:
+        group_name = group.get("api_group")
+        if not group_name:
+            continue
+        module_key = _module_key_from_group(group_name)
+        existing = db.query_one(
+            "SELECT id FROM api_permission_module WHERE module_key = %s OR module_name = %s ORDER BY id LIMIT 1",
+            (module_key, group_name),
+        )
+        if not existing:
+            roles = _roles_for_group(db, group_name)
+            db.execute(
+                """INSERT INTO api_permission_module
+                (module_key, module_name, allowed_roles, min_level, policy_mode, description)
+                VALUES (%s, %s, %s, %s, %s, %s)""",
+                (
+                    module_key,
+                    group_name,
+                    _json_dump(roles),
+                    int(group.get("min_level") or 0),
+                    "role_and_level",
+                    f"由API分组 {group_name} 自动生成",
+                ),
+            )
+            module_id = db.lastrowid()
+        else:
+            module_id = existing["id"]
+
+        db.execute(
+            "UPDATE api_permission_config SET module_id = %s WHERE api_group = %s AND module_id IS NULL",
+            (module_id, group_name),
+        )
+
+    _backfill_default_scope_rules(db)
+
+
+def _backfill_default_scope_rules(db) -> None:
+    """为重点业务API补齐默认数据范围规则，保留管理员已有手工配置。"""
+    for api_path, rules in DEFAULT_DATA_SCOPE_RULES.items():
+        db.execute(
+            """UPDATE api_permission_config
+               SET data_scope_rules = %s
+               WHERE api_path = %s
+                 AND (data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}')""",
+            (_json_dict_dump(rules), api_path),
+        )
+    for api_path, rules in DEFAULT_TARGET_SCOPE_RULES.items():
+        db.execute(
+            """UPDATE api_permission_config
+               SET target_scope_rules = %s
+               WHERE api_path = %s
+                 AND (target_scope_rules IS NULL OR target_scope_rules = '' OR target_scope_rules = '{}')""",
+            (_json_dict_dump(rules), api_path),
+        )
+
+
+def _module_key_from_group(group_name: str) -> str:
+    slug = re.sub(r"[^0-9A-Za-z_]+", "_", group_name.strip()).strip("_")
+    if slug:
+        return slug
+    digest = hashlib.md5(group_name.encode("utf-8")).hexdigest()[:12]
+    return f"module_{digest}"
+
+
+def _dedupe_permission_modules(db) -> None:
+    """按模块名称合并历史自动生成的重复模块。"""
+    duplicates = db.query_all(
+        """SELECT module_name, MIN(id) AS keep_id, COUNT(*) AS c
+           FROM api_permission_module
+           GROUP BY module_name
+           HAVING COUNT(*) > 1"""
+    )
+    for item in duplicates:
+        module_name = item["module_name"]
+        keep_id = item["keep_id"]
+        dupes = db.query_all(
+            "SELECT id FROM api_permission_module WHERE module_name = %s AND id != %s",
+            (module_name, keep_id),
+        )
+        for dupe in dupes:
+            db.execute(
+                "UPDATE api_permission_config SET module_id = %s WHERE module_id = %s",
+                (keep_id, dupe["id"]),
+            )
+            db.execute("DELETE FROM api_permission_module WHERE id = %s", (dupe["id"],))
+
+
+def _roles_for_group(db, group_name: str) -> List[str]:
+    rows = db.query_all(
+        "SELECT allowed_roles FROM api_permission_config WHERE api_group = %s",
+        (group_name,),
+    )
+    roles = set()
+    for row in rows:
+        roles.update(_json_list(row.get("allowed_roles")))
+    return sorted(roles)
+
+
+def _ensure_module(db, module_key: str, module_name: str, allowed_roles: Optional[List[str]] = None, min_level: int = 0) -> int:
+    module = db.query_one(
+        "SELECT id FROM api_permission_module WHERE module_key = %s OR module_name = %s ORDER BY id LIMIT 1",
+        (module_key, module_name),
+    )
+    if module:
+        return module["id"]
+    db.execute(
+        """INSERT INTO api_permission_module
+        (module_key, module_name, allowed_roles, min_level, policy_mode, description)
+        VALUES (%s, %s, %s, %s, %s, %s)""",
+        (
+            module_key,
+            module_name,
+            _json_dump(allowed_roles or []),
+            min_level,
+            "role_and_level",
+            "系统同步生成",
+        ),
+    )
+    return db.lastrowid()
+
+
+def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
+    """将 lesson/config/api_level.yaml 同步到数据库权限配置。"""
+    try:
+        from config.config import Config
+    except Exception as exc:
+        logger.warning("无法导入Config，跳过api_level.yaml同步: %s", exc)
+        return {"created": 0, "updated": 0, "skipped": 0}
+
+    cfg_all = Config().get_config_all("api_level.yaml")
+    routes = cfg_all.get("routes", {}) or {}
+    module_id = _ensure_module(db, "legacy_lesson_api", "旧版教务接口", ["admin"], 0)
+    created = 0
+    updated = 0
+    skipped = 0
+
+    for raw_path, rule in routes.items():
+        rule = rule or {}
+        api_path = raw_path if raw_path.startswith("/api/") else f"/api{raw_path}"
+        allowed_roles = rule.get("allowed_roles") or []
+        is_public = 1 if rule.get("jwt_required") is False or "all" in allowed_roles else 0
+        normalized_roles = [role for role in allowed_roles if role != "all"]
+        min_level = int(rule.get("min_level") or 0)
+        match_type = "pattern" if "{" in raw_path and "}" in raw_path else "exact"
+        api_name = f"旧版接口 {raw_path}"
+
+        existing = db.query_one("SELECT id FROM api_permission_config WHERE api_path = %s", (api_path,))
+        if existing:
+            db.execute(
+                """UPDATE api_permission_config
+                   SET module_id = COALESCE(module_id, %s),
+                       api_group = CASE WHEN api_group = '' THEN %s ELSE api_group END,
+                       http_method = COALESCE(http_method, '*'),
+                       match_type = %s,
+                       policy_mode = COALESCE(policy_mode, 'role_and_level'),
+                       is_public = %s,
+                       updated_at = datetime('now', 'localtime')
+                   WHERE id = %s""",
+                (module_id, "旧版教务接口", match_type, is_public, existing["id"]),
+            )
+            updated += 1
+            continue
+
+        db.execute(
+            """INSERT INTO api_permission_config
+            (api_path, api_name, api_group, allowed_roles, min_level, module_id,
+             http_method, match_type, policy_mode, is_public, enforce_backend, description)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                api_path,
+                api_name,
+                "旧版教务接口",
+                _json_dump(normalized_roles),
+                min_level,
+                module_id,
+                "*",
+                match_type,
+                "role_and_level",
+                is_public,
+                1,
+                "由 lesson/config/api_level.yaml 同步",
+            ),
+        )
+        created += 1
+
+    return {"created": created, "updated": updated, "skipped": skipped}
+
+
+def _path_matches(api_path: str, request_path: str, match_type: str) -> bool:
+    match_type = _normalize_match_type(match_type)
+    if match_type == "prefix":
+        return request_path.startswith(api_path)
+    if match_type == "pattern":
+        api_parts = [p for p in api_path.strip("/").split("/") if p]
+        req_parts = [p for p in request_path.strip("/").split("/") if p]
+        if len(api_parts) != len(req_parts):
+            return False
+        return all(ap == rp or (ap.startswith("{") and ap.endswith("}")) for ap, rp in zip(api_parts, req_parts))
+    return api_path == request_path
+
+
+def _get_matching_config(db, api_path: str, http_method: str = "*") -> Optional[Dict[str, Any]]:
+    configs = db.query_all(
+        """
+        SELECT c.*, m.module_name, m.allowed_roles AS module_allowed_roles,
+               m.min_level AS module_min_level, m.policy_mode AS module_policy_mode,
+               m.is_active AS module_is_active
+        FROM api_permission_config c
+        LEFT JOIN api_permission_module m ON c.module_id = m.id
+        WHERE c.is_active = 1
+        ORDER BY
+            CASE c.match_type WHEN 'exact' THEN 0 WHEN 'pattern' THEN 1 ELSE 2 END,
+            LENGTH(c.api_path) DESC
+        """
+    )
+    method = (http_method or "*").upper()
+    for config in configs:
+        config_method = (config.get("http_method") or "*").upper()
+        if config_method not in ("*", method):
+            continue
+        if config.get("module_is_active") == 0:
+            continue
+        if _path_matches(config.get("api_path") or "", api_path, config.get("match_type") or "exact"):
+            return config
+    return None
+
+
+def _effective_policy(config: Dict[str, Any]) -> Dict[str, Any]:
+    inherit = int(config.get("inherit_from_module") or 0) == 1
+    if inherit:
+        allowed_roles = _json_list(config.get("module_allowed_roles"))
+        min_level = int(config.get("module_min_level") or 0)
+        policy_mode = _normalize_policy_mode(config.get("module_policy_mode"))
+    else:
+        allowed_roles = _json_list(config.get("allowed_roles"))
+        min_level = int(config.get("min_level") or 0)
+        policy_mode = _normalize_policy_mode(config.get("policy_mode"))
+
+    if int(config.get("is_public") or 0) == 1:
+        policy_mode = "public"
+
+    return {
+        "allowed_roles": allowed_roles,
+        "min_level": min_level,
+        "policy_mode": policy_mode,
+        "is_public": int(config.get("is_public") or 0),
+        "inherit_from_module": int(config.get("inherit_from_module") or 0),
+    }
+
+
+def is_api_allowed(user: User, config: Dict[str, Any]) -> Dict[str, Any]:
+    """按统一语义判断API权限。默认角色和等级同时生效。"""
+    policy = _effective_policy(config)
+    if policy["policy_mode"] == "public" or policy["is_public"] == 1:
+        return {"allowed": True, "reason": "公开API无需鉴权", "policy": policy}
+
+    if not user:
+        return {"allowed": False, "reason": "未登录", "policy": policy}
+
+    if is_admin_user(user):
+        return {"allowed": True, "reason": "admin拥有所有权限", "policy": policy}
+
+    user_roles = get_user_roles(user)
+    user_level = get_user_role_level(user)
+    allowed_roles = policy["allowed_roles"]
+    min_level = policy["min_level"]
+    role_pass = not allowed_roles or any(role in allowed_roles for role in user_roles)
+    level_pass = min_level <= 0 or user_level >= min_level
+    mode = policy["policy_mode"]
+
+    if mode == "role_only":
+        allowed = role_pass
+    elif mode == "level_only":
+        allowed = level_pass
+    elif mode == "role_or_level":
+        allowed = role_pass or level_pass
+    else:
+        allowed = role_pass and level_pass
+
+    reason = "允许" if allowed else f"无权限：角色={user_roles}，等级={user_level}，要求角色={allowed_roles}，最低等级={min_level}"
+    return {"allowed": allowed, "reason": reason, "policy": policy}
+
+
+def _parse_config_row(config: Dict[str, Any]) -> Dict[str, Any]:
+    config["allowed_roles"] = _json_list(config.get("allowed_roles"))
+    config["data_scope_rules"] = _json_dict(config.get("data_scope_rules"))
+    config["target_scope_rules"] = _json_dict(config.get("target_scope_rules"))
+    if config.get("module_allowed_roles") is not None:
+        config["module_allowed_roles"] = _json_list(config.get("module_allowed_roles"))
+    config["effective_policy"] = _effective_policy(config)
+    return config
+
 
 # =============================================================================
 # API路由
@@ -143,25 +695,169 @@ async def get_api_permissions(
 ):
     """获取API权限配置列表（仅admin）"""
     with get_moral_db() as db:
+        ensure_api_permission_schema(db)
         if api_group:
             configs = db.query_all(
-                "SELECT * FROM api_permission_config WHERE api_group = %s ORDER BY api_group, api_path",
+                """SELECT c.*, m.module_name, m.allowed_roles AS module_allowed_roles,
+                          m.min_level AS module_min_level, m.policy_mode AS module_policy_mode,
+                          m.is_active AS module_is_active
+                   FROM api_permission_config c
+                   LEFT JOIN api_permission_module m ON c.module_id = m.id
+                   WHERE c.api_group = %s
+                   ORDER BY c.api_group, c.api_path""",
                 (api_group,)
             )
         else:
             configs = db.query_all(
-                "SELECT * FROM api_permission_config ORDER BY api_group, api_path"
+                """SELECT c.*, m.module_name, m.allowed_roles AS module_allowed_roles,
+                          m.min_level AS module_min_level, m.policy_mode AS module_policy_mode,
+                          m.is_active AS module_is_active
+                   FROM api_permission_config c
+                   LEFT JOIN api_permission_module m ON c.module_id = m.id
+                   ORDER BY c.api_group, c.api_path"""
             )
 
-        # 解析allowed_roles JSON
         for config in configs:
-            if config.get('allowed_roles'):
-                try:
-                    config['allowed_roles'] = json.loads(config['allowed_roles'])
-                except:
-                    config['allowed_roles'] = []
+            _parse_config_row(config)
 
         return {"success": True, "data": configs}
+
+
+@router.get("/modules", summary="获取API权限模块列表")
+async def get_api_permission_modules(user: User = Depends(require_admin)):
+    """获取API权限模块列表（仅admin）"""
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        modules = db.query_all(
+            """SELECT m.*,
+                      COUNT(c.id) AS api_count
+               FROM api_permission_module m
+               LEFT JOIN api_permission_config c ON c.module_id = m.id
+               GROUP BY m.id
+               ORDER BY m.sort_order, m.module_name"""
+        )
+        for module in modules:
+            module["allowed_roles"] = _json_list(module.get("allowed_roles"))
+        return {"success": True, "data": modules}
+
+
+@router.post("/modules", summary="创建API权限模块")
+async def create_api_permission_module(
+    module: ApiPermissionModuleCreate,
+    request: Request,
+    user: User = Depends(require_admin),
+):
+    """创建API权限模块（仅admin）"""
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        existing = db.query_one(
+            "SELECT id FROM api_permission_module WHERE module_key = %s",
+            (module.module_key,),
+        )
+        if existing:
+            raise HTTPException(400, f"模块标识 {module.module_key} 已存在")
+
+        db.execute(
+            """INSERT INTO api_permission_module
+            (module_key, module_name, parent_id, allowed_roles, min_level, policy_mode, description, sort_order)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                module.module_key,
+                module.module_name,
+                module.parent_id,
+                _json_dump(module.allowed_roles),
+                module.min_level,
+                _normalize_policy_mode(module.policy_mode),
+                module.description,
+                module.sort_order,
+            ),
+        )
+        module_id = db.lastrowid()
+        log_operation(db, user.username, user.role, "INSERT", "api_permission_module", module_id, new_data=module.dict())
+        return {"success": True, "message": "模块创建成功", "data": {"id": module_id}}
+
+
+@router.put("/modules/{module_id}", summary="更新API权限模块")
+async def update_api_permission_module(
+    module_id: int,
+    module: ApiPermissionModuleUpdate,
+    request: Request,
+    user: User = Depends(require_admin),
+):
+    """更新API权限模块（仅admin）"""
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        existing = db.query_one("SELECT * FROM api_permission_module WHERE id = %s", (module_id,))
+        if not existing:
+            raise HTTPException(404, "模块不存在")
+
+        updates = []
+        params = []
+        for field in ["module_key", "module_name", "parent_id", "min_level", "description", "sort_order", "is_active"]:
+            value = getattr(module, field)
+            if value is not None:
+                updates.append(f"{field} = %s")
+                params.append(value)
+
+        if module.allowed_roles is not None:
+            updates.append("allowed_roles = %s")
+            params.append(_json_dump(module.allowed_roles))
+        if module.policy_mode is not None:
+            updates.append("policy_mode = %s")
+            params.append(_normalize_policy_mode(module.policy_mode))
+
+        updates.append("updated_at = datetime('now', 'localtime')")
+        params.append(module_id)
+        db.execute(f"UPDATE api_permission_module SET {', '.join(updates)} WHERE id = %s", tuple(params))
+        log_operation(db, user.username, user.role, "UPDATE", "api_permission_module", module_id, new_data=module.dict(exclude_unset=True))
+        return {"success": True, "message": "模块更新成功"}
+
+
+@router.post("/modules/{module_id}/apply", summary="将模块权限应用到模块内API")
+async def apply_module_permission(
+    module_id: int,
+    request: Request,
+    user: User = Depends(require_admin),
+):
+    """将模块权限批量写入模块下API，并取消单API覆盖。"""
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        module = db.query_one("SELECT * FROM api_permission_module WHERE id = %s", (module_id,))
+        if not module:
+            raise HTTPException(404, "模块不存在")
+        affected = db.execute(
+            """UPDATE api_permission_config
+               SET allowed_roles = %s, min_level = %s, policy_mode = %s,
+                   inherit_from_module = 1, api_group = %s,
+                   updated_at = datetime('now', 'localtime')
+               WHERE module_id = %s""",
+            (
+                module["allowed_roles"],
+                module["min_level"],
+                module["policy_mode"],
+                module["module_name"],
+                module_id,
+            ),
+        )
+        log_operation(db, user.username, user.role, "APPLY", "api_permission_module", module_id, new_data={"affected": affected})
+        return {"success": True, "message": f"已应用到 {affected} 个API"}
+
+
+@router.post("/sync-legacy-yaml", summary="同步旧版YAML权限配置")
+async def sync_legacy_yaml_permissions(
+    request: Request,
+    user: User = Depends(require_admin),
+):
+    """将 lesson/config/api_level.yaml 导入统一API权限配置（仅admin）。"""
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        result = _sync_legacy_api_level_yaml(db)
+        log_operation(db, user.username, user.role, "SYNC", "api_permission_config", None, new_data=result)
+        return {
+            "success": True,
+            "message": f"同步完成：新增 {result['created']} 条，更新 {result['updated']} 条",
+            "data": result,
+        }
 
 
 @router.post("", summary="创建API权限配置")
@@ -172,6 +868,7 @@ async def create_api_permission(
 ):
     """创建API权限配置（仅admin）"""
     with get_moral_db() as db:
+        ensure_api_permission_schema(db)
         # 检查是否已存在
         existing = db.query_one(
             "SELECT id FROM api_permission_config WHERE api_path = %s",
@@ -180,13 +877,38 @@ async def create_api_permission(
         if existing:
             raise HTTPException(400, f"API路径 {config.api_path} 已存在")
 
-        allowed_roles_json = json.dumps(config.allowed_roles)
+        allowed_roles_json = _json_dump(config.allowed_roles)
+        module_id = config.module_id
+        if not module_id and config.api_group:
+            module = db.query_one(
+                "SELECT id FROM api_permission_module WHERE module_name = %s",
+                (config.api_group,),
+            )
+            module_id = module["id"] if module else None
 
         db.execute(
             """INSERT INTO api_permission_config
-            (api_path, api_name, api_group, allowed_roles, min_level, description)
-            VALUES (%s, %s, %s, %s, %s, %s)""",
-            (config.api_path, config.api_name, config.api_group, allowed_roles_json, config.min_level, config.description)
+            (api_path, api_name, api_group, allowed_roles, min_level, module_id, http_method,
+             match_type, policy_mode, inherit_from_module, is_public, enforce_backend,
+             data_scope_rules, target_scope_rules, description)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                config.api_path,
+                config.api_name,
+                config.api_group,
+                allowed_roles_json,
+                config.min_level,
+                module_id,
+                (config.http_method or "*").upper(),
+                _normalize_match_type(config.match_type),
+                _normalize_policy_mode(config.policy_mode),
+                config.inherit_from_module,
+                config.is_public,
+                config.enforce_backend,
+                _json_dict_dump(config.data_scope_rules),
+                _json_dict_dump(config.target_scope_rules),
+                config.description,
+            )
         )
 
         config_id = db.lastrowid()
@@ -208,6 +930,7 @@ async def update_api_permission(
 ):
     """更新API权限配置（仅admin）"""
     with get_moral_db() as db:
+        ensure_api_permission_schema(db)
         existing = db.query_one(
             "SELECT * FROM api_permission_config WHERE id = %s",
             (config_id,)
@@ -226,13 +949,49 @@ async def update_api_permission(
             updates.append("api_group = %s")
             params.append(config.api_group)
 
+        if config.module_id is not None:
+            updates.append("module_id = %s")
+            params.append(config.module_id)
+
         if config.allowed_roles is not None:
             updates.append("allowed_roles = %s")
-            params.append(json.dumps(config.allowed_roles))
+            params.append(_json_dump(config.allowed_roles))
 
         if config.min_level is not None:
             updates.append("min_level = %s")
             params.append(config.min_level)
+
+        if config.http_method is not None:
+            updates.append("http_method = %s")
+            params.append((config.http_method or "*").upper())
+
+        if config.match_type is not None:
+            updates.append("match_type = %s")
+            params.append(_normalize_match_type(config.match_type))
+
+        if config.policy_mode is not None:
+            updates.append("policy_mode = %s")
+            params.append(_normalize_policy_mode(config.policy_mode))
+
+        if config.inherit_from_module is not None:
+            updates.append("inherit_from_module = %s")
+            params.append(config.inherit_from_module)
+
+        if config.is_public is not None:
+            updates.append("is_public = %s")
+            params.append(config.is_public)
+
+        if config.enforce_backend is not None:
+            updates.append("enforce_backend = %s")
+            params.append(config.enforce_backend)
+
+        if config.data_scope_rules is not None:
+            updates.append("data_scope_rules = %s")
+            params.append(_json_dict_dump(config.data_scope_rules))
+
+        if config.target_scope_rules is not None:
+            updates.append("target_scope_rules = %s")
+            params.append(_json_dict_dump(config.target_scope_rules))
 
         if config.description is not None:
             updates.append("description = %s")
@@ -270,6 +1029,7 @@ async def delete_api_permission(
 ):
     """删除API权限配置（仅admin）"""
     with get_moral_db() as db:
+        ensure_api_permission_schema(db)
         existing = db.query_one(
             "SELECT * FROM api_permission_config WHERE id = %s",
             (config_id,)
@@ -293,35 +1053,31 @@ async def delete_api_permission(
 async def get_my_api_permissions(user: User = Depends(get_current_user)):
     """获取当前用户可访问的API列表"""
     with get_moral_db() as db:
+        ensure_api_permission_schema(db)
         # 获取所有启用的API配置
         configs = db.query_all(
-            "SELECT * FROM api_permission_config WHERE is_active = 1"
+            """SELECT c.*, m.module_name, m.allowed_roles AS module_allowed_roles,
+                      m.min_level AS module_min_level, m.policy_mode AS module_policy_mode,
+                      m.is_active AS module_is_active
+               FROM api_permission_config c
+               LEFT JOIN api_permission_module m ON c.module_id = m.id
+               WHERE c.is_active = 1 AND COALESCE(c.enforce_backend, 1) = 1"""
         )
 
         # 过滤用户有权限的API
         allowed_apis = []
         for config in configs:
-            try:
-                allowed_roles = json.loads(config.get('allowed_roles', '[]'))
-            except:
-                allowed_roles = []
-
-            # admin拥有所有权限
-            if is_admin_user(user):
-                allowed_apis.append({
-                    "api_path": config['api_path'],
-                    "api_name": config['api_name'],
-                    "api_group": config['api_group']
-                })
+            if config.get("module_is_active") == 0:
                 continue
-
-            # 检查角色（支持多角色格式如 teacher/cleader）
-            user_roles = user.role.split('/') if '/' in user.role else [user.role]
-            if any(role in allowed_roles for role in user_roles):
+            decision = is_api_allowed(user, config)
+            if decision["allowed"]:
                 allowed_apis.append({
                     "api_path": config['api_path'],
                     "api_name": config['api_name'],
-                    "api_group": config['api_group']
+                    "api_group": config['api_group'],
+                    "module_id": config.get("module_id"),
+                    "module_name": config.get("module_name"),
+                    "effective_policy": decision["policy"],
                 })
 
         return {"success": True, "data": allowed_apis}
@@ -330,42 +1086,27 @@ async def get_my_api_permissions(user: User = Depends(get_current_user)):
 @router.get("/check", summary="检查用户对特定API的权限")
 async def check_api_permission_endpoint(
     api_path: str = Query(..., description="API路径"),
+    http_method: str = Query("*", description="HTTP方法"),
     user: User = Depends(get_current_user)
 ):
     """检查用户对特定API的权限"""
     with get_moral_db() as db:
-        config = db.query_one(
-            "SELECT allowed_roles, min_level FROM api_permission_config WHERE api_path = %s AND is_active = 1",
-            (api_path,)
-        )
+        ensure_api_permission_schema(db)
+        config = _get_matching_config(db, api_path, http_method)
 
         # 无配置则默认允许（依赖原有装饰器）
         if not config:
             return {"success": True, "data": {"has_permission": True, "reason": "无权限配置，默认允许"}}
 
-        try:
-            allowed_roles = json.loads(config.get('allowed_roles', '[]'))
-        except:
-            allowed_roles = []
-
-        # admin拥有所有权限
-        if is_admin_user(user):
-            return {"success": True, "data": {"has_permission": True, "reason": "admin拥有所有权限"}}
-
-        # 检查角色（支持多角色格式）
-        user_roles = user.role.split('/') if '/' in user.role else [user.role]
-        if any(role in allowed_roles for role in user_roles):
-            return {"success": True, "data": {"has_permission": True, "reason": f"角色 {user.role} 在允许列表中"}}
-
-        # 检查等级
-        min_level = config.get('min_level', 0)
-        from .base import get_user_role_level
-        user_level = get_user_role_level(user)
-
-        if min_level > 0 and user_level >= min_level:
-            return {"success": True, "data": {"has_permission": True, "reason": f"等级 {user_level} >= {min_level}"}}
-
-        return {"success": True, "data": {"has_permission": False, "reason": "无权限"}}
+        decision = is_api_allowed(user, config)
+        return {
+            "success": True,
+            "data": {
+                "has_permission": decision["allowed"],
+                "reason": decision["reason"],
+                "effective_policy": decision["policy"],
+            },
+        }
 
 
 @router.post("/init", summary="初始化默认API权限配置")
@@ -375,6 +1116,7 @@ async def init_api_permissions(
 ):
     """初始化默认API权限配置（仅admin）"""
     with get_moral_db() as db:
+        ensure_api_permission_schema(db)
         created_count = 0
         skipped_count = 0
 
@@ -388,18 +1130,46 @@ async def init_api_permissions(
                 skipped_count += 1
                 continue
 
-            allowed_roles_json = json.dumps(default_config['allowed_roles'])
+            module_key = _module_key_from_group(default_config["api_group"])
+            module = db.query_one(
+                "SELECT id FROM api_permission_module WHERE module_key = %s OR module_name = %s ORDER BY id LIMIT 1",
+                (module_key, default_config["api_group"]),
+            )
+            if not module:
+                db.execute(
+                    """INSERT INTO api_permission_module
+                    (module_key, module_name, allowed_roles, min_level, policy_mode, description)
+                    VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (
+                        module_key,
+                        default_config["api_group"],
+                        _json_dump(default_config["allowed_roles"]),
+                        default_config["min_level"],
+                        "role_and_level",
+                        "默认API权限模块",
+                    ),
+                )
+                module_id = db.lastrowid()
+            else:
+                module_id = module["id"]
+
+            allowed_roles_json = _json_dump(default_config['allowed_roles'])
 
             db.execute(
                 """INSERT INTO api_permission_config
-                (api_path, api_name, api_group, allowed_roles, min_level, description)
-                VALUES (%s, %s, %s, %s, %s, %s)""",
+                (api_path, api_name, api_group, allowed_roles, min_level, module_id, policy_mode,
+                 data_scope_rules, target_scope_rules, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     default_config['api_path'],
                     default_config['api_name'],
                     default_config['api_group'],
                     allowed_roles_json,
                     default_config['min_level'],
+                    module_id,
+                    "role_and_level",
+                    _json_dict_dump(default_config.get('data_scope_rules')),
+                    _json_dict_dump(default_config.get('target_scope_rules')),
                     default_config.get('description', '')
                 )
             )
@@ -410,9 +1180,14 @@ async def init_api_permissions(
             new_data={"created": created_count, "skipped": skipped_count}
         )
 
+        legacy_result = _sync_legacy_api_level_yaml(db)
+
         return {
             "success": True,
-            "message": f"初始化完成：创建 {created_count} 条，跳过 {skipped_count} 条已存在配置"
+            "message": (
+                f"初始化完成：创建 {created_count} 条，跳过 {skipped_count} 条已存在配置；"
+                f"同步旧版接口新增 {legacy_result['created']} 条，更新 {legacy_result['updated']} 条"
+            )
         }
 
 
@@ -420,6 +1195,7 @@ async def init_api_permissions(
 async def get_api_groups(user: User = Depends(get_current_user)):
     """获取API分组列表"""
     with get_moral_db() as db:
+        ensure_api_permission_schema(db)
         groups = db.query_all(
             "SELECT DISTINCT api_group FROM api_permission_config ORDER BY api_group"
         )

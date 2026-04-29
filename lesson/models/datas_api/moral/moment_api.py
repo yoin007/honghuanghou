@@ -14,15 +14,62 @@ GMT8 = timezone(timedelta(hours=8))
 from .base import (
     get_moral_db,
     get_current_user,
-    check_moral_permission,
-    require_permission,
     log_operation,
     get_current_semester,
     get_student_class_snapshot,
+    check_moral_permission_for_roles,
+    get_api_scoped_user_roles,
+    get_record_data_scope,
+    append_record_scope_condition,
+    record_in_scope,
+    record_action_flags,
+    target_student_in_scope,
 )
 from models.datas_api.auth import User
 
 router = APIRouter(prefix="/moment-records", tags=["点滴记录"])
+
+API_MOMENT_LIST = "/api/moral/moment-records"
+API_MOMENT_CREATE = "/api/moral/moment-records/create"
+API_MOMENT_UPDATE = "/api/moral/moment-records/update"
+API_MOMENT_DELETE = "/api/moral/moment-records/delete"
+
+
+def _has_scoped_permission(db, user: User, api_path: str, permission: str) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return check_moral_permission_for_roles(scoped_roles, permission)
+
+
+def _has_scoped_any_permission(db, user: User, api_path: str, permissions: List[str]) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return any(check_moral_permission_for_roles(scoped_roles, permission) for permission in permissions)
+
+
+MOMENT_ALL_PERMISSIONS = ['moment_view_all', 'moral_record_manage', 'report_view_all']
+MOMENT_OWN_CLASS_PERMISSIONS = ['moral_record_own_class', 'report_view_own_class']
+MOMENT_OWN_PERMISSIONS = ['moment_create', 'moment_view_own']
+
+
+def _moment_view_scope(db, user: User, api_path: str = API_MOMENT_LIST) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=MOMENT_ALL_PERMISSIONS,
+        own_class_permissions=MOMENT_OWN_CLASS_PERMISSIONS,
+        own_permissions=MOMENT_OWN_PERMISSIONS,
+    )
+
+
+def _moment_own_action_scope(db, user: User, api_path: str) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['moment_view_all', 'moral_record_manage'],
+        own_class_permissions=[],
+        own_permissions=['moment_create', 'moment_view_own'],
+    )
 
 
 class MomentRecordCreate(BaseModel):
@@ -67,34 +114,38 @@ async def get_moment_records(
     - admin/jiaowu: 可以查看所有记录
     """
     with get_moral_db() as db:
-        conditions = ["is_private = 1"]
+        conditions = ["mr.is_private = 1"]
         params = []
 
-        # 核心权限过滤：只能看自己创建的记录
-        if not check_moral_permission(user, 'moment_view_all'):
-            conditions.append("recorder = %s")
-            params.append(user.username)
+        view_scope = _moment_view_scope(db, user)
+        append_record_scope_condition(
+            conditions,
+            params,
+            view_scope,
+            table_alias="mr",
+            username=user.username,
+        )
 
         if student_id:
-            conditions.append("student_id = %s")
+            conditions.append("mr.student_id = %s")
             params.append(student_id)
 
         if start_date:
-            conditions.append("record_date >= %s")
+            conditions.append("mr.record_date >= %s")
             params.append(start_date)
 
         if end_date:
-            conditions.append("record_date <= %s")
+            conditions.append("mr.record_date <= %s")
             params.append(end_date)
 
         if record_type:
-            conditions.append("record_type = %s")
+            conditions.append("mr.record_type = %s")
             params.append(record_type)
 
         where_clause = " AND ".join(conditions)
 
         # 查询总数
-        count_query = f"SELECT COUNT(*) FROM moment_record WHERE {where_clause}"
+        count_query = f"SELECT COUNT(*) FROM moment_record mr WHERE {where_clause}"
         total = db.query_value(count_query, tuple(params))
 
         # 分页查询
@@ -111,6 +162,15 @@ async def get_moment_records(
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))
+        edit_scope = _moment_own_action_scope(db, user, API_MOMENT_UPDATE)
+        delete_scope = _moment_own_action_scope(db, user, API_MOMENT_DELETE)
+        for record_item in records:
+            record_item.update(record_action_flags(
+                record_item,
+                edit_scope,
+                delete_scope,
+                username=user.username,
+            ))
 
         return {
             "success": True,
@@ -127,7 +187,7 @@ async def get_moment_records(
 async def create_moment_record(
     record: MomentRecordCreate,
     request: Request,
-    user: User = Depends(require_permission('moment_create'))
+    user: User = Depends(get_current_user)
 ):
     """
     创建点滴记录
@@ -136,6 +196,9 @@ async def create_moment_record(
     - teacher/cleader/xuefa/jiaowu/admin 可创建
     """
     with get_moral_db() as db:
+        if not _has_scoped_permission(db, user, API_MOMENT_CREATE, 'moment_create'):
+            raise HTTPException(403, "权限不足：需要点滴记录创建权限")
+
         # 获取当前东八区日期
         current_date_gmt8 = datetime.now(GMT8).date()
 
@@ -149,6 +212,8 @@ async def create_moment_record(
         student_info = get_student_class_snapshot(db, record.student_id)
         if not student_info:
             raise HTTPException(404, f"学生 {record.student_id} 不存在或不在校")
+        if not target_student_in_scope(db, user, API_MOMENT_CREATE, student_info):
+            raise HTTPException(403, "不能给授权范围外的学生创建点滴记录")
 
         # 获取当前学期
         current_semester = get_current_semester(db)
@@ -201,7 +266,8 @@ async def update_moment_record(
     - 只能更新自己创建的记录
     """
     with get_moral_db() as db:
-        if not check_moral_permission(user, 'moment_create') and not check_moral_permission(user, 'moment_view_all'):
+        action_scope = _moment_own_action_scope(db, user, API_MOMENT_UPDATE)
+        if not action_scope.get("can_all") and not action_scope.get("can_own"):
             raise HTTPException(403, "权限不足：需要点滴记录权限")
 
         # 查询记录
@@ -212,8 +278,7 @@ async def update_moment_record(
         if not record:
             raise HTTPException(404, "记录不存在")
 
-        # 普通教师/班主任只能更新自己的记录，管理角色可更新全部记录
-        if not check_moral_permission(user, 'moment_view_all') and record['recorder'] != user.username:
+        if not record_in_scope(record, action_scope, username=user.username):
             raise HTTPException(403, "只能编辑自己创建的记录")
 
         # 构建更新
@@ -267,7 +332,8 @@ async def delete_moment_record(
     - 只能删除自己创建的记录
     """
     with get_moral_db() as db:
-        if not check_moral_permission(user, 'moment_create') and not check_moral_permission(user, 'moment_view_all'):
+        action_scope = _moment_own_action_scope(db, user, API_MOMENT_DELETE)
+        if not action_scope.get("can_all") and not action_scope.get("can_own"):
             raise HTTPException(403, "权限不足：需要点滴记录权限")
 
         # 查询记录
@@ -278,8 +344,7 @@ async def delete_moment_record(
         if not record:
             raise HTTPException(404, "记录不存在")
 
-        # 普通教师/班主任只能删除自己的记录，管理角色可删除全部记录
-        if not check_moral_permission(user, 'moment_view_all') and record['recorder'] != user.username:
+        if not record_in_scope(record, action_scope, username=user.username):
             raise HTTPException(403, "只能删除自己创建的记录")
 
         db.execute("DELETE FROM moment_record WHERE record_id = %s", (record_id,))

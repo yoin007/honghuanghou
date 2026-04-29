@@ -211,7 +211,11 @@ const loadMoralMenuPermissions = async () => {
   canViewLifebook.value = hasApiPermissionSync('/api/moral/timeline')
   canViewProfile.value = hasApiPermissionSync('/api/moral/profiles/student') || hasApiPermissionSync('/api/moral/profile/student')
   canViewBirthday.value = hasApiPermissionSync('/api/moral/birthdays/upcoming')
-  canViewStudentManage.value = hasApiPermissionSync('/api/moral/admin/students')
+  canViewStudentManage.value = (
+    hasApiPermissionSync('/api/moral/admin/students/create') ||
+    hasApiPermissionSync('/api/moral/admin/students/update') ||
+    hasApiPermissionSync('/api/moral/admin/students/batch')
+  )
   canViewMoralConfig.value = hasApiPermissionSync('/api/moral/admin/api-permissions')
 }
 

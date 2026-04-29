@@ -62,8 +62,8 @@
         <el-table-column prop="record_date" label="记录日期" width="100" />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateMomentRecord">编辑</el-button>
-            <el-button link type="danger" @click="handleDelete(row)" v-if="canDeleteMomentRecord">删除</el-button>
+            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateMomentRecord && row.can_edit">编辑</el-button>
+            <el-button link type="danger" @click="handleDelete(row)" v-if="canDeleteMomentRecord && row.can_delete">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

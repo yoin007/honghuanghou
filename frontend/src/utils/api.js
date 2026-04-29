@@ -135,25 +135,32 @@ api.interceptors.response.use(
     // 统一处理错误
     const status = error.response?.status
     // FastAPI HTTPException 返回 detail 字段，后端自定义返回 message 字段
-    const message = error.response?.data?.detail || error.response?.data?.message || error.message
+    const isTimeout = error.code === 'ECONNABORTED' || /timeout/i.test(error.message || '')
+    const message = isTimeout
+      ? '请求处理时间较长，请稍后查看结果或重试'
+      : (error.response?.data?.detail || error.response?.data?.message || error.message)
 
-    switch (status) {
-      case 401:
-        ElMessage.error('登录已过期，请重新登录')
-        // 可以在这里跳转到登录页
-        // window.location.href = '/login'
-        break
-      case 403:
-        ElMessage.error('没有权限执行此操作')
-        break
-      case 404:
-        ElMessage.error('请求的资源不存在')
-        break
-      case 500:
-        ElMessage.error('服务器内部错误')
-        break
-      default:
-        ElMessage.error(message || '网络错误')
+    if (isTimeout) {
+      ElMessage.error(message)
+    } else {
+      switch (status) {
+        case 401:
+          ElMessage.error('登录已过期，请重新登录')
+          // 可以在这里跳转到登录页
+          // window.location.href = '/login'
+          break
+        case 403:
+          ElMessage.error('没有权限执行此操作')
+          break
+        case 404:
+          ElMessage.error('请求的资源不存在')
+          break
+        case 500:
+          ElMessage.error('服务器内部错误')
+          break
+        default:
+          ElMessage.error(message || '网络错误')
+      }
     }
 
     // 生产环境也记录错误以便调试

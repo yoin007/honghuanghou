@@ -324,14 +324,37 @@ export function getStudentProfile(studentId) {
  * 生成学生画像
  */
 export function generateStudentProfile(studentId) {
-  return request.post(`/api/moral/profiles/student/${studentId}/generate`)
+  return request.post(`/api/moral/profiles/student/${studentId}/generate`, null, {
+    timeout: 60000
+  })
+}
+
+/**
+ * 异步生成学生画像
+ */
+export function startStudentProfileGeneration(studentId) {
+  return request.post(`/api/moral/profiles/student/${studentId}/generate-async`, null, {
+    timeout: 10000
+  })
+}
+
+/**
+ * 查询学生画像生成状态
+ */
+export function getStudentProfileGenerationStatus(jobId) {
+  return request.get(`/api/moral/profiles/generation-status/${jobId}`, {
+    timeout: 10000
+  })
 }
 
 /**
  * 批量生成学生画像
  */
 export function batchGenerateProfiles(params = {}) {
-  return request.post('/api/moral/profiles/batch-generate', null, { params })
+  return request.post('/api/moral/profiles/batch-generate', null, {
+    params,
+    timeout: 120000
+  })
 }
 
 /**
@@ -513,6 +536,41 @@ export function getApiPermissions(apiGroup = null) {
   return request.get('/api/moral/api-permissions', {
     params: { api_group: apiGroup }
   })
+}
+
+/**
+ * 获取API权限模块列表
+ */
+export function getApiPermissionModules() {
+  return request.get('/api/moral/api-permissions/modules')
+}
+
+/**
+ * 创建API权限模块
+ */
+export function createApiPermissionModule(data) {
+  return request.post('/api/moral/api-permissions/modules', data)
+}
+
+/**
+ * 更新API权限模块
+ */
+export function updateApiPermissionModule(moduleId, data) {
+  return request.put(`/api/moral/api-permissions/modules/${moduleId}`, data)
+}
+
+/**
+ * 将模块权限应用到模块内API
+ */
+export function applyApiPermissionModule(moduleId) {
+  return request.post(`/api/moral/api-permissions/modules/${moduleId}/apply`)
+}
+
+/**
+ * 同步旧版 YAML 权限配置
+ */
+export function syncLegacyApiPermissions() {
+  return request.post('/api/moral/api-permissions/sync-legacy-yaml')
 }
 
 /**
@@ -797,6 +855,8 @@ export default {
   // 学生画像
   getStudentProfile,
   generateStudentProfile,
+  startStudentProfileGeneration,
+  getStudentProfileGenerationStatus,
   batchGenerateProfiles,
   getProfileConfig,
 
@@ -858,6 +918,11 @@ export default {
   // API权限管理
   getApiPermissions,
   createApiPermission,
+  getApiPermissionModules,
+  createApiPermissionModule,
+  updateApiPermissionModule,
+  applyApiPermissionModule,
+  syncLegacyApiPermissions,
   updateApiPermission,
   deleteApiPermission,
   getMyApiPermissions,

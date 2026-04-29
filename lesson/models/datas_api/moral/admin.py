@@ -9,7 +9,7 @@ import logging
 from datetime import date, datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from .base import (
@@ -21,12 +21,43 @@ from .base import (
     check_class_access,
     get_teacher_class_id,
     has_user_role,
+    check_moral_permission_for_roles,
+    get_api_scoped_user_roles,
+    get_record_data_scope,
+    append_record_scope_condition,
+    record_in_scope,
 )
 from models.datas_api.auth import User, get_current_user, is_admin_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["系统管理"])
+
+API_STUDENT_LIST = "/api/moral/admin/students"
+API_STUDENT_CREATE = "/api/moral/admin/students/create"
+API_STUDENT_BATCH = "/api/moral/admin/students/batch"
+API_STUDENT_UPDATE = "/api/moral/admin/students/update"
+
+
+def _has_scoped_permission(db, user: User, api_path: str, permission: str) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return check_moral_permission_for_roles(scoped_roles, permission)
+
+
+def _has_scoped_any_permission(db, user: User, api_path: str, permissions: List[str]) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return any(check_moral_permission_for_roles(scoped_roles, permission) for permission in permissions)
+
+
+def _student_manage_scope(db, user: User, api_path: str) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['student_manage', 'student_manage_all', 'report_view_all'],
+        own_class_permissions=['student_manage_own_class'],
+        own_permissions=[],
+    )
 
 
 # =============================================================================
@@ -531,26 +562,28 @@ async def get_students(
         conditions = ["1=1"]
         params = []
 
-        # 班主任权限过滤
-        my_class_id = get_teacher_class_id(user, db)
+        manage_scope = _student_manage_scope(db, user, API_STUDENT_LIST)
+        is_record_input_lookup = bool(for_record_input) and (
+            check_moral_permission(user, 'moral_record_input')
+            or check_moral_permission(user, 'moment_create')
+        )
 
-        is_record_input_lookup = bool(for_record_input) and check_moral_permission(user, 'moral_record_input')
-        has_full_access = check_moral_permission(user, 'student_manage') or check_moral_permission(user, 'report_view_all')
-        has_own_class_access = check_moral_permission(user, 'student_manage_own_class')
-
-        if not has_full_access and not has_own_class_access and not is_record_input_lookup:
+        if (
+            not manage_scope.get("can_all")
+            and not manage_scope.get("can_own_class")
+            and not is_record_input_lookup
+        ):
             raise HTTPException(403, "权限不足：需要学生查看权限")
 
-        is_cleader_by_role = has_user_role(user, 'cleader') and not has_full_access and not is_record_input_lookup
-        is_cleader_by_class = my_class_id is not None and not has_full_access and not is_record_input_lookup
-
-        if is_cleader_by_role or is_cleader_by_class:
-            if my_class_id:
-                conditions.append("s.class_id = %s")
-                params.append(my_class_id)
-            else:
-                # 班主任没有分配班级，返回空列表
-                return {"success": True, "data": {"items": [], "total": 0, "page": page, "page_size": page_size}}
+        if not is_record_input_lookup:
+            append_record_scope_condition(
+                conditions,
+                params,
+                manage_scope,
+                table_alias="s",
+                username=user.username,
+                recorder_field="student_id",
+            )
 
         if class_id:
             conditions.append("s.class_id = %s")
@@ -586,6 +619,16 @@ async def get_students(
         """
         params.extend([page_size, offset])
         students = db.query_all(data_query, tuple(params))
+        update_scope = _student_manage_scope(db, user, API_STUDENT_UPDATE)
+        for student in students:
+            can_edit = record_in_scope(
+                student,
+                update_scope,
+                username=user.username,
+                recorder_field="student_id",
+            )
+            student["can_edit"] = can_edit
+            student["can_update_status"] = update_scope.get("can_all", False)
 
         return {
             "success": True,
@@ -598,21 +641,22 @@ async def get_students(
         }
 
 
-def check_student_manage_permission():
+def check_student_manage_permission(api_path: str):
     """
     学生管理权限检查
 
     允许有 student_manage 或 student_manage_own_class 权限的用户访问
     """
     async def check(user: User = Depends(get_current_user)):
-        has_full_permission = check_moral_permission(user, 'student_manage')
-        has_own_class_permission = check_moral_permission(user, 'student_manage_own_class')
+        with get_moral_db() as db:
+            has_full_permission = _has_scoped_permission(db, user, api_path, 'student_manage')
+            has_own_class_permission = _has_scoped_permission(db, user, api_path, 'student_manage_own_class')
 
-        if not has_full_permission and not has_own_class_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="权限不足：需要学生管理权限"
-            )
+            if not has_full_permission and not has_own_class_permission:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="权限不足：需要学生管理权限"
+                )
         return user
     return check
 
@@ -621,7 +665,7 @@ def check_student_manage_permission():
 async def create_student(
     student: StudentCreate,
     request: Request,
-    user: User = Depends(check_student_manage_permission())
+    user: User = Depends(check_student_manage_permission(API_STUDENT_CREATE))
 ):
     """
     创建学生
@@ -631,12 +675,10 @@ async def create_student(
     - cleader (student_manage_own_class): 只能创建自己班级的学生
     """
     with get_moral_db() as db:
-        # 班主任权限检查：只能创建本班学生
-        my_class_id = get_teacher_class_id(user, db)
-        is_cleader_restricted = check_moral_permission(user, 'student_manage_own_class') and not check_moral_permission(user, 'student_manage')
-
-        if is_cleader_restricted:
-            if my_class_id is None:
+        create_scope = _student_manage_scope(db, user, API_STUDENT_CREATE)
+        if not create_scope.get("can_all"):
+            my_class_id = create_scope.get("my_class_id")
+            if not create_scope.get("can_own_class") or my_class_id is None:
                 raise HTTPException(403, "未分配班级，无法创建学生")
             if student.class_id != my_class_id:
                 raise HTTPException(403, "只能创建本班学生")
@@ -697,7 +739,7 @@ async def create_student(
 async def batch_import_students(
     data: StudentBatchImport,
     request: Request,
-    user: User = Depends(check_student_manage_permission())
+    user: User = Depends(check_student_manage_permission(API_STUDENT_BATCH))
 ):
     """
     批量导入学生
@@ -713,9 +755,8 @@ async def batch_import_students(
         classes = db.query_all("SELECT class_id, class_name, grade_id FROM class")
         class_map = {c['class_name']: c for c in classes}
 
-        # 班主任权限检查
-        my_class_id = get_teacher_class_id(user, db)
-        is_cleader_restricted = check_moral_permission(user, 'student_manage_own_class') and not check_moral_permission(user, 'student_manage')
+        create_scope = _student_manage_scope(db, user, API_STUDENT_BATCH)
+        my_class_id = create_scope.get("my_class_id")
 
         success_count = 0
         skip_count = 0
@@ -742,7 +783,9 @@ async def batch_import_students(
                 grade_id = class_info['grade_id']
 
                 # 班主任只能导入自己班级的学生
-                if is_cleader_restricted and class_id != my_class_id:
+                if not create_scope.get("can_all") and (
+                    not create_scope.get("can_own_class") or class_id != my_class_id
+                ):
                     errors.append(f"学号 {item.student_id}: 班主任只能导入本班学生")
                     continue
 
@@ -807,7 +850,7 @@ async def update_student(
     student_id: str,
     update_data: StudentUpdate,
     request: Request,
-    user: User = Depends(check_student_manage_permission())
+    user: User = Depends(check_student_manage_permission(API_STUDENT_UPDATE))
 ):
     """
     更新学生基本信息
@@ -829,14 +872,9 @@ async def update_student(
         if not student:
             raise HTTPException(404, "学生不存在")
 
-        # 权限检查：班主任只能编辑自己班级的学生
-        my_class_id = get_teacher_class_id(user, db)
-        is_cleader_by_role = user.role == 'cleader' and not check_moral_permission(user, 'student_manage')
-        is_cleader_by_class = my_class_id is not None and not check_moral_permission(user, 'student_manage')
-
-        if is_cleader_by_role or is_cleader_by_class:
-            if my_class_id is None or my_class_id != student['class_id']:
-                raise HTTPException(403, "只能编辑本班学生信息")
+        update_scope = _student_manage_scope(db, user, API_STUDENT_UPDATE)
+        if not record_in_scope(student, update_scope, username=user.username, recorder_field="student_id"):
+            raise HTTPException(403, "只能编辑授权范围内学生信息")
 
         # 构建更新语句
         updates = []
@@ -872,9 +910,8 @@ async def update_student(
                 raise HTTPException(400, "班级不存在")
 
             # 班主任不能把学生转到其他班级
-            if is_cleader_by_role or is_cleader_by_class:
-                if update_data.class_id != student['class_id']:
-                    raise HTTPException(403, "班主任不能调整学生班级")
+            if not update_scope.get("can_all") and update_data.class_id != student['class_id']:
+                raise HTTPException(403, "班主任不能调整学生班级")
 
             updates.append("class_id = %s")
             params.append(update_data.class_id)
@@ -903,10 +940,14 @@ async def update_student_status(
     student_id: str,
     status: str = Query(..., description="状态：在校/休学/转出/毕业"),
     request: Request = None,
-    user: User = Depends(require_permission('student_manage'))
+    user: User = Depends(get_current_user)
 ):
     """更新学生状态"""
     with get_moral_db() as db:
+        status_scope = _student_manage_scope(db, user, API_STUDENT_UPDATE)
+        if not status_scope.get("can_all"):
+            raise HTTPException(403, "权限不足：需要学生管理权限")
+
         student = db.query_one(
             "SELECT * FROM student WHERE student_id = %s",
             (student_id,)

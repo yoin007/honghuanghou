@@ -27,8 +27,13 @@ from .base import (
     PaginationParams,
     PaginatedResponse,
     require_permission,
-    require_role_level,
-    get_teacher_class_id,
+    check_moral_permission_for_roles,
+    get_api_scoped_user_roles,
+    get_record_data_scope,
+    append_record_scope_condition,
+    record_in_scope,
+    record_action_flags,
+    target_student_in_scope,
 )
 from .evaluation import calculate_evaluation
 from .escalation import check_and_trigger_escalation
@@ -37,6 +42,49 @@ from models.datas_api.auth import User, get_current_user
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/daily-records", tags=["日常表现"])
+
+API_DAILY_LIST = "/api/moral/daily-records"
+API_DAILY_CREATE = "/api/moral/daily-records/create"
+API_DAILY_BATCH = "/api/moral/daily-records/batch"
+API_DAILY_UPDATE = "/api/moral/daily-records/update"
+API_DAILY_DELETE = "/api/moral/daily-records/delete"
+
+
+def _has_scoped_permission(db, user: User, api_path: str, permission: str) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return check_moral_permission_for_roles(scoped_roles, permission)
+
+
+def _has_scoped_any_permission(db, user: User, api_path: str, permissions: List[str]) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return any(check_moral_permission_for_roles(scoped_roles, permission) for permission in permissions)
+
+
+DAILY_ALL_PERMISSIONS = ['report_view_all', 'moral_record_manage']
+DAILY_OWN_CLASS_PERMISSIONS = ['moral_record_own_class', 'report_view_own_class']
+DAILY_OWN_PERMISSIONS = ['moral_record_input', 'moral_record_view_own']
+
+
+def _daily_view_scope(db, user: User, api_path: str = API_DAILY_LIST) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=DAILY_ALL_PERMISSIONS,
+        own_class_permissions=DAILY_OWN_CLASS_PERMISSIONS,
+        own_permissions=DAILY_OWN_PERMISSIONS,
+    )
+
+
+def _daily_own_action_scope(db, user: User, api_path: str) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['moral_record_manage'],
+        own_class_permissions=[],
+        own_permissions=['moral_record_input', 'moral_record_view_own'],
+    )
 
 
 # =============================================================================
@@ -184,11 +232,16 @@ async def get_daily_records(
             conditions.append("dr.record_date <= %s")
             params.append(end_date)
 
-        # 权限过滤：记录人只能查看自己创建的记录
-        if not check_moral_permission(user, 'report_view_all'):
-            # teacher/cleader 只能看 recorder == username
-            conditions.append("dr.recorder = %s")
-            params.append(user.username)
+        # 权限过滤：API 控制入口，数据范围控制能查看哪些记录。
+        # 教师：自己创建；班主任：自己创建 + 本班学生；管理角色：全部。
+        view_scope = _daily_view_scope(db, user)
+        append_record_scope_condition(
+            conditions,
+            params,
+            view_scope,
+            table_alias="dr",
+            username=user.username,
+        )
 
         where_clause = " AND ".join(conditions)
 
@@ -219,6 +272,15 @@ async def get_daily_records(
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))
+        edit_scope = _daily_own_action_scope(db, user, API_DAILY_UPDATE)
+        delete_scope = _daily_own_action_scope(db, user, API_DAILY_DELETE)
+        for record_item in records:
+            record_item.update(record_action_flags(
+                record_item,
+                edit_scope,
+                delete_scope,
+                username=user.username,
+            ))
 
         return {
             "success": True,
@@ -236,7 +298,7 @@ async def get_daily_records(
 async def create_daily_record(
     record: DailyRecordCreate,
     request: Request,
-    user: User = Depends(require_permission('moral_record_input'))
+    user: User = Depends(get_current_user)
 ):
     """
     创建日常表现记录
@@ -245,6 +307,9 @@ async def create_daily_record(
     - teacher/cleader/xuefa/jiaowu/admin 可录入
     """
     with get_moral_db() as db:
+        if not _has_scoped_permission(db, user, API_DAILY_CREATE, 'moral_record_input'):
+            raise HTTPException(403, "权限不足：需要日常表现录入权限")
+
         # 获取当前东八区时间
         current_time_gmt8 = datetime.now(GMT8).replace(tzinfo=None)
 
@@ -265,6 +330,8 @@ async def create_daily_record(
         student_info = get_student_class_snapshot(db, record.student_id)
         if not student_info:
             raise HTTPException(404, f"学生 {record.student_id} 不存在或不在校")
+        if not target_student_in_scope(db, user, API_DAILY_CREATE, student_info):
+            raise HTTPException(403, "不能给授权范围外的学生录入日常表现")
 
         class_id = student_info['class_id']
         grade_id = student_info['grade_id']
@@ -351,7 +418,7 @@ async def create_daily_record(
 async def batch_create_daily_records(
     records: List[DailyRecordCreate],
     request: Request,
-    user: User = Depends(require_permission('moral_record_manage'))
+    user: User = Depends(get_current_user)
 ):
     """
     批量创建日常表现记录
@@ -359,6 +426,9 @@ async def batch_create_daily_records(
     权限要求：cleader/xuefa/jiaowu/admin
     """
     with get_moral_db() as db:
+        if not _has_scoped_permission(db, user, API_DAILY_BATCH, 'moral_record_manage'):
+            raise HTTPException(403, "权限不足：需要日常表现批量录入权限")
+
         # 获取当前东八区时间
         current_time_gmt8 = datetime.now(GMT8).replace(tzinfo=None)
 
@@ -384,6 +454,9 @@ async def batch_create_daily_records(
                 student_info = get_student_class_snapshot(db, record.student_id)
                 if not student_info:
                     errors.append(f"第{i+1}条：学生 {record.student_id} 不存在")
+                    continue
+                if not target_student_in_scope(db, user, API_DAILY_BATCH, student_info):
+                    errors.append(f"第{i+1}条：不能给授权范围外的学生录入日常表现")
                     continue
 
                 # 获取事件类型
@@ -465,7 +538,8 @@ async def update_daily_record(
 ):
     """更新日常表现记录"""
     with get_moral_db() as db:
-        if not check_moral_permission(user, 'moral_record_manage') and not check_moral_permission(user, 'moral_record_input'):
+        action_scope = _daily_own_action_scope(db, user, API_DAILY_UPDATE)
+        if not action_scope.get("can_all") and not action_scope.get("can_own"):
             raise HTTPException(403, "权限不足：需要日常表现记录权限")
 
         # 获取原记录
@@ -476,7 +550,7 @@ async def update_daily_record(
         if not old_record:
             raise HTTPException(404, "记录不存在")
 
-        if not check_moral_permission(user, 'moral_record_manage') and old_record['recorder'] != user.username:
+        if not record_in_scope(old_record, action_scope, username=user.username):
             raise HTTPException(403, "只能编辑自己创建的记录")
 
         # 构建更新语句
@@ -528,7 +602,8 @@ async def delete_daily_record(
     删除后会重新计算德育评价总分
     """
     with get_moral_db() as db:
-        if not check_moral_permission(user, 'moral_record_manage') and not check_moral_permission(user, 'moral_record_input'):
+        action_scope = _daily_own_action_scope(db, user, API_DAILY_DELETE)
+        if not action_scope.get("can_all") and not action_scope.get("can_own"):
             raise HTTPException(403, "权限不足：需要日常表现记录权限")
 
         # 获取原记录
@@ -540,7 +615,7 @@ async def delete_daily_record(
         if not old_record:
             raise HTTPException(404, "记录不存在")
 
-        if not check_moral_permission(user, 'moral_record_manage') and old_record['recorder'] != user.username:
+        if not record_in_scope(old_record, action_scope, username=user.username):
             raise HTTPException(403, "只能删除自己创建的记录")
 
         # 软删除

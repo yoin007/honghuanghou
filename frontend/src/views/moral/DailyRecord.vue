@@ -63,8 +63,8 @@
         <el-table-column prop="remark" label="备注" show-overflow-tooltip />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateDailyRecord">编辑</el-button>
-            <el-button link type="danger" @click="handleDelete(row)" v-if="canDeleteDailyRecord">删除</el-button>
+            <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateDailyRecord && row.can_edit">编辑</el-button>
+            <el-button link type="danger" @click="handleDelete(row)" v-if="canDeleteDailyRecord && row.can_delete">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

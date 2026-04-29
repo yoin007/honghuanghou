@@ -9,6 +9,7 @@
 """
 
 import logging
+import json
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 from datetime import datetime, date
@@ -171,18 +172,34 @@ def get_user_role_level(user: User) -> int:
     """
     获取用户角色等级
 
+    优先读取 teacher 表中的实际等级字段，
+    如果未配置则回退到角色预设等级。
+
     Args:
         user: 用户对象
 
     Returns:
-        int: 角色等级（多角色取最高）
+        int: 角色等级
     """
     if not user:
         return 0
 
-    role = user.role if hasattr(user, 'role') else 'teacher'
+    # 优先从 teacher 表获取用户实际等级（支持个性化管控）
+    try:
+        with get_moral_db() as db:
+            teacher_row = db.query_one(
+                "SELECT level FROM teacher WHERE name = %s AND is_active = 1",
+                (user.username,)
+            )
+            if teacher_row:
+                db_level = teacher_row.get('level')
+                if db_level is not None and int(db_level) > 0:
+                    return int(db_level)
+    except Exception:
+        pass  # 查询失败则回退到角色预设等级
 
-    # 支持多角色格式：取最高等级
+    # 回退：使用角色预设等级（多角色取最高）
+    role = user.role if hasattr(user, 'role') else 'teacher'
     roles = role.split('/') if '/' in role else [role]
     max_level = 0
     for r in roles:
@@ -240,6 +257,304 @@ def check_moral_permission(user: User, permission: str) -> bool:
         if permission in permissions:
             return True
 
+    return False
+
+
+def check_moral_permission_for_roles(roles: List[str], permission: str) -> bool:
+    """按指定角色集合检查权限，用于多角色用户在某个API下的业务范围收敛。"""
+    for role in roles or []:
+        role_config = MORAL_PERMISSIONS.get(role, {})
+        permissions = role_config.get('permissions', [])
+        if 'all' in permissions or permission in permissions:
+            return True
+    return False
+
+
+def check_any_moral_permission_for_roles(roles: List[str], permissions: List[str]) -> bool:
+    """按指定角色集合检查任一权限。"""
+    return any(check_moral_permission_for_roles(roles, permission) for permission in permissions)
+
+
+def get_api_scoped_user_roles(db: SQLiteMoralDatabase, user: User, api_path: str) -> List[str]:
+    """
+    获取用户在指定API配置下实际生效的角色。
+
+    多角色用户只保留该API允许的角色，避免“API只允许教师访问，
+    但用户同时有教发部身份，于是业务数据范围被提升”的问题。
+    """
+    user_roles = get_user_roles(user)
+    if not user_roles or is_admin_user(user):
+        return user_roles
+
+    config = db.query_one(
+        """SELECT c.allowed_roles, c.inherit_from_module, c.is_public,
+                  m.allowed_roles AS module_allowed_roles
+           FROM api_permission_config c
+           LEFT JOIN api_permission_module m ON c.module_id = m.id
+           WHERE c.api_path = %s AND c.is_active = 1
+           LIMIT 1""",
+        (api_path,)
+    )
+    if not config or int(config.get('is_public') or 0) == 1:
+        return user_roles
+
+    raw_roles = config.get('module_allowed_roles') if int(config.get('inherit_from_module') or 0) == 1 else config.get('allowed_roles')
+    try:
+        allowed_roles = json.loads(raw_roles or '[]')
+    except Exception:
+        allowed_roles = []
+
+    if not allowed_roles:
+        return user_roles
+
+    scoped_roles = [role for role in user_roles if role in allowed_roles]
+    return scoped_roles
+
+
+def get_scoped_role_permissions(db: SQLiteMoralDatabase, user: User, api_path: str) -> Dict[str, Any]:
+    """返回用户在某个API配置下收敛后的角色和权限判断器。"""
+    roles = get_api_scoped_user_roles(db, user, api_path)
+    return {
+        "roles": roles,
+        "has": lambda permission: check_moral_permission_for_roles(roles, permission),
+        "has_any": lambda permissions: check_any_moral_permission_for_roles(roles, permissions),
+    }
+
+
+def get_record_data_scope(
+    db: SQLiteMoralDatabase,
+    user: User,
+    api_path: str,
+    *,
+    all_permissions: List[str],
+    own_class_permissions: List[str],
+    own_permissions: List[str],
+) -> Dict[str, Any]:
+    """
+    计算记录类数据范围。
+
+    all: 全部记录
+    own_class: 当前班主任班级学生的记录
+    teaching_classes: 当前教师任教班级学生的记录；未维护任教班级时默认全校
+    own: 当前用户自己创建的记录
+    """
+    scoped = get_scoped_role_permissions(db, user, api_path)
+    if is_admin_user(user):
+        return {
+            "can_all": True,
+            "can_own_class": False,
+            "can_own": True,
+            "my_class_id": None,
+            "roles": scoped["roles"],
+        }
+
+    configured_scope = _get_configured_data_scope(db, user, api_path, scoped["roles"])
+    if configured_scope is not None:
+        return configured_scope
+
+    if scoped["has_any"](all_permissions):
+        return {
+            "can_all": True,
+            "can_own_class": False,
+            "can_own": True,
+            "my_class_id": None,
+            "roles": scoped["roles"],
+        }
+
+    my_class_id = get_teacher_class_id(user, db)
+    teaching_class_ids = get_teacher_teaching_class_ids(user, db)
+    can_own_class = bool(my_class_id) and scoped["has_any"](own_class_permissions)
+    can_own = scoped["has_any"](own_permissions) or can_own_class
+    return {
+        "can_all": False,
+        "can_own_class": can_own_class,
+        "can_teaching_classes": False,
+        "teaching_class_ids": teaching_class_ids,
+        "can_own": can_own,
+        "my_class_id": my_class_id if can_own_class else None,
+        "roles": scoped["roles"],
+    }
+
+
+def _get_configured_data_scope(
+    db: SQLiteMoralDatabase,
+    user: User,
+    api_path: str,
+    roles: List[str],
+) -> Optional[Dict[str, Any]]:
+    """读取 API 权限配置中的角色数据范围规则。"""
+    config = db.query_one(
+        """SELECT data_scope_rules
+           FROM api_permission_config
+           WHERE api_path = %s AND is_active = 1
+           LIMIT 1""",
+        (api_path,)
+    )
+    if not config:
+        return None
+
+    raw_rules = config.get("data_scope_rules")
+    if not raw_rules:
+        return None
+
+    try:
+        rules = json.loads(raw_rules) if isinstance(raw_rules, str) else raw_rules
+    except Exception:
+        return None
+    if not isinstance(rules, dict) or not rules:
+        return None
+
+    scopes = set()
+    for role in roles or []:
+        role_scopes = rules.get(role) or []
+        if isinstance(role_scopes, list):
+            scopes.update(str(scope) for scope in role_scopes)
+
+    can_own_class = "own_class" in scopes
+    can_teaching_classes = "teaching_classes" in scopes
+    return {
+        "can_all": "all" in scopes,
+        "can_own_class": can_own_class,
+        "can_teaching_classes": can_teaching_classes,
+        "teaching_class_ids": get_teacher_teaching_class_ids(user, db) if can_teaching_classes else [],
+        "can_own": bool({"own", "own_created", "self"} & scopes),
+        "my_class_id": get_teacher_class_id(user, db) if can_own_class else None,
+        "roles": roles,
+    }
+
+
+def append_record_scope_condition(
+    conditions: List[str],
+    params: List[Any],
+    scope: Dict[str, Any],
+    *,
+    table_alias: str,
+    recorder_field: str = "recorder",
+    class_field: str = "class_id",
+    username: str,
+) -> None:
+    """把记录范围转换为 SQL 条件。"""
+    if scope.get("can_all"):
+        return
+
+    parts = []
+    if scope.get("can_own"):
+        parts.append(f"{table_alias}.{recorder_field} = %s")
+        params.append(username)
+    if scope.get("can_own_class") and scope.get("my_class_id") is not None:
+        parts.append(f"{table_alias}.{class_field} = %s")
+        params.append(scope["my_class_id"])
+    teaching_class_ids = scope.get("teaching_class_ids") or []
+    if scope.get("can_teaching_classes"):
+        if teaching_class_ids:
+            placeholders = ", ".join(["%s"] * len(teaching_class_ids))
+            parts.append(f"{table_alias}.{class_field} IN ({placeholders})")
+            params.extend(teaching_class_ids)
+        else:
+            return
+
+    if not parts:
+        conditions.append("1 = 0")
+    else:
+        conditions.append("(" + " OR ".join(parts) + ")")
+
+
+def record_in_scope(
+    record: Dict[str, Any],
+    scope: Dict[str, Any],
+    *,
+    username: str,
+    recorder_field: str = "recorder",
+    class_field: str = "class_id",
+) -> bool:
+    """判断单条记录是否在数据范围内。"""
+    if scope.get("can_all"):
+        return True
+    if scope.get("can_own") and record.get(recorder_field) == username:
+        return True
+    if (
+        scope.get("can_own_class")
+        and scope.get("my_class_id") is not None
+        and record.get(class_field) == scope.get("my_class_id")
+    ):
+        return True
+    if scope.get("can_teaching_classes"):
+        teaching_class_ids = scope.get("teaching_class_ids") or []
+        return not teaching_class_ids or record.get(class_field) in teaching_class_ids
+    return False
+
+
+def record_action_flags(
+    record: Dict[str, Any],
+    edit_scope: Dict[str, Any],
+    delete_scope: Optional[Dict[str, Any]] = None,
+    *,
+    username: str,
+    recorder_field: str = "recorder",
+    class_field: str = "class_id",
+) -> Dict[str, bool]:
+    """生成前端行级操作能力。"""
+    delete_scope = delete_scope or edit_scope
+    return {
+        "can_edit": record_in_scope(
+            record,
+            edit_scope,
+            username=username,
+            recorder_field=recorder_field,
+            class_field=class_field,
+        ),
+        "can_delete": record_in_scope(
+            record,
+            delete_scope,
+            username=username,
+            recorder_field=recorder_field,
+            class_field=class_field,
+        ),
+    }
+
+
+def target_student_in_scope(
+    db: SQLiteMoralDatabase,
+    user: User,
+    api_path: str,
+    student: Dict[str, Any],
+) -> bool:
+    """判断创建/录入接口是否允许选择目标学生。"""
+    if is_admin_user(user):
+        return True
+
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    config = db.query_one(
+        """SELECT target_scope_rules
+           FROM api_permission_config
+           WHERE api_path = %s AND is_active = 1
+           LIMIT 1""",
+        (api_path,)
+    )
+    if not config or not config.get("target_scope_rules"):
+        return True
+
+    try:
+        rules = json.loads(config.get("target_scope_rules"))
+    except Exception:
+        return True
+    if not isinstance(rules, dict) or not rules:
+        return True
+
+    scopes = set()
+    for role in scoped_roles:
+        role_scopes = rules.get(role) or []
+        if isinstance(role_scopes, list):
+            scopes.update(str(scope) for scope in role_scopes)
+
+    if "all_students" in scopes or "all" in scopes:
+        return True
+    if "own_class" in scopes:
+        my_class_id = get_teacher_class_id(user, db)
+        return my_class_id is not None and my_class_id == student.get("class_id")
+    if "teaching_classes" in scopes:
+        teaching_class_ids = get_teacher_teaching_class_ids(user, db)
+        return not teaching_class_ids or student.get("class_id") in teaching_class_ids
     return False
 
 
@@ -341,6 +656,47 @@ def get_teacher_class_id(user: User, db: SQLiteMoralDatabase) -> Optional[int]:
         return my_class['class_id']
 
     return None
+
+
+def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
+    """获取教师任教班级ID列表。
+
+    依赖 teacher_teaching_class 映射表。没有维护映射时返回空列表；
+    teaching_classes 范围会把空列表解释为全校班级。
+    """
+    if not user:
+        return []
+
+    try:
+        table_exists = db.query_one(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'teacher_teaching_class'"
+        )
+    except Exception:
+        table_exists = None
+    if not table_exists:
+        return []
+
+    username = user.username if hasattr(user, 'username') else ''
+    teacher_name = None
+    teacher = db.query_one(
+        "SELECT name FROM teacher WHERE teacher_id = %s",
+        (username,)
+    )
+    if teacher:
+        teacher_name = teacher.get('name')
+
+    conditions = ["is_active = 1", "(teacher_id = %s"]
+    params = [username]
+    if teacher_name:
+        conditions[-1] += " OR teacher_name = %s"
+        params.append(teacher_name)
+    conditions[-1] += ")"
+
+    rows = db.query_all(
+        f"SELECT DISTINCT class_id FROM teacher_teaching_class WHERE {' AND '.join(conditions)}",
+        tuple(params)
+    )
+    return [int(row["class_id"]) for row in rows if row.get("class_id") is not None]
 
 
 def require_permission(permission: str):
@@ -616,6 +972,16 @@ __all__ = [
     'get_user_roles',
     'has_user_role',
     'check_moral_permission',
+    'check_moral_permission_for_roles',
+    'check_any_moral_permission_for_roles',
+    'get_api_scoped_user_roles',
+    'get_scoped_role_permissions',
+    'get_record_data_scope',
+    'get_teacher_teaching_class_ids',
+    'append_record_scope_condition',
+    'record_in_scope',
+    'record_action_flags',
+    'target_student_in_scope',
     'check_class_access',
     'require_permission',
     'require_role_level',

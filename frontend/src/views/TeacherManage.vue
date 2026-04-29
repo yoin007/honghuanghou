@@ -96,9 +96,10 @@
         </el-table-column>
         <el-table-column prop="note" label="备注" min-width="160" show-overflow-tooltip />
         <el-table-column prop="updated_at" label="更新时间" min-width="160" show-overflow-tooltip />
-        <el-table-column label="操作" width="240" fixed="right" align="center" v-if="isAdmin">
+        <el-table-column label="操作" width="340" fixed="right" align="center" v-if="isAdmin">
           <template #default="scope">
             <el-button size="small" type="primary" @click="handleEdit(scope.row)">编辑</el-button>
+            <el-button size="small" type="success" @click="handleTeachingClasses(scope.row)" :disabled="scope.row.identity_type !== 'teacher'">任教班级</el-button>
             <el-button size="small" type="warning" @click="handleResetPassword(scope.row)" :disabled="scope.row.identity_type !== 'teacher'">重置密码</el-button>
             <el-button size="small" type="danger" @click="handleDelete(scope.row)" :disabled="scope.row.role === 'admin'">删除</el-button>
           </template>
@@ -143,7 +144,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="等级" prop="level">
-          <el-input-number v-model="teacherForm.level" :min="0" :max="10" />
+          <el-input-number v-model="teacherForm.level" :min="0" :max="100" />
         </el-form-item>
         <el-form-item label="通知" prop="notice">
           <el-switch v-model="teacherForm.notice" :active-value="1" :inactive-value="0" />
@@ -192,7 +193,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="等级" prop="level">
-          <el-input-number v-model="editForm.level" :min="0" :max="10" />
+          <el-input-number v-model="editForm.level" :min="0" :max="100" />
         </el-form-item>
         <el-form-item label="通知" prop="notice">
           <el-switch v-model="editForm.notice" :active-value="1" :inactive-value="0" />
@@ -223,6 +224,43 @@
         <span class="dialog-footer">
           <el-button @click="editDialogVisible = false">取消</el-button>
           <el-button type="primary" @click="handleEditSubmit" :loading="submitLoading">确定</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- 任教班级维护对话框 -->
+    <el-dialog v-model="teachingDialogVisible" title="维护任教班级" width="640px" :close-on-click-modal="false">
+      <el-form label-width="96px">
+        <el-form-item label="教师">
+          <el-input :model-value="teachingForm.teacherName" disabled />
+        </el-form-item>
+        <el-form-item label="任教学科">
+          <el-input v-model="teachingForm.subject" placeholder="默认使用教师任教展示，可按需覆盖" />
+        </el-form-item>
+        <el-form-item label="任教班级">
+          <el-select
+            v-model="teachingForm.classIds"
+            multiple
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="请选择任教班级"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="cls in classOptions"
+              :key="cls.class_id"
+              :label="`${cls.grade_name || ''} ${cls.class_name}`"
+              :value="cls.class_id"
+            />
+          </el-select>
+          <div class="form-help">如果 API 目标范围配置为 {"teacher":["teaching_classes"]}，有维护任教班级时教师只能给这些班级学生录入；没有维护任教班级时默认全校班级可录入。</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="teachingDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="handleTeachingSubmit" :loading="submitLoading">保存</el-button>
         </span>
       </template>
     </el-dialog>
@@ -294,6 +332,7 @@ const noticeFilter = ref('')
 const activeFilter = ref('')
 const identityFilter = ref('')
 const submitLoading = ref(false)
+const classOptions = ref([])
 
 // 添加对话框
 const addDialogVisible = ref(false)
@@ -342,6 +381,15 @@ const editRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   identity_type: [{ required: true, message: '请选择身份', trigger: 'change' }]
 }
+
+// 任教班级维护对话框
+const teachingDialogVisible = ref(false)
+const teachingForm = reactive({
+  teacherId: '',
+  teacherName: '',
+  subject: '',
+  classIds: []
+})
 
 // 重置密码对话框
 const resetDialogVisible = ref(false)
@@ -503,6 +551,16 @@ const fetchTeachers = async () => {
   }
 }
 
+const fetchClassOptions = async () => {
+  try {
+    const res = await api.get('/api/moral/admin/classes', { params: { is_active: 1 } })
+    classOptions.value = res.data?.data || res.data || []
+  } catch (error) {
+    console.error('获取班级列表失败:', error)
+    ElMessage.error('获取班级列表失败')
+  }
+}
+
 // 分页大小变化
 const handleSizeChange = (val) => {
   pageSize.value = val
@@ -630,6 +688,47 @@ const handleEditSubmit = async () => {
   })
 }
 
+const handleTeachingClasses = async (row) => {
+  teachingForm.teacherId = row.teacher_id || row.username
+  teachingForm.teacherName = row.username
+  teachingForm.subject = row.subject || ''
+  teachingForm.classIds = []
+  if (!classOptions.value.length) {
+    await fetchClassOptions()
+  }
+  try {
+    const res = await api.get(`/api/teachers/${encodeURIComponent(teachingForm.teacherId)}/teaching-classes`)
+    const data = res.data?.data || res.data || {}
+    const items = data.items || []
+    teachingForm.classIds = items.map(item => item.class_id)
+    if (items[0]?.subject) teachingForm.subject = items[0].subject
+    teachingDialogVisible.value = true
+  } catch (error) {
+    console.error('获取任教班级失败:', error)
+    ElMessage.error(error.response?.data?.detail || '获取任教班级失败')
+  }
+}
+
+const handleTeachingSubmit = async () => {
+  submitLoading.value = true
+  try {
+    const payload = {
+      classes: teachingForm.classIds.map(classId => ({
+        class_id: classId,
+        subject: teachingForm.subject || null
+      }))
+    }
+    await api.put(`/api/teachers/${encodeURIComponent(teachingForm.teacherId)}/teaching-classes`, payload)
+    ElMessage.success('任教班级已保存')
+    teachingDialogVisible.value = false
+  } catch (error) {
+    console.error('保存任教班级失败:', error)
+    ElMessage.error(error.response?.data?.detail || '保存任教班级失败')
+  } finally {
+    submitLoading.value = false
+  }
+}
+
 // 删除教师
 const handleDelete = (row) => {
   ElMessageBox.confirm(`确定要删除教师 ${row.username} 吗？`, '提示', {
@@ -741,6 +840,14 @@ onMounted(() => {
   gap: 10px;
   margin-bottom: 15px;
   flex-wrap: wrap;
+}
+
+.form-help {
+  width: 100%;
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* 移动端适配 */

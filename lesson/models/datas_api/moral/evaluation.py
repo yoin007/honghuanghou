@@ -15,19 +15,45 @@ from pydantic import BaseModel, Field
 
 from .base import (
     get_moral_db,
-    check_moral_permission,
     check_class_access,
     get_current_semester,
     calculate_moral_level,
-    get_current_user,
     get_teacher_class_id,
     has_user_role,
+    check_moral_permission_for_roles,
+    get_api_scoped_user_roles,
+    get_record_data_scope,
+    record_in_scope,
 )
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/evaluations", tags=["评价查询"])
+
+API_EVAL_STUDENT = "/api/moral/evaluations/class"
+API_EVAL_CLASS = "/api/moral/evaluations/class"
+API_EVAL_GRADE = "/api/moral/evaluations/grade"
+API_EVAL_CALCULATE = "/api/moral/evaluations/calculate"
+
+
+def _has_scoped_permission(db, user: User, api_path: str, permission: str) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return check_moral_permission_for_roles(scoped_roles, permission)
+
+
+def _student_allowed_by_eval_scope(db, user: User, student: dict, api_path: str) -> bool:
+    if has_user_role(user, 'student'):
+        return user.username == student.get('student_id')
+    scope = get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['report_view_all'],
+        own_class_permissions=['report_view_own_class'],
+        own_permissions=[],
+    )
+    return record_in_scope(student, scope, username=user.username, recorder_field='student_id')
 
 
 # =============================================================================
@@ -70,10 +96,8 @@ async def get_student_evaluation(
         if not student:
             raise HTTPException(404, "学生不存在")
 
-        if not check_moral_permission(user, 'report_view_all') and not has_user_role(user, 'student'):
-            my_class_id = get_teacher_class_id(user, db)
-            if not check_moral_permission(user, 'report_view_own_class') or my_class_id != student['class_id']:
-                raise HTTPException(403, "只能查看授权范围内学生")
+        if not _student_allowed_by_eval_scope(db, user, student, API_EVAL_STUDENT):
+            raise HTTPException(403, "只能查看授权范围内学生")
 
         # 获取或计算评价
         evaluation = db.query_one(
@@ -181,7 +205,12 @@ async def get_class_evaluation(
     - xuefa/jiaowu/admin 可查看所有
     """
     with get_moral_db() as db:
-        # 权限检查
+        # 权限检查：按班级评价API配置收敛多角色后的数据范围
+        if not _has_scoped_permission(db, user, API_EVAL_CLASS, 'report_view_all'):
+            my_class_id = get_teacher_class_id(user, db)
+            if not _has_scoped_permission(db, user, API_EVAL_CLASS, 'report_view_own_class') or my_class_id != class_id:
+                raise HTTPException(403, "权限不足")
+
         if not check_class_access(user, class_id, db):
             raise HTTPException(403, "权限不足")
 
@@ -234,7 +263,7 @@ async def get_grade_evaluation(
     权限要求：xuefa/jiaowu/admin
     """
     with get_moral_db() as db:
-        if not check_moral_permission(user, 'report_view_all'):
+        if not _has_scoped_permission(db, user, API_EVAL_GRADE, 'report_view_all'):
             raise HTTPException(403, "权限不足")
 
         if not semester_id:
@@ -295,7 +324,9 @@ async def calculate_evaluation_api(
     权限要求：xuefa/jiaowu/admin
     """
     with get_moral_db() as db:
-        if not check_moral_permission(user, 'moral_record_manage'):
+        can_calculate_all = _has_scoped_permission(db, user, API_EVAL_CALCULATE, 'moral_record_manage')
+        can_calculate_own_class = _has_scoped_permission(db, user, API_EVAL_CALCULATE, 'moral_record_own_class')
+        if not can_calculate_all and not can_calculate_own_class:
             raise HTTPException(403, "权限不足")
 
         if not semester_id:
@@ -317,6 +348,13 @@ async def calculate_evaluation_api(
         if grade_id:
             conditions.append("s.grade_id = %s")
             params.append(grade_id)
+
+        if not can_calculate_all:
+            my_class_id = get_teacher_class_id(user, db)
+            if not my_class_id:
+                return {"success": True, "message": "成功计算 0 名学生的德育评价"}
+            conditions.append("s.class_id = %s")
+            params.append(my_class_id)
 
         where_clause = " AND ".join(conditions)
 

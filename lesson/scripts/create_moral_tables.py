@@ -162,6 +162,22 @@ CREATE TABLE IF NOT EXISTS teacher (
 );
 CREATE INDEX IF NOT EXISTS idx_teacher_wxid ON teacher(wxid);
 """,
+    # 8. 教师任教班级映射表
+    "teacher_teaching_class": """
+CREATE TABLE IF NOT EXISTS teacher_teaching_class (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    teacher_id TEXT NOT NULL,
+    teacher_name TEXT,
+    class_id INTEGER NOT NULL,
+    subject TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    UNIQUE(teacher_id, class_id, subject)
+);
+CREATE INDEX IF NOT EXISTS idx_teacher_teaching_teacher ON teacher_teaching_class(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_teacher_teaching_class ON teacher_teaching_class(class_id);
+""",
     # 8. 角色表
     "role": """
 CREATE TABLE IF NOT EXISTS role (
@@ -613,6 +629,24 @@ CREATE TABLE IF NOT EXISTS moral_config (
 );
 """,
     # 36. API权限配置表
+    "api_permission_module": """
+CREATE TABLE IF NOT EXISTS api_permission_module (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    module_key TEXT NOT NULL UNIQUE,
+    module_name TEXT NOT NULL,
+    parent_id INTEGER,
+    allowed_roles TEXT NOT NULL DEFAULT '[]',
+    min_level INTEGER DEFAULT 0,
+    policy_mode TEXT DEFAULT 'role_and_level',
+    description TEXT,
+    sort_order INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_api_permission_module_key ON api_permission_module(module_key);
+CREATE INDEX IF NOT EXISTS idx_api_permission_module_parent ON api_permission_module(parent_id);
+""",
     "api_permission_config": """
 CREATE TABLE IF NOT EXISTS api_permission_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -621,6 +655,15 @@ CREATE TABLE IF NOT EXISTS api_permission_config (
     api_group TEXT NOT NULL,
     allowed_roles TEXT NOT NULL,
     min_level INTEGER DEFAULT 0,
+    module_id INTEGER,
+    http_method TEXT DEFAULT '*',
+    match_type TEXT DEFAULT 'exact',
+    policy_mode TEXT DEFAULT 'role_and_level',
+    inherit_from_module INTEGER DEFAULT 0,
+    is_public INTEGER DEFAULT 0,
+    enforce_backend INTEGER DEFAULT 1,
+    data_scope_rules TEXT DEFAULT '{}',
+    target_scope_rules TEXT DEFAULT '{}',
     description TEXT,
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -628,6 +671,7 @@ CREATE TABLE IF NOT EXISTS api_permission_config (
 );
 CREATE INDEX IF NOT EXISTS idx_api_permission_path ON api_permission_config(api_path);
 CREATE INDEX IF NOT EXISTS idx_api_permission_group ON api_permission_config(api_group);
+CREATE INDEX IF NOT EXISTS idx_api_permission_module_id ON api_permission_config(module_id);
 """,
     # 37. AI诊疗模板表
     "ai_consultation_template": """
@@ -799,6 +843,22 @@ CREATE TABLE IF NOT EXISTS teacher (
     updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
     INDEX idx_wxid (wxid) COMMENT '微信ID索引'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='教师信息表';
+""",
+    # 8. 教师任教班级映射表
+    "teacher_teaching_class": """
+CREATE TABLE IF NOT EXISTS teacher_teaching_class (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    teacher_id VARCHAR(20) NOT NULL COMMENT '教师ID',
+    teacher_name VARCHAR(20) COMMENT '教师姓名',
+    class_id INT NOT NULL COMMENT '任教班级ID',
+    subject VARCHAR(20) COMMENT '任教学科',
+    is_active TINYINT DEFAULT 1 COMMENT '是否启用',
+    created_at DATETIME DEFAULT NOW(),
+    updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+    UNIQUE KEY uk_teacher_class_subject (teacher_id, class_id, subject),
+    INDEX idx_teacher (teacher_id),
+    INDEX idx_class (class_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='教师任教班级映射表';
 """,
     # 8. 角色表
     "role": """
@@ -1253,7 +1313,26 @@ CREATE TABLE IF NOT EXISTS moral_config (
     UNIQUE KEY uk_key (config_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='德育系统配置表';
 """,
-    # 36. API权限配置表
+    # 36. API权限模块表
+    "api_permission_module": """
+CREATE TABLE IF NOT EXISTS api_permission_module (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    module_key VARCHAR(80) NOT NULL COMMENT '模块标识',
+    module_name VARCHAR(80) NOT NULL COMMENT '模块名称',
+    parent_id INT COMMENT '父模块ID',
+    allowed_roles JSON NOT NULL COMMENT '模块默认允许角色',
+    min_level INT DEFAULT 0 COMMENT '模块默认最低等级',
+    policy_mode VARCHAR(30) DEFAULT 'role_and_level' COMMENT '鉴权策略',
+    description TEXT,
+    sort_order INT DEFAULT 0,
+    is_active TINYINT DEFAULT 1,
+    created_at DATETIME DEFAULT NOW(),
+    updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+    UNIQUE KEY uk_module_key (module_key),
+    INDEX idx_module_parent (parent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='API权限模块表';
+""",
+    # 37. API权限配置表
     "api_permission_config": """
 CREATE TABLE IF NOT EXISTS api_permission_config (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -1262,15 +1341,25 @@ CREATE TABLE IF NOT EXISTS api_permission_config (
     api_group VARCHAR(30) NOT NULL COMMENT 'API分组',
     allowed_roles JSON NOT NULL COMMENT '允许访问的角色列表',
     min_level INT DEFAULT 0 COMMENT '最低等级要求',
+    module_id INT COMMENT '所属模块ID',
+    http_method VARCHAR(10) DEFAULT '*' COMMENT 'HTTP方法',
+    match_type VARCHAR(20) DEFAULT 'exact' COMMENT '路径匹配方式',
+    policy_mode VARCHAR(30) DEFAULT 'role_and_level' COMMENT '鉴权策略',
+    inherit_from_module TINYINT DEFAULT 0 COMMENT '是否继承模块权限',
+    is_public TINYINT DEFAULT 0 COMMENT '是否无需鉴权',
+    enforce_backend TINYINT DEFAULT 1 COMMENT '是否用于后端鉴权',
+    data_scope_rules JSON COMMENT '角色数据范围规则',
+    target_scope_rules JSON COMMENT '角色目标对象范围规则',
     description TEXT,
     is_active TINYINT DEFAULT 1,
     created_at DATETIME DEFAULT NOW(),
     updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
     UNIQUE KEY uk_api_path (api_path),
-    INDEX idx_api_group (api_group)
+    INDEX idx_api_group (api_group),
+    INDEX idx_api_module (module_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='API权限配置表';
 """,
-    # 37. AI诊疗模板表
+    # 38. AI诊疗模板表
     "ai_consultation_template": """
 CREATE TABLE IF NOT EXISTS ai_consultation_template (
     id INT PRIMARY KEY AUTO_INCREMENT,

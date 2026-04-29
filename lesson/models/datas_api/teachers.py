@@ -2,7 +2,7 @@
 """教师管理模块 - 教师CRUD、密码修改"""
 
 import logging
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from models.datas_api.auth import (
@@ -20,6 +20,7 @@ from utils.teacher_db import (
     delete_teacher_record,
     get_all_teacher_records,
 )
+from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,33 @@ class TeacherUpdate(BaseModel):
 class PasswordChangeRequest(BaseModel):
     old_password: str
     new_password: str
+
+
+class TeachingClassItem(BaseModel):
+    class_id: int
+    subject: Optional[str] = None
+
+
+class TeachingClassUpdate(BaseModel):
+    classes: List[TeachingClassItem] = []
+
+
+def _ensure_teaching_class_table(db):
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS teacher_teaching_class (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            teacher_id TEXT NOT NULL,
+            teacher_name TEXT,
+            class_id INTEGER NOT NULL,
+            subject TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(teacher_id, class_id, subject)
+        )"""
+    )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_teacher_teaching_teacher ON teacher_teaching_class(teacher_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_teacher_teaching_class ON teacher_teaching_class(class_id)")
 
 
 # ==================== Teacher Routes ====================
@@ -211,6 +239,92 @@ async def delete_teacher(
     except Exception as e:
         logger.error(f"Failed to delete teacher: {e}")
         raise HTTPException(status_code=500, detail=f"删除教师失败: {str(e)}")
+
+
+@router.get("/{teacher_id}/teaching-classes", summary="获取教师任教班级")
+async def get_teacher_teaching_classes(
+    teacher_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """获取教师任教班级关系（管理员维护权限）。"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="只有管理员可以查看任教班级关系")
+
+    with SQLiteMoralDatabase() as db:
+        _ensure_teaching_class_table(db)
+        teacher = db.query_one(
+            "SELECT teacher_id, name, subject FROM teacher WHERE teacher_id = %s OR name = %s",
+            (teacher_id, teacher_id),
+        )
+        real_teacher_id = teacher.get("teacher_id") if teacher else teacher_id
+        rows = db.query_all(
+            """SELECT ttc.id, ttc.teacher_id, ttc.teacher_name, ttc.class_id, ttc.subject,
+                      c.class_name, g.grade_name
+               FROM teacher_teaching_class ttc
+               LEFT JOIN class c ON ttc.class_id = c.class_id
+               LEFT JOIN grade g ON c.grade_id = g.grade_id
+               WHERE ttc.teacher_id = %s AND ttc.is_active = 1
+               ORDER BY g.enrollment_year DESC, c.class_number""",
+            (real_teacher_id,),
+        )
+        return {
+            "success": True,
+            "data": {
+                "teacher": teacher or {"teacher_id": teacher_id, "name": teacher_id},
+                "items": rows,
+            }
+        }
+
+
+@router.put("/{teacher_id}/teaching-classes", summary="更新教师任教班级")
+async def update_teacher_teaching_classes(
+    teacher_id: str,
+    payload: TeachingClassUpdate,
+    current_user: User = Depends(get_current_user)
+):
+    """全量更新教师任教班级关系。"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="只有管理员可以维护任教班级关系")
+
+    with SQLiteMoralDatabase() as db:
+        _ensure_teaching_class_table(db)
+        teacher = db.query_one(
+            "SELECT teacher_id, name, subject FROM teacher WHERE teacher_id = %s OR name = %s",
+            (teacher_id, teacher_id),
+        )
+        teacher_name = teacher.get("name") if teacher else teacher_id
+        real_teacher_id = teacher.get("teacher_id") if teacher else teacher_id
+
+        class_ids = [item.class_id for item in payload.classes]
+        if class_ids:
+            placeholders = ", ".join(["%s"] * len(class_ids))
+            existing_count = db.query_value(
+                f"SELECT COUNT(*) FROM class WHERE class_id IN ({placeholders})",
+                tuple(class_ids),
+            )
+            if int(existing_count or 0) != len(set(class_ids)):
+                raise HTTPException(status_code=400, detail="存在无效班级")
+
+        db.execute("DELETE FROM teacher_teaching_class WHERE teacher_id = %s", (real_teacher_id,))
+        seen = set()
+        for item in payload.classes:
+            subject = item.subject or (teacher.get("subject") if teacher else None)
+            key = (item.class_id, subject or "")
+            if key in seen:
+                continue
+            seen.add(key)
+            db.execute(
+                """INSERT INTO teacher_teaching_class
+                   (teacher_id, teacher_name, class_id, subject, is_active)
+                   VALUES (%s, %s, %s, %s, 1)""",
+                (real_teacher_id, teacher_name, item.class_id, subject),
+            )
+
+        return {
+            "success": True,
+            "message": "任教班级已更新",
+            "data": {"teacher_id": real_teacher_id, "count": len(seen)}
+        }
 
 
 @router.post("/change-password", summary="修改密码")

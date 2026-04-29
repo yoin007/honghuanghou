@@ -10,6 +10,14 @@
           <el-button @click="handleGenerate" :loading="generating" v-if="canGenerateProfile">生成画像</el-button>
         </el-form-item>
       </el-form>
+      <el-alert
+        v-if="generating && generationMessage"
+        :title="generationMessage"
+        type="info"
+        show-icon
+        :closable="false"
+        class="generation-alert"
+      />
     </el-card>
 
     <el-card v-if="profile" class="profile-card">
@@ -138,7 +146,8 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   getStudentProfile,
-  generateStudentProfile
+  startStudentProfileGeneration,
+  getStudentProfileGenerationStatus
 } from '@/api/modules/moral'
 import { useApiPermission } from '@/composables/useApiPermission'
 
@@ -155,6 +164,7 @@ const filterForm = reactive({
 const profile = ref(null)
 const student = ref({})
 const generating = ref(false)
+const generationMessage = ref('')
 
 // 计算属性
 const profileTags = computed(() => {
@@ -204,35 +214,61 @@ const handleGenerate = async () => {
   }
 
   generating.value = true
+  generationMessage.value = '正在提交画像生成任务...'
   try {
-    const res = await generateStudentProfile(filterForm.student_id)
-    if (res.success) {
-      ElMessage.success('画像生成成功')
-      // 设置学生基本信息
-      student.value = {
-        student_id: res.data.student_id,
-        name: res.data.student_name,
-        class_name: res.data.class_name,
-        grade_name: res.data.grade_name
-      }
-      // 设置画像数据，处理评分格式
-      profile.value = {
-        ...res.data,
-        moral_score: res.data.scores?.moral || 0,
-        attitude_score: res.data.scores?.attitude || 0,
-        social_score: res.data.scores?.social || 0,
-        growth_score: res.data.scores?.growth || 0,
-        generated_at: res.data.generated_at || new Date().toISOString(),
-        data_source_summary: res.data.analysis,
-        ai_used: res.data.ai_used
-      }
-    }
+    const res = await startStudentProfileGeneration(filterForm.student_id)
+    const jobId = res.data?.job_id
+    if (!jobId) throw new Error('画像生成任务创建失败')
+    generationMessage.value = 'AI 正在生成画像，页面会自动刷新结果...'
+    ElMessage.info('画像生成任务已提交，请稍候')
+    await pollProfileGeneration(jobId)
   } catch (error) {
     console.error('生成画像失败:', error)
-    ElMessage.error('生成画像失败')
+    ElMessage.error(error.message || '生成画像失败')
   } finally {
     generating.value = false
+    generationMessage.value = ''
   }
+}
+
+const applyGeneratedProfile = (data) => {
+  student.value = {
+    student_id: data.student_id,
+    name: data.student_name,
+    class_name: data.class_name,
+    grade_name: data.grade_name
+  }
+  profile.value = {
+    ...data,
+    moral_score: data.scores?.moral || 0,
+    attitude_score: data.scores?.attitude || 0,
+    social_score: data.scores?.social || 0,
+    growth_score: data.scores?.growth || 0,
+    generated_at: data.generated_at || new Date().toISOString(),
+    data_source_summary: data.analysis,
+    ai_used: data.ai_used
+  }
+}
+
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+const pollProfileGeneration = async (jobId) => {
+  const maxAttempts = 120
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await wait(attempt < 3 ? 1200 : 2500)
+    const res = await getStudentProfileGenerationStatus(jobId)
+    const job = res.data || {}
+    generationMessage.value = job.message || '正在生成学生画像...'
+    if (job.status === 'success') {
+      applyGeneratedProfile(job.data)
+      ElMessage.success('画像生成成功')
+      return
+    }
+    if (job.status === 'failed') {
+      throw new Error(job.message || '画像生成失败')
+    }
+  }
+  throw new Error('画像生成仍在处理中，请稍后查询学生画像')
 }
 
 const isStrengthTag = (tag) => {
@@ -285,6 +321,10 @@ onMounted(async () => {
   margin-bottom: 20px;
 }
 
+.generation-alert {
+  margin-top: 10px;
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -294,6 +334,7 @@ onMounted(async () => {
 .profile-summary {
   line-height: 1.8;
   color: #606266;
+  white-space: pre-line;
 }
 
 .tags-container {
@@ -326,6 +367,7 @@ onMounted(async () => {
   background: #f5f7fa;
   padding: 15px;
   border-radius: 4px;
+  white-space: pre-line;
 }
 
 .evidence-grid {
