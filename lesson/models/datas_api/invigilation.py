@@ -1252,6 +1252,27 @@ async def import_invigilation(
                 }
             }
 
+        # 检查导入数据内部的冲突：同一教师同一时间多个考场
+        teacher_time_map = {}
+        for slot in imported:
+            if slot['teacher_id']:
+                key = f"{slot['teacher_id']}|{slot['exam_date']}|{slot['start_time']}"
+                if key in teacher_time_map:
+                    errors.append(f"冲突：教师 {slot['teacher_name']} 在 {slot['exam_date']} {slot['start_time']} 安排了多个考场（{teacher_time_map[key]} 和 {slot['room_name']}）")
+                else:
+                    teacher_time_map[key] = slot['room_name']
+
+        if errors:
+            return {
+                "success": False,
+                "message": "导入有错误（存在时间冲突）",
+                "data": {
+                    "imported_count": 0,
+                    "error_count": len(errors),
+                    "errors": errors
+                }
+            }
+
         # 清除旧数据并插入新数据
         cursor.execute("DELETE FROM invigilation_slot WHERE project_id = ?", (project_id,))
 

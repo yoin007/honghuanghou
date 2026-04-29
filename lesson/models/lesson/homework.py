@@ -196,6 +196,15 @@ class Homework:
             log.error("获取作业失败")
             raise e
 
+    def get_class_homeworks(self, class_code, type="日常"):
+        """获取班级指定类型的全部未过期作业，按学科和教师组织。"""
+        result = {}
+        for subject in self.subjects:
+            subject_homework = self.get_homework(class_code, subject, type)
+            if subject_homework:
+                result[subject] = subject_homework
+        return result
+
     def add_announcement(self, class_code, title, author, content, wxid):
         try:
             self.cursor.execute(
@@ -404,20 +413,19 @@ async def incert_homework(record):
             except ValueError:
                 send_text("作业上交日期格式不正确", record.roomid)
                 return
-        n = Homework()
-        n.__enter__()
         classes = class_code.split("/")
-        for c in classes:
-            n.add_homework(
-                c,
-                subject,
-                teacher,
-                content,
-                deadline,
-                duration,
-                type,
-                record.roomid,
-            )
+        with Homework() as n:
+            for c in classes:
+                n.add_homework(
+                    c,
+                    subject,
+                    teacher,
+                    content,
+                    deadline,
+                    duration,
+                    type,
+                    record.roomid,
+                )
         send_text(
             f"作业已布置：{class_code} {subject} {teacher} {content} {deadline} {duration} {type}",
             record.roomid,
@@ -434,17 +442,21 @@ async def get_class_homework(record):
     """
     class_code = record.content[0:6]
     type = record.content[6:8]
-    n = Homework()
-    n.__enter__()
-    homework = f"{class_code} {type}作业:"
-    for subject in n.subjects:
-        subject_homework = n.get_homework(class_code, subject, type)
-        if subject_homework:
-            homework += (
-                f"\n{subject_homework['subject']}: {subject_homework['content']}"
-            )
-    send_text(homework, record.roomid)
-    n.__exit__(None, None, None)
+    with Homework() as n:
+        class_homeworks = n.get_class_homeworks(class_code, type)
+
+    if not class_homeworks:
+        send_text(f"{class_code} {type}作业为空", record.roomid)
+        return
+
+    lines = [f"{class_code} {type}作业:"]
+    for subject, teacher_groups in class_homeworks.items():
+        for teacher, items in teacher_groups.items():
+            for item in items:
+                lines.append(
+                    f"{subject}-{teacher}: {item['content']}（截止 {item['deadline']}，预计 {item['duration']} 分钟）"
+                )
+    send_text("\n".join(lines), record.roomid)
 
 
 @check_permission
@@ -461,11 +473,10 @@ async def incert_announcement(record):
         title = new_contents[1][3:]
         author = new_contents[2][3:]
         content = new_contents[3][3:]
-        n = Homework()
-        n.__enter__()
         classes = class_code.split("/")
-        for c in classes:
-            n.add_announcement(c, title, author, content, record.roomid)
+        with Homework() as n:
+            for c in classes:
+                n.add_announcement(c, title, author, content, record.roomid)
         send_text(f"公告已发布：{class_code} {title} {author} {content}", record.roomid)
     else:
         send_text("公告发布失败，请检查格式", record.roomid)
