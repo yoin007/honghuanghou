@@ -7,7 +7,7 @@
         <p>班级人数结构、学习活动、德育表现、出勤事务和生日关怀汇总。</p>
       </div>
       <div v-if="_isManager" class="filter-console">
-        <el-select v-model="selectedClassId" placeholder="选择班级" @change="fetchSummary">
+        <el-select v-model="selectedClassId" placeholder="选择班级" @change="onClassChange">
           <el-option v-for="c in classList" :key="c.class_id" :label="c.class_name" :value="c.class_id" />
         </el-select>
       </div>
@@ -108,6 +108,14 @@ const accents = ['#34d399', '#f472b6', '#67e8f9', '#fbbf24', '#fb7185', '#a78bfa
 
 const go = (route) => route && router.push(route)
 const isEmpty = (items = []) => !items?.some(item => Number(item?.value) > 0)
+
+// 切换班级时直接使用变更后的值
+const onClassChange = (newClassId) => {
+  if (newClassId) {
+    selectedClassId.value = newClassId
+    fetchSummary()
+  }
+}
 
 const _isManager = computed(() => {
   // 教务/管理员可切换班级
