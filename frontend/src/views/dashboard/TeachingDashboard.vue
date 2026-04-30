@@ -4,7 +4,7 @@
       <div>
         <span class="kicker">Teaching Operations</span>
         <h1>教务驾驶舱</h1>
-        <p>围绕课表、教师课时和班级规模做可视化分析，指定时间段内的教师课时 Top5 来自当前系统已加载课表。</p>
+        <p>围绕课表、教师课时和班级规模做可视化分析，指定时间段内的教师课时排行来自课表文件。</p>
       </div>
       <el-form :inline="true" class="filter-console">
         <el-form-item label="开始">
@@ -12,6 +12,13 @@
         </el-form-item>
         <el-form-item label="结束">
           <el-date-picker v-model="filters.end_date" type="date" value-format="YYYY-MM-DD" />
+        </el-form-item>
+        <el-form-item label="排行">
+          <el-select v-model="filters.top_n" class="top-select">
+            <el-option :value="5" label="Top 5" />
+            <el-option :value="10" label="Top 10" />
+            <el-option :value="15" label="Top 15" />
+          </el-select>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="loading" @click="fetchSummary">查询</el-button>
@@ -34,18 +41,51 @@
       </button>
     </section>
 
+    <section class="live-course-panel">
+      <div class="live-header">
+        <div>
+          <span class="kicker">CURRENT CLASS SIGNAL</span>
+          <h2>当前课程态势</h2>
+          <p>{{ currentCourseText }}</p>
+        </div>
+        <button class="refresh-orb" type="button" :disabled="loading" @click="fetchSummary">
+          <span>{{ summary.current_course?.active_class_count || 0 }}</span>
+          <small>上课班级</small>
+        </button>
+      </div>
+
+      <div v-if="currentClasses.length" class="course-grid">
+        <article
+          v-for="item in currentClasses"
+          :key="item.class_name"
+          class="course-card"
+        >
+          <span class="class-name">{{ item.class_name }}</span>
+          <strong>{{ item.course || item.subject }}</strong>
+          <div class="course-meta">
+            <span>{{ item.teacher }}</span>
+            <small>{{ item.period }} · {{ item.time_range }}</small>
+          </div>
+        </article>
+      </div>
+      <div v-else class="live-empty">
+        <strong>当前不在上课时段</strong>
+        <span>系统会在作息时间命中后自动呈现各班实时课程。</span>
+      </div>
+    </section>
+
     <section class="chart-grid">
       <DashboardChart
-        title="指定时间段教师课时 Top5"
-        eyebrow="WORKLOAD TOP5"
+        :title="`指定时间段教师课时 Top${topN}`"
+        :eyebrow="`WORKLOAD TOP${topN}`"
         :option="teacherWorkloadOption"
-        :empty="isEmpty(summary.charts?.teacher_workload_top5, 'lesson_count')"
+        :empty="isEmpty(teacherWorkloadRows, 'lesson_count')"
       />
       <DashboardChart
-        title="班级学生规模 Top5"
+        :title="`班级学生规模 Top${topN}`"
         eyebrow="CLASS SIZE"
         :option="classSizeOption"
-        :empty="isEmpty(summary.charts?.class_size_top5, 'student_count')"
+        :empty="isEmpty(classSizeRows, 'student_count')"
       />
       <DashboardChart
         title="教务资源结构"
@@ -80,13 +120,21 @@ import { getTeachingDashboardSummary } from '@/api/modules/dashboard'
 
 const router = useRouter()
 const today = new Date()
-const nextWeek = new Date()
-nextWeek.setDate(today.getDate() + 6)
-const fmt = (d) => d.toISOString().slice(0, 10)
+const weekStart = new Date(today)
+weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+const weekEnd = new Date(weekStart)
+weekEnd.setDate(weekStart.getDate() + 6)
+const fmt = (d) => {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 const filters = reactive({
-  start_date: fmt(today),
-  end_date: fmt(nextWeek)
+  start_date: fmt(weekStart),
+  end_date: fmt(weekEnd),
+  top_n: 5
 })
 const summary = ref({ cards: [], charts: {}, tables: {}, message: '', covered_dates: [] })
 const loading = ref(false)
@@ -94,9 +142,18 @@ const accents = ['#38bdf8', '#fbbf24', '#34d399', '#f472b6']
 
 const go = (route) => route && router.push(route)
 const isEmpty = (items = [], field = 'value') => !items?.some(item => Number(item?.[field]) > 0)
+const currentClasses = computed(() => summary.value.current_course?.current_classes || [])
+const topN = computed(() => summary.value.top_n || filters.top_n)
+const teacherWorkloadRows = computed(() => summary.value.charts?.teacher_workload_rank || summary.value.charts?.teacher_workload_top5 || [])
+const classSizeRows = computed(() => summary.value.charts?.class_size_rank || summary.value.charts?.class_size_top5 || [])
+const currentCourseText = computed(() => {
+  const current = summary.value.current_course || {}
+  if (!current.current_period) return '当前时间没有命中课表作息时段。'
+  return `${current.current_period} · ${current.current_time_range || '未配置时间段'}`
+})
 
 const teacherWorkloadOption = computed(() => {
-  const rows = [...(summary.value.charts?.teacher_workload_top5 || [])].reverse()
+  const rows = [...teacherWorkloadRows.value].reverse()
   return {
     backgroundColor: 'transparent',
     color: ['#38bdf8'],
@@ -124,7 +181,7 @@ const teacherWorkloadOption = computed(() => {
 })
 
 const classSizeOption = computed(() => {
-  const rows = [...(summary.value.charts?.class_size_top5 || [])].reverse()
+  const rows = [...classSizeRows.value].reverse()
   return {
     backgroundColor: 'transparent',
     color: ['#fbbf24'],
@@ -232,6 +289,150 @@ p {
 
 .filter-console :deep(.el-form-item__label) {
   color: #cbd5e1;
+}
+
+.top-select {
+  width: 110px;
+}
+
+.live-course-panel {
+  padding: 20px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(8, 47, 73, 0.58), rgba(7, 15, 30, 0.92)),
+    radial-gradient(circle at 8% 8%, rgba(34, 211, 238, 0.22), transparent 34%),
+    radial-gradient(circle at 92% 12%, rgba(251, 191, 36, 0.16), transparent 30%);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.live-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.live-header h2 {
+  margin: 6px 0;
+  color: #f8fafc;
+  font-size: 26px;
+  line-height: 1.12;
+}
+
+.refresh-orb {
+  display: grid;
+  width: 118px;
+  height: 118px;
+  place-items: center;
+  color: #ecfeff;
+  cursor: pointer;
+  border: 1px solid rgba(103, 232, 249, 0.42);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.28), rgba(15, 23, 42, 0.88) 70%);
+  box-shadow: 0 0 42px rgba(34, 211, 238, 0.22);
+}
+
+.refresh-orb:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.refresh-orb span {
+  align-self: end;
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.refresh-orb small {
+  align-self: start;
+  margin-top: 6px;
+  color: #bae6fd;
+}
+
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.course-card {
+  position: relative;
+  min-height: 132px;
+  padding: 15px;
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  border-radius: 8px;
+  background: linear-gradient(155deg, rgba(15, 23, 42, 0.92), rgba(14, 116, 144, 0.18));
+  overflow: hidden;
+}
+
+.course-card::after {
+  position: absolute;
+  right: -34px;
+  bottom: -38px;
+  width: 104px;
+  height: 104px;
+  content: "";
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.18);
+  filter: blur(8px);
+}
+
+.class-name,
+.course-card strong,
+.course-meta {
+  position: relative;
+  z-index: 1;
+}
+
+.class-name {
+  color: #67e8f9;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.course-card strong {
+  display: block;
+  margin-top: 12px;
+  color: #f8fafc;
+  font-size: 24px;
+  line-height: 1.08;
+}
+
+.course-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.course-meta small {
+  color: #94a3b8;
+}
+
+.live-empty {
+  display: grid;
+  min-height: 150px;
+  place-content: center;
+  text-align: center;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.36);
+}
+
+.live-empty strong {
+  color: #f8fafc;
+  font-size: 18px;
+}
+
+.live-empty span {
+  margin-top: 8px;
+  color: rgba(226, 232, 240, 0.68);
 }
 
 .metric-grid,
@@ -353,6 +554,11 @@ p {
 
   .filter-console {
     min-width: 0;
+  }
+
+  .live-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .chart-grid {

@@ -10,6 +10,14 @@
         <span>数据更新</span>
         <strong>{{ summary.updated_at || '-' }}</strong>
       </div>
+      <div class="rank-console">
+        <span>排行规模</span>
+        <el-select v-model="topN" class="top-select" @change="fetchSummary">
+          <el-option :value="5" label="Top 5" />
+          <el-option :value="10" label="Top 10" />
+          <el-option :value="15" label="Top 15" />
+        </el-select>
+      </div>
     </header>
 
     <section class="metric-grid">
@@ -41,10 +49,10 @@
         :empty="isEmpty(summary.charts?.notification_status)"
       />
       <DashboardChart
-        title="教师监考负载 Top5"
-        eyebrow="WORKLOAD TOP5"
+        :title="`教师监考负载 Top${effectiveTopN}`"
+        :eyebrow="`WORKLOAD TOP${effectiveTopN}`"
         :option="teacherWorkloadOption"
-        :empty="isEmpty(summary.charts?.teacher_workload_top5, 'invigilation_count')"
+        :empty="isEmpty(teacherWorkloadRows, 'invigilation_count')"
       />
     </section>
 
@@ -113,6 +121,7 @@ import { getInvigilationDashboardSummary } from '@/api/modules/dashboard'
 
 const router = useRouter()
 const summary = ref({ cards: [], charts: {}, tables: {} })
+const topN = ref(5)
 const accents = ['#fb7185', '#fbbf24', '#34d399', '#67e8f9', '#a78bfa', '#38bdf8']
 
 const go = (route) => route && router.push(route)
@@ -121,6 +130,8 @@ const isEmpty = (items = [], field = 'value') => !items?.some(item => Number(ite
 const unarrangedSlots = computed(() => summary.value.tables?.unarranged_slots || [])
 const conflictSlots = computed(() => summary.value.tables?.conflict_slots || [])
 const notificationFailed = computed(() => summary.value.tables?.notification_failed || [])
+const effectiveTopN = computed(() => summary.value.top_n || topN.value)
+const teacherWorkloadRows = computed(() => summary.value.charts?.teacher_workload_rank || summary.value.charts?.teacher_workload_top5 || [])
 
 const projectStatusOption = computed(() => ({
   backgroundColor: 'transparent',
@@ -153,7 +164,7 @@ const notificationStatusOption = computed(() => ({
 }))
 
 const teacherWorkloadOption = computed(() => {
-  const rows = [...(summary.value.charts?.teacher_workload_top5 || [])].reverse()
+  const rows = [...teacherWorkloadRows.value].reverse()
   return {
     backgroundColor: 'transparent',
     color: ['#a78bfa'],
@@ -181,7 +192,7 @@ const teacherWorkloadOption = computed(() => {
 })
 
 const fetchSummary = async () => {
-  const res = await getInvigilationDashboardSummary()
+  const res = await getInvigilationDashboardSummary({ top_n: topN.value })
   if (res.success) summary.value = res.data
 }
 
@@ -247,6 +258,25 @@ p {
 .time-chip strong {
   color: #f8fafc;
   font-size: 16px;
+}
+
+.rank-console {
+  display: grid;
+  gap: 8px;
+  min-width: 130px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.rank-console span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.top-select {
+  width: 110px;
 }
 
 .metric-grid {

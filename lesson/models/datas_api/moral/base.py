@@ -14,7 +14,7 @@ from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 from datetime import datetime, date
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
@@ -709,7 +709,25 @@ def require_permission(permission: str):
     Returns:
         依赖函数
     """
-    async def check(user: User = Depends(get_current_user)):
+    async def check(request: Request, user: User = Depends(get_current_user)):
+        try:
+            from .api_permission import check_configured_api_permission
+            decision = check_configured_api_permission(
+                user,
+                request.url.path,
+                request.method,
+                allow_missing=True,
+            )
+            if not decision.get("allowed"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=decision.get("reason") or "API权限不足",
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("API配置鉴权失败，回退到静态权限检查: %s", exc)
+
         if not check_moral_permission(user, permission):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

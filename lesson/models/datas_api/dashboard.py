@@ -45,6 +45,20 @@ def _metric(label: str, value, unit: str = "", route: str = "") -> Dict[str, obj
     return {"label": label, "value": value, "unit": unit, "route": route}
 
 
+def _normalize_top_n(top_n: int = 5) -> int:
+    try:
+        value = int(top_n)
+    except Exception:
+        value = 5
+    return max(1, min(value, 50))
+
+
+def _current_week_range() -> Dict[str, date]:
+    today = date.today()
+    start = today - timedelta(days=today.weekday())
+    return {"start": start, "end": start + timedelta(days=6)}
+
+
 def _safe_count(db, sql: str, params=None) -> int:
     try:
         return int(db.query_value(sql, params) or 0)
@@ -120,7 +134,7 @@ def _daily_record_trend(db, where_clause: str, params: tuple) -> List[Dict[str, 
     ]
 
 
-def _class_score_top5(db, where_clause: str, params: tuple) -> List[Dict[str, object]]:
+def _class_score_rank(db, where_clause: str, params: tuple, top_n: int) -> List[Dict[str, object]]:
     return _safe_query_all(
         db,
         f"""SELECT c.class_name, ROUND(AVG(me.total_score), 1) AS avg_score, COUNT(*) AS student_count
@@ -130,7 +144,7 @@ def _class_score_top5(db, where_clause: str, params: tuple) -> List[Dict[str, ob
             WHERE {where_clause}
             GROUP BY c.class_id, c.class_name
             ORDER BY avg_score DESC
-            LIMIT 5""",
+            LIMIT {top_n}""",
         params,
     )
 
@@ -193,9 +207,13 @@ async def get_dashboard_overview(user: User = Depends(get_current_user)):
 
 
 @router.get("/moral/summary", summary="德育驾驶舱总览")
-async def get_moral_dashboard_summary(user: User = Depends(get_current_user)):
+async def get_moral_dashboard_summary(
+    top_n: int = Query(5, ge=1, le=50),
+    user: User = Depends(get_current_user),
+):
     if not (_is_moral_manager(user) or has_user_role(user, "cleader")):
         raise HTTPException(status_code=403, detail="无德育驾驶舱权限")
+    top_n = _normalize_top_n(top_n)
 
     with get_moral_db() as db:
         conditions = ["s.status = '在校'"]
@@ -232,7 +250,7 @@ async def get_moral_dashboard_summary(user: User = Depends(get_current_user)):
                 JOIN class c ON s.class_id = c.class_id
                 WHERE {where_clause} AND me.total_score < 60
                 ORDER BY me.total_score ASC
-                LIMIT 5""",
+                LIMIT {top_n}""",
             tuple(params),
         )
         query_params = tuple(params)
@@ -240,7 +258,7 @@ async def get_moral_dashboard_summary(user: User = Depends(get_current_user)):
             "score_distribution": _score_distribution(db, where_clause, query_params),
             "daily_event_mix": _daily_event_mix(db, where_clause, query_params),
             "daily_record_trend": _daily_record_trend(db, where_clause, query_params),
-            "class_score_top5": _class_score_top5(db, where_clause, query_params),
+            "class_score_rank": _class_score_rank(db, where_clause, query_params, top_n),
         }
 
     return {
@@ -253,6 +271,7 @@ async def get_moral_dashboard_summary(user: User = Depends(get_current_user)):
             ],
             "charts": charts,
             "tables": {"low_students": low_students},
+            "top_n": top_n,
             "updated_at": _now_text(),
         },
     }
@@ -272,36 +291,132 @@ def _schedule_frames_for_range(start_date: date, end_date: date) -> List[Dict[st
 
 
 def _teacher_lesson_counts(start_date: date, end_date: date) -> Dict[str, object]:
+    return _teacher_lesson_counts_from_files(start_date, end_date)
+
+
+def _month_keys_for_range(start_date: date, end_date: date) -> List[str]:
+    keys = []
+    current = start_date.replace(day=1)
+    while current <= end_date:
+        keys.append(current.strftime("%Y%m"))
+        next_month = (current.replace(day=28) + timedelta(days=4)).replace(day=1)
+        current = next_month
+    return keys
+
+
+def _week_start_from_schedule_filename(file_name: str) -> Optional[date]:
+    import re
+
+    match = re.search(r"(20\d{6})", file_name)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d").date()
+    except Exception:
+        return None
+
+
+def _schedule_files_for_range(lesson: Lesson, start_date: date, end_date: date) -> List[Dict[str, object]]:
+    files = []
+    seen = set()
+    for month_key in _month_keys_for_range(start_date, end_date):
+        schedule_dir = os.path.join(lesson.lesson_dir, month_key, "class_schedule")
+        if not os.path.isdir(schedule_dir):
+            continue
+        for file_name in os.listdir(schedule_dir):
+            if file_name.startswith(".") or not file_name.lower().endswith((".xlsx", ".xls")):
+                continue
+            monday = _week_start_from_schedule_filename(file_name)
+            if monday is None:
+                continue
+            sunday = monday + timedelta(days=6)
+            if sunday < start_date or monday > end_date:
+                continue
+            file_path = os.path.join(schedule_dir, file_name)
+            if file_path in seen:
+                continue
+            seen.add(file_path)
+            files.append({"path": file_path, "monday": monday, "file_name": file_name})
+    return sorted(files, key=lambda item: (item["monday"], item["file_name"]))
+
+
+def _format_week_schedule_file(lesson: Lesson, file_path: str, monday: date) -> pd.DataFrame:
+    week_num = monday.isocalendar()[1] + lesson.week_change
+    week_flag = "单" if week_num % 2 == 1 else "双"
+    df = lesson.load_excel_file(file_path)
+    if df is None or df.empty:
+        return pd.DataFrame()
+    return lesson.schedule_service.format_schedule(df, week_flag, replace_flag=True, ignore=False)
+
+
+def _teacher_lesson_counts_from_files(start_date: date, end_date: date, teacher_name: Optional[str] = None) -> Dict[str, object]:
     lesson = Lesson()
     counter = Counter()
     covered_dates = set()
+    source_files = []
+    lessons = []
+    target_teacher = str(teacher_name).strip() if teacher_name else ""
     class_template = lesson.get_cache_data("class_template")
     class_names = class_template["class_name"].tolist() if class_template is not None and not class_template.empty else []
+    teacher_template = lesson.get_cache_data("teacher_template")
+    valid_teachers = set()
+    if teacher_template is not None and not teacher_template.empty and "name" in teacher_template.columns:
+        valid_teachers = {str(name).strip() for name in teacher_template["name"].tolist() if str(name).strip()}
+    time_table = lesson.get_cache_data("time_table")
+    period_lookup = {}
+    if time_table is not None and not time_table.empty:
+        for _, row in time_table.iterrows():
+            order = str(row.get("order", "")).strip()
+            period_lookup[order] = {
+                "label": str(row.get("label") or order).strip(),
+                "time_range": str(row.get("show_time") or row.get("time_table") or "").strip(),
+            }
 
-    for item in _schedule_frames_for_range(start_date, end_date):
-        df = item["df"]
-        if "weekday" not in df.columns:
+    for item in _schedule_files_for_range(lesson, start_date, end_date):
+        df = _format_week_schedule_file(lesson, item["path"], item["monday"])
+        if df.empty:
+            continue
+        source_files.append(item["file_name"])
+        weekday_column = "weekday" if "weekday" in df.columns else "week" if "week" in df.columns else ""
+        if not weekday_column:
             continue
         teacher_df = lesson.schedule_service.replace_subject_teacher(df, teacher_flag=True)
-        for _, row in teacher_df.iterrows():
+        for idx, row in teacher_df.iterrows():
             try:
-                weekday = int(row.get("weekday"))
+                weekday = int(row.get(weekday_column))
             except Exception:
                 continue
             actual_date = item["monday"] + timedelta(days=weekday - 1)
             if actual_date < start_date or actual_date > end_date:
                 continue
             covered_dates.add(actual_date.isoformat())
+            order = str(row.get("order", "")).strip()
+            period_info = period_lookup.get(order, {"label": order, "time_range": ""})
             for class_name in class_names:
-                teacher_name = row.get(class_name)
-                if teacher_name is None:
+                teacher_value = row.get(class_name)
+                if teacher_value is None:
                     continue
-                if isinstance(teacher_name, float) and pd.isna(teacher_name):
+                if isinstance(teacher_value, float) and pd.isna(teacher_value):
                     continue
-                teacher_name = str(teacher_name).strip()
-                if not teacher_name or teacher_name == "-":
+                current_teacher = str(teacher_value).strip()
+                if not current_teacher or current_teacher == "-":
                     continue
-                counter[teacher_name] += 1
+                if valid_teachers and current_teacher not in valid_teachers:
+                    continue
+                if target_teacher and current_teacher != target_teacher:
+                    continue
+                counter[current_teacher] += 1
+                if target_teacher:
+                    subject_value = df.at[idx, class_name] if class_name in df.columns and idx in df.index else ""
+                    lessons.append({
+                        "date": actual_date.isoformat(),
+                        "weekday": weekday,
+                        "period_order": order,
+                        "period": period_info.get("label") or order,
+                        "time_range": period_info.get("time_range") or "",
+                        "class_name": class_name,
+                        "subject": str(subject_value or "").strip(),
+                    })
 
     rows = [
         {"teacher_name": name, "lesson_count": count}
@@ -309,9 +424,129 @@ def _teacher_lesson_counts(start_date: date, end_date: date) -> Dict[str, object
     ]
     return {
         "rows": rows,
-        "top5": rows[:5],
         "covered_dates": sorted(covered_dates),
-        "message": "仅统计当前系统已加载的当前周/下周课表。",
+        "source_files": source_files,
+        "lessons": sorted(lessons, key=lambda item: (item["date"], str(item["period_order"]), item["class_name"])),
+        "message": "按 lesson.yaml 中 lesson_dir 下对应月份 class_schedule 周课表文件统计。",
+    }
+
+
+def _minutes_from_time(value: str) -> Optional[int]:
+    try:
+        hour, minute = [int(part) for part in str(value).strip().split(":")[:2]]
+        return hour * 60 + minute
+    except Exception:
+        return None
+
+
+def _find_current_period(lesson: Lesson) -> Dict[str, object]:
+    current_minutes = datetime.now().hour * 60 + datetime.now().minute
+    time_table = lesson.get_cache_data("time_table")
+    if time_table is None or time_table.empty:
+        return {"period": None, "label": "", "time_range": "", "all_periods": []}
+
+    all_periods = []
+    for _, row in time_table.iterrows():
+        order = str(row.get("order", "")).strip()
+        label = str(row.get("label") or order).strip()
+        time_range = str(row.get("show_time") or row.get("time_table") or "").strip()
+        all_periods.append({"order": order, "label": label, "time_range": time_range})
+        if "-" not in time_range:
+            continue
+        start_time, end_time = [item.strip() for item in time_range.split("-", 1)]
+        start_minutes = _minutes_from_time(start_time)
+        end_minutes = _minutes_from_time(end_time)
+        if start_minutes is None or end_minutes is None:
+            continue
+        if start_minutes <= current_minutes <= end_minutes:
+            return {"period": order, "label": label, "time_range": time_range, "all_periods": all_periods}
+    return {"period": None, "label": "", "time_range": "", "all_periods": all_periods}
+
+
+def _teacher_subject_lookup(lesson: Lesson) -> Dict[str, Dict[str, str]]:
+    teacher_template = lesson.get_cache_data("teacher_template")
+    if teacher_template is None or teacher_template.empty:
+        return {}
+
+    lookup = {}
+    for _, row in teacher_template.iterrows():
+        teacher_name = str(row.get("name") or "").strip()
+        course = str(row.get("course") or "").strip()
+        for subject in lesson.schedule_service.split_subjects(row.get("subject")):
+            lookup[subject] = {"teacher": teacher_name, "course": course or subject}
+    return lookup
+
+
+def _current_course_snapshot() -> Dict[str, object]:
+    lesson = Lesson()
+    period_info = _find_current_period(lesson)
+    schedule_df = lesson.get_cache_data("today_schedule")
+    class_template = lesson.get_cache_data("class_template")
+    class_names = class_template["class_name"].tolist() if class_template is not None and not class_template.empty else []
+
+    current_classes = []
+    if schedule_df is None or schedule_df.empty or not period_info["period"]:
+        return {
+            "current_period": period_info["label"],
+            "current_period_order": period_info["period"],
+            "current_time_range": period_info["time_range"],
+            "active_class_count": 0,
+            "current_classes": current_classes,
+            "all_periods": period_info["all_periods"],
+        }
+
+    df = schedule_df.copy()
+    if "order" not in df.columns:
+        return {
+            "current_period": period_info["label"],
+            "current_period_order": period_info["period"],
+            "current_time_range": period_info["time_range"],
+            "active_class_count": 0,
+            "current_classes": current_classes,
+            "all_periods": period_info["all_periods"],
+        }
+
+    df["order"] = df["order"].astype(str)
+    df_current = df[df["order"] == str(period_info["period"])]
+    if df_current.empty:
+        return {
+            "current_period": period_info["label"],
+            "current_period_order": period_info["period"],
+            "current_time_range": period_info["time_range"],
+            "active_class_count": 0,
+            "current_classes": current_classes,
+            "all_periods": period_info["all_periods"],
+        }
+
+    subject_lookup = _teacher_subject_lookup(lesson)
+    row = df_current.iloc[0]
+    for class_name in class_names:
+        if class_name not in df_current.columns:
+            continue
+        subject = row.get(class_name)
+        if subject is None or (isinstance(subject, float) and pd.isna(subject)):
+            continue
+        subject = str(subject).strip()
+        if not subject or subject == "-":
+            continue
+        teacher_info = subject_lookup.get(subject, {})
+        current_classes.append({
+            "class_name": class_name,
+            "subject": subject,
+            "course": teacher_info.get("course") or subject,
+            "teacher": teacher_info.get("teacher") or "未知教师",
+            "period": period_info["label"],
+            "period_order": period_info["period"],
+            "time_range": period_info["time_range"],
+        })
+
+    return {
+        "current_period": period_info["label"],
+        "current_period_order": period_info["period"],
+        "current_time_range": period_info["time_range"],
+        "active_class_count": len(current_classes),
+        "current_classes": current_classes,
+        "all_periods": period_info["all_periods"],
     }
 
 
@@ -319,38 +554,43 @@ def _teacher_lesson_counts(start_date: date, end_date: date) -> Dict[str, object
 async def get_teaching_dashboard_summary(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
+    top_n: int = Query(5, ge=1, le=50),
     user: User = Depends(get_current_user),
 ):
     if not _is_jiaowu(user):
         raise HTTPException(status_code=403, detail="无教务驾驶舱权限")
 
-    today = date.today()
+    week_range = _current_week_range()
     if not isinstance(start_date, date):
         start_date = None
     if not isinstance(end_date, date):
         end_date = None
-    start_date = start_date or today
-    end_date = end_date or (today + timedelta(days=6))
+    start_date = start_date or week_range["start"]
+    end_date = end_date or week_range["end"]
+    top_n = _normalize_top_n(top_n)
     if (end_date - start_date).days > 62:
         raise HTTPException(status_code=400, detail="统计时间跨度不能超过 62 天")
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
 
     with get_moral_db() as db:
         class_count = _safe_count(db, "SELECT COUNT(*) FROM class WHERE is_active = 1")
         student_count = _safe_count(db, "SELECT COUNT(*) FROM student WHERE status = '在校'")
         teacher_count = _safe_count(db, "SELECT COUNT(*) FROM teacher WHERE COALESCE(identity_type, 'teacher') = 'teacher' AND is_active = 1")
-        class_size_top5 = _safe_query_all(
+        class_size_rank = _safe_query_all(
             db,
-            """SELECT c.class_name, COUNT(s.student_id) AS student_count
+            f"""SELECT c.class_name, COUNT(s.student_id) AS student_count
                 FROM class c
                 LEFT JOIN student s ON s.class_id = c.class_id AND s.status = '在校'
                 WHERE c.is_active = 1
                 GROUP BY c.class_id, c.class_name
                 ORDER BY student_count DESC
-                LIMIT 5""",
+                LIMIT {top_n}""",
         )
 
     workload = _teacher_lesson_counts(start_date, end_date)
-    workload_top5 = workload["top5"]
+    workload_rank = workload["rows"][:top_n]
+    current_course = _current_course_snapshot()
     return {
         "success": True,
         "data": {
@@ -359,19 +599,24 @@ async def get_teaching_dashboard_summary(
                 _metric("在校学生", student_count, "人", "/moral/config/student"),
                 _metric("教师账号", teacher_count, "人", "/teacher-manage"),
                 _metric("区间课时", sum(row["lesson_count"] for row in workload["rows"]), "节"),
+                _metric("当前课节", current_course["current_period"] or "非上课", ""),
+                _metric("正在上课", current_course["active_class_count"], "个班"),
             ],
             "charts": {
-                "teacher_workload_top5": workload_top5,
-                "class_size_top5": class_size_top5,
+                "teacher_workload_rank": workload_rank,
+                "class_size_rank": class_size_rank,
                 "resource_mix": [
                     {"name": "班级", "value": class_count},
                     {"name": "学生", "value": student_count},
                     {"name": "教师", "value": teacher_count},
                 ],
             },
-            "tables": {"teacher_workload": workload["rows"], "teacher_workload_top5": workload_top5},
+            "tables": {"teacher_workload": workload["rows"], "teacher_workload_rank": workload_rank},
+            "current_course": current_course,
             "range": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
             "covered_dates": workload["covered_dates"],
+            "source_files": workload["source_files"],
+            "top_n": top_n,
             "message": workload["message"],
             "updated_at": _now_text(),
         },
@@ -403,9 +648,11 @@ def _get_inout_db():
 @router.get("/class/summary", summary="班级驾驶舱总览")
 async def get_class_dashboard_summary(
     class_id: Optional[int] = Query(None, description="班级ID，班主任默认本班"),
+    top_n: int = Query(5, ge=1, le=50),
     user: User = Depends(get_current_user),
 ):
     """班级驾驶舱：班级基础、学习活动、德育表现、出勤事务、生日关怀"""
+    top_n = _normalize_top_n(top_n)
     with get_moral_db() as db:
         if not isinstance(class_id, int):
             class_id = None
@@ -472,8 +719,8 @@ async def get_class_dashboard_summary(
             FROM moral_evaluation me
             JOIN student s ON me.student_id = s.student_id
             WHERE me.class_id = %s AND me.total_score < 60
-            ORDER BY me.total_score ASC LIMIT 5""",
-            (class_id,)
+            ORDER BY me.total_score ASC LIMIT %s""",
+            (class_id, top_n)
         )
 
         # 本月生日学生
@@ -577,37 +824,67 @@ async def get_class_dashboard_summary(
                 "class_id": class_id,
                 "class_name": class_name,
             },
+            "top_n": top_n,
             "updated_at": _now_text(),
         },
     }
 
 
 @router.get("/teacher/workbench", summary="教师个人工作台")
-async def get_teacher_workbench(user: User = Depends(get_current_user)):
+async def get_teacher_workbench(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    user: User = Depends(get_current_user),
+):
     """教师工作台：今日事项、发布内容、德育参与、监考任务"""
     teacher_name = user.username
     today_str = date.today().isoformat()
+    today = date.today()
+    if not isinstance(start_date, date):
+        start_date = None
+    if not isinstance(end_date, date):
+        end_date = None
+    week_range = _current_week_range()
+    start_date = start_date or week_range["start"]
+    end_date = end_date or week_range["end"]
+    if (end_date - start_date).days > 30:
+        raise HTTPException(status_code=400, detail="教师个人课时统计时间跨度不能超过 31 天")
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
 
     # 今日课程（从课表）
     today_lessons = []
     try:
         lesson = Lesson()
-        schedule_df = lesson.get_cache_data("current_schedule")
+        schedule_df = lesson.get_cache_data("today_schedule")
         if schedule_df is not None and not schedule_df.empty:
-            weekday = date.today().weekday() + 1  # Monday = 1
+            subject_df = schedule_df.copy()
             teacher_df = lesson.schedule_service.replace_subject_teacher(schedule_df, teacher_flag=True)
-            for col in teacher_df.columns:
-                if col in ["weekday", "time", "subject", "class"]:
-                    continue
-                # 检查该列是否有当前教师的名字
-                mask = teacher_df["weekday"] == weekday
-                for idx in teacher_df[mask].index:
-                    teacher_in_cell = str(teacher_df.at[idx, col] or "")
-                    if teacher_name in teacher_in_cell:
+            time_table = lesson.get_cache_data("time_table")
+            period_lookup = {}
+            if time_table is not None and not time_table.empty:
+                for _, period_row in time_table.iterrows():
+                    order = str(period_row.get("order", "")).strip()
+                    period_lookup[order] = {
+                        "label": str(period_row.get("label") or order).strip(),
+                        "time_range": str(period_row.get("show_time") or period_row.get("time_table") or "").strip(),
+                    }
+            class_template = lesson.get_cache_data("class_template")
+            class_names = class_template["class_name"].tolist() if class_template is not None and not class_template.empty else []
+            for idx, row in teacher_df.iterrows():
+                order = str(row.get("order", "")).strip()
+                period_info = period_lookup.get(order, {"label": order, "time_range": ""})
+                for class_name in class_names:
+                    if class_name not in teacher_df.columns:
+                        continue
+                    teacher_in_cell = str(row.get(class_name) or "").strip()
+                    if teacher_in_cell == teacher_name:
+                        subject_value = subject_df.at[idx, class_name] if class_name in subject_df.columns and idx in subject_df.index else ""
                         today_lessons.append({
-                            "class_name": col,
-                            "time": str(teacher_df.at[idx, "time"] or ""),
-                            "subject": str(teacher_df.at[idx, "subject"] or ""),
+                            "class_name": class_name,
+                            "time": period_info.get("time_range") or period_info.get("label") or "",
+                            "period": period_info.get("label") or order,
+                            "subject": str(subject_value or "").strip(),
                         })
     except Exception:
         pass
@@ -667,11 +944,15 @@ async def get_teacher_workbench(user: User = Depends(get_current_user)):
     except Exception:
         pass
 
+    lesson_workload = _teacher_lesson_counts_from_files(start_date, end_date, teacher_name=teacher_name)
+    my_lesson_count = sum(row["lesson_count"] for row in lesson_workload["rows"])
+
     return {
         "success": True,
         "data": {
             "cards": [
                 _metric("今日课程", len(today_lessons), "节"),
+                _metric("区间课时", my_lesson_count, "节"),
                 _metric("发布作业", homework_published, "份", "/homework"),
                 _metric("发布公告", announcements_published, "份"),
                 _metric("日常记录", daily_created, "条", "/moral/daily-record"),
@@ -681,7 +962,16 @@ async def get_teacher_workbench(user: User = Depends(get_current_user)):
             "tables": {
                 "today_lessons": today_lessons,
                 "invigilation_tasks": invigilation_tasks,
+                "workload_lessons": lesson_workload["lessons"],
             },
+            "workload": {
+                "lesson_count": my_lesson_count,
+                "covered_dates": lesson_workload["covered_dates"],
+                "source_files": lesson_workload["source_files"],
+                "lessons": lesson_workload["lessons"],
+                "message": lesson_workload["message"],
+            },
+            "range": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
             "updated_at": _now_text(),
         },
     }
@@ -697,10 +987,14 @@ def _get_invigilation_db():
 
 
 @router.get("/invigilation/summary", summary="监考驾驶舱总览")
-async def get_invigilation_dashboard_summary(user: User = Depends(get_current_user)):
+async def get_invigilation_dashboard_summary(
+    top_n: int = Query(5, ge=1, le=50),
+    user: User = Depends(get_current_user),
+):
     """监考驾驶舱：考试项目状态、安排完整度、通知状态、教师负载、预警列表"""
     if not _is_jiaowu(user):
         raise HTTPException(status_code=403, detail="无监考驾驶舱权限")
+    top_n = _normalize_top_n(top_n)
 
     today_str = date.today().isoformat()
 
@@ -770,15 +1064,15 @@ async def get_invigilation_dashboard_summary(user: User = Depends(get_current_us
                 if status in notification_stats:
                     notification_stats[status] = count
 
-            # 5. 教师监考负载 Top5
+            # 5. 教师监考负载排行
             cursor.execute(
                 """SELECT teacher_name, COUNT(*) AS invigilation_count
                    FROM invigilation_slot
                    WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
                    GROUP BY teacher_name
                    ORDER BY invigilation_count DESC
-                   LIMIT 5""",
-                (today_str,)
+                   LIMIT ?""",
+                (today_str, top_n)
             )
             for row in cursor.fetchall():
                 teacher_workload.append({
@@ -834,7 +1128,8 @@ async def get_invigilation_dashboard_summary(user: User = Depends(get_current_us
                 """SELECT id, name, status, grade_ids, version_no, updated_at
                    FROM exam_project
                    ORDER BY updated_at DESC
-                   LIMIT 5"""
+                   LIMIT ?""",
+                (top_n,)
             )
             for row in cursor.fetchall():
                 recent_projects.append(dict(row))
@@ -881,6 +1176,7 @@ async def get_invigilation_dashboard_summary(user: User = Depends(get_current_us
                     {"name": "跳过", "value": notification_stats["skipped"]},
                     {"name": "待发送", "value": notification_stats["pending"]},
                 ],
+                "teacher_workload_rank": teacher_workload,
                 "teacher_workload_top5": teacher_workload,
             },
             "tables": {
@@ -888,8 +1184,10 @@ async def get_invigilation_dashboard_summary(user: User = Depends(get_current_us
                 "conflict_slots": conflict_slots,
                 "notification_failed": notification_failed,
                 "recent_projects": recent_projects,
+                "teacher_workload_rank": teacher_workload,
                 "teacher_workload_top5": teacher_workload,
             },
+            "top_n": top_n,
             "updated_at": _now_text(),
         },
     }

@@ -189,7 +189,7 @@ def is_admin_user(user):
         role = str(user.role) if user.role else ""
     else:
         role = str(user.get("role", "")) if isinstance(user, dict) else ""
-    return role == "admin" or "admin" in role or role == "teacher/xuefa"
+    return role == "admin" or "admin" in role
 
 
 def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:

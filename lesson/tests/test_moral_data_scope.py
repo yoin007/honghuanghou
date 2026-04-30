@@ -8,6 +8,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.datas_api.auth import User
+from models.datas_api.auth import is_admin_user
+from models.datas_api.moral import api_permission
 from models.datas_api.moral.base import (
     append_record_scope_condition,
     get_record_data_scope,
@@ -15,6 +17,29 @@ from models.datas_api.moral.base import (
     record_in_scope,
     target_student_in_scope,
 )
+
+
+def test_teacher_xuefa_is_not_admin_role():
+    user = User(username="苏子腾", role="teacher/xuefa")
+
+    assert is_admin_user(user) is False
+
+
+def test_api_policy_rejects_multi_role_when_level_is_too_low(monkeypatch):
+    monkeypatch.setattr(api_permission, "get_user_role_level", lambda user: 5)
+    user = User(username="苏子腾", role="teacher/xuefa")
+    config = {
+        "allowed_roles": json.dumps(["admin", "xuefa"], ensure_ascii=False),
+        "min_level": 20,
+        "policy_mode": "role_and_level",
+        "is_public": 0,
+        "inherit_from_module": 0,
+    }
+
+    decision = api_permission.is_api_allowed(user, config)
+
+    assert decision["allowed"] is False
+    assert "最低等级=20" in decision["reason"]
 
 
 class FakeScopeDB:

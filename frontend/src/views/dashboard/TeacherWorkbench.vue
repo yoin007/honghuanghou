@@ -65,7 +65,7 @@
     </section>
 
     <section class="shortcut-grid">
-      <button class="shortcut-entry" type="button" @click="go('/homework')">
+      <button class="shortcut-entry" type="button" @click="go('/publish-homework')">
         <span>发布作业</span>
         <el-icon><EditPen /></el-icon>
       </button>
@@ -73,37 +73,142 @@
         <span>日常记录</span>
         <el-icon><Document /></el-icon>
       </button>
-      <button class="shortcut-entry" type="button" @click="go('/moral/moment-record')">
+      <button class="shortcut-entry" type="button" @click="go('/moral/moment')">
         <span>点滴记录</span>
         <el-icon><ChatDotSquare /></el-icon>
       </button>
-      <button class="shortcut-entry" type="button" @click="go('/invigilation')">
-        <span>监考安排</span>
-        <el-icon><Calendar /></el-icon>
+      <button class="shortcut-entry" type="button" @click="go('/file-upload')">
+        <span>文件打印</span>
+        <el-icon><Upload /></el-icon>
       </button>
+    </section>
+
+    <section class="workload-section">
+      <div class="workload-header">
+        <div class="workload-title">
+          <span class="kicker">PERSONAL WORKLOAD</span>
+          <h2>我的区间课时</h2>
+        </div>
+        <div class="workload-filter">
+          <el-date-picker v-model="filters.start_date" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" />
+          <span class="filter-sep">至</span>
+          <el-date-picker v-model="filters.end_date" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" />
+          <el-button type="primary" :loading="loading" @click="fetchSummary">查询</el-button>
+        </div>
+      </div>
+
+      <div class="workload-summary">
+        <div class="workload-stat">
+          <div class="stat-orb">
+            <strong>{{ summary.workload?.lesson_count || 0 }}</strong>
+            <span>节课</span>
+          </div>
+          <div class="stat-desc">
+            <p>{{ workloadText }}</p>
+            <small>{{ summary.workload?.message || '按当前周课表统计' }}</small>
+          </div>
+        </div>
+        <div class="workload-meta-row">
+          <div class="meta-item">
+            <span>覆盖日期</span>
+            <strong>{{ summary.workload?.covered_dates?.length || 0 }} 天</strong>
+          </div>
+          <div class="meta-item">
+            <span>涉及班级</span>
+            <strong>{{ uniqueClasses.length }} 个</strong>
+          </div>
+          <div class="meta-item">
+            <span>日均课时</span>
+            <strong>{{ avgDaily }} 节</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="workload-detail">
+        <div class="panel-header">
+          <span>WORKLOAD SCHEDULE</span>
+          <h3>课时明细</h3>
+        </div>
+        <div v-if="workloadLessons.length" class="workload-table">
+          <div class="table-header">
+            <span>日期</span>
+            <span>星期</span>
+            <span>班级</span>
+            <span>学科</span>
+            <span>节次</span>
+            <span>时段</span>
+          </div>
+          <div v-for="lesson in workloadLessons" :key="`${lesson.date}-${lesson.period_order}-${lesson.class_name}`" class="table-row">
+            <span class="col-date">{{ lesson.date }}</span>
+            <span class="col-weekday">星期{{ weekdayText[lesson.weekday] || lesson.weekday }}</span>
+            <span class="col-class">{{ lesson.class_name }}</span>
+            <span class="col-subject">{{ lesson.subject }}</span>
+            <span class="col-period">{{ lesson.period }}</span>
+            <span class="col-time">{{ lesson.time_range }}</span>
+          </div>
+        </div>
+        <div v-else class="empty-strip">当前区间暂无课时明细。</div>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { EditPen, Document, ChatDotSquare, Calendar } from '@element-plus/icons-vue'
-import DashboardChart from '@/components/dashboard/DashboardChart.vue'
+import { EditPen, Document, ChatDotSquare, Upload } from '@element-plus/icons-vue'
 import { getTeacherWorkbench } from '@/api/modules/dashboard'
 
 const router = useRouter()
-const summary = ref({ cards: [], tables: {} })
+const today = new Date()
+const weekStart = new Date(today)
+weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+const weekEnd = new Date(weekStart)
+weekEnd.setDate(weekStart.getDate() + 6)
+const fmt = (d) => {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const filters = reactive({
+  start_date: fmt(weekStart),
+  end_date: fmt(weekEnd)
+})
+const summary = ref({ cards: [], tables: {}, workload: {}, range: {} })
+const loading = ref(false)
 const accents = ['#38bdf8', '#fbbf24', '#67e8f9', '#fb7185', '#a78bfa']
 
 const go = (route) => route && router.push(route)
 
 const todayLessons = computed(() => summary.value.tables?.today_lessons || [])
 const invigilationTasks = computed(() => summary.value.tables?.invigilation_tasks || [])
+const workloadLessons = computed(() => summary.value.workload?.lessons || summary.value.tables?.workload_lessons || [])
+const weekdayText = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '日' }
+const workloadText = computed(() => {
+  const range = summary.value.range || filters
+  return `${range.start_date || filters.start_date} 至 ${range.end_date || filters.end_date}`
+})
+const uniqueClasses = computed(() => {
+  const classes = new Set()
+  workloadLessons.value.forEach(l => classes.add(l.class_name))
+  return Array.from(classes)
+})
+const avgDaily = computed(() => {
+  const days = summary.value.workload?.covered_dates?.length || 1
+  const total = summary.value.workload?.lesson_count || 0
+  return days > 0 ? Math.round(total / days * 10) / 10 : 0
+})
 
 const fetchSummary = async () => {
-  const res = await getTeacherWorkbench()
-  if (res.success) summary.value = res.data
+  loading.value = true
+  try {
+    const res = await getTeacherWorkbench(filters)
+    if (res.success) summary.value = res.data
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(fetchSummary)
@@ -305,6 +410,7 @@ p {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px;
+  margin-bottom: 24px;
 }
 
 .shortcut-entry {
@@ -324,6 +430,167 @@ p {
   color: #67e8f9;
 }
 
+/* 区间课时区块 - 底部 */
+.workload-section {
+  padding: 20px;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(71, 42, 10, 0.35), rgba(7, 15, 30, 0.92)),
+    radial-gradient(circle at 8% 10%, rgba(251, 191, 36, 0.16), transparent 40%);
+}
+
+.workload-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(251, 191, 36, 0.18);
+}
+
+.workload-title h2 {
+  margin: 6px 0;
+  color: #f8fafc;
+  font-size: 24px;
+}
+
+.workload-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.filter-sep {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.workload-summary {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.workload-stat {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.stat-orb {
+  display: grid;
+  width: 100px;
+  height: 100px;
+  place-items: center;
+  text-align: center;
+  border: 2px solid rgba(251, 191, 36, 0.5);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.25), rgba(15, 23, 42, 0.88) 70%);
+}
+
+.stat-orb strong {
+  align-self: end;
+  color: #fef3c7;
+  font-size: 32px;
+  line-height: 1;
+}
+
+.stat-orb span {
+  align-self: start;
+  margin-top: 4px;
+  color: #fde68a;
+  font-size: 13px;
+}
+
+.stat-desc p {
+  color: #e2e8f0;
+  font-size: 15px;
+  margin: 0;
+}
+
+.stat-desc small {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.workload-meta-row {
+  display: flex;
+  gap: 16px;
+}
+
+.meta-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.meta-item span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.meta-item strong {
+  color: #fbbf24;
+  font-size: 18px;
+}
+
+.workload-detail {
+  padding: 18px;
+  border: 1px solid rgba(99, 179, 237, 0.24);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(12, 26, 48, 0.94), rgba(7, 15, 30, 0.9));
+}
+
+.workload-table {
+  display: grid;
+  gap: 8px;
+}
+
+.table-header,
+.table-row {
+  display: grid;
+  grid-template-columns: 110px 80px minmax(0, 1fr) 100px 80px 120px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.table-header {
+  color: #67e8f9;
+  font-size: 12px;
+  font-weight: 500;
+  border-bottom: 1px solid rgba(99, 179, 237, 0.3);
+}
+
+.table-row {
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  border-radius: 4px;
+  background: rgba(30, 64, 175, 0.12);
+}
+
+.table-row span {
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+.col-date {
+  color: #bfdbfe;
+}
+
+.col-weekday {
+  color: #94a3b8;
+}
+
+.col-subject {
+  color: #a78bfa;
+}
+
 @media (max-width: 900px) {
   .hero-band {
     flex-direction: column;
@@ -332,6 +599,25 @@ p {
 
   .info-grid {
     grid-template-columns: 1fr;
+  }
+
+  .workload-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .workload-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .workload-meta-row {
+    flex-wrap: wrap;
+  }
+
+  .table-header,
+  .table-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   h1 {

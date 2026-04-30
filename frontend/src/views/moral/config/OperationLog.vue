@@ -66,10 +66,17 @@
             {{ getTableName(row.table_name) }}
           </template>
         </el-table-column>
+        <el-table-column prop="record_id" label="记录ID" width="100">
+          <template #default="{ row }">
+            <span v-if="row.record_id">#{{ row.record_id }}</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="new_data" label="操作内容" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.new_data">{{ formatData(row.new_data) }}</span>
             <span v-else-if="row.old_data">删除: {{ formatData(row.old_data) }}</span>
+            <span v-else-if="row.reason">{{ row.reason }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>

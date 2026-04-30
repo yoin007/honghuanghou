@@ -46,18 +46,7 @@
             <el-sub-menu index="schedule">
               <template #title>课表</template>
               <el-menu-item index="/schedule">课程表</el-menu-item>
-              <el-menu-item index="/current-classes">实时课程</el-menu-item>
               <el-menu-item index="/schedules">总课表</el-menu-item>
-            </el-sub-menu>
-            <el-sub-menu v-if="isLoggedIn" index="dashboard">
-              <template #title>驾驶舱</template>
-              <el-menu-item index="/dashboard">总览</el-menu-item>
-              <el-menu-item v-if="showMoralMenu" index="/dashboard/moral">德育驾驶舱</el-menu-item>
-              <el-menu-item v-if="isJiaowu" index="/dashboard/teaching">教务驾驶舱</el-menu-item>
-              <el-menu-item v-if="canViewClassDashboard" index="/dashboard/class">班级驾驶舱</el-menu-item>
-              <el-menu-item index="/dashboard/teacher">教师工作台</el-menu-item>
-              <el-menu-item v-if="isJiaowu" index="/dashboard/invigilation">监考驾驶舱</el-menu-item>
-              <el-menu-item v-if="isAdmin" index="/dashboard/system">系统运维</el-menu-item>
             </el-sub-menu>
             <el-sub-menu index="fun">
               <template #title>趣味</template>
@@ -93,7 +82,17 @@
               <el-menu-item v-if="canViewStudentManage" index="/moral/config/student">学生管理</el-menu-item>
               <el-menu-item v-if="canViewMoralConfig" index="/moral/config">德育配置</el-menu-item>
             </el-sub-menu>
-            
+            <el-sub-menu v-if="isLoggedIn" index="dashboard">
+              <template #title>驾驶舱</template>
+              <el-menu-item index="/dashboard">总览</el-menu-item>
+              <el-menu-item v-if="showMoralMenu" index="/dashboard/moral">德育驾驶舱</el-menu-item>
+              <el-menu-item v-if="isJiaowu" index="/dashboard/teaching">教务驾驶舱</el-menu-item>
+              <el-menu-item v-if="canViewClassDashboard" index="/dashboard/class">班级驾驶舱</el-menu-item>
+              <el-menu-item index="/dashboard/teacher">教师工作台</el-menu-item>
+              <el-menu-item v-if="isJiaowu" index="/dashboard/invigilation">监考驾驶舱</el-menu-item>
+              <el-menu-item v-if="isAdmin" index="/dashboard/system">系统运维</el-menu-item>
+            </el-sub-menu>
+
             <el-sub-menu v-if="isAdmin" index="system">
               <template #title>系统管理</template>
               <el-menu-item index="/member-manage">会员管理</el-menu-item>

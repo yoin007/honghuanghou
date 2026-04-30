@@ -667,6 +667,64 @@ def is_api_allowed(user: User, config: Dict[str, Any]) -> Dict[str, Any]:
     return {"allowed": allowed, "reason": reason, "policy": policy}
 
 
+def check_configured_api_permission(
+    user: User,
+    api_path: str,
+    http_method: str = "*",
+    *,
+    allow_missing: bool = True,
+) -> Dict[str, Any]:
+    """
+    使用 api_permission_config 做后端统一鉴权。
+
+    allow_missing=True 时，未配置的 API 仍回退到原有代码内权限判断；
+    已配置且 enforce_backend=1 的 API 必须满足配置中的角色、等级和策略。
+    """
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        config = _get_matching_config(db, api_path, http_method)
+        if not config:
+            return {
+                "allowed": bool(allow_missing),
+                "reason": "无权限配置，默认允许" if allow_missing else "无权限配置",
+                "policy": {},
+                "config": None,
+            }
+
+        if int(config.get("enforce_backend") or 1) != 1:
+            return {
+                "allowed": True,
+                "reason": "该API未启用后端配置鉴权",
+                "policy": _effective_policy(config),
+                "config": config,
+            }
+
+        decision = is_api_allowed(user, config)
+        decision["config"] = config
+        return decision
+
+
+def require_configured_api_permission(
+    api_path: str,
+    http_method: str = "*",
+    *,
+    allow_missing: bool = True,
+):
+    """FastAPI 依赖：按 api_permission_config 校验当前用户能否调用 API。"""
+    async def check(user: User = Depends(get_current_user)):
+        decision = check_configured_api_permission(
+            user,
+            api_path,
+            http_method,
+            allow_missing=allow_missing,
+        )
+        if not decision["allowed"]:
+            raise HTTPException(status_code=403, detail=decision["reason"])
+        return user
+
+    return check
+
+
 def _parse_config_row(config: Dict[str, Any]) -> Dict[str, Any]:
     config["allowed_roles"] = _json_list(config.get("allowed_roles"))
     config["data_scope_rules"] = _json_dict(config.get("data_scope_rules"))

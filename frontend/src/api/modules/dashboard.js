@@ -16,12 +16,12 @@ export function getClassDashboardSummary(params = {}) {
   return request.get('/api/dashboard/class/summary', { params })
 }
 
-export function getTeacherWorkbench() {
-  return request.get('/api/dashboard/teacher/workbench')
+export function getTeacherWorkbench(params = {}) {
+  return request.get('/api/dashboard/teacher/workbench', { params })
 }
 
-export function getInvigilationDashboardSummary() {
-  return request.get('/api/dashboard/invigilation/summary')
+export function getInvigilationDashboardSummary(params = {}) {
+  return request.get('/api/dashboard/invigilation/summary', { params })
 }
 
 export function getSystemDashboardSummary() {

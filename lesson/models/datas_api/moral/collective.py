@@ -17,16 +17,24 @@ from .base import (
     get_moral_db,
     get_current_semester,
     log_operation,
-    require_permission,
-    check_moral_permission,
+    check_moral_permission_for_roles,
     get_teacher_class_id,
+    get_api_scoped_user_roles,
     has_user_role,
 )
+from .api_permission import require_configured_api_permission
+from models.datas_api.auth import is_admin_user
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/collective-events", tags=["集体事件"])
+
+API_COLLECTIVE_LIST = "/api/moral/collective-events"
+API_COLLECTIVE_CREATE = "/api/moral/collective-events/create"
+API_COLLECTIVE_UPDATE = "/api/moral/collective-events/update"
+API_COLLECTIVE_DELETE = "/api/moral/collective-events/delete"
+API_COLLECTIVE_DISTRIBUTION_UPDATE = "/api/moral/collective-events/distributions/update"
 
 
 # =============================================================================
@@ -59,9 +67,13 @@ class DistributionUpdate(BaseModel):
     remark: Optional[str] = Field(None, description="备注")
 
 
-def ensure_collective_class_access(user: User, db, class_id: int):
+def ensure_collective_class_access(user: User, db, class_id: int, api_path: str = API_COLLECTIVE_LIST):
     """校验集体事件班级访问范围。"""
-    if check_moral_permission(user, 'report_view_all'):
+    if is_admin_user(user):
+        return
+
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    if check_moral_permission_for_roles(scoped_roles, 'report_view_all'):
         return
 
     my_class_id = get_teacher_class_id(user, db)
@@ -80,7 +92,7 @@ async def get_collective_events(
     semester_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_LIST, "GET"))
 ):
     """
     获取集体事件列表
@@ -101,7 +113,8 @@ async def get_collective_events(
             conditions.append("ce.class_id = %s")
             params.append(class_id)
 
-        if not check_moral_permission(user, 'report_view_all'):
+        scoped_roles = get_api_scoped_user_roles(db, user, API_COLLECTIVE_LIST)
+        if not check_moral_permission_for_roles(scoped_roles, 'report_view_all') and not is_admin_user(user):
             my_class_id = get_teacher_class_id(user, db)
             if my_class_id is None:
                 raise HTTPException(403, "权限不足")
@@ -150,7 +163,7 @@ async def get_collective_events(
 async def create_collective_event(
     event: CollectiveEventCreate,
     request: Request,
-    user: User = Depends(require_permission('collective_event_manage'))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_CREATE, "POST"))
 ):
     """
     创建集体事件并自动分配给班级学生
@@ -175,7 +188,7 @@ async def create_collective_event(
         if not class_info:
             raise HTTPException(404, "班级不存在")
 
-        ensure_collective_class_access(user, db, event.class_id)
+        ensure_collective_class_access(user, db, event.class_id, API_COLLECTIVE_CREATE)
 
         # 分值校验
         if event.event_type in ['班级荣誉', '集体活动']:
@@ -240,7 +253,7 @@ async def create_collective_event(
 @router.get("/{event_id}", summary="获取集体事件详情")
 async def get_collective_event(
     event_id: int,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_LIST, "GET"))
 ):
     """获取集体事件详情，包含分配列表"""
     with get_moral_db() as db:
@@ -256,7 +269,7 @@ async def get_collective_event(
         if not event:
             raise HTTPException(404, "事件不存在")
 
-        ensure_collective_class_access(user, db, event['class_id'])
+        ensure_collective_class_access(user, db, event['class_id'], API_COLLECTIVE_LIST)
 
         # 获取分配列表
         distributions = db.query_all(
@@ -278,7 +291,7 @@ async def update_collective_event(
     event_id: int,
     event: CollectiveEventUpdate,
     request: Request,
-    user: User = Depends(require_permission('collective_event_manage'))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_UPDATE, "PUT"))
 ):
     """更新集体事件基本信息"""
     with get_moral_db() as db:
@@ -289,7 +302,7 @@ async def update_collective_event(
         if not old_event:
             raise HTTPException(404, "事件不存在")
 
-        ensure_collective_class_access(user, db, old_event['class_id'])
+        ensure_collective_class_access(user, db, old_event['class_id'], API_COLLECTIVE_UPDATE)
 
         # 构建更新语句
         updates = []
@@ -360,7 +373,7 @@ async def update_collective_event(
 async def delete_collective_event(
     event_id: int,
     request: Request,
-    user: User = Depends(require_permission('collective_event_manage'))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_DELETE, "DELETE"))
 ):
     """删除集体事件及其分配记录"""
     with get_moral_db() as db:
@@ -371,7 +384,7 @@ async def delete_collective_event(
         if not event:
             raise HTTPException(404, "事件不存在")
 
-        ensure_collective_class_access(user, db, event['class_id'])
+        ensure_collective_class_access(user, db, event['class_id'], API_COLLECTIVE_DELETE)
 
         distributions = db.query_all(
             """SELECT ced.student_id, ced.class_id, c.grade_id
@@ -419,7 +432,7 @@ async def delete_collective_event(
 @router.get("/{event_id}/distributions", summary="获取分配列表")
 async def get_distributions(
     event_id: int,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_LIST, "GET"))
 ):
     """获取集体事件的学生分配列表"""
     with get_moral_db() as db:
@@ -430,7 +443,7 @@ async def get_distributions(
         if not event:
             raise HTTPException(404, "事件不存在")
 
-        ensure_collective_class_access(user, db, event['class_id'])
+        ensure_collective_class_access(user, db, event['class_id'], API_COLLECTIVE_LIST)
 
         distributions = db.query_all(
             """SELECT ced.id, ced.event_id, ced.student_id, ced.score_assigned,
@@ -452,7 +465,7 @@ async def update_distribution(
     distribution_id: int,
     update: DistributionUpdate,
     request: Request,
-    user: User = Depends(require_permission('collective_event_manage'))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_DISTRIBUTION_UPDATE, "PUT"))
 ):
     """
     更新单个学生的分配记录
@@ -471,7 +484,7 @@ async def update_distribution(
         if not distribution:
             raise HTTPException(404, "分配记录不存在")
 
-        ensure_collective_class_access(user, db, distribution['class_id'])
+        ensure_collective_class_access(user, db, distribution['class_id'], API_COLLECTIVE_DISTRIBUTION_UPDATE)
 
         # 计算实际得分
         if update.is_participant == 0:
@@ -533,7 +546,7 @@ async def get_student_collective_score(
             if user.username != student_id:
                 raise HTTPException(403, "只能查看自己的集体事件得分")
         else:
-            ensure_collective_class_access(user, db, student['class_id'])
+            ensure_collective_class_access(user, db, student['class_id'], API_COLLECTIVE_LIST)
 
         if not semester_id:
             current_semester = get_current_semester(db)

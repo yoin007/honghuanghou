@@ -10,6 +10,14 @@
         <span>平均德育分</span>
         <strong>{{ avgScore }}</strong>
       </div>
+      <div class="rank-console">
+        <span>排行规模</span>
+        <el-select v-model="topN" class="top-select" @change="fetchSummary">
+          <el-option :value="5" label="Top 5" />
+          <el-option :value="10" label="Top 10" />
+          <el-option :value="15" label="Top 15" />
+        </el-select>
+      </div>
     </header>
 
     <section class="metric-grid">
@@ -47,17 +55,17 @@
         :empty="isEmpty(summary.charts?.daily_record_trend, 'count')"
       />
       <DashboardChart
-        title="班级平均分 Top5"
-        eyebrow="CLASS RANK"
+        :title="`班级平均分 Top${effectiveTopN}`"
+        :eyebrow="`CLASS TOP${effectiveTopN}`"
         :option="classRankOption"
-        :empty="isEmpty(summary.charts?.class_score_top5, 'avg_score')"
+        :empty="isEmpty(classScoreRows, 'avg_score')"
       />
     </section>
 
     <section class="risk-panel">
       <div class="panel-header">
         <span>ATTENTION LIST</span>
-        <h3>低分学生 Top5</h3>
+        <h3>低分学生 Top{{ effectiveTopN }}</h3>
       </div>
       <div v-if="lowStudents.length" class="risk-list">
         <div v-for="student in lowStudents" :key="student.student_id" class="risk-row">
@@ -81,6 +89,7 @@ import { getMoralDashboardSummary } from '@/api/modules/dashboard'
 
 const router = useRouter()
 const summary = ref({ cards: [], charts: {}, tables: {} })
+const topN = ref(5)
 const accents = ['#22d3ee', '#a3e635', '#f59e0b', '#fb7185']
 const chartColors = ['#22d3ee', '#84cc16', '#f59e0b', '#fb7185', '#818cf8']
 
@@ -94,6 +103,8 @@ const avgScore = computed(() => {
 })
 
 const lowStudents = computed(() => summary.value.tables?.low_students || [])
+const effectiveTopN = computed(() => summary.value.top_n || topN.value)
+const classScoreRows = computed(() => summary.value.charts?.class_score_rank || summary.value.charts?.class_score_top5 || [])
 
 const scoreDistributionOption = computed(() => ({
   backgroundColor: 'transparent',
@@ -164,7 +175,7 @@ const dailyTrendOption = computed(() => ({
 }))
 
 const classRankOption = computed(() => {
-  const rows = [...(summary.value.charts?.class_score_top5 || [])].reverse()
+  const rows = [...classScoreRows.value].reverse()
   return {
     backgroundColor: 'transparent',
     color: ['#a3e635'],
@@ -194,7 +205,7 @@ const classRankOption = computed(() => {
 })
 
 const fetchSummary = async () => {
-  const res = await getMoralDashboardSummary()
+  const res = await getMoralDashboardSummary({ top_n: topN.value })
   if (res.success) summary.value = res.data
 }
 
@@ -266,6 +277,25 @@ p {
   align-self: start;
   color: #f8fafc;
   font-size: 34px;
+}
+
+.rank-console {
+  display: grid;
+  gap: 8px;
+  min-width: 130px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.rank-console span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.top-select {
+  width: 110px;
 }
 
 .metric-grid,
