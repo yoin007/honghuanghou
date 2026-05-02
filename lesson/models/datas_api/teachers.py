@@ -2,6 +2,7 @@
 """教师管理模块 - 教师CRUD、密码修改"""
 
 import logging
+import os
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -325,6 +326,183 @@ async def update_teacher_teaching_classes(
             "message": "任教班级已更新",
             "data": {"teacher_id": real_teacher_id, "count": len(seen)}
         }
+
+
+@router.post("/init-teaching-classes", summary="初始化所有教师任教班级")
+async def init_all_teaching_classes(
+    current_user: User = Depends(get_current_user)
+):
+    """根据最近一个月的课表数据，批量更新所有教师的任教班级。
+
+    管理员权限：基于 lesson.yaml 中课表数据，提取每个教师涉及的班级作为任教班级。
+    已有任教班级记录的教师会被覆盖更新。
+    """
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="只有管理员可以初始化任教班级")
+
+    from datetime import date, timedelta
+    from collections import defaultdict
+    from models.lesson.lesson import Lesson
+    from models.datas_api.dashboard import _schedule_files_for_range, _format_week_schedule_file
+    import pandas as pd
+    from utils.db_config import MORAL_DB
+
+    # 计算最近一个月的时间范围
+    today = date.today()
+    start_date = today - timedelta(days=30)
+    end_date = today
+
+    lesson = Lesson()
+    class_template = lesson.get_cache_data("class_template")
+    class_names = class_template["class_name"].tolist() if class_template is not None and not class_template.empty else []
+
+    # 从 moral 数据库获取 class_name -> class_id、teacher_name -> teacher_id 映射
+    with SQLiteMoralDatabase() as db:
+        _ensure_teaching_class_table(db)
+        class_rows = db.query_all("SELECT class_id, class_name FROM class WHERE is_active = 1")
+        teacher_rows = db.query_all(
+            """SELECT teacher_id, name, subject
+               FROM teacher
+               WHERE COALESCE(identity_type, 'teacher') = 'teacher'
+                 AND COALESCE(is_active, 1) = 1"""
+        )
+    class_name_to_id = {str(r["class_name"]).strip(): r["class_id"] for r in class_rows if r.get("class_name")}
+    if not class_names:
+        class_names = list(class_name_to_id.keys())
+    teacher_id_by_name = {
+        str(r["name"]).strip(): str(r["teacher_id"]).strip()
+        for r in teacher_rows
+        if r.get("name") and r.get("teacher_id")
+    }
+    teacher_subject_from_db = {
+        str(r["name"]).strip(): str(r.get("subject") or "").strip()
+        for r in teacher_rows
+        if r.get("name")
+    }
+
+    teacher_template = lesson.get_cache_data("teacher_template")
+    valid_teachers = {}
+    teacher_subject_map = {}
+    if teacher_template is not None and not teacher_template.empty and "name" in teacher_template.columns:
+        for _, row in teacher_template.iterrows():
+            name = str(row.get("name", "")).strip()
+            if name and name in teacher_id_by_name:
+                valid_teachers[name] = teacher_id_by_name[name]
+                teacher_subject_map[name] = str(row.get("subject", "")).strip() or teacher_subject_from_db.get(name, "")
+
+    for name, teacher_id in teacher_id_by_name.items():
+        valid_teachers.setdefault(name, teacher_id)
+        teacher_subject_map.setdefault(name, teacher_subject_from_db.get(name, ""))
+
+    # 使用 dashboard.py 中的辅助函数遍历课表文件
+    teacher_classes = defaultdict(set)  # teacher_name -> set of (class_id, subject)
+    class_names_list = [cn for cn in class_names if cn in class_name_to_id]
+
+    schedule_files = _schedule_files_for_range(lesson, start_date, end_date)
+    checked_schedule_dirs = []
+    for month_key in sorted({d.strftime("%Y%m") for d in [start_date, end_date]}):
+        checked_schedule_dirs.append(os.path.join(lesson.lesson_dir or "", month_key, "class_schedule"))
+    parsed_rows = 0
+    skipped_unknown_teachers = set()
+
+    for item in schedule_files:
+        df = _format_week_schedule_file(lesson, item["path"], item["monday"])
+        if df.empty:
+            continue
+
+        weekday_column = "weekday" if "weekday" in df.columns else "week" if "week" in df.columns else ""
+        if not weekday_column:
+            continue
+
+        teacher_df = lesson.schedule_service.replace_subject_teacher(df, teacher_flag=True)
+
+        for idx, row in teacher_df.iterrows():
+            try:
+                weekday = int(row.get(weekday_column))
+            except Exception:
+                continue
+            actual_date = item["monday"] + timedelta(days=weekday - 1)
+            if actual_date < start_date or actual_date > end_date:
+                continue
+
+            for class_name in class_names_list:
+                teacher_value = row.get(class_name)
+                if teacher_value is None:
+                    continue
+                if isinstance(teacher_value, float) and pd.isna(teacher_value):
+                    continue
+                current_teacher = str(teacher_value).strip()
+                if not current_teacher or current_teacher == "-":
+                    continue
+                if current_teacher not in valid_teachers:
+                    skipped_unknown_teachers.add(current_teacher)
+                    continue
+
+                class_id = class_name_to_id.get(class_name)
+                if not class_id:
+                    continue
+
+                # 获取学科
+                subject_value = df.at[idx, class_name] if class_name in df.columns and idx in df.index else ""
+                subject = str(subject_value or "").strip() or teacher_subject_map.get(current_teacher, "")
+                teacher_classes[current_teacher].add((class_id, subject))
+                parsed_rows += 1
+
+    # 写入数据库：覆盖已有记录
+    with SQLiteMoralDatabase() as db:
+        _ensure_teaching_class_table(db)
+
+        initialized_count = 0
+        details = []
+
+        for teacher_name, class_subject_pairs in teacher_classes.items():
+            teacher_id = valid_teachers.get(teacher_name)
+            if not teacher_id:
+                continue
+
+            # 先删除该教师的现有任教班级记录（覆盖），兼容清理旧版本用教师姓名写入 teacher_id 的记录。
+            db.execute("DELETE FROM teacher_teaching_class WHERE teacher_id = %s", (teacher_id,))
+            db.execute("DELETE FROM teacher_teaching_class WHERE teacher_id = %s OR teacher_name = %s", (teacher_name, teacher_name))
+
+            # 插入新的任教班级记录
+            for class_id, subject in class_subject_pairs:
+                try:
+                    db.execute(
+                        """INSERT INTO teacher_teaching_class
+                           (teacher_id, teacher_name, class_id, subject, is_active)
+                           VALUES (%s, %s, %s, %s, 1)""",
+                        (teacher_id, teacher_name, class_id, subject),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to insert teaching class for {teacher_name}: {e}")
+
+            initialized_count += 1
+            details.append({
+                "teacher_name": teacher_name,
+                "status": "updated",
+                "class_count": len(class_subject_pairs)
+            })
+
+    return {
+        "success": True,
+        "message": f"初始化完成：{initialized_count} 位教师任教班级已更新",
+        "data": {
+            "diagnostic_version": 2,
+            "updated": initialized_count,
+            "total_teachers_with_lessons": len(teacher_classes),
+            "date_range": f"{start_date.isoformat()} 至 {end_date.isoformat()}",
+            "lesson_dir": lesson.lesson_dir,
+            "moral_db_path": MORAL_DB,
+            "cwd": os.getcwd(),
+            "source_files": [item["file_name"] for item in schedule_files],
+            "checked_schedule_dirs": checked_schedule_dirs,
+            "matched_classes": len(class_names_list),
+            "matched_teachers": len(valid_teachers),
+            "parsed_rows": parsed_rows,
+            "skipped_unknown_teachers": sorted(skipped_unknown_teachers)[:20],
+            "details": details[:20]  # 只返回前20条详情，避免响应过大
+        }
+    }
 
 
 @router.post("/change-password", summary="修改密码")

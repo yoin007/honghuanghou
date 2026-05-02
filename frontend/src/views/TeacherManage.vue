@@ -5,6 +5,7 @@
         <div class="card-header">
           <span>教师管理</span>
           <div class="header-actions">
+            <el-button type="success" @click="handleInitTeachingClasses" :icon="Setting" :loading="initLoading" v-if="isAdmin">初始化任教班级</el-button>
             <el-button type="primary" @click="handleAdd" :icon="Plus" v-if="isAdmin">添加教师</el-button>
             <el-button type="warning" @click="handleChangeMyPassword" :icon="Lock" v-if="!isAdmin">修改密码</el-button>
             <el-button type="info" @click="fetchTeachers" :icon="Refresh" :loading="loading">刷新</el-button>
@@ -311,7 +312,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
-import { Plus, Refresh, Lock, Search } from '@element-plus/icons-vue'
+import { Plus, Refresh, Lock, Search, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../utils/api'
 import { useAuthStore } from '../stores/auth'
@@ -727,6 +728,64 @@ const handleTeachingSubmit = async () => {
   } finally {
     submitLoading.value = false
   }
+}
+
+// 初始化所有教师任教班级
+const initLoading = ref(false)
+const handleInitTeachingClasses = async () => {
+  ElMessageBox.confirm(
+    '将根据最近一个月的课表数据，批量更新所有教师的任教班级。已有记录的教师会被覆盖更新。确定继续？',
+    '初始化任教班级',
+    {
+      confirmButtonText: '确定初始化',
+      cancelButtonText: '取消',
+      type: 'info'
+    }
+  ).then(async () => {
+    initLoading.value = true
+    try {
+      const res = await api.post('/api/teachers/init-teaching-classes')
+      const raw = res?.status !== undefined ? res.data : res
+      const data = raw?.data?.diagnostic_version !== undefined || raw?.data?.updated !== undefined
+        ? raw.data
+        : raw?.data?.data || raw?.data || {}
+      const updated = Number(data.updated || 0)
+      const message = raw?.message || raw?.data?.message || `初始化完成：${updated} 位教师任教班级已更新`
+      if (updated > 0) {
+        ElMessage.success(message)
+      } else {
+        const diagnosticLines = [
+          `诊断版本：${data.diagnostic_version || '旧后端未返回'}`,
+          `课表目录：${data.lesson_dir || '后端未返回'}`,
+          `数据库：${data.moral_db_path || '后端未返回'}`,
+          `进程目录：${data.cwd || '后端未返回'}`,
+          `检查目录：${(data.checked_schedule_dirs || []).join('；') || '后端未返回'}`,
+          `课表文件：${(data.source_files || []).join('；') || '0 个'}`,
+          `匹配班级：${data.matched_classes || 0}`,
+          `匹配教师：${data.matched_teachers || 0}`,
+          `解析课时行：${data.parsed_rows || 0}`
+        ]
+        console.warn('初始化任教班级诊断', data)
+        ElMessage.warning(`${message}。已读取 ${data.source_files?.length || 0} 个课表文件，匹配 ${data.matched_classes || 0} 个班级、${data.matched_teachers || 0} 位教师。`)
+        ElMessageBox.alert(diagnosticLines.join('\n'), '初始化任教班级诊断', {
+          type: 'warning',
+          confirmButtonText: '知道了'
+        })
+      }
+      // 如果有详情，显示更多信息
+      if (data.details && data.details.length > 0) {
+        const initialized = data.details.filter(d => d.status === 'updated' || d.status === 'initialized')
+        const skipped = data.details.filter(d => d.status === 'skipped')
+        console.log(`初始化任教班级结果：更新 ${initialized.length} 位，跳过 ${skipped.length} 位（已有记录）`, data)
+      }
+      await fetchTeachers()
+    } catch (error) {
+      console.error('初始化任教班级失败:', error)
+      ElMessage.error(error.response?.data?.detail || '初始化任教班级失败')
+    } finally {
+      initLoading.value = false
+    }
+  }).catch(() => {})
 }
 
 // 删除教师

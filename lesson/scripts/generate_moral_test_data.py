@@ -8,8 +8,11 @@
 import sqlite3
 import random
 from datetime import date, timedelta
+import os
 
-DB_PATH = "/Users/yoin/bdsync/program/honghuanghou/lesson/databases/moral.db"
+# 使用相对路径，兼容跨平台
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(os.path.dirname(SCRIPT_DIR), "databases", "moral.db")
 
 def generate_test_data():
     """生成测试数据"""

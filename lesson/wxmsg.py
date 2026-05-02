@@ -7,7 +7,7 @@ import re
 import sqlite3
 from models.manage.member import Member
 
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "databases")
+DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "databases")
 
 logger = logging.getLogger(__name__)
 

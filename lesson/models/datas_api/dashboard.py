@@ -1232,7 +1232,7 @@ async def get_system_dashboard_summary(user: User = Depends(get_current_user)):
     db_dir = os.path.join(os.path.dirname(__file__), "..", "..", "databases")
     db_files = []
     total_size_kb = 0
-    for db_name in ["moral.db", "auth.db", "homework.db", "inout.db", "invigilation.db", "task.db"]:
+    for db_name in ["moral.db", "homework.db", "inout.db", "invigilation.db", "task.db"]:
         db_path = os.path.join(db_dir, db_name)
         stats = _get_db_stats(db_path)
         stats["name"] = db_name
@@ -1240,25 +1240,22 @@ async def get_system_dashboard_summary(user: User = Depends(get_current_user)):
         if stats["exists"]:
             total_size_kb += stats["size_kb"]
 
-    # 2. 用户统计（从 auth.db）
+    # 2. 用户统计（从 moral.db teacher 表）
     user_count = 0
     role_distribution = []
     try:
-        auth_db_path = os.path.join(db_dir, "auth.db")
-        if os.path.exists(auth_db_path):
-            conn = sqlite3.connect(auth_db_path)
+        moral_db_path = os.path.join(db_dir, "moral.db")
+        if os.path.exists(moral_db_path):
+            conn = sqlite3.connect(moral_db_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) AS count FROM users WHERE is_active = 1")
+            # 从 teacher 表统计用户
+            cursor.execute("SELECT COUNT(*) AS count FROM teacher WHERE identity_type = 'teacher'")
             user_count = cursor.fetchone()["count"]
-            cursor.execute(
-                """SELECT r.role_name, COUNT(ur.user_id) AS count
-                   FROM user_roles ur
-                   JOIN roles r ON ur.role_id = r.id
-                   GROUP BY r.role_name"""
-            )
+            # 统计角色分布（role 字段可能包含多角色如 teacher/cleader）
+            cursor.execute("SELECT role, COUNT(*) AS count FROM teacher WHERE identity_type = 'teacher' GROUP BY role")
             for row in cursor.fetchall():
-                role_distribution.append({"role": row["role_name"], "count": row["count"]})
+                role_distribution.append({"role": row["role"] or "teacher", "count": row["count"]})
             conn.close()
     except Exception:
         pass

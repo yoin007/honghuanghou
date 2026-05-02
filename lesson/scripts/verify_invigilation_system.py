@@ -6,8 +6,11 @@
 import sqlite3
 import json
 from datetime import datetime
+import os
 
-DB_PATH = "/Users/yoin/bdsync/program/honghuanghou/lesson/databases/invigilation.db"
+# 使用相对路径，兼容跨平台
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(os.path.dirname(SCRIPT_DIR), "databases", "invigilation.db")
 
 def verify_invigilation_system():
     """验证监考安排系统"""

@@ -6,7 +6,11 @@
 """
 
 import sys
-sys.path.insert(0, '/Users/yoin/bdsync/program/honghuanghou/lesson')
+import os
+# 使用相对路径添加 lesson 目录到 sys.path
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LESSON_DIR = os.path.dirname(SCRIPT_DIR)
+sys.path.insert(0, LESSON_DIR)
 
 from utils.sqlite_moral_db import MoralDatabase, get_moral_db_path
 import sqlite3

@@ -44,8 +44,8 @@ class DataMigrator:
         """
         self.config = Config()
         self.lesson_dir = self.config.get_cross_platform_path("lesson_dir", "lesson.yaml")
-        # 使用指定的模板文件路径
-        self.template_file = "/Users/yoin/bdsync/temp/lesson/checkTemplate.xlsx"
+        # 模板文件路径使用配置的 lesson_dir
+        self.template_file = os.path.join(self.lesson_dir, "checkTemplate.xlsx")
         self.dry_run = dry_run
 
         # 统计信息

@@ -116,7 +116,18 @@ const dbFiles = computed(() => summary.value.tables?.db_files || [])
 const apiRisks = computed(() => summary.value.tables?.api_permission_risks || [])
 const recentOps = computed(() => summary.value.tables?.recent_operations || [])
 
-const roleDistributionOption = computed(() => ({
+const roleNames = {
+    admin: '管理员',
+    teacher: '教师',
+    'teacher/cleader': '教师/班主任',
+    'teacher/jiaowu': '教师/教务',
+    'teacher/xuefa': '教师/学发',
+    cleader: '班主任',
+    jiaowu: '教务',
+    xuefa: '学发',
+    member: '会员'
+  }
+  const roleDistributionOption = computed(() => ({
   backgroundColor: 'transparent',
   color: ['#a78bfa', '#38bdf8', '#34d399', '#fbbf24'],
   tooltip: { trigger: 'item' },
@@ -128,7 +139,7 @@ const roleDistributionOption = computed(() => ({
     label: { color: '#e2e8f0', formatter: '{b}\n{c}' },
     itemStyle: { borderColor: '#07111f', borderWidth: 3 },
     data: (summary.value.charts?.role_distribution || []).map(item => ({
-      name: item.role,
+      name: roleNames[item.role] || item.role,
       value: item.count
     }))
   }]

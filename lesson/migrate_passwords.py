@@ -7,8 +7,8 @@ import sys
 import pandas as pd
 from passlib.context import CryptContext
 
-# 设置工作目录
-lesson_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 设置工作目录为 lesson 目录
+lesson_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(lesson_dir)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
