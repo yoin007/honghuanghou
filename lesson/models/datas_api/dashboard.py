@@ -602,6 +602,239 @@ async def get_class_dashboard_summary(
     }
 
 
+@router.get("/grade/list", summary="获取年级列表")
+async def get_grade_list(user: User = Depends(get_current_user)):
+    """获取年级列表，用于年级驾驶舱切换"""
+    with get_moral_db() as db:
+        # 检查权限：admin/jiaowu/xuefa/g_leader
+        if not (_is_moral_manager(user) or _is_jiaowu(user) or has_user_role(user, "g_leader")):
+            raise HTTPException(status_code=403, detail="无年级驾驶舱权限")
+
+        # 查询年级列表（按班级名中的年级信息推断）
+        classes = db.query_all(
+            "SELECT class_id, class_name FROM class WHERE is_active = 1 ORDER BY class_name"
+        )
+
+        # 从班级名中提取年级（假设班级名格式为 "高一年级X班"）
+        grade_map = {}
+        for c in classes:
+            name = c["class_name"] or ""
+            # 提取年级信息
+            if "高一" in name or "高一" in name:
+                grade_id = "高一"
+                grade_name = "高一年级"
+            elif "高二" in name or "高二" in name:
+                grade_id = "高二"
+                grade_name = "高二年级"
+            elif "高三" in name or "高三" in name:
+                grade_id = "高三"
+                grade_name = "高三年级"
+            else:
+                continue
+
+            if grade_id not in grade_map:
+                grade_map[grade_id] = {
+                    "grade_id": grade_id,
+                    "grade_name": grade_name,
+                    "class_count": 0,
+                    "classes": []
+                }
+            grade_map[grade_id]["class_count"] += 1
+            grade_map[grade_id]["classes"].append({
+                "class_id": c["class_id"],
+                "class_name": name
+            })
+
+        grades = list(grade_map.values())
+        return {"success": True, "data": grades}
+
+
+@router.get("/grade/summary", summary="年级驾驶舱总览")
+async def get_grade_dashboard_summary(
+    grade_id: Optional[str] = Query(None, description="年级ID，如高一/高二/高三"),
+    top_n: int = Query(10, ge=1, le=50),
+    user: User = Depends(get_current_user),
+):
+    """年级驾驶舱：年级整体数据、班级对比、德育表现、出勤事务。
+
+    权限：admin/jiaowu/xuefa/g_leader
+    """
+    top_n = _normalize_top_n(top_n)
+    with get_moral_db() as db:
+        # 检查权限
+        if not (_is_moral_manager(user) or _is_jiaowu(user) or has_user_role(user, "g_leader")):
+            raise HTTPException(status_code=403, detail="无年级驾驶舱权限")
+
+        # 确定年级
+        if not grade_id:
+            # 默认第一个年级
+            classes = db.query_all("SELECT class_name FROM class WHERE is_active = 1 ORDER BY class_name LIMIT 1")
+            if classes:
+                name = classes[0]["class_name"] or ""
+                if "高一" in name:
+                    grade_id = "高一"
+                elif "高二" in name:
+                    grade_id = "高二"
+                elif "高三" in name:
+                    grade_id = "高三"
+
+        if not grade_id:
+            raise HTTPException(status_code=404, detail="年级不存在")
+
+        # 年级名称
+        grade_names = {"高一": "高一年级", "高二": "高二年级", "高三": "高三年级"}
+        grade_name = grade_names.get(grade_id, grade_id)
+
+        # 获取年级下所有班级
+        grade_filter = f"%{grade_id}%"
+        classes = db.query_all(
+            "SELECT class_id, class_name FROM class WHERE is_active = 1 AND class_name LIKE %s",
+            (grade_filter,)
+        )
+        class_ids = [c["class_id"] for c in classes]
+
+        if not class_ids:
+            raise HTTPException(status_code=404, detail="年级下无班级")
+
+        # 学生统计
+        students = db.query_all(
+            f"SELECT student_id, name, gender, birthday, class_id FROM student WHERE class_id IN ({','.join(map(str, class_ids))}) AND status = '在校'"
+        )
+        student_count = len(students)
+        male_count = sum(1 for s in students if s["gender"] == "男")
+        female_count = sum(1 for s in students if s["gender"] == "女")
+
+        # 德育评价统计
+        eval_stats = db.query_one(
+            f"""SELECT
+                AVG(total_score) AS avg_score,
+                MIN(total_score) AS min_score,
+                MAX(total_score) AS max_score,
+                COUNT(*) AS evaluated_count,
+                SUM(CASE WHEN total_score < 60 THEN 1 ELSE 0 END) AS low_count
+            FROM moral_evaluation WHERE class_id IN ({','.join(map(str, class_ids))})"""
+        )
+        avg_score = eval_stats["avg_score"] or 0
+        low_count = eval_stats["low_count"] or 0
+
+        # 低分学生
+        low_students = db.query_all(
+            f"""SELECT s.student_id, s.name, s.class_id, c.class_name, me.total_score
+            FROM moral_evaluation me
+            JOIN student s ON me.student_id = s.student_id
+            JOIN class c ON s.class_id = c.class_id
+            WHERE me.class_id IN ({','.join(map(str, class_ids))}) AND me.total_score < 60
+            ORDER BY me.total_score ASC LIMIT {top_n}"""
+        )
+
+        # 班级对比数据
+        class_comparison = db.query_all(
+            f"""SELECT c.class_name, AVG(me.total_score) AS avg_score, COUNT(*) AS student_count
+            FROM moral_evaluation me
+            JOIN class c ON me.class_id = c.class_id
+            WHERE me.class_id IN ({','.join(map(str, class_ids))})
+            GROUP BY me.class_id
+            ORDER BY avg_score DESC"""
+        )
+
+        # 分数段分布
+        score_band = db.query_all(
+            f"""SELECT
+                CASE
+                    WHEN total_score >= 90 THEN '优秀(90+)'
+                    WHEN total_score >= 80 THEN '良好(80-89)'
+                    WHEN total_score >= 70 THEN '中等(70-79)'
+                    WHEN total_score >= 60 THEN '及格(60-69)'
+                    ELSE '不及格(<60)'
+                END AS label,
+                COUNT(*) AS count
+            FROM moral_evaluation
+            WHERE class_id IN ({','.join(map(str, class_ids))})
+            GROUP BY label
+            ORDER BY
+                CASE label
+                    WHEN '优秀(90+)' THEN 1
+                    WHEN '良好(80-89)' THEN 2
+                    WHEN '中等(70-79)' THEN 3
+                    WHEN '及格(60-69)' THEN 4
+                    ELSE 5
+                END"""
+        )
+
+        # 本月生日学生
+        today = date.today()
+        birthday_month = _filter_birthday_this_month(students, today.month)
+
+    # 请假学生（从请假数据库）
+    leave_students = []
+    try:
+        with _get_inout_db() as inout_db:
+            cursor = inout_db.cursor()
+            cursor.execute(
+                "SELECT student_id, student_name, class_name, leave_type, start_date, end_date FROM leave_records WHERE status = '生效' AND class_name LIKE ?",
+                (grade_filter,)
+            )
+            rows = cursor.fetchall()
+            leave_students = [
+                {
+                    "student_id": r[0],
+                    "name": r[1],
+                    "class_name": r[2],
+                    "leave_type": r[3],
+                    "start_date": r[4],
+                    "end_date": r[5]
+                }
+                for r in rows
+            ]
+    except Exception:
+        pass
+
+    # 组装卡片
+    cards = [
+        _metric("学生总数", student_count, "人", route="/class-students"),
+        _metric("男生数", male_count, "人"),
+        _metric("女生数", female_count, "人"),
+        _metric("班级数", len(class_ids), "个"),
+        _metric("平均德育分", round(avg_score, 1), "分"),
+        _metric("低分学生", low_count, "人", route="/moral/profiles"),
+        _metric("当前请假", len(leave_students), "人"),
+        _metric("本月生日", len(birthday_month), "人"),
+    ]
+
+    # Insights
+    insights = []
+    if low_count > 5:
+        insights.append({
+            "type": "warning",
+            "title": "低分学生较多",
+            "content": f"年级共有{low_count}名学生德育分低于60分，需重点关注"
+        })
+    if avg_score < 70:
+        insights.append({
+            "type": "warning",
+            "title": "年级德育分偏低",
+            "content": f"年级平均德育分仅{round(avg_score, 1)}分，建议加强德育教育"
+        })
+
+    return {
+        "success": True,
+        "data": {
+            "grade_id": grade_id,
+            "grade_name": grade_name,
+            "cards": cards,
+            "charts": {
+                "class_comparison": class_comparison,
+                "score_band": score_band,
+            },
+            "low_students": low_students,
+            "leave_students": leave_students,
+            "birthday_month": _format_birthday_list(birthday_month),
+            "insights": insights,
+            "updated_at": _now_text(),
+        },
+    }
+
+
 @router.get("/teacher/workbench", summary="教师个人工作台")
 async def get_teacher_workbench(
     start_date: Optional[date] = Query(None),

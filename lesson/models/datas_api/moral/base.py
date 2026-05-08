@@ -75,9 +75,30 @@ MORAL_PERMISSIONS = {
             'collective_event_manage',
         ]
     },
+    'g_leader': {
+        'name': '年级主任',
+        'level': 30,
+        'permissions': [
+            'moral_record_input',           # 可以录入记录
+            'moral_record_own_grade',       # 本年级德育记录管理
+            'moral_record_view_own_grade',  # 查看本年级记录
+            'report_view_own_grade',        # 本年级报告查看
+            'student_manage_own_grade',     # 本年级学生管理
+            'homework_publish',
+            'announcement_publish',
+            'leave_approve_own_grade',      # 本年级请假审批
+            'ai_consultation_own_grade',    # 本年级AI诊疗
+            'student_profile_own_grade',    # 本年级学生画像
+            'birthday_reminder_own_grade',  # 本年级生日提醒
+            'moment_create',
+            'moment_view_own_grade',        # 本年级点滴记录
+            'profile_view_own_grade',       # 本年级画像查看
+            'collective_event_manage',      # 集体事件管理
+        ]
+    },
     'cleader': {
         'name': '班主任',
-        'level': 30,
+        'level': 20,
         'permissions': [
             'moral_record_input',      # 可以录入记录
             'moral_record_own_class',  # 本班德育记录/任务管理

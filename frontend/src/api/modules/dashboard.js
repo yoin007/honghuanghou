@@ -30,6 +30,14 @@ export const dashboardApi = {
 
   getSystemSummary() {
     return httpClient.get('/api/dashboard/system/summary')
+  },
+
+  getGradeList() {
+    return httpClient.get('/api/dashboard/grade/list')
+  },
+
+  getGradeSummary(params = {}) {
+    return httpClient.get('/api/dashboard/grade/summary', { params })
   }
 }
 
@@ -41,5 +49,7 @@ export const getClassDashboardSummary = dashboardApi.getClassSummary
 export const getTeacherWorkbench = dashboardApi.getTeacherWorkbench
 export const getInvigilationDashboardSummary = dashboardApi.getInvigilationSummary
 export const getSystemDashboardSummary = dashboardApi.getSystemSummary
+export const fetchGradeList = dashboardApi.getGradeList
+export const fetchGradeDashboardSummary = dashboardApi.getGradeSummary
 
 export default dashboardApi

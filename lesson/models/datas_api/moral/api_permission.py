@@ -805,10 +805,19 @@ def unified_api_permission(
     allow_missing: bool = True,
 ):
     """
-    统一鉴权入口 - 先查数据库，找不到则fallback到YAML。
+    统一鉴权入口 - 支持JWT和微信token双通道。
+
+    auth_mode字段控制通道选择：
+    - 'jwt': 仅JWT鉴权（默认）
+    - 'wechat_token': 仅微信token鉴权
+    - 'both': JWT或微信token均可
+
     公开API (is_public=1) 不强制要求token。
     """
-    async def check(user: Optional[User] = Depends(get_current_user_optional)):
+    async def check(
+        request: Request,
+        user: Optional[User] = Depends(get_current_user_optional),
+    ):
         # 1. 先查数据库配置
         with get_moral_db() as db:
             ensure_api_permission_schema(db)
@@ -816,20 +825,54 @@ def unified_api_permission(
 
         if config:
             # 数据库有配置 → 用数据库规则
-            # is_public=1 时，user 可能为 None，直接放行
+            # is_public=1 时，直接放行
             if int(config.get("is_public") or 0) == 1:
-                return user  # 公开API，返回用户（可能为None）
+                return user
 
-            # 非公开API需要登录
-            if not user:
-                raise HTTPException(status_code=401, detail="未登录")
+            # 获取auth_mode配置
+            auth_mode = config.get("auth_mode") or "jwt"
 
-            decision = is_api_allowed(user, config)
-            if not decision["allowed"]:
-                raise HTTPException(status_code=403, detail=decision["reason"])
-            return user
+            # 公开API（policy_mode='public'）放行
+            policy = _effective_policy(config)
+            if policy.get("policy_mode") == "public":
+                return user
 
-        # 2. 数据库无配置 → fallback到YAML
+            # JWT通道
+            if auth_mode in ("jwt", "both"):
+                if user:
+                    decision = is_api_allowed(user, config)
+                    if decision["allowed"]:
+                        return user
+                    # JWT失败，如果是both模式继续尝试微信通道
+                    if auth_mode != "both":
+                        raise HTTPException(status_code=403, detail=decision["reason"])
+
+            # 微信token通道
+            if auth_mode in ("wechat_token", "both"):
+                try:
+                    from models.datas_api.wechat_auth import get_wechat_identity, check_wechat_permission
+                    wechat_identity = get_wechat_identity(request)
+                    if wechat_identity and wechat_identity.get("wxid"):
+                        decision = check_wechat_permission(wechat_identity, config)
+                        if decision["allowed"]:
+                            return wechat_identity
+                except Exception as e:
+                    logger.warning(f"微信token鉴权失败: {e}")
+
+            # 双通道都失败
+            if auth_mode == "both":
+                raise HTTPException(status_code=401, detail="JWT或微信token认证失败")
+
+            # 单通道失败
+            if auth_mode == "jwt":
+                if not user:
+                    raise HTTPException(status_code=401, detail="未登录")
+                raise HTTPException(status_code=403, detail="JWT权限不足")
+
+            if auth_mode == "wechat_token":
+                raise HTTPException(status_code=401, detail="微信token无效")
+
+        # 2. 数据库无配置 → fallback到YAML（仅JWT通道）
         rule = _get_yaml_rule(api_path)
 
         # YAML公开API

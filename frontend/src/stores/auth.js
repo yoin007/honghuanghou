@@ -11,6 +11,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAdmin = ref(false)
   const isJiaowu = ref(false)
   const isXuefa = ref(false)
+  const isGleader = ref(false)
   const isCleader = ref(false)
   const isLoggedIn = computed(() => !!token.value)
 
@@ -20,6 +21,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin.value = flags.admin
     isJiaowu.value = flags.jiaowu
     isXuefa.value = flags.xuefa
+    isGleader.value = flags.g_leader
     isCleader.value = flags.cleader
   }
 
@@ -68,6 +70,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin.value = false
     isJiaowu.value = false
     isXuefa.value = false
+    isGleader.value = false
     isCleader.value = false
     localStorage.removeItem('token')
     ElMessage.success('已退出登录')
@@ -83,6 +86,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin,
     isJiaowu,
     isXuefa,
+    isGleader,
     isCleader,
     isLoggedIn,
     login,

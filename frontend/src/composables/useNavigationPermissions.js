@@ -35,6 +35,7 @@ export function useNavigationPermissions() {
   const isAdmin = computed(() => authStore.isAdmin)
   const isJiaowu = computed(() => authStore.isJiaowu)
   const isXuefa = computed(() => authStore.isXuefa)
+  const isGleader = computed(() => authStore.isGleader)
   const isCleader = computed(() => authStore.isCleader)
 
   // 角色 flags（用于 canViewDashboard）
@@ -42,12 +43,14 @@ export function useNavigationPermissions() {
     admin: isAdmin.value,
     jiaowu: isJiaowu.value,
     xuefa: isXuefa.value,
+    g_leader: isGleader.value,
     cleader: isCleader.value
   }))
 
   // 驾驶舱菜单权限 computed（通过权威函数判断）
   const canViewClassDashboard = computed(() => canViewDashboard(roleFlags.value, 'class'))
   const canViewMoralDashboard = computed(() => canViewDashboard(roleFlags.value, 'moral'))
+  const canViewGradeDashboard = computed(() => canViewDashboard(roleFlags.value, 'grade'))
   const canViewInvigilationDashboard = computed(() => canViewDashboard(roleFlags.value, 'invigilation'))
   const canViewSystemDashboard = computed(() => canViewDashboard(roleFlags.value, 'system'))
 
@@ -115,6 +118,7 @@ export function useNavigationPermissions() {
     // 驾驶舱权限
     canViewClassDashboard,
     canViewMoralDashboard,
+    canViewGradeDashboard,
     canViewInvigilationDashboard,
     canViewSystemDashboard,
     // 菜单显示控制
@@ -126,6 +130,7 @@ export function useNavigationPermissions() {
     isAdmin,
     isJiaowu,
     isXuefa,
+    isGleader,
     isCleader
   }
 }

@@ -33,7 +33,13 @@ const routes = [
     path: '/dashboard/class',
     name: 'ClassDashboard',
     component: () => import('../views/dashboard/ClassDashboard.vue'),
-    meta: { requiresAuth: true, title: '班级驾驶舱', dashboardRoles: ['admin', 'jiaowu', 'xuefa', 'cleader'] }
+    meta: { requiresAuth: true, title: '班级驾驶舱', dashboardRoles: ['admin', 'jiaowu', 'xuefa', 'cleader', 'g_leader'] }
+  },
+  {
+    path: '/dashboard/grade',
+    name: 'GradeDashboard',
+    component: () => import('../views/dashboard/GradeDashboard.vue'),
+    meta: { requiresAuth: true, title: '年级驾驶舱', dashboardRoles: ['admin', 'jiaowu', 'xuefa', 'g_leader'] }
   },
   {
     path: '/dashboard/teacher',

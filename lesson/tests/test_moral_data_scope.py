@@ -5,11 +5,12 @@ import json
 import os
 import sys
 from contextlib import contextmanager
+from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from models.datas_api.auth import User
 from models.datas_api.auth import is_admin_user
@@ -21,6 +22,14 @@ from models.datas_api.moral.base import (
     record_in_scope,
     target_student_in_scope,
 )
+
+
+def _mock_request():
+    """创建用于测试的 mock Request 对象"""
+    mock = MagicMock(spec=Request)
+    mock.headers = {}
+    mock.query_params = {}
+    return mock
 
 
 def test_teacher_xuefa_is_not_admin_role():
@@ -64,8 +73,9 @@ async def test_unified_api_permission_allows_public_yaml_without_user(monkeypatc
     )
 
     checker = api_permission.unified_api_permission("/api/public")
+    request = _mock_request()
 
-    assert await checker(None) is None
+    assert await checker(request, None) is None
 
 
 @pytest.mark.asyncio
@@ -81,9 +91,10 @@ async def test_unified_api_permission_rejects_private_yaml_without_user(monkeypa
     )
 
     checker = api_permission.unified_api_permission("/api/private")
+    request = _mock_request()
 
     with pytest.raises(HTTPException) as exc:
-        await checker(None)
+        await checker(request, None)
     assert exc.value.status_code == 401
 
 
@@ -102,8 +113,9 @@ async def test_unified_api_permission_allows_matching_yaml_role(monkeypatch):
     user = User(username="苏子腾", role="teacher/xuefa")
 
     checker = api_permission.unified_api_permission("/api/private")
+    request = _mock_request()
 
-    assert await checker(user) is user
+    assert await checker(request, user) is user
 
 
 @pytest.mark.asyncio
@@ -118,8 +130,9 @@ async def test_unified_api_permission_allows_public_db_config_without_user(monke
     )
 
     checker = api_permission.unified_api_permission("/api/db-public")
+    request = _mock_request()
 
-    assert await checker(None) is None
+    assert await checker(request, None) is None
 
 
 @pytest.mark.asyncio
@@ -134,9 +147,10 @@ async def test_unified_api_permission_rejects_private_db_config_without_user(mon
     )
 
     checker = api_permission.unified_api_permission("/api/db-private")
+    request = _mock_request()
 
     with pytest.raises(HTTPException) as exc:
-        await checker(None)
+        await checker(request, None)
     assert exc.value.status_code == 401
 
 
@@ -159,9 +173,10 @@ async def test_unified_api_permission_rejects_db_role_mismatch(monkeypatch):
     user = User(username="普通教师", role="teacher")
 
     checker = api_permission.unified_api_permission("/api/db-private")
+    request = _mock_request()
 
     with pytest.raises(HTTPException) as exc:
-        await checker(user)
+        await checker(request, user)
     assert exc.value.status_code == 403
 
 

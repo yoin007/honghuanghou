@@ -20,6 +20,7 @@ export const parseRolesFromToken = (token) => {
     admin: false,
     jiaowu: false,
     xuefa: false,
+    g_leader: false,
     cleader: false,
     teacher: true // 默认所有用户都有 teacher 权限
   }
@@ -42,6 +43,9 @@ export const parseRolesFromToken = (token) => {
 
     // xuefa 角色（admin 继承）
     flags.xuefa = flags.admin || roles.includes('xuefa') || roleText === 'xuefa'
+
+    // g_leader 角色（年级主任，admin 继承）
+    flags.g_leader = flags.admin || roles.includes('g_leader') || roleText === 'g_leader'
 
     // cleader 角色（班主任，不继承）
     flags.cleader = roles.includes('cleader') || roleText === 'cleader'
@@ -98,9 +102,11 @@ export const canAccessDashboardRoute = (meta = {}, token = '') => {
 export const canViewDashboard = (roleFlags, dashboardType) => {
   switch (dashboardType) {
     case 'class':
-      return roleFlags.admin || roleFlags.jiaowu || roleFlags.xuefa || roleFlags.cleader
+      return roleFlags.admin || roleFlags.jiaowu || roleFlags.xuefa || roleFlags.g_leader || roleFlags.cleader
     case 'moral':
-      return roleFlags.admin || roleFlags.jiaowu || roleFlags.xuefa || roleFlags.cleader
+      return roleFlags.admin || roleFlags.jiaowu || roleFlags.xuefa || roleFlags.g_leader || roleFlags.cleader
+    case 'grade':  // 年级驾驶舱
+      return roleFlags.admin || roleFlags.jiaowu || roleFlags.xuefa || roleFlags.g_leader
     case 'invigilation':
       return roleFlags.admin || roleFlags.jiaowu
     case 'system':

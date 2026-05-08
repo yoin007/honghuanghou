@@ -16,26 +16,6 @@
     <template #navigation>
       <TopNavigation
         :active-index="activeIndex"
-        :is-logged-in="isLoggedIn"
-        :is-admin="isAdmin"
-        :is-jiaowu="isJiaowu"
-        :show-moral-menu="showMoralMenu"
-        :can-view-daily-record="canViewDailyRecord"
-        :can-view-school-event="canViewSchoolEvent"
-        :can-view-task="canViewTask"
-        :can-view-punishment="canViewPunishment"
-        :can-view-collective="canViewCollective"
-        :can-view-evaluation="canViewEvaluation"
-        :can-view-moment="canViewMoment"
-        :can-view-lifebook="canViewLifebook"
-        :can-view-profile="canViewProfile"
-        :can-view-birthday="canViewBirthday"
-        :can-view-student-manage="canViewStudentManage"
-        :can-view-moral-config="canViewMoralConfig"
-        :can-view-class-dashboard="canViewClassDashboard"
-        :can-view-moral-dashboard="canViewMoralDashboard"
-        :can-view-invigilation-dashboard="canViewInvigilationDashboard"
-        :can-view-system-dashboard="canViewSystemDashboard"
         @select="handleSelect"
       />
     </template>
@@ -61,7 +41,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
-import { useNavigationPermissions } from '@/composables/useNavigationPermissions'
+import { useApiPermissionStore } from '@/stores/apiPermission'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ClassSelector from '@/components/layout/ClassSelector.vue'
 import TopNavigation from '@/components/layout/TopNavigation.vue'
@@ -73,31 +53,7 @@ const route = useRoute()
 // Stores
 const authStore = useAuthStore()
 const appStore = useAppStore()
-
-// Navigation permissions from composable
-const {
-  canViewDailyRecord,
-  canViewSchoolEvent,
-  canViewTask,
-  canViewPunishment,
-  canViewCollective,
-  canViewEvaluation,
-  canViewMoment,
-  canViewLifebook,
-  canViewProfile,
-  canViewBirthday,
-  canViewStudentManage,
-  canViewMoralConfig,
-  canViewClassDashboard,
-  canViewMoralDashboard,
-  canViewInvigilationDashboard,
-  canViewSystemDashboard,
-  showMoralMenu,
-  loadMoralMenuPermissions,
-  clearMoralMenuPermissions,
-  isAdmin,
-  isJiaowu
-} = useNavigationPermissions()
+const apiPermissionStore = useApiPermissionStore()
 
 // Local UI state
 const showLoginDialog = ref(false)
@@ -109,12 +65,12 @@ const classCode = computed(() => appStore.classCode)
 const classCodes = computed(() => appStore.classCodes)
 const activeIndex = computed(() => route.path)
 
-// Watch login state to load/clear permissions
+// Watch login state to load/clear API permissions cache
 watch(isLoggedIn, async (newVal) => {
   if (newVal) {
-    await loadMoralMenuPermissions()
+    await apiPermissionStore.loadMyPermissions()
   } else {
-    clearMoralMenuPermissions()
+    apiPermissionStore.clearCache()
   }
 }, { immediate: true })
 
@@ -164,7 +120,7 @@ const handleLogout = () => {
 }
 
 const handleLoginSuccess = async () => {
-  await loadMoralMenuPermissions()
+  await apiPermissionStore.loadMyPermissions()
   // 登录成功后跳转到之前缓存的路由
   if (pendingRoute.value) {
     router.push({ path: pendingRoute.value })
