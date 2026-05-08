@@ -1,7 +1,7 @@
 /**
  * 认证相关 API
  */
-import api from '../index'
+import { httpClient } from '@/shared/api/httpClient'
 
 export const authApi = {
   /**
@@ -14,7 +14,7 @@ export const authApi = {
     const formData = new URLSearchParams()
     formData.append('username', username)
     formData.append('password', password)
-    return api.post('/api/token', formData, {
+    return httpClient.post('/api/token', formData, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     })
   },
@@ -24,7 +24,7 @@ export const authApi = {
    * @returns {Promise}
    */
   refreshToken() {
-    return api.post('/api/refresh')
+    return httpClient.post('/api/refresh')
   },
 
   /**
@@ -32,7 +32,7 @@ export const authApi = {
    * @returns {Promise}
    */
   getCurrentUser() {
-    return api.get('/api/user/current')
+    return httpClient.get('/api/user/current')
   },
 
   /**
@@ -40,7 +40,7 @@ export const authApi = {
    * @returns {Promise}
    */
   logout() {
-    return api.post('/api/logout')
+    return httpClient.post('/api/logout')
   }
 }
 

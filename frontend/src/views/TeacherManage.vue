@@ -314,8 +314,10 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { Plus, Refresh, Lock, Search, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api from '../utils/api'
+import { teacherApi } from '@/api/modules/teacher'
+import { getClasses } from '@/api/modules/moral'
 import { useAuthStore } from '../stores/auth'
+import { formatDateTimeLocal } from '@/utils/time'
 
 // 使用 Pinia auth store
 const authStore = useAuthStore()
@@ -496,12 +498,6 @@ const getIdentityType = (identityType) => {
   return map[identityType] || 'warning'
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleString('zh-CN')
-}
-
 // 计算分页数据
 const updatePagination = () => {
   // 过滤数据
@@ -540,7 +536,7 @@ const updatePagination = () => {
 const fetchTeachers = async () => {
   loading.value = true
   try {
-    const res = await api.get('/api/teachers', { params: { include_all: 1, _t: Date.now() } })
+    const res = await teacherApi.getTeachers({ include_all: 1, _t: Date.now() })
     allTeachers.value = res.data.teachers || []
     total.value = allTeachers.value.length
     updatePagination()
@@ -554,7 +550,7 @@ const fetchTeachers = async () => {
 
 const fetchClassOptions = async () => {
   try {
-    const res = await api.get('/api/moral/admin/classes', { params: { is_active: 1 } })
+    const res = await getClasses({ is_active: 1 })
     classOptions.value = res.data?.data || res.data || []
   } catch (error) {
     console.error('获取班级列表失败:', error)
@@ -609,7 +605,7 @@ const handleAddSubmit = async () => {
     if (valid) {
       submitLoading.value = true
       try {
-        await api.post('/api/teachers', {
+        await teacherApi.createTeacher({
           username: teacherForm.username,
           password: teacherForm.password,
           subject: teacherForm.subject,
@@ -659,7 +655,7 @@ const handleEditSubmit = async () => {
     if (valid) {
       submitLoading.value = true
       try {
-        await api.put(`/api/teachers/${editForm.originalUsername}`, {
+        await teacherApi.updateTeacher(editForm.originalUsername, {
           username: editForm.username,
           wxid: editForm.wxid,
           subject: editForm.subject,
@@ -698,7 +694,7 @@ const handleTeachingClasses = async (row) => {
     await fetchClassOptions()
   }
   try {
-    const res = await api.get(`/api/teachers/${encodeURIComponent(teachingForm.teacherId)}/teaching-classes`)
+    const res = await teacherApi.getTeachingClasses(teachingForm.teacherId)
     const data = res.data?.data || res.data || {}
     const items = data.items || []
     teachingForm.classIds = items.map(item => item.class_id)
@@ -719,7 +715,7 @@ const handleTeachingSubmit = async () => {
         subject: teachingForm.subject || null
       }))
     }
-    await api.put(`/api/teachers/${encodeURIComponent(teachingForm.teacherId)}/teaching-classes`, payload)
+    await teacherApi.updateTeachingClasses(teachingForm.teacherId, payload)
     ElMessage.success('任教班级已保存')
     teachingDialogVisible.value = false
   } catch (error) {
@@ -744,7 +740,7 @@ const handleInitTeachingClasses = async () => {
   ).then(async () => {
     initLoading.value = true
     try {
-      const res = await api.post('/api/teachers/init-teaching-classes')
+      const res = await teacherApi.initTeachingClasses()
       const raw = res?.status !== undefined ? res.data : res
       const data = raw?.data?.diagnostic_version !== undefined || raw?.data?.updated !== undefined
         ? raw.data
@@ -776,7 +772,7 @@ const handleInitTeachingClasses = async () => {
       if (data.details && data.details.length > 0) {
         const initialized = data.details.filter(d => d.status === 'updated' || d.status === 'initialized')
         const skipped = data.details.filter(d => d.status === 'skipped')
-        console.log(`初始化任教班级结果：更新 ${initialized.length} 位，跳过 ${skipped.length} 位（已有记录）`, data)
+        ElMessage.info(`初始化任教班级结果：更新 ${initialized.length} 位，跳过 ${skipped.length} 位（已有记录）`)
       }
       await fetchTeachers()
     } catch (error) {
@@ -796,7 +792,7 @@ const handleDelete = (row) => {
     type: 'warning'
   }).then(async () => {
     try {
-      await api.delete(`/api/teachers/${row.username}`)
+      await teacherApi.deleteTeacher(row.username)
       ElMessage.success('删除成功')
       fetchTeachers()
     } catch (error) {
@@ -820,7 +816,7 @@ const handleResetSubmit = async () => {
     if (valid) {
       submitLoading.value = true
       try {
-        await api.post('/api/admin/set-password', {
+        await teacherApi.adminSetPassword({
           username: passwordForm.username,
           new_password: passwordForm.new_password
         })
@@ -850,7 +846,7 @@ const handleChangePasswordSubmit = async () => {
     if (valid) {
       submitLoading.value = true
       try {
-        await api.post('/api/teachers/change-password', {
+        await teacherApi.changePassword({
           old_password: changePasswordForm.old_password,
           new_password: changePasswordForm.new_password
         })

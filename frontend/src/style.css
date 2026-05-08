@@ -9,6 +9,19 @@
   --text-color-secondary: #909399;
   --border-color: #DCDFE6;
   --background-color: #F5F7FA;
+
+  /* Dashboard 主题变量 */
+  --dashboard-text: #e2e8f0;
+  --dashboard-text-strong: #f8fafc;
+  --dashboard-muted: #94a3b8;
+  --dashboard-label: #cbd5e1;
+  --dashboard-kicker: #67e8f9;
+  --dashboard-panel-border: rgba(99, 179, 237, 0.24);
+  --dashboard-border: rgba(148, 163, 184, 0.26);
+  --dashboard-border-dashed: rgba(148, 163, 184, 0.28);
+  --dashboard-panel-bg: linear-gradient(145deg, rgba(12, 26, 48, 0.94), rgba(7, 15, 30, 0.9));
+  --dashboard-panel-shadow: 0 18px 50px rgba(0, 0, 0, 0.26);
+
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -205,6 +218,67 @@ button:focus-visible {
   width: auto !important;
 }
 
+/* Dashboard shared layout primitives */
+.command-dashboard {
+  min-height: calc(100vh - 80px);
+  padding: 24px;
+  color: var(--dashboard-text);
+}
+
+.command-dashboard .chart-grid,
+.command-dashboard .info-grid,
+.command-dashboard .alert-grid,
+.command-dashboard .visual-grid {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.command-dashboard .chart-grid {
+  grid-template-columns: var(
+    --dashboard-chart-columns,
+    var(--dashboard-chart-columns-desktop, repeat(2, minmax(0, 1fr)))
+  );
+}
+
+.command-dashboard .info-grid {
+  grid-template-columns: var(
+    --dashboard-info-columns,
+    var(--dashboard-info-columns-desktop, repeat(auto-fit, minmax(300px, 1fr)))
+  );
+}
+
+.command-dashboard .alert-grid {
+  grid-template-columns: var(
+    --dashboard-alert-columns,
+    var(--dashboard-alert-columns-desktop, repeat(auto-fit, minmax(300px, 1fr)))
+  );
+}
+
+.command-dashboard .visual-grid {
+  grid-template-columns: var(
+    --dashboard-visual-columns,
+    var(--dashboard-visual-columns-desktop, minmax(0, 1.15fr) minmax(320px, 0.85fr))
+  );
+  gap: 16px;
+}
+
+.command-dashboard .dashboard-row {
+  display: flex;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+@media (max-width: 980px) {
+  .command-dashboard {
+    --dashboard-chart-columns: 1fr;
+    --dashboard-info-columns: 1fr;
+    --dashboard-alert-columns: 1fr;
+    --dashboard-visual-columns: 1fr;
+  }
+}
+
 /* 内联表单项自适应 */
 .el-form--inline .el-form-item {
   margin-right: 16px;
@@ -320,6 +394,43 @@ button:focus-visible {
     width: 90% !important;
     margin: 10px auto !important;
   }
+}
+
+.command-dashboard p {
+  max-width: 720px;
+  margin: 0;
+  color: rgba(226, 232, 240, 0.72);
+}
+
+/* Dashboard 通用列表样式 */
+.db-list,
+.risk-list,
+.ops-list,
+.lesson-list,
+.invigilation-list,
+.birthday-list {
+  display: grid;
+  gap: 10px;
+}
+
+.db-row,
+.risk-row,
+.ops-row,
+.lesson-item,
+.invigilation-item,
+.birthday-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Dashboard 面板基础样式 */
+.panel-section {
+  padding: 18px;
+  border: 1px solid var(--dashboard-panel-border);
+  border-radius: 8px;
+  background: var(--dashboard-panel-bg);
+  box-shadow: var(--dashboard-panel-shadow);
 }
 
 /* 移动端菜单折叠按钮 */

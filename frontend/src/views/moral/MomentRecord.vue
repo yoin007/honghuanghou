@@ -134,7 +134,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api from '@/utils/api'
+import { getMomentRecords, createMomentRecord, updateMomentRecord, deleteMomentRecord, getClasses, getStudents } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
 import { useApiPermission } from '@/composables/useApiPermission'
 
@@ -217,7 +217,7 @@ const fetchRecords = async () => {
       params.record_type = filterForm.record_type
     }
 
-    const res = await api.get('/api/moral/moment-records', { params })
+    const res = await getMomentRecords(params)
     if (res.success) {
       recordList.value = res.data.items
       pagination.total = res.data.total
@@ -232,13 +232,13 @@ const fetchRecords = async () => {
 const fetchClassesAndStudents = async () => {
   try {
     // 获取班级列表
-    const classRes = await api.get('/api/moral/admin/classes')
+    const classRes = await getClasses()
     if (classRes.success) {
       classList.value = classRes.data
     }
 
     // 获取每个班级的学生（简化处理，获取所有学生后按班级分组）
-    const studentRes = await api.get('/api/moral/admin/students', { params: { page: 1, page_size: 10000, for_record_input: 1 } })
+    const studentRes = await getStudents({ page: 1, page_size: 10000, for_record_input: 1 })
     if (studentRes.success) {
       const students = studentRes.data.items
       const grouped = {}
@@ -308,9 +308,9 @@ const handleSubmit = async () => {
 
     let res
     if (isEdit.value) {
-      res = await api.put(`/api/moral/moment-records/${form.record_id}`, data)
+      res = await updateMomentRecord(form.record_id, data)
     } else {
-      res = await api.post('/api/moral/moment-records', data)
+      res = await createMomentRecord(data)
     }
 
     if (res.success) {
@@ -328,7 +328,7 @@ const handleSubmit = async () => {
 const handleDelete = async (row) => {
   try {
     await ElMessageBox.confirm('确定删除该记录吗？', '提示', { type: 'warning' })
-    const res = await api.delete(`/api/moral/moment-records/${row.record_id}`)
+    const res = await deleteMomentRecord(row.record_id)
     if (res.success) {
       ElMessage.success('删除成功')
       fetchRecords()
@@ -349,7 +349,7 @@ const handleExport = async () => {
 
   try {
     ElMessage.info('正在导出数据...')
-    const res = await api.get('/api/moral/moment-records', { params })
+    const res = await getMomentRecords(params)
     if (!res.success || !res.data?.items || res.data.items.length === 0) {
       ElMessage.warning('暂无数据可导出')
       return

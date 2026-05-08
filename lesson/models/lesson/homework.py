@@ -15,6 +15,12 @@ from models.manage.member import check_permission
 log = LogConfig().get_logger()
 
 
+def _get_sqlite_connection():
+    """延迟导入避免循环依赖"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
+
+
 class Homework:
     def __init__(self):
         self.subjects = [
@@ -34,7 +40,7 @@ class Homework:
 
     def __enter__(self, db_path=os.path.join(DB_DIR, "homework.db")):
         self.db_path = db_path
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = _get_sqlite_connection()(self.db_path)
         self.cursor = self.conn.cursor()
         return self
 

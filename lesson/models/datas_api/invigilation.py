@@ -93,10 +93,11 @@ class NotifyRequestV2(BaseModel):
 # 数据库连接
 # =============================================================================
 
+from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+
 def get_invigilation_db():
     """获取监考安排数据库连接"""
-    conn = sqlite3.connect(INVIGILATION_DB)
-    conn.row_factory = sqlite3.Row
+    conn = get_sqlite_connection(INVIGILATION_DB, row_factory=sqlite3.Row)
     return conn
 
 

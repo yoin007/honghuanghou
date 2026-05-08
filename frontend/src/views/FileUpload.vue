@@ -90,6 +90,7 @@ import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { filegatherApi } from '../api/modules/filegather'
 import { useAuthStore } from '../stores/auth'
+import { getFileErrorMessage } from '@/utils/filegather'
 
 const authStore = useAuthStore()
 const isLoggedIn = computed(() => authStore.isLoggedIn)
@@ -134,7 +135,7 @@ const submitForm = async () => {
 
   submitting.value = true
   try {
-    const response = await filegatherApi.uploadFile(
+    await filegatherApi.uploadFile(
       form.value.file,
       form.value.copies,
       form.value.useDate,
@@ -143,8 +144,7 @@ const submitForm = async () => {
     ElMessage.success('文件上传成功')
     resetForm()
   } catch (error) {
-    const detail = error?.response?.data?.detail || '上传失败'
-    ElMessage.error(detail)
+    ElMessage.error(getFileErrorMessage(error, '上传失败'))
   } finally {
     submitting.value = false
   }

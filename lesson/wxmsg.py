@@ -7,6 +7,12 @@ import re
 import sqlite3
 from models.manage.member import Member
 
+
+def _get_sqlite_connection():
+    """延迟导入避免循环依赖"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
+
 DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "databases")
 
 logger = logging.getLogger(__name__)
@@ -546,7 +552,7 @@ class MessageDB:
     """消息数据库"""
 
     def __enter__(self, db=os.path.join(DB_DIR, "messages.db")):
-        self.__conn__ = sqlite3.connect(db)
+        self.__conn__ = _get_sqlite_connection()(db)
         self.__cursor__ = self.__conn__.cursor()
         return self
 

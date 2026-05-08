@@ -1,8 +1,7 @@
 /**
- * 用户相关 API
- * 使用带认证的 axios 实例
+ * 用户与班级学生相关 API
  */
-import api from '@/utils/api'
+import { httpClient } from '@/shared/api/httpClient'
 
 export const userApi = {
   /**
@@ -11,7 +10,7 @@ export const userApi = {
    * @returns {Promise}
    */
   getUserList(params) {
-    return api.get('/api/users', { params })
+    return httpClient.get('/api/users', { params })
   },
 
   /**
@@ -20,7 +19,7 @@ export const userApi = {
    * @returns {Promise}
    */
   getUserDetail(userId) {
-    return api.get(`/api/users/${userId}`)
+    return httpClient.get(`/api/users/${userId}`)
   },
 
   /**
@@ -29,7 +28,7 @@ export const userApi = {
    * @returns {Promise}
    */
   createUser(data) {
-    return api.post('/api/users', data)
+    return httpClient.post('/api/users', data)
   },
 
   /**
@@ -39,7 +38,7 @@ export const userApi = {
    * @returns {Promise}
    */
   updateUser(userId, data) {
-    return api.put(`/api/users/${userId}`, data)
+    return httpClient.put(`/api/users/${userId}`, data)
   },
 
   /**
@@ -48,28 +47,60 @@ export const userApi = {
    * @returns {Promise}
    */
   deleteUser(userId) {
-    return api.delete(`/api/users/${userId}`)
+    return httpClient.delete(`/api/users/${userId}`)
   },
 
   /**
-   * 获取班级学生列表
+   * 获取班级代码列表
+   * @param {Object} params 可选参数 { ip }
+   * @returns {Promise}
+   */
+  getClassCodes(params = {}) {
+    return httpClient.get('/api/class-codes/', { params })
+  },
+
+  /**
+   * 获取班级信息
+   * @param {string} classCode 班级代码
+   * @returns {Promise}
+   */
+  getClassInfo(classCode) {
+    return httpClient.get(`/api/class-info/${classCode}`)
+  },
+
+  /**
+   * 获取班级学生列表 (class-students 接口)
    * @param {string} classCode 班级代码
    * @returns {Promise}
    */
   getClassStudents(classCode) {
-    return api.get(`/api/class-students/${classCode}`)
+    return httpClient.get(`/api/class-students/${classCode}`)
   },
 
   /**
-   * 获取班级列表
-   * @param {string} ip 客户端IP
+   * 获取学生状态列表 (students_status 接口)
+   * @param {string} classCode 班级代码
    * @returns {Promise}
    */
-  getClassCodes(ip) {
-    return api.get('/api/class-codes/', {
-      params: ip ? { ip } : {}
-    })
+  getStudentsStatus(classCode) {
+    return httpClient.get(`/api/students_status/${classCode}`)
+  },
+
+  /**
+   * 获取学生列表 (students 接口)
+   * @param {string} classCode 班级代码
+   * @returns {Promise}
+   */
+  getStudents(classCode) {
+    return httpClient.get(`/api/students/${encodeURIComponent(classCode)}`)
   }
 }
+
+// 导出独立函数便于按需导入
+export const getClassCodes = userApi.getClassCodes
+export const getClassInfo = userApi.getClassInfo
+export const getClassStudents = userApi.getClassStudents
+export const getStudentsStatus = userApi.getStudentsStatus
+export const getStudents = userApi.getStudents
 
 export default userApi

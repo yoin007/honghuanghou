@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElTimeline, ElTimelineItem, ElCard, ElEmpty, ElButton, ElDialog, ElForm, ElFormItem, ElInput } from 'element-plus'
-import api from '../utils/api'
+import { getAnnouncements, updateAnnouncement, deleteAnnouncement } from '@/api/modules/announcement'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
@@ -37,7 +37,7 @@ const fetchAnnouncements = async () => {
 
   loading.value = true
   try {
-    const response = await api.get(`/api/announcements/${classCode}`)
+    const response = await getAnnouncements(classCode)
     if (response.data && Array.isArray(response.data.announcements)) {
       announcements.value = response.data.announcements.sort((a, b) => 
         new Date(b.date) - new Date(a.date)
@@ -67,7 +67,7 @@ const openEditDialog = (ann) => {
 const handleUpdate = async () => {
   updating.value = true
   try {
-    await api.put(`/api/announcement/${editForm.value.id}`, {
+    await updateAnnouncement(editForm.value.id, {
       title: editForm.value.title,
       content: editForm.value.content
     })
@@ -84,7 +84,7 @@ const handleUpdate = async () => {
 
 const handleDelete = async (annId) => {
   try {
-    await api.delete(`/api/announcement/${annId}`)
+    await deleteAnnouncement(annId)
     ElMessage.success('公告删除成功')
     fetchAnnouncements()
   } catch (error) {

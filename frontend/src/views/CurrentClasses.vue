@@ -186,7 +186,8 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
-import api from '../utils/api'
+import { scheduleApi, getPeriods, getCurrentClasses, getTeacherSchedule, getTeacherScheduleNextweek } from '@/api/modules/schedule'
+import { teacherApi } from '@/api/modules/teacher'
 import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
@@ -307,9 +308,7 @@ const handleResize = () => {
 // 获取课程时间表
 const fetchPeriods = async () => {
   try {
-    const response = await api.get('/api/periods', {
-      params: { _ts: Date.now() }
-    })
+    const response = await getPeriods()
     periods.value = response.data.periods
   } catch (error) {
     handleApiError(error)
@@ -329,9 +328,7 @@ const handleApiError = (error) => {
 const fetchCurrentClasses = async () => {
   loading.value = true
   try {
-    const response = await api.get('/api/current-classes', {
-      params: { _ts: Date.now() }
-    })
+    const response = await getCurrentClasses()
     currentClasses.value = response.data.current_classes
   } catch (error) {
     handleApiError(error)
@@ -344,9 +341,7 @@ const fetchCurrentClasses = async () => {
 // 获取教师列表
 const fetchTeachers = async () => {
   try {
-    const response = await api.get('/api/teachers', {
-      params: { _ts: Date.now() }
-    })
+    const response = await teacherApi.getTeachers()
     // 新API返回对象数组，提取username字段
     teachers.value = response.data.teachers.map(t => t.username)
   } catch (error) {
@@ -364,9 +359,7 @@ const fetchTeacherSchedule = async (teacherName) => {
 
   teacherScheduleLoading.value = true
   try {
-    const response = await api.get(`/api/teacher-schedule/${teacherName}`, {
-      params: { _ts: Date.now() }
-    })
+    const response = await getTeacherSchedule(teacherName)
     teacherSchedule.value = response.data.schedule
   } catch (error) {
     handleApiError(error)
@@ -382,9 +375,7 @@ const fetchNextWeekSchedule = async (teacherName) => {
   
   teacherScheduleLoading.value = true
   try {
-    const response = await api.get(`/api/teacher-schedule-nextweek/${teacherName}`, {
-      params: { _ts: Date.now() }
-    })
+    const response = await getTeacherScheduleNextweek(teacherName)
     teacherSchedule.value = response.data.schedule
   } catch (error) {
     handleApiError(error)

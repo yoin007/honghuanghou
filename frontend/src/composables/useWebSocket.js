@@ -2,6 +2,8 @@
 import { ref, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 
+const debugWebSocket = import.meta.env.DEV && import.meta.env.VITE_DEBUG_WEBSOCKET === 'true'
+
 export function useWebSocket(url = 'ws://localhost:14600/ws') {
   const ws = ref(null)
   const isConnected = ref(false)
@@ -20,7 +22,9 @@ export function useWebSocket(url = 'ws://localhost:14600/ws') {
       isConnected.value = true
       // 发送身份消息
       ws.value.send(JSON.stringify({ user_id: userId, room }))
-      console.log('WebSocket connected')
+      if (debugWebSocket) {
+        console.debug('WebSocket connected')
+      }
     }
 
     ws.value.onmessage = (event) => {
@@ -35,7 +39,9 @@ export function useWebSocket(url = 'ws://localhost:14600/ws') {
 
     ws.value.onclose = () => {
       isConnected.value = false
-      console.log('WebSocket disconnected')
+      if (debugWebSocket) {
+        console.debug('WebSocket disconnected')
+      }
       // 自动重连
       reconnectTimer = setTimeout(() => {
         connect(userId, room)
@@ -56,7 +62,9 @@ export function useWebSocket(url = 'ws://localhost:14600/ws') {
         ElMessage.info('课表已更新')
         break
       case 'system':
-        console.log('System:', data.content)
+        if (debugWebSocket) {
+          console.debug('System:', data.content)
+        }
         break
       case 'pong':
         // 心跳响应

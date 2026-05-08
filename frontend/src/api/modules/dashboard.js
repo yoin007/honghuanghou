@@ -1,39 +1,45 @@
-import request from '@/utils/api'
+/**
+ * 驾驶舱 API
+ */
+import { httpClient } from '@/shared/api/httpClient'
 
-export function getDashboardOverview() {
-  return request.get('/api/dashboard/overview')
+export const dashboardApi = {
+  getOverview() {
+    return httpClient.get('/api/dashboard/overview')
+  },
+
+  getMoralSummary(params = {}) {
+    return httpClient.get('/api/dashboard/moral/summary', { params })
+  },
+
+  getTeachingSummary(params = {}) {
+    return httpClient.get('/api/dashboard/teaching/summary', { params })
+  },
+
+  getClassSummary(params = {}) {
+    return httpClient.get('/api/dashboard/class/summary', { params })
+  },
+
+  getTeacherWorkbench(params = {}) {
+    return httpClient.get('/api/dashboard/teacher/workbench', { params })
+  },
+
+  getInvigilationSummary(params = {}) {
+    return httpClient.get('/api/dashboard/invigilation/summary', { params })
+  },
+
+  getSystemSummary() {
+    return httpClient.get('/api/dashboard/system/summary')
+  }
 }
 
-export function getMoralDashboardSummary(params = {}) {
-  return request.get('/api/dashboard/moral/summary', { params })
-}
+// 兼容旧命名导出
+export const getDashboardOverview = dashboardApi.getOverview
+export const getMoralDashboardSummary = dashboardApi.getMoralSummary
+export const getTeachingDashboardSummary = dashboardApi.getTeachingSummary
+export const getClassDashboardSummary = dashboardApi.getClassSummary
+export const getTeacherWorkbench = dashboardApi.getTeacherWorkbench
+export const getInvigilationDashboardSummary = dashboardApi.getInvigilationSummary
+export const getSystemDashboardSummary = dashboardApi.getSystemSummary
 
-export function getTeachingDashboardSummary(params = {}) {
-  return request.get('/api/dashboard/teaching/summary', { params })
-}
-
-export function getClassDashboardSummary(params = {}) {
-  return request.get('/api/dashboard/class/summary', { params })
-}
-
-export function getTeacherWorkbench(params = {}) {
-  return request.get('/api/dashboard/teacher/workbench', { params })
-}
-
-export function getInvigilationDashboardSummary(params = {}) {
-  return request.get('/api/dashboard/invigilation/summary', { params })
-}
-
-export function getSystemDashboardSummary() {
-  return request.get('/api/dashboard/system/summary')
-}
-
-export default {
-  getDashboardOverview,
-  getMoralDashboardSummary,
-  getTeachingDashboardSummary,
-  getClassDashboardSummary,
-  getTeacherWorkbench,
-  getInvigilationDashboardSummary,
-  getSystemDashboardSummary
-}
+export default dashboardApi

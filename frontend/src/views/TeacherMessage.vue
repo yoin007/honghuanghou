@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElCard, ElMessage, ElEmpty } from 'element-plus'
-import api from '../utils/api'
+import { getMessages } from '@/api/modules/message'
 
 const messages = ref([])
 const loading = ref(false)
@@ -21,8 +21,7 @@ const fetchMessages = async () => {
 
   loading.value = true
   try {
-    const response = await api.get(`/api/messages/${classCode}`)
-    console.log('Messages response:', response.data)
+    const response = await getMessages(classCode)
     if (response.data && Array.isArray(response.data.messages)) {
       messages.value = response.data.messages
     } else {

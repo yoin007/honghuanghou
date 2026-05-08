@@ -5,7 +5,6 @@ import os
 import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional
-import pandas as pd
 import logging
 import yaml
 import jwt
@@ -53,6 +52,7 @@ class User(BaseModel):
 # ==================== Security ====================
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/token")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/token", auto_error=False)
 
 
 # ==================== Password Functions ====================
@@ -77,10 +77,12 @@ def get_users_dict():
 
     for teacher in teachers:
         name = teacher['name']
+        is_password_changed = teacher.get('is_password_changed', 0)
+        stored_password = _get_compat_stored_password(teacher, is_password_changed)
         users_data[name] = {
             'username': name,
-            'stored_password': str(teacher['pwd']),
-            'is_password_changed': teacher.get('is_password_changed', 0),
+            'stored_password': stored_password,
+            'is_password_changed': is_password_changed,
             'active': teacher.get('active', 1),
             'notice': teacher.get('notice', 1),
             'subject': teacher.get('subject', ''),
@@ -92,13 +94,28 @@ def get_users_dict():
     return users_data
 
 
+def _is_password_changed(value) -> bool:
+    """兼容 SQLite / DataFrame 读出的数字或字符串状态。"""
+    try:
+        return int(value or 0) == 1
+    except (TypeError, ValueError):
+        return False
+
+
+def _get_compat_stored_password(teacher: dict, is_password_changed: int = 0) -> str:
+    """根据改密状态选择验证用密码字段。"""
+    if _is_password_changed(is_password_changed):
+        return str(teacher.get('pwd', '') or '')
+    return str(teacher.get('raw_pwd') or teacher.get('pwd', '') or '')
+
+
 def verify_password_compat(plain_password, stored_password, is_password_changed=0):
     """
     验证密码，根据 is_password_changed 决定验证方式
     - is_password_changed=1: 使用 bcrypt 验证
     - is_password_changed=0: 使用明文验证
     """
-    if is_password_changed == 1:
+    if _is_password_changed(is_password_changed):
         if stored_password and stored_password.startswith(('$2a$', '$2b$', '$2y$')):
             try:
                 return verify_password(plain_password, stored_password)
@@ -140,7 +157,7 @@ def authenticate_user(username: str, password: str):
         return False
 
     is_password_changed = teacher.get('is_password_changed', 0)
-    stored_password = str(teacher.get('pwd', ''))
+    stored_password = _get_compat_stored_password(teacher, is_password_changed)
 
     if not verify_password_compat(password, stored_password, is_password_changed):
         return False
@@ -181,8 +198,27 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     return user
 
 
+async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optional)) -> Optional[User]:
+    """获取当前登录用户（可选）- 有token返回User，无token返回None，不强制要求登录"""
+    if token is None:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+        token_data = TokenData(username=username)
+    except jwt.PyJWTError:
+        return None
+    user = get_user(token_data.username)
+    return user
+
+
 def is_admin_user(user):
-    """检查用户是否为管理员"""
+    """检查用户是否为管理员（纯 admin 角色）
+
+    Batch75: 语义明确 - 只判断 admin 角色，不含 teacher/xuefa 等兼容角色
+    """
     if not user:
         return False
     if hasattr(user, 'role'):
@@ -190,6 +226,27 @@ def is_admin_user(user):
     else:
         role = str(user.get("role", "")) if isinstance(user, dict) else ""
     return role == "admin" or "admin" in role
+
+
+def is_admin_or_role(user, role_name: str) -> bool:
+    """检查用户是否为管理员或具有特定角色
+
+    Batch75: 语义清晰的组合判断 helper
+    用于 jiaowu、xuefa 等需要 admin + 特定角色的场景
+    """
+    return is_admin_user(user) or _has_role(user, role_name)
+
+
+def _has_role(user, role_name: str) -> bool:
+    """检查用户是否具有特定角色（内部 helper）"""
+    if not user:
+        return False
+    if hasattr(user, 'role'):
+        role = str(user.role) if user.role else ""
+    else:
+        role = str(user.get("role", "")) if isinstance(user, dict) else ""
+    roles = role.split('/')
+    return role_name in roles
 
 
 def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:

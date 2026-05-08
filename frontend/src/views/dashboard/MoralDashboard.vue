@@ -1,39 +1,21 @@
 <template>
-  <div class="command-dashboard moral-theme">
-    <header class="hero-band">
-      <div>
-        <span class="kicker">Moral Intelligence</span>
-        <h1>德育驾驶舱</h1>
-        <p>以当前账号可见范围统计德育分、日常表现和风险学生，所有指标均来自后端权限裁剪后的真实数据。</p>
-      </div>
+  <DashboardLoadingState v-if="errorState === 'loading'" :metric-count="4" :chart-count="5" />
+  <ErrorState v-else-if="errorState" :type="errorState" :show-retry="errorState === 'error'" @retry="fetchSummary" />
+  <ForbiddenState v-else-if="forbidden" />
+  <div v-else class="command-dashboard moral-theme">
+    <DashboardHero
+      kicker="Moral Intelligence"
+      title="德育驾驶舱"
+      description="以当前账号可见范围统计德育分、日常表现和风险学生，所有指标均来自后端权限裁剪后的真实数据。"
+    >
       <div class="score-orb">
         <span>平均德育分</span>
         <strong>{{ avgScore }}</strong>
       </div>
-      <div class="rank-console">
-        <span>排行规模</span>
-        <el-select v-model="topN" class="top-select" @change="fetchSummary">
-          <el-option :value="5" label="Top 5" />
-          <el-option :value="10" label="Top 10" />
-          <el-option :value="15" label="Top 15" />
-        </el-select>
-      </div>
-    </header>
+      <DashboardTopNSelect v-model="topN" @change="fetchSummary" />
+    </DashboardHero>
 
-    <section class="metric-grid">
-      <button
-        v-for="(card, index) in summary.cards"
-        :key="card.label"
-        class="metric-card"
-        :style="{ '--accent': accents[index % accents.length] }"
-        type="button"
-        @click="go(card.route)"
-      >
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value }}<small>{{ card.unit }}</small></strong>
-        <i></i>
-      </button>
-    </section>
+    <DashboardMetricGrid :cards="summary.cards" :accents="accents" @click="go" />
 
     <section class="chart-grid">
       <DashboardChart
@@ -41,32 +23,39 @@
         eyebrow="SCORE BAND"
         :option="scoreDistributionOption"
         :empty="isEmpty(summary.charts?.score_distribution)"
+        emptyText="当前无德育分数分布数据"
       />
       <DashboardChart
         title="日常表现正负占比"
         eyebrow="EVENT MIX"
         :option="eventMixOption"
         :empty="isEmpty(summary.charts?.daily_event_mix)"
+        emptyText="当前无日常表现记录"
       />
       <DashboardChart
         title="近 14 天日常记录趋势"
         eyebrow="14 DAY TREND"
         :option="dailyTrendOption"
         :empty="isEmpty(summary.charts?.daily_record_trend, 'count')"
+        emptyText="近 14 天暂无日常记录数据"
       />
       <DashboardChart
         :title="`班级平均分 Top${effectiveTopN}`"
         :eyebrow="`CLASS TOP${effectiveTopN}`"
         :option="classRankOption"
         :empty="isEmpty(classScoreRows, 'avg_score')"
+        emptyText="当前无班级德育分排行数据"
+      />
+      <DashboardChart
+        title="请假人数班级分布"
+        eyebrow="LEAVE BY CLASS"
+        :option="leaveByClassOption"
+        :empty="isEmpty(summary.charts?.leave_by_class)"
+        emptyText="当前无请假数据"
       />
     </section>
 
-    <section class="risk-panel">
-      <div class="panel-header">
-        <span>ATTENTION LIST</span>
-        <h3>低分学生 Top{{ effectiveTopN }}</h3>
-      </div>
+    <DashboardPanelSection class="risk-panel" variant="danger" eyebrow="ATTENTION LIST" :title="`低分学生 Top${effectiveTopN}`">
       <div v-if="lowStudents.length" class="risk-list">
         <div v-for="student in lowStudents" :key="student.student_id" class="risk-row">
           <div>
@@ -76,8 +65,22 @@
           <b>{{ student.total_score }} 分</b>
         </div>
       </div>
-      <div v-else class="empty-strip">当前可见范围内暂无 60 分以下学生。</div>
-    </section>
+      <DashboardEmptyStrip v-else text="当前可见范围内暂无 60 分以下学生。" />
+    </DashboardPanelSection>
+
+    <DashboardLeaveList
+      :students="leaveStudents"
+      mode="moral"
+      eyebrow="ATTENDANCE RISK"
+      title="当前请假学生"
+      empty-text="当前可见范围内无请假学生，出勤正常。"
+    />
+
+    <DashboardInsights
+      :insights="insights"
+      eyebrow="MORAL INSIGHTS"
+      title="德育运行态势"
+    />
   </div>
 </template>
 
@@ -85,11 +88,24 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import DashboardChart from '@/components/dashboard/DashboardChart.vue'
+import DashboardEmptyStrip from '@/components/dashboard/DashboardEmptyStrip.vue'
+import DashboardInsights from '@/components/dashboard/DashboardInsights.vue'
+import DashboardLeaveList from '@/components/dashboard/DashboardLeaveList.vue'
+import DashboardLoadingState from '@/components/dashboard/DashboardLoadingState.vue'
+import ErrorState from '@/components/dashboard/ErrorState.vue'
+import ForbiddenState from '@/components/dashboard/ForbiddenState.vue'
+import DashboardHero from '@/components/dashboard/DashboardHero.vue'
+import DashboardMetricGrid from '@/components/dashboard/DashboardMetricGrid.vue'
+import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
+import DashboardTopNSelect from '@/components/dashboard/DashboardTopNSelect.vue'
 import { getMoralDashboardSummary } from '@/api/modules/dashboard'
+import { basePieOption, baseHorizontalBarOption, baseLineOption, baseVerticalBarOption } from '@/utils/charting'
+import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
 const router = useRouter()
 const summary = ref({ cards: [], charts: {}, tables: {} })
 const topN = ref(5)
+const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#22d3ee', '#a3e635', '#f59e0b', '#fb7185']
 const chartColors = ['#22d3ee', '#84cc16', '#f59e0b', '#fb7185', '#818cf8']
 
@@ -103,150 +119,75 @@ const avgScore = computed(() => {
 })
 
 const lowStudents = computed(() => summary.value.tables?.low_students || [])
+const leaveStudents = computed(() => summary.value.tables?.leave_students || [])
+const insights = computed(() => summary.value.insights || [])
 const effectiveTopN = computed(() => summary.value.top_n || topN.value)
-const classScoreRows = computed(() => summary.value.charts?.class_score_rank || summary.value.charts?.class_score_top5 || [])
+const classScoreRows = computed(() => summary.value.charts?.class_score_rank || [])
 
-const scoreDistributionOption = computed(() => ({
-  backgroundColor: 'transparent',
+const scoreDistributionOption = computed(() => baseVerticalBarOption({
+  xAxisData: (summary.value.charts?.score_distribution || []).map(item => item.name),
+  seriesData: (summary.value.charts?.score_distribution || []).map(item => item.value),
+  tooltipTrigger: 'item',
   color: chartColors,
-  tooltip: { trigger: 'item' },
-  grid: { left: 36, right: 20, top: 28, bottom: 28 },
-  xAxis: {
-    type: 'category',
-    data: (summary.value.charts?.score_distribution || []).map(item => item.name),
-    axisLabel: { color: '#cbd5e1' },
-    axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.35)' } }
-  },
-  yAxis: {
-    type: 'value',
-    axisLabel: { color: '#94a3b8' },
-    splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)' } }
-  },
-  series: [{
-    type: 'bar',
-    barWidth: 24,
-    data: (summary.value.charts?.score_distribution || []).map(item => item.value),
-    itemStyle: {
-      borderRadius: [8, 8, 0, 0],
-      color: params => chartColors[params.dataIndex % chartColors.length]
-    }
-  }]
+  itemStyle: {
+    borderRadius: [8, 8, 0, 0],
+    color: params => chartColors[params.dataIndex % chartColors.length]
+  }
 }))
 
-const eventMixOption = computed(() => ({
-  backgroundColor: 'transparent',
+const eventMixOption = computed(() => basePieOption({
   color: ['#22d3ee', '#fb7185'],
-  tooltip: { trigger: 'item' },
-  legend: { bottom: 0, textStyle: { color: '#cbd5e1' } },
-  series: [{
-    type: 'pie',
-    radius: ['46%', '70%'],
-    center: ['50%', '44%'],
-    label: { color: '#e2e8f0', formatter: '{b}\n{c}' },
-    itemStyle: { borderColor: '#07111f', borderWidth: 3 },
-    data: summary.value.charts?.daily_event_mix || []
-  }]
+  radius: ['46%', '70%'],
+  data: summary.value.charts?.daily_event_mix || []
 }))
 
-const dailyTrendOption = computed(() => ({
-  backgroundColor: 'transparent',
-  color: ['#67e8f9'],
-  tooltip: { trigger: 'axis' },
-  grid: { left: 38, right: 20, top: 28, bottom: 32 },
-  xAxis: {
-    type: 'category',
-    data: (summary.value.charts?.daily_record_trend || []).map(item => item.date?.slice(5)),
-    axisLabel: { color: '#cbd5e1' },
-    axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.35)' } }
-  },
-  yAxis: {
-    type: 'value',
-    axisLabel: { color: '#94a3b8' },
-    splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)' } }
-  },
-  series: [{
-    type: 'line',
-    smooth: true,
-    symbolSize: 7,
-    areaStyle: { color: 'rgba(34, 211, 238, 0.16)' },
-    lineStyle: { width: 3 },
-    data: (summary.value.charts?.daily_record_trend || []).map(item => item.count)
-  }]
+const dailyTrendOption = computed(() => baseLineOption({
+  xAxisData: (summary.value.charts?.daily_record_trend || []).map(item => item.date?.slice(5)),
+  seriesData: (summary.value.charts?.daily_record_trend || []).map(item => item.count),
+  areaStyle: { color: 'rgba(34, 211, 238, 0.16)' },
+  color: ['#67e8f9']
 }))
 
 const classRankOption = computed(() => {
   const rows = [...classScoreRows.value].reverse()
-  return {
-    backgroundColor: 'transparent',
-    color: ['#a3e635'],
-    tooltip: { trigger: 'axis' },
+  return baseHorizontalBarOption({
+    yAxisData: rows.map(item => item.class_name),
+    seriesData: rows.map(item => item.avg_score),
     grid: { left: 88, right: 24, top: 22, bottom: 28 },
-    xAxis: {
-      type: 'value',
-      min: 0,
-      max: 100,
-      axisLabel: { color: '#94a3b8' },
-      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)' } }
-    },
-    yAxis: {
-      type: 'category',
-      data: rows.map(item => item.class_name),
-      axisLabel: { color: '#cbd5e1' },
-      axisLine: { show: false }
-    },
-    series: [{
-      type: 'bar',
-      data: rows.map(item => item.avg_score),
-      barWidth: 16,
-      label: { show: true, position: 'right', color: '#e2e8f0' },
-      itemStyle: { borderRadius: [0, 8, 8, 0] }
-    }]
-  }
+    barWidth: 16,
+    borderRadius: [0, 8, 8, 0],
+    color: ['#a3e635']
+  })
 })
 
-const fetchSummary = async () => {
-  const res = await getMoralDashboardSummary({ top_n: topN.value })
-  if (res.success) summary.value = res.data
-}
+const leaveByClassOption = computed(() => {
+  const rows = [...(summary.value.charts?.leave_by_class || [])].reverse()
+  return baseHorizontalBarOption({
+    yAxisData: rows.map(item => item.name),
+    seriesData: rows.map(item => item.value),
+    grid: { left: 88, right: 24, top: 22, bottom: 28 },
+    barWidth: 16,
+    borderRadius: [0, 8, 8, 0],
+    color: ['#fb7185']
+  })
+})
+
+const fetchSummary = () => execute(
+  () => getMoralDashboardSummary({ top_n: topN.value }),
+  data => { summary.value = data }
+)
 
 onMounted(fetchSummary)
 </script>
 
 <style scoped>
 .command-dashboard {
-  min-height: calc(100vh - 80px);
-  padding: 24px;
-  color: #e2e8f0;
+  --dashboard-chart-columns-desktop: repeat(2, minmax(0, 1fr));
+
   background:
     linear-gradient(135deg, rgba(8, 16, 32, 0.98), rgba(12, 22, 42, 0.96)),
     radial-gradient(circle at 9% 8%, rgba(34, 211, 238, 0.2), transparent 28%),
     radial-gradient(circle at 91% 14%, rgba(244, 114, 182, 0.13), transparent 28%);
-}
-
-.hero-band {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 26px;
-  margin-bottom: 18px;
-  border: 1px solid rgba(125, 211, 252, 0.25);
-  border-radius: 8px;
-  background: linear-gradient(145deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.72));
-}
-
-.kicker,
-.panel-header span {
-  color: #67e8f9;
-  font-size: 12px;
-}
-
-h1 {
-  margin: 8px 0;
-  color: #f8fafc;
-  font-size: 40px;
-  line-height: 1.08;
-  letter-spacing: 0;
 }
 
 p {
@@ -279,101 +220,6 @@ p {
   font-size: 34px;
 }
 
-.rank-console {
-  display: grid;
-  gap: 8px;
-  min-width: 130px;
-  padding: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.72);
-}
-
-.rank-console span {
-  color: #94a3b8;
-  font-size: 12px;
-}
-
-.top-select {
-  width: 110px;
-}
-
-.metric-grid,
-.chart-grid {
-  display: grid;
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.metric-grid {
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-}
-
-.chart-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.metric-card {
-  position: relative;
-  min-height: 112px;
-  padding: 18px;
-  color: #e2e8f0;
-  text-align: left;
-  cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--accent), transparent 62%);
-  border-radius: 8px;
-  background: linear-gradient(155deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.62));
-  overflow: hidden;
-}
-
-.metric-card span,
-.metric-card strong {
-  position: relative;
-  z-index: 1;
-}
-
-.metric-card span {
-  color: #94a3b8;
-}
-
-.metric-card strong {
-  display: block;
-  margin-top: 16px;
-  color: #f8fafc;
-  font-size: 32px;
-  line-height: 1;
-}
-
-.metric-card small {
-  margin-left: 5px;
-  color: #cbd5e1;
-  font-size: 14px;
-}
-
-.metric-card i {
-  position: absolute;
-  right: -34px;
-  bottom: -38px;
-  width: 110px;
-  height: 110px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent), transparent 74%);
-  filter: blur(8px);
-}
-
-.risk-panel {
-  padding: 18px;
-  border: 1px solid rgba(251, 113, 133, 0.28);
-  border-radius: 8px;
-  background: linear-gradient(145deg, rgba(48, 18, 35, 0.82), rgba(7, 15, 30, 0.9));
-}
-
-.panel-header h3 {
-  margin: 4px 0 14px;
-  color: #e5f6ff;
-  font-size: 17px;
-}
-
 .risk-list {
   display: grid;
   gap: 10px;
@@ -402,26 +248,4 @@ p {
   font-size: 13px;
 }
 
-.empty-strip {
-  padding: 18px;
-  color: rgba(226, 232, 240, 0.66);
-  border: 1px dashed rgba(148, 163, 184, 0.25);
-  border-radius: 8px;
-  text-align: center;
-}
-
-@media (max-width: 900px) {
-  .hero-band {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .chart-grid {
-    grid-template-columns: 1fr;
-  }
-
-  h1 {
-    font-size: 34px;
-  }
-}
 </style>

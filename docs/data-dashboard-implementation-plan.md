@@ -31,6 +31,150 @@
 5. **SQLite 优先**：当前系统数据库仍使用 SQLite，统计接口应避免复杂长事务和高频全表扫描。
 6. **分阶段落地**：先做能复用现有表的统计，再做趋势、快照、缓存和更复杂的分析。
 
+## 2026-05-07 角色价值重规划
+
+本次重规划把驾驶舱定位为“真实工作态势屏 + 可行动工作台”，而不是普通统计报表。每个驾驶舱必须回答三个问题：
+
+1. **现在发生了什么**：用实时或近实时数据展示当前状态。
+2. **哪里需要处理**：用预警、待办、异常名单指出工作重点。
+3. **下一步怎么做**：每个指标都能跳转到现有业务页面或明细接口。
+
+### 当前已存在的 Dashboard API
+
+| API | 当前用途 | 适用角色 | 说明 |
+|-----|----------|----------|------|
+| `GET /api/dashboard/overview` | 当前用户可见总览 | 登录用户 | 返回角色可见模块、全局卡片、预警 |
+| `GET /api/dashboard/moral/summary` | 德育驾驶舱 | `admin/jiaowu/xuefa/cleader` | 已按角色裁剪全校或本班范围 |
+| `GET /api/dashboard/teaching/summary` | 教务驾驶舱 | `admin/jiaowu` | 已含课表、教师课时、班级规模、文件上传统计 |
+| `GET /api/dashboard/class/summary` | 班级驾驶舱 | `admin/jiaowu/xuefa/cleader` | 已含班级学生、德育、作业公告、请假数量、生日 |
+| `GET /api/dashboard/teacher/workbench` | 教师工作台 | `teacher/cleader/admin` | 已含今日课程、发布、德育参与、监考任务 |
+| `GET /api/dashboard/invigilation/summary` | 监考驾驶舱 | `admin/jiaowu` | 已含项目、安排、通知、负载、冲突 |
+| `GET /api/dashboard/system/summary` | 系统驾驶舱 | `admin` | 已含数据库、任务、权限、运行状态 |
+
+### 可复用业务 API 和数据源
+
+| 业务域 | 可复用接口/API | 数据源 | 驾驶舱价值 |
+|--------|----------------|--------|------------|
+| 文件上传 | `GET /api/filegather/admin/statistics`、`GET /api/filegather/admin/files`、`GET /api/filegather/admin/done-files` | `filegather.db.files` | 教务掌握待处理文件、完成率、教师上传排行、逾期文件 |
+| 请假名单 | `GET /api/leave-records/`、`POST /api/leave-records/{record_id}/consume` | `inout.db.inout` + `Lesson().get_cache_data("students")` | 班主任/学发看到当前请假学生名单、未销假、请假类型和时长；不进入教务驾驶舱 |
+| 延时申请 | `GET /api/delay_infos/{classCode}`、`POST /api/insert_delay/` | `inout.db.inout` | 班主任掌握当天延时学生，避免漏管 |
+| 德育表现 | `GET /api/dashboard/moral/summary` 及德育评价接口 | `moral.db` | 学发/班主任定位低分学生、消极事件、班级差异 |
+| 班级学生 | `GET /api/dashboard/class/summary`、`GET /api/moral/admin/students` | `moral.db.student/class` + lesson cache | 班主任掌握班级人数、生日、信息缺失、风险学生 |
+| 课表课时 | `GET /api/dashboard/teaching/summary` | `lesson.yaml` 指向的课表文件和缓存 | 教务了解课表覆盖、当前课节、教师课时负载 |
+| 监考安排 | `GET /api/dashboard/invigilation/summary` | `invigilation.db` | 教务看到未安排、冲突、通知失败、教师负载 |
+| 教师工作 | `GET /api/dashboard/teacher/workbench` | 课表、作业公告、德育记录、监考库 | 教师明确今日课程、待办、自己贡献和风险提醒 |
+
+### 数据价值分层
+
+| 层级 | 展示内容 | 对工作的价值 |
+|------|----------|--------------|
+| 态势层 | 核心指标卡、完成率、当前课节、班级请假、低分人数 | 让角色快速知道“现在是否正常” |
+| 预警层 | 低分学生、班级未销假、文件逾期、监考冲突、通知失败 | 让角色知道“今天必须处理什么” |
+| 趋势层 | 德育趋势、文件流转趋势、课时负载、请假变化 | 让角色看到工作走势和管理压力 |
+| 明细层 | 学生名单、文件列表、低分排行、待处理任务 | 让角色能直接行动和追踪 |
+| 启示层 | 高风险班级、反复请假学生、文件处理瓶颈、教师负载不均 | 帮助后续调整班级管理、教务安排和学生关怀 |
+
+### 教务驾驶舱重规划
+
+教务驾驶舱不应只展示课表和文件数量，而要成为“教学运行调度屏”。
+
+| 模块 | 真实数据 | API/数据源 | 展示形态 | 行动价值 |
+|------|----------|------------|----------|----------|
+| 教学运行态势 | 班级数、在校学生数、教师账号数、当前课节、正在上课班级 | `/api/dashboard/teaching/summary`、课表缓存、`moral.db` | 发光指标卡 + 当前课节横幅 | 判断当前教学运行是否正常 |
+| 课时负载 | 区间课时、教师课时排行、覆盖日期、源课表文件 | `/api/dashboard/teaching/summary` | 横向排行条 + 课表覆盖提示 | 发现教师负载不均和课表统计缺口 |
+| 文件上传流转 | 本月文件、待处理文件、已完成文件、完成率、上传教师 TopN、最近待处理文件 | `filegather.db.files`、`/api/filegather/admin/*` | 霓虹环图 + 待处理列表 | 教务及时处理打印/资料文件，避免积压 |
+| 班级规模与档案 | 班级人数排行、学生档案缺失项 | `moral.db.class/student` | 柱状图 + 异常列表 | 发现班级容量和基础数据维护问题 |
+
+Batch46 优先落地教务驾驶舱中的“文件上传深度指标 + 课表/教学运行态势”。文件上传已有基础统计，需要进一步补齐完成率、最近待处理、逾期未处理。请假学生相关数据不进入教务驾驶舱，应在班级驾驶舱和德育驾驶舱中展示。
+
+### 德育驾驶舱重规划
+
+德育驾驶舱面向学发、班主任和管理者，核心不是“分数好看”，而是发现学生成长风险。
+
+| 模块 | 真实数据 | API/数据源 | 展示形态 | 行动价值 |
+|------|----------|------------|----------|----------|
+| 德育态势 | 可见学生数、平均分、低分人数、日常记录数 | `/api/dashboard/moral/summary`、`moral.db` | 仪表盘 + 核心卡 | 判断德育总体健康度 |
+| 风险学生 | 低分学生、严重低分、近期消极事件频繁学生 | `moral_evaluation`、`student_daily_record` | 风险名单 + 标签 | 学发和班主任优先谈话、跟进 |
+| 请假与出勤风险 | 当前未销假学生、近期反复请假学生、按班级请假分布 | `inout.db.inout` + students cache | 请假名单 + 班级分布图 | 学发识别学生流动和班级管理风险 |
+| 班级对比 | 班级平均分、低分率、扣分次数、任务完成率 | `moral.db` | 排行条 + 热力图 | 找出需要支持的班级 |
+| 事件结构 | 正向/负向事件占比、事件 TopN、近 14/30 天趋势 | `student_daily_record`、事件类型表 | 折线图 + 玫瑰图 | 识别管理问题是纪律、学习态度还是生活习惯 |
+| 学生画像 | 画像覆盖率、过期画像、风险标签分布 | profile 相关表 | 标签云 + 覆盖率 | 让德育工作从记录走向诊断 |
+
+### 班级驾驶舱重规划
+
+班级驾驶舱面向班主任，必须把“今天要管谁、为什么管、怎么跟进”放在首屏。
+
+| 模块 | 真实数据 | API/数据源 | 展示形态 | 行动价值 |
+|------|----------|------------|----------|----------|
+| 班级状态 | 班级人数、男女比例、平均德育分、低分人数 | `/api/dashboard/class/summary` | 班级态势卡 + 环图 | 快速掌握班级基本盘 |
+| 当前请假名单 | 当前未销假学生、请假类型、天数、备注、记录人 | `inout.db.inout` + students cache | 首屏名单表 | 班主任知道谁不在、何时跟进销假 |
+| 风险学生 | 低分、频繁扣分、未生成画像、近期异常学生 | `moral.db` | 风险卡片列表 | 优先安排谈话、家校沟通 |
+| 关怀事项 | 本周/本月生日、近期请假较多学生 | `student.birthday`、`inout.db` | 时间轴 | 形成正向关怀和班级温度 |
+| 学习活动 | 作业数、公告数、当前课程 | `homework.db`、课表缓存 | 小趋势 + 快捷入口 | 检查班级学习活动节奏 |
+
+### 教师工作驾驶舱重规划
+
+教师工作台不是管理驾驶舱，而是个人行动清单。
+
+| 模块 | 真实数据 | API/数据源 | 展示形态 | 行动价值 |
+|------|----------|------------|----------|----------|
+| 今日课程 | 今天课程、班级、节次、时间 | `/api/dashboard/teacher/workbench` | 时间轴 | 提醒当天教学安排 |
+| 我的发布 | 本周作业、公告、上传文件、待处理文件 | `homework.db`、`filegather.db` | 工作量卡片 | 回顾自己发布和资料流转 |
+| 我的德育参与 | 自己创建的日常记录、点滴记录、涉及学生 | `moral.db` | 贡献卡 + 学生列表 | 让任课教师看到育人参与 |
+| 我的监考 | 近期监考安排、变更通知 | `invigilation.db` | 任务列表 | 减少漏看监考安排 |
+
+### 总览驾驶舱重规划
+
+总览页应根据角色裁剪，不同角色看到不同“默认入口”：
+
+| 角色 | 首屏重点 | 默认推荐入口 |
+|------|----------|--------------|
+| `admin` | 全校运行、系统健康、权限风险、业务预警 | 系统、德育、教务、监考 |
+| `jiaowu` | 教学运行、文件流转、课表覆盖、监考安排 | 教务、监考、班级 |
+| `xuefa` | 德育风险、请假未销假、低分学生、处分画像 | 德育、班级 |
+| `cleader` | 本班请假名单、低分学生、生日关怀、作业公告 | 班级、教师工作台 |
+| `teacher` | 今日课程、我的上传、我的记录、监考任务 | 教师工作台 |
+
+### 炫酷但真实的视觉方向
+
+驾驶舱视觉要有“大屏感”，但不能牺牲可读性。
+
+1. **整体风格**：深色科技背景 + 半透明玻璃面板 + 微弱发光边框 + 清晰状态色。
+2. **首屏结构**：顶部角色标题和时间范围，中部 4-8 个核心指标卡，底部两列图表和待办名单。
+3. **数据强调**：风险数字用红/橙，完成率用绿/青，趋势用蓝/紫，但避免全页面单一紫蓝。
+4. **动效克制**：卡片 hover、数字轻微滚动、图表渐入即可，不做影响阅读的动画。
+5. **名单必须真实可用**：请假学生、低分学生、待处理文件都要显示姓名/班级/状态/时间/处理入口。
+6. **空状态要专业**：无数据时显示“当前无待处理文件/当前无请假学生”，而不是空白或假数据。
+
+### 新增数据结构建议
+
+在保持现有 `cards/charts/tables` 结构的基础上，建议 dashboard API 增加约定字段：
+
+```json
+{
+  "data": {
+    "cards": [],
+    "charts": {},
+    "tables": {
+      "leave_students": [],
+      "pending_files": [],
+      "risk_students": []
+    },
+    "alerts": [],
+    "insights": [],
+    "updated_at": "2026-05-07 10:00:00"
+  }
+}
+```
+
+| 字段 | 用途 | 示例 |
+|------|------|------|
+| `tables.leave_students` | 班级/德育驾驶舱中的当前可见请假/未销假学生名单，教务驾驶舱不返回该字段 | `{name, class_name, style, days, status, recorder, create_at}` |
+| `tables.pending_files` | 待处理文件明细 | `{id, username, original_name, status, use_date, uploaded_at, overdue_days}` |
+| `tables.risk_students` | 低分/频繁异常学生 | `{student_id, name, class_name, reason, score}` |
+| `alerts` | 可点击预警 | `{level, title, message, route}` |
+| `insights` | 系统给出的工作启示 | `{type, title, message, action_route}` |
+
 ## 整体信息架构
 
 建议采用“三层驾驶舱”：
@@ -70,7 +214,6 @@
 - 班级/学生基础数据完整度。
 - 课表更新状态、文件流转状态。
 - 监考项目状态、未安排监考、通知失败。
-- 德育评价中与教学管理相关的班级/年级趋势。
 
 ### xuefa 学发
 
@@ -80,6 +223,7 @@
 - 日常表现、校级事件、集体事件、任务完成率。
 - 学生画像生成覆盖率、AI 诊疗待处理。
 - 班级/年级横向对比。
+- 德育评价中与班级/年级管理相关的趋势。
 
 ### cleader 班主任
 
@@ -197,7 +341,7 @@
 | 课表状态 | 当前课表版本、最近更新时间、今日课程数、空课/冲突数 |
 | 文件流转 | 上传文件数、待查阅文件数、已阅率、逾期未阅 |
 | 作业公告 | 本周作业数、公告数、发布教师排行 |
-| 请假延时 | 今日请假人数、未销假、延时申请状态 |
+| 教学运行 | 班级/学生基础规模、课表状态、作业公告与文件流转状态 |
 
 ### 推荐图表
 
@@ -205,7 +349,6 @@
 - 文件已阅率环图。
 - 本周作业/公告趋势。
 - 今日课程热力表。
-- 请假/延时状态分布。
 
 ### 重点钻取
 
@@ -487,12 +630,12 @@
 - `charts.score_distribution`：德育分数段分布。
 - `charts.daily_event_mix`：日常表现正向/负向记录占比。
 - `charts.daily_record_trend`：近 14 天日常记录趋势。
-- `charts.class_score_top5`：班级平均分 Top5。
+- `charts.class_score_rank`：班级平均分排行，数量由 `top_n` 控制。
 
 `/api/dashboard/teaching/summary` 增加：
 
-- `charts.teacher_workload_top5`：指定时间段教师课时 Top5。
-- `charts.class_size_top5`：班级学生人数 Top5。
+- `charts.teacher_workload_rank`：指定时间段教师课时排行，数量由 `top_n` 控制。
+- `charts.class_size_rank`：班级学生人数排行，数量由 `top_n` 控制。
 - `charts.resource_mix`：班级、学生、教师资源结构。
 
 验收标准：
@@ -650,8 +793,9 @@
 
 目标：
 
-- 增加教务文件、课表、作业公告、请假延时统计。
-- 增加班主任班级驾驶舱。
+- 增加教务文件、课表、作业公告统计；教务驾驶舱不展示学生请假数据。
+- 增加班主任班级驾驶舱，并在班级驾驶舱展示当前请假学生名单。
+- 增加德育驾驶舱的请假与出勤风险模块，供学发/班主任识别学生流动风险。
 - 增加教师个人工作台。
 
 验收：
@@ -782,3 +926,355 @@
 文档：
 
 - `docs/data-dashboard-implementation-plan.md`
+
+---
+
+## 数据驾驶舱指标字典（Batch50 固化）
+
+本指标字典定义所有驾驶舱 API 返回字段的标准，确保前后端一致，避免误删或误改。
+
+### 字段命名规范
+
+1. **cards**: 顶层指标卡数组，每个元素包含 `label`、`value`、`unit`、`route`
+2. **charts**: 图表数据对象，键名表示图表类型，值为适配前端图表组件的数据格式
+3. **tables**: 表格/列表数据对象，键名表示表名，值为数组
+4. **insights**: 态势面板，包含风险预警和行动建议
+5. **updated_at**: 数据更新时间文本
+
+---
+
+### 总览驾驶舱（Overview）
+
+**API**: `GET /api/dashboard/overview`
+
+**权限**: 登录用户
+
+| 字段路径 | 类型 | 数据来源 | 统计口径 | 权限范围 | 空状态 | 备注 |
+|---------|------|---------|---------|---------|--------|------|
+| `cards[]` | Array | moral.db + dashboard_overview | 按角色动态生成 | 登录用户 | 空数组 | 每个元素 {label, value, unit, route} |
+| `cards[].label` | String | 硬编码 | - | 登录用户 | - | "在校学生"、"德育评价" 等 |
+| `cards[].value` | Number | moral.db SQL COUNT | 实时 | 登录用户 | 0 | - |
+| `cards[].unit` | String | 硬编码 | - | 登录用户 | - | "人"、"条"、"分" |
+| `cards[].route` | String | 硬编码 | - | 登录用户 | - | 跳转路由 |
+| `modules[]` | Array | 硬编码 + 角色判断 | 按角色裁剪 visible | 登录用户 | 空数组 | 驾驶舱入口卡片 |
+| `modules[].title` | String | 硬编码 | - | 登录用户 | - | "德育驾驶舱"、"教务驾驶舱" |
+| `modules[].route` | String | 硬编码 | - | 登录用户 | - | "/dashboard/moral"、"dashboard/teaching" |
+| `modules[].visible` | Boolean | 角色判断 | admin/jiaowu/xuefa/cleader | 登录用户 | - | 前端只显示 visible=true 的项 |
+| `alerts[]` | Array | moral.db + 角色判断 | 低分学生预警 | admin/jiaowu/xuefa | 空数组 | 预警消息 |
+| `alerts[].level` | String | 硬编码 | - | admin/jiaowu/xuefa | - | "warning" |
+| `alerts[].title` | String | 硬编码 | - | admin/jiaowu/xuefa | - | "低分学生关注" |
+| `alerts[].message` | String | 低分人数拼接 | - | admin/jiaowu/xuefa | - | f-string 拼接 |
+| `updated_at` | String | datetime.now() | 实时 | 登录用户 | - | "YYYY-MM-DD HH:MM:SS" |
+
+---
+
+### 德育驾驶舱（Moral）
+
+**API**: `GET /api/dashboard/moral/summary`
+
+**权限**: admin/jiaowu/xuefa/cleader（班主任只看本班）
+
+| 字段路径 | 类型 | 数据来源 | 统计口径 | 权限范围 | 空状态 | 备注 |
+|---------|------|---------|---------|---------|--------|------|
+| `cards[]` | Array | moral.db + inout.db | 实时 | admin/jiaowu/xuefa/cleader | 空数组 | 4个固定卡 |
+| `cards[0].label` | String | 硬编码 | - | - | - | "可见学生" |
+| `cards[0].value` | Number | moral.db student COUNT(status='在校') | 实时 | cleader 只看本班 | 0 | - |
+| `cards[1].label` | String | 硬编码 | - | - | - | "日常记录" |
+| `cards[1].value` | Number | student_daily_record COUNT | 实时 | admin/jiaowu/xuefa | 0 | - |
+| `cards[2].label` | String | 硬编码 | - | - | - | "平均德育分" |
+| `cards[2].value` | Number | moral_evaluation AVG(total_score) | 实时 | admin/jiaowu/xuefa/cleader | 0 | round(1位) |
+| `cards[3].label` | String | 硬编码 | - | - | - | "当前请假" |
+| `cards[3].value` | Number | inout.db active_leave COUNT | 实时 | admin/jiaowu/xuefa/cleader | 0 | 未销假 |
+| `charts.score_distribution` | Array | moral_evaluation GROUP BY score_band | 实时 | admin/jiaowu/xuefa/cleader | [] | 玫瑰图数据 |
+| `charts.daily_event_mix` | Array | student_daily_record GROUP BY is_positive | 实时 | admin/jiaowu/xuefa | [] | 正负事件占比 |
+| `charts.daily_record_trend` | Array | student_daily_record GROUP BY date(近14天) | 近14天 | admin/jiaowu/xuefa | [] | 折线图 |
+| `charts.class_score_rank` | Array | moral_evaluation GROUP BY class_id | 实时 | admin/jiaowu/xuefa | [] | 班级平均分排行 |
+| `charts.leave_by_class` | Array | inout.db GROUP BY class_name | 实时 | admin/jiaowu/xuefa | [] | 请假班级分布 |
+| `tables.low_students` | Array | moral_evaluation WHERE total_score < 60 | 实时 | admin/jiaowu/xuefa/cleader | [] | 低分学生名单 |
+| `tables.low_students[].name` | String | student.name | - | - | - | 学生姓名 |
+| `tables.low_students[].class_name` | String | class.class_name | - | - | - | 班级名称 |
+| `tables.low_students[].total_score` | Number | moral_evaluation.total_score | - | - | - | 德育总分 |
+| `tables.leave_students` | Array | inout.db WHERE active=1 AND style!='延时' | 实时 | admin/jiaowu/xuefa/cleader | [] | 当前请假名单 Top20 |
+| `tables.leave_students[].name` | String | inout + students cache | - | - | - | 请假学生姓名 |
+| `tables.leave_students[].class_name` | String | inout + students cache | - | - | - | 班级名称 |
+| `tables.leave_students[].style` | String | inout.style | - | - | - | 请假类型 |
+| `tables.leave_students[].days` | Number | inout.days | - | - | - | 请假天数 |
+| `tables.leave_students[].status` | String | inout.status | - | - | - | 已请假/已出校等状态 |
+| `insights` | Array | 算法计算 | 出勤风险预警 | admin/jiaowu/xuefa/cleader | [] | 态势面板 |
+| `insights[].type` | String | 硬编码 | - | - | - | "warning"/"info" |
+| `insights[].message` | String | 算法拼接 | - | - | - | 风险描述 |
+| `top_n` | Number | Query参数 | 默认5 | - | 5 | 排行数量限制 |
+| `updated_at` | String | datetime.now() | 实时 | - | - | 时间戳 |
+
+**已清理重复字段**：
+- `leave.students` 已合并到 `tables.leave_students`。
+- `leave.count` 已删除，请使用 `cards[3].value`。
+- `leave.by_class` 已合并到 `charts.leave_by_class`。
+- `file_upload` 块不属于德育驾驶舱，已删除。
+
+---
+
+### 教务驾驶舱（Teaching）
+
+**API**: `GET /api/dashboard/teaching/summary`
+
+**权限**: admin/jiaowu
+
+**⚠️ 禁止字段**: `tables.leave_students`、`leave.students`、`leave.count` —— 教务驾驶舱不展示请假学生
+
+| 字段路径 | 类型 | 数据来源 | 统计口径 | 权限范围 | 空状态 | 备注 |
+|---------|------|---------|---------|---------|--------|------|
+| `cards[]` | Array | moral.db + filegather.db + Lesson | 实时 + 周范围 | admin/jiaowu | 空数组 | 11个固定卡 |
+| `cards[0].label` | String | 硬编码 | - | - | - | "班级" |
+| `cards[0].value` | Number | moral.db class COUNT(is_active=1) | 实时 | - | 0 | - |
+| `cards[1].label` | String | 硬编码 | - | - | - | "在校学生" |
+| `cards[1].value` | Number | moral.db student COUNT(status='在校') | 实时 | - | 0 | - |
+| `cards[2].label` | String | 硬编码 | - | - | - | "教师账号" |
+| `cards[2].value` | Number | moral.db teacher COUNT(identity_type='teacher') | 实时 | - | 0 | - |
+| `cards[3].label` | String | 硬编码 | - | - | - | "区间课时" |
+| `cards[3].value` | Number | workload.rows SUM(lesson_count) | 周范围 | - | 0 | - |
+| `cards[4].label` | String | 硬编码 | - | - | - | "当前课节" |
+| `cards[4].value` | String | current_course.current_period | 实时 | - | "非上课" | - |
+| `cards[5].label` | String | 硬编码 | - | - | - | "正在上课" |
+| `cards[5].value` | Number | current_course.active_class_count | 实时 | - | 0 | - |
+| `cards[6].label` | String | 硬编码 | - | - | - | "待处理文件" |
+| `cards[6].value` | Number | filegather.db pending_files COUNT | 实时 | - | 0 | - |
+| `cards[7].label` | String | 硬编码 | - | - | - | "本月文件" |
+| `cards[7].value` | Number | filegather.db total_files COUNT(本月) | 本月 | - | 0 | - |
+| `cards[8].label` | String | 硬编码 | - | - | - | "已完成文件" |
+| `cards[8].value` | Number | filegather.db done_files COUNT | 实时 | - | 0 | - |
+| `cards[9].label` | String | 硬编码 | - | - | - | "完成率" |
+| `cards[9].value` | Number | filegather.db completion_rate | 实时 | - | 0 | percent |
+| `cards[10].label` | String | 硬编码 | - | - | - | "逾期文件" |
+| `cards[10].value` | Number | filegather.db overdue_pending_count | 实时 | - | 0 | - |
+| `charts.teacher_workload_rank` | Array | workload.rows | 周范围 | admin/jiaowu | [] | 教师课时排行条 |
+| `charts.class_size_rank` | Array | moral.db class + student COUNT | 实时 | admin/jiaowu | [] | 班级规模排行 |
+| `charts.resource_mix` | Array | 硬编码 + moral.db COUNT | 实时 | admin/jiaowu | [] | 班级/学生/教师占比 |
+| `charts.file_upload_status` | Array | filegather.db GROUP BY status | 实时 | admin/jiaowu | [] | 文件状态占比 |
+| `tables.teacher_workload_rank` | Array | workload.rows | 周范围 | admin/jiaowu | [] | 教师课时排行明细 |
+| `tables.file_upload_top_users` | Array | filegather.db by_user | 本月 | admin/jiaowu | [] | 上传排行 |
+| `tables.pending_file_list` | Array | filegather.db pending_file_list | 实时 | admin/jiaowu | [] | 待处理文件列表 |
+| `tables.recent_file_list` | Array | filegather.db recent_file_list | 实时 | admin/jiaowu | [] | 最近文件列表 |
+| `insights` | Array | 算法计算 | 教学运行态势 | admin/jiaowu | [] | 态势面板 |
+| `updated_at` | String | datetime.now() | 实时 | - | - | 时间戳 |
+
+**已清理重复字段**：
+- `tables.teacher_workload` 已合并到 `tables.teacher_workload_rank`。
+- `file_upload` 块已删除，数据已在 cards/charts/tables 中表达。
+
+---
+
+### 班级驾驶舱（Class）
+
+**API**: `GET /api/dashboard/class/summary`
+
+**权限**: admin/jiaowu/xuefa/cleader（班主任只看本班）
+
+| 字段路径 | 类型 | 数据来源 | 统计口径 | 权限范围 | 空状态 | 备注 |
+|---------|------|---------|---------|---------|--------|------|
+| `cards[]` | Array | moral.db + homework.db + inout.db | 实时 | admin/jiaowu/xuefa/cleader | 空数组 | 10个固定卡 |
+| `cards[0].label` | String | 硬编码 | - | - | - | "班级人数" |
+| `cards[0].value` | Number | moral.db student COUNT(class_id) | 实时 | cleader 只看本班 | 0 | - |
+| `cards[1].label` | String | 硬编码 | - | - | - | "男生" |
+| `cards[1].value` | Number | moral.db student COUNT(gender='男') | 实时 | cleader 只看本班 | 0 | - |
+| `cards[2].label` | String | 硬编码 | - | - | - | "女生" |
+| `cards[2].value` | Number | moral.db student COUNT(gender='女') | 实时 | cleader 只看本班 | 0 | - |
+| `cards[3].label` | String | 硬编码 | - | - | - | "性别未维护" |
+| `cards[3].value` | Number | moral.db student COUNT(gender IS NULL) | 实时 | cleader 只看本班 | 0 | - |
+| `cards[4].label` | String | 硬编码 | - | - | - | "平均德育分" |
+| `cards[4].value` | Number | moral_evaluation AVG(total_score) | 实时 | cleader 只看本班 | 0 | round(1位) |
+| `cards[5].label` | String | 硬编码 | - | - | - | "低分学生" |
+| `cards[5].value` | Number | moral_evaluation COUNT(score<60) | 实时 | cleader 只看本班 | 0 | - |
+| `cards[6].label` | String | 硬编码 | - | - | - | "本月作业" |
+| `cards[6].value` | Number | homework.db COUNT(本月) | 本月 | cleader 只看本班 | 0 | - |
+| `cards[7].label` | String | 硬编码 | - | - | - | "本月公告" |
+| `cards[7].value` | Number | homework.db announcement COUNT(本月) | 本月 | cleader 只看本班 | 0 | - |
+| `cards[8].label` | String | 硬编码 | - | - | - | "请假人数" |
+| `cards[8].value` | Number | inout.db active_leave COUNT | 实时 | cleader 只看本班 | 0 | - |
+| `charts.gender_mix` | Array | student GROUP BY gender | 实时 | cleader 只看本班 | [] | 性别占比环图 |
+| `charts.score_band` | Array | moral_evaluation GROUP BY score_band | 实时 | cleader 只看本班 | [] | 分数段分布 |
+| `tables.low_students` | Array | moral_evaluation WHERE score<60 | 实时 | cleader 只看本班 | [] | 低分学生名单 |
+| `tables.birthday_this_month` | Array | student WHERE birthday LIKE 'XX%' | 本月 | cleader 只看本班 | [] | 本月生日学生 |
+| `tables.birthday_this_week` | Array | student WHERE birthday 近7天 | 本周 | cleader 只看本班 | [] | 本周生日学生 |
+| `tables.leave_students` | Array | inout.db WHERE active=1 AND style!='延时' | 实时 | cleader 只看本班 | [] | 本班当前请假名单 |
+| `insights` | Array | 算法计算 | 班级管理风险 | cleader 只看本班 | [] | 态势面板 |
+| `class_info.class_id` | Number | Query参数或get_teacher_class_id | 实时 | cleader 默认本班 | - | 班级ID |
+| `class_info.class_name` | String | moral.db class.class_name | 实时 | - | - | 班级名称 |
+| `updated_at` | String | datetime.now() | 实时 | - | - | 时间戳 |
+
+**已清理重复字段**：
+- `leave.students` 已合并到 `tables.leave_students`。
+- `leave.count` 已删除，请使用 `cards[8].value`。
+
+---
+
+### 教师工作台（Teacher Workbench）
+
+**API**: `GET /api/dashboard/teacher/workbench`
+
+**权限**: teacher/cleader/admin（个人数据）
+
+| 字段路径 | 类型 | 数据来源 | 统计口径 | 权限范围 | 空状态 | 备注 |
+|---------|------|---------|---------|---------|--------|------|
+| `cards[]` | Array | Lesson + homework.db + moral.db + invigilation.db | 实时 + 周范围 | teacher本人 | 空数组 | 个人指标卡 |
+| `cards[0].label` | String | 硬编码 | - | - | - | "今日课程" |
+| `cards[0].value` | Number | Lesson today_lessons COUNT | 实时 | teacher本人 | 0 | - |
+| `cards[1].label` | String | 硬编码 | - | - | - | "本周作业" |
+| `cards[1].value` | Number | homework.db homework COUNT(本周) | 本周 | teacher本人 | 0 | - |
+| `cards[2].label` | String | 硬编码 | - | - | - | "本周公告" |
+| `cards[2].value` | Number | homework.db announcement COUNT(本周) | 本周 | teacher本人 | 0 | - |
+| `cards[3].label` | String | 硬编码 | - | - | - | "德育记录" |
+| `cards[3].value` | Number | moral.db daily_record COUNT(teacher) | 实时 | teacher本人 | 0 | - |
+| `cards[4].label` | String | 硬编码 | - | - | - | "点滴记录" |
+| `cards[4].value` | Number | moral.db moment_record COUNT(teacher) | 实时 | teacher本人 | 0 | - |
+| `cards[5].label` | String | 硬编码 | - | - | - | "监考任务" |
+| `cards[5].value` | Number | invigilation.db invigilation_tasks COUNT | 实时 | teacher本人 | 0 | - |
+| `cards[6].label` | String | 硬编码 | - | - | - | "区间课时" |
+| `cards[6].value` | Number | Lesson workload COUNT | 周范围 | teacher本人 | 0 | - |
+| `tables.today_lessons` | Array | Lesson today_lessons | 实时 | teacher本人 | [] | 今日课程列表 |
+| `tables.today_lessons[].class_name` | String | Lesson schedule | - | - | - | 班级名称 |
+| `tables.today_lessons[].subject` | String | Lesson schedule | - | - | - | 科目 |
+| `tables.today_lessons[].period` | String | Lesson time_table | - | - | - | 节次 |
+| `tables.today_lessons[].time_range` | String | Lesson time_table | - | - | - | 时间范围 |
+| `tables.invigilation_tasks` | Array | invigilation.db invigilation_tasks | 实时 | teacher本人 | [] | 监考任务列表 |
+| `tables.invigilation_tasks[].project_name` | String | invigilation.project_name | - | - | - | 考试项目名称 |
+| `tables.invigilation_tasks[].date` | String | invigilation.date | - | - | - | 监考日期 |
+| `tables.invigilation_tasks[].slot` | String | invigilation.slot | - | - | - | 监考场次 |
+| `tables.workload_lessons` | Array | Lesson workload | 周范围 | teacher本人 | [] | 区间课时明细 |
+| `updated_at` | String | datetime.now() | 实时 | - | - | 时间戳 |
+
+**已清理重复字段**：
+- `workload.lessons` 已合并到 `tables.workload_lessons`。
+
+---
+
+### 监考驾驶舱（Invigilation）
+
+**API**: `GET /api/dashboard/invigilation/summary`
+
+**权限**: admin/jiaowu
+
+| 字段路径 | 类型 | 数据来源 | 统计口径 | 权限范围 | 空状态 | 备注 |
+|---------|------|---------|---------|---------|--------|------|
+| `cards[]` | Array | invigilation.db | 实时 | admin/jiaowu | 空数组 | 6个固定卡 |
+| `cards[0].label` | String | 硬编码 | - | - | - | "考试项目" |
+| `cards[0].value` | Number | invigilation.db project COUNT | 实时 | admin/jiaowu | 0 | - |
+| `cards[1].label` | String | 硬编码 | - | - | - | "待安排场次" |
+| `cards[1].value` | Number | invigilation.db slot WHERE unarranged | 实时 | admin/jiaowu | 0 | - |
+| `cards[2].label` | String | 硬编码 | - | - | - | "冲突场次" |
+| `cards[2].value` | Number | invigilation.db conflict COUNT | 实时 | admin/jiaowu | 0 | - |
+| `cards[3].label` | String | 硬编码 | - | - | - | "安排完整率" |
+| `cards[3].value` | Number | invigilation.db arranged/total*100 | 实时 | admin/jiaowu | 0 | percent |
+| `cards[4].label` | String | 硬编码 | - | - | - | "通知成功率" |
+| `cards[4].value` | Number | invigilation.db success/total*100 | 实时 | admin/jiaowu | 0 | percent |
+| `cards[5].label` | String | 硬编码 | - | - | - | "通知失败" |
+| `cards[5].value` | Number | invigilation.db failed+skipped COUNT | 实时 | admin/jiaowu | 0 | - |
+| `charts.project_status` | Array | invigilation.db project GROUP BY status | 实时 | admin/jiaowu | [] | 考试项目状态占比 |
+| `charts.notification_status` | Array | invigilation.db notification GROUP BY status | 实时 | admin/jiaowu | [] | 通知状态占比 |
+| `charts.teacher_workload_rank` | Array | invigilation.db teacher_workload GROUP BY teacher | 实时 | admin/jiaowu | [] | 教师监考负载排行 |
+| `tables.unarranged_slots` | Array | invigilation.db slot WHERE unarranged | 实时 | admin/jiaowu | [] | 未安排场次列表 |
+| `tables.conflict_slots` | Array | invigilation.db conflict_slots | 实时 | admin/jiaowu | [] | 冲突场次详情 |
+| `tables.notification_failed` | Array | invigilation.db notification WHERE failed | 实时 | admin/jiaowu | [] | 通知失败记录 |
+| `tables.recent_projects` | Array | invigilation.db project ORDER BY created_at DESC | 实时 | admin/jiaowu | [] | 近期考试项目 |
+| `tables.teacher_workload_rank` | Array | invigilation.db teacher_workload | 实时 | admin/jiaowu | [] | 教师监考负载排行明细 |
+| `top_n` | Number | Query参数 | 默认5 | - | 5 | 排行数量限制 |
+| `updated_at` | String | datetime.now() | 实时 | - | - | 时间戳 |
+
+**已清理重复字段**：
+- `charts.teacher_workload_top5` 已删除，用 `charts.teacher_workload_rank`。
+- `tables.teacher_workload_top5` 已删除，用 `tables.teacher_workload_rank`。
+
+---
+
+### 系统运维驾驶舱（System）
+
+**API**: `GET /api/dashboard/system/summary`
+
+**权限**: admin
+
+| 字段路径 | 类型 | 数据来源 | 统计口径 | 权限范围 | 空状态 | 备注 |
+|---------|------|---------|---------|---------|--------|------|
+| `cards[]` | Array | databases/*.db + moral.db + task.db | 实时 | admin | 空数组 | 7个固定卡 |
+| `cards[0].label` | String | 硬编码 | - | - | - | "数据库文件" |
+| `cards[0].value` | Number | databases/*.db EXISTS COUNT | 实时 | admin | 0 | - |
+| `cards[1].label` | String | 硬编码 | - | - | - | "总大小" |
+| `cards[1].value` | Number | databases/*.db SIZE SUM | 实时 | admin | 0 | MB |
+| `cards[2].label` | String | 硬编码 | - | - | - | "总记录数" |
+| `cards[2].value` | Number | databases/*.db ROWS SUM | 实时 | admin | 0 | - |
+| `cards[3].label` | String | 硬编码 | - | - | - | "活跃用户" |
+| `cards[3].value` | Number | member.db user COUNT | 实时 | admin | 0 | - |
+| `cards[4].label` | String | 硬编码 | - | - | - | "教师账号" |
+| `cards[4].value` | Number | moral.db teacher COUNT(identity='teacher') | 实时 | admin | 0 | - |
+| `cards[5].label` | String | 硬编码 | - | - | - | "权限风险" |
+| `cards[5].value` | Number | moral.db api_permission WHERE risk | 实时 | admin | 0 | - |
+| `charts.role_distribution` | Array | member.db user GROUP BY role | 实时 | admin | [] | 角色分布 |
+| `charts.teacher_identity` | Array | moral.db teacher GROUP BY identity_type | 实时 | admin | [] | 教师身份占比 |
+| `charts.operation_stats` | Array | operation_log.db GROUP BY date(近7天) | 近7天 | admin | [] | 操作统计趋势 |
+| `tables.db_files` | Array | databases/*.db FILE INFO | 实时 | admin | [] | 数据库文件列表 |
+| `tables.db_files[].name` | String | 硬编码 | - | - | - | 文件名 |
+| `tables.db_files[].exists` | Boolean | os.path.exists | 实时 | - | false | 是否存在 |
+| `tables.db_files[].size_kb` | Number | os.path.getsize | 实时 | - | 0 | 文件大小 |
+| `tables.db_files[].tables` | Array | SQLite table list | 实时 | - | [] | 表列表 |
+| `tables.api_permission_risks` | Array | moral.db api_permission WHERE risk | 实时 | admin | [] | 权限风险列表 |
+| `tables.recent_operations` | Array | operation_log.db ORDER BY timestamp DESC | 近50条 | admin | [] | 最近操作日志 |
+| `task_stats` | Object | task.db task COUNT GROUP BY status | 实时 | admin | {} | 任务状态统计 |
+| `task_stats.total` | Number | task.db task COUNT | 实时 | admin | 0 | - |
+| `task_stats.active` | Number | task.db task WHERE status='active' | 实时 | admin | 0 | - |
+| `task_stats.paused` | Number | task.db task WHERE status='paused' | 实时 | admin | 0 | - |
+| `updated_at` | String | datetime.now() | 实时 | - | - | 时间戳 |
+
+---
+
+## 刷新频率建议
+
+| 驾驶舱 | 建议刷新频率 | 原因 |
+|-------|------------|------|
+| Overview | 5分钟 | 总览数据变化较慢 |
+| Moral | 3分钟 | 德育记录和请假实时变化 |
+| Teaching | 3分钟 | 当前课节实时变化，文件流转频繁 |
+| Class | 5分钟 | 班级数据变化较慢 |
+| Teacher Workbench | 3分钟 | 今日课程实时变化 |
+| Invigilation | 5分钟 | 监考安排变化较慢 |
+| System | 10分钟 | 系统状态变化很慢 |
+
+---
+
+## 前端字段使用契约
+
+前端 Vue 文件使用的字段路径必须全部在指标字典中有定义，否则视为违规。
+
+| Vue 文件 | 使用的字段路径 | 契约状态 |
+|---------|---------------|---------|
+| Overview.vue | `cards`, `modules`, `alerts` | ✅ 全部定义 |
+| MoralDashboard.vue | `cards`, `charts.score_distribution`, `charts.daily_event_mix`, `charts.daily_record_trend`, `charts.class_score_rank`, `tables.low_students`, `tables.leave_students` | ⚠️ `tables.leave_students` 重复，待清理 |
+| TeachingDashboard.vue | `cards`, `charts.resource_mix`, `charts.file_upload_status`, `charts.teacher_workload_rank`, `charts.class_size_rank`, `tables.file_upload_top_users`, `tables.pending_file_list` | ✅ 全部定义 |
+| ClassDashboard.vue | `cards`, `charts.gender_mix`, `charts.score_band`, `tables.low_students`, `tables.birthday_this_month`, `tables.birthday_this_week`, `tables.leave_students` | ⚠️ `tables.leave_students` 重复，待清理 |
+| TeacherWorkbench.vue | `cards`, `tables.today_lessons`, `tables.invigilation_tasks`, `tables.workload_lessons` | ✅ 全部定义 |
+| InvigilationDashboard.vue | `cards`, `charts.project_status`, `charts.notification_status`, `charts.teacher_workload_rank`, `tables.unarranged_slots`, `tables.conflict_slots`, `tables.notification_failed` | ✅ 全部定义 |
+| SystemDashboard.vue | `cards`, `charts.role_distribution`, `charts.teacher_identity`, `charts.operation_stats`, `tables.db_files`, `tables.api_permission_risks`, `tables.recent_operations` | ✅ 全部定义 |
+
+---
+
+## Batch50 执行记录
+
+### 发现的重复字段
+
+| 驾驶舱 | 重复字段 | 处理建议 |
+|-------|---------|---------|
+| Moral | `tables.leave_students` 与 `leave.students` | 已合并到 `tables.leave_students` |
+| Moral | `leave.count` 与 `cards[3].value` | 已删除 `leave.count` |
+| Moral | `leave.by_class` 与 `charts.leave_by_class` | 已合并到 `charts.leave_by_class` |
+| Moral | `file_upload` 块 | 不属于德育驾驶舱，已删除 |
+| Teaching | `tables.teacher_workload` 与 `tables.teacher_workload_rank` | 已合并到 `tables.teacher_workload_rank` |
+| Teaching | `file_upload` 块 | 数据已在 charts/tables 中表达，已删除 |
+| Class | `tables.leave_students` 与 `leave.students` | 已合并到 `tables.leave_students` |
+| Class | `leave.count` 与 `cards[8].value` | 已删除 `leave.count` |
+| TeacherWorkbench | `tables.workload_lessons` 与 `workload.lessons` | 已合并到 `tables.workload_lessons` |
+| Invigilation | `charts.teacher_workload_top5` 与 `charts.teacher_workload_rank` | 已删除 `teacher_workload_top5` |
+| Invigilation | `tables.teacher_workload_top5` 与 `tables.teacher_workload_rank` | 已删除 `teacher_workload_top5` |
+
+### 契约测试覆盖
+
+所有驾驶舱的关键字段必须有契约测试覆盖，确保不会被误删或误改。
+
+---

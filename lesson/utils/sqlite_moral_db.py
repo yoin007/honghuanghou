@@ -19,6 +19,13 @@ import json
 
 from utils.db_config import MORAL_DB, DATABASES_DIR
 
+
+def _get_sqlite_connection():
+    """延迟导入避免循环依赖"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,17 +52,22 @@ class MoralDatabase:
 
     def __enter__(self):
         """进入上下文管理器"""
-        self._connection = sqlite3.connect(self.db_path)
-        self._connection.row_factory = sqlite3.Row
+        self._connection = _get_sqlite_connection()(self.db_path)
+        try:
+            self._connection.row_factory = sqlite3.Row
 
-        # 启用优化设置
-        self._connection.execute("PRAGMA foreign_keys=ON")
-        self._connection.execute("PRAGMA journal_mode=WAL")
-        self._connection.execute("PRAGMA synchronous=NORMAL")
-        self._connection.execute("PRAGMA cache_size=-2000")  # 2MB cache
+            # 启用优化设置
+            self._connection.execute("PRAGMA foreign_keys=ON")
+            self._connection.execute("PRAGMA journal_mode=WAL")
+            self._connection.execute("PRAGMA synchronous=NORMAL")
+            self._connection.execute("PRAGMA cache_size=-2000")  # 2MB cache
 
-        self._cursor = self._connection.cursor()
-        return self
+            self._cursor = self._connection.cursor()
+            return self
+        except Exception:
+            self._connection.close()
+            self._connection = None
+            raise
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """退出上下文管理器"""
@@ -244,10 +256,12 @@ def init_moral_db():
         logger.warning(f"Moral database not found at {MORAL_DB}")
         return
 
-    conn = sqlite3.connect(MORAL_DB)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.close()
+    conn = _get_sqlite_connection()(MORAL_DB)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+    finally:
+        conn.close()
     logger.info(f"Moral database initialized: {MORAL_DB}")
 
 

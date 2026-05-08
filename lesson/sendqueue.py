@@ -17,6 +17,12 @@ from config.log import LogConfig
 from config.config import Config
 from client import Client
 
+
+def _get_sqlite_connection():
+    """延迟导入 get_sqlite_connection，避免循环导入"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
+
 log = LogConfig().get_logger()
 config = Config()
 base_url = config.get_config("base_url", "wechat.yaml")
@@ -57,8 +63,12 @@ class QueueDB:
 
     def __enter__(self, db=os.path.join(DB_DIR, "queues.db")):
         if not hasattr(self._local, "connection"):
-            self._local.connection = sqlite3.connect(db, timeout=30)
-            self._local.connection.row_factory = sqlite3.Row
+            get_sqlite_connection = _get_sqlite_connection()
+            self._local.connection = get_sqlite_connection(
+                db,
+                timeout=30,
+                row_factory=sqlite3.Row,
+            )
             self._local.cursor = self._local.connection.cursor()
         return self
 
@@ -199,36 +209,41 @@ class QueueDB:
         :return: dict
         """
         try:
-            with sqlite3.connect(os.path.join(DB_DIR, "queues.db")) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
+            get_sqlite_connection = _get_sqlite_connection()
+            conn = get_sqlite_connection(
+                os.path.join(DB_DIR, "queues.db"),
+                row_factory=sqlite3.Row
+            )
+            cursor = conn.cursor()
 
-                cursor.execute(
-                    """
-                    SELECT status, COUNT(*) as count FROM queues GROUP BY status
-                    """
-                )
-                status_counts = {row["status"]: row["count"] for row in cursor.fetchall()}
+            cursor.execute(
+                """
+                SELECT status, COUNT(*) as count FROM queues GROUP BY status
+                """
+            )
+            status_counts = {row["status"]: row["count"] for row in cursor.fetchall()}
 
-                cursor.execute(
-                    """
-                    SELECT COUNT(*) as count FROM queues WHERE status = 'pending' AND timestamp < ?
-                    """,
-                    (int((datetime.now() - timedelta(minutes=self.expeired_minutes)).timestamp()),),
-                )
-                expired_count = cursor.fetchone()["count"]
+            cursor.execute(
+                """
+                SELECT COUNT(*) as count FROM queues WHERE status = 'pending' AND timestamp < ?
+                """,
+                (int((datetime.now() - timedelta(minutes=self.expeired_minutes)).timestamp()),),
+            )
+            expired_count = cursor.fetchone()["count"]
 
-                cursor.execute("SELECT COUNT(*) as count FROM queues")
-                total_count = cursor.fetchone()["count"]
+            cursor.execute("SELECT COUNT(*) as count FROM queues")
+            total_count = cursor.fetchone()["count"]
 
-                return {
-                    "total": total_count,
-                    "pending": status_counts.get("pending", 0),
-                    "sending": status_counts.get("sending", 0),
-                    "success": status_counts.get("success", 0),
-                    "failed": status_counts.get("failed", 0),
-                    "expired": expired_count,
-                }
+            conn.close()
+
+            return {
+                "total": total_count,
+                "pending": status_counts.get("pending", 0),
+                "sending": status_counts.get("sending", 0),
+                "success": status_counts.get("success", 0),
+                "failed": status_counts.get("failed", 0),
+                "expired": expired_count,
+            }
         except Exception as e:
             log.error(f"获取队列状态失败: {e}")
             return {}
@@ -275,107 +290,120 @@ class QueueDB:
         """
         self.__clean_expired_messages__()
 
-        with sqlite3.connect(os.path.join(DB_DIR, "queues.db")) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    """
-                    SELECT * FROM queues WHERE status = 'pending' ORDER BY timestamp ASC LIMIT 1
-                    """
-                )
-                record = cursor.fetchone()
-                if not record:
-                    return None
+        get_sqlite_connection = _get_sqlite_connection()
+        conn = get_sqlite_connection(
+            os.path.join(DB_DIR, "queues.db"),
+            row_factory=sqlite3.Row
+        )
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT * FROM queues WHERE status = 'pending' ORDER BY timestamp ASC LIMIT 1
+                """
+            )
+            record = cursor.fetchone()
+            if not record:
+                conn.close()
+                return None
 
-                if self.__is_message_expired__(record):
-                    self.__update_message_status__(record["id"], "expired", "消息已过期")
-                    log.warning(f"消息 {record['id']} 已过期")
-                    return None
+            if self.__is_message_expired__(record):
+                self.__update_message_status__(record["id"], "expired", "消息已过期")
+                log.warning(f"消息 {record['id']} 已过期")
+                conn.close()
+                return None
 
-                self.__update_message_status__(record["id"], "sending")
+            self.__update_message_status__(record["id"], "sending")
 
-                for attempt in range(self.max_retries):
+            for attempt in range(self.max_retries):
+                try:
+                    token = self.client._check_token()
+                    if not token:
+                        log.error(f"获取token失败")
+                        time.sleep(self.retry_delay * (attempt + 1))
+                        continue
+
+                    headers = {
+                        "content-type": "application/x-www-form-urlencoded; charset=utf-8",
+                        "Authorization": f"Bearer {token}",
+                    }
+
+                    r = requests.post(
+                        url=record["consumer"],
+                        data=json.loads(record["data"]),
+                        headers=headers,
+                        timeout=30,
+                    )
+                    r.raise_for_status()
+
                     try:
-                        token = self.client._check_token()
-                        if not token:
-                            log.error(f"获取token失败")
-                            time.sleep(self.retry_delay * (attempt + 1))
-                            continue
-
-                        headers = {
-                            "content-type": "application/x-www-form-urlencoded; charset=utf-8",
-                            "Authorization": f"Bearer {token}",
-                        }
-
-                        r = requests.post(
-                            url=record["consumer"],
-                            data=json.loads(record["data"]),
-                            headers=headers,
-                            timeout=30,
-                        )
-                        r.raise_for_status()
-
-                        try:
-                            response_data = r.json()
-                            code = response_data.get("code")
-                            message = response_data.get("message", "")
-                            if code == 0 or "成功" in message or "success" in message.lower():
-                                self.__update_message_status__(record["id"], "success")
-                                log.info(f"消息 {record['id']} 发送成功")
-                                return r.content.decode("utf-8")
-                            else:
-                                error_msg = message if message else f"API返回码: {code}"
-                                log.warning(f"API 返回错误: {error_msg}, 消息ID: {record['id']}, 尝试 {attempt + 1}/{self.max_retries}")
-                                if attempt < self.max_retries - 1:
-                                    time.sleep(self.retry_delay * (2 ** attempt))
-                                    continue
-                                else:
-                                    self.__increment_retry_count__(record["id"])
-                                    self.__update_message_status__(record["id"], "failed", error_msg)
-                                    return -1
-                        except json.JSONDecodeError:
-                            if r.status_code == 200:
-                                self.__update_message_status__(record["id"], "success")
-                                return r.content.decode("utf-8")
-                            log.warning(f"解析 API 响应失败, 消息ID: {record['id']}, 尝试 {attempt + 1}/{self.max_retries}")
+                        response_data = r.json()
+                        code = response_data.get("code")
+                        message = response_data.get("message", "")
+                        if code == 0 or "成功" in message or "success" in message.lower():
+                            self.__update_message_status__(record["id"], "success")
+                            log.info(f"消息 {record['id']} 发送成功")
+                            conn.close()
+                            return r.content.decode("utf-8")
+                        else:
+                            error_msg = message if message else f"API返回码: {code}"
+                            log.warning(f"API 返回错误: {error_msg}, 消息ID: {record['id']}, 尝试 {attempt + 1}/{self.max_retries}")
                             if attempt < self.max_retries - 1:
                                 time.sleep(self.retry_delay * (2 ** attempt))
                                 continue
                             else:
                                 self.__increment_retry_count__(record["id"])
-                                self.__update_message_status__(record["id"], "failed", "解析响应失败")
+                                self.__update_message_status__(record["id"], "failed", error_msg)
+                                conn.close()
                                 return -1
-
-                    except requests.exceptions.Timeout:
-                        log.warning(f"请求超时, 消息ID: {record['id']}, 尝试 {attempt + 1}/{self.max_retries}")
+                    except json.JSONDecodeError:
+                        if r.status_code == 200:
+                            self.__update_message_status__(record["id"], "success")
+                            conn.close()
+                            return r.content.decode("utf-8")
+                        log.warning(f"解析 API 响应失败, 消息ID: {record['id']}, 尝试 {attempt + 1}/{self.max_retries}")
                         if attempt < self.max_retries - 1:
                             time.sleep(self.retry_delay * (2 ** attempt))
                             continue
                         else:
                             self.__increment_retry_count__(record["id"])
-                            self.__update_message_status__(record["id"], "failed", "请求超时")
+                            self.__update_message_status__(record["id"], "failed", "解析响应失败")
+                            conn.close()
                             return -1
 
-                    except requests.exceptions.RequestException as e:
-                        log.warning(f"请求异常: {e}, 消息ID: {record['id']}, 尝试 {attempt + 1}/{self.max_retries}")
-                        if attempt < self.max_retries - 1:
-                            time.sleep(self.retry_delay * (2 ** attempt))
-                            continue
-                        else:
-                            self.__increment_retry_count__(record["id"])
-                            self.__update_message_status__(record["id"], "failed", str(e))
-                            return -1
-
-                    except Exception as e:
-                        log.error(f"发送消息未知异常: {e}, 消息ID: {record['id']}")
+                except requests.exceptions.Timeout:
+                    log.warning(f"请求超时, 消息ID: {record['id']}, 尝试 {attempt + 1}/{self.max_retries}")
+                    if attempt < self.max_retries - 1:
+                        time.sleep(self.retry_delay * (2 ** attempt))
+                        continue
+                    else:
                         self.__increment_retry_count__(record["id"])
-                        self.__update_message_status__(record["id"], "failed", str(e))
+                        self.__update_message_status__(record["id"], "failed", "请求超时")
+                        conn.close()
                         return -1
 
-            except Exception as e:
-                log.error(f"消费消息队列失败: {e}")
-                return None
+                except requests.exceptions.RequestException as e:
+                    log.warning(f"请求异常: {e}, 消息ID: {record['id']}, 尝试 {attempt + 1}/{self.max_retries}")
+                    if attempt < self.max_retries - 1:
+                        time.sleep(self.retry_delay * (2 ** attempt))
+                        continue
+                    else:
+                        self.__increment_retry_count__(record["id"])
+                        self.__update_message_status__(record["id"], "failed", str(e))
+                        conn.close()
+                        return -1
+
+                except Exception as e:
+                    log.error(f"发送消息未知异常: {e}, 消息ID: {record['id']}")
+                    self.__increment_retry_count__(record["id"])
+                    self.__update_message_status__(record["id"], "failed", str(e))
+                    conn.close()
+                    return -1
+
+        except Exception as e:
+            log.error(f"消费消息队列失败: {e}")
+            conn.close()
+            return None
 
 
 def _debug_send(func_name: str, *args, **kwargs):

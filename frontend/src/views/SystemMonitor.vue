@@ -146,7 +146,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Cpu, Monitor, Folder, Connection } from '@element-plus/icons-vue'
-import api from '../utils/api'
+import { getHealth, getWsStatus } from '@/api/modules/system'
 
 // 数据
 const loading = ref(false)
@@ -225,7 +225,7 @@ const getProcessStatusType = (status) => {
 // 获取系统健康信息
 const fetchHealthInfo = async () => {
   try {
-    const res = await api.get('/api/health')
+    const res = await getHealth()
     const metrics = res.data.metrics || {}
 
     // 优先使用后端直接返回的值，否则计算
@@ -268,7 +268,7 @@ const fetchHealthInfo = async () => {
 // 获取 WebSocket 状态
 const fetchWsStatus = async () => {
   try {
-    const res = await api.get('/api/ws/status')
+    const res = await getWsStatus()
     wsInfo.value = res.data
   } catch (error) {
     console.error('获取WebSocket状态失败:', error)
@@ -280,7 +280,7 @@ const fetchProcessList = async () => {
   loading.value = true
   try {
     // 后端没有独立的进程列表API，从health API获取当前进程信息
-    const res = await api.get('/api/health')
+    const res = await getHealth()
     const processInfo = res.data.metrics?.process || {}
     // 构建进程列表（只有一个主进程）
     processList.value = [{

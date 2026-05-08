@@ -126,7 +126,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api from '../utils/api'
+import { getMembers, createMember, updateMember, deleteMember } from '@/api/modules/member'
 
 // 列表数据
 const loading = ref(false)
@@ -170,7 +170,7 @@ const fetchData = async () => {
       search: searchQuery.value || undefined,
       active: statusFilter.value !== '' ? statusFilter.value : undefined
     }
-    const res = await api.get('/api/members', { params })
+    const res = await getMembers(params)
     tableData.value = res.data.data
     total.value = res.data.total
   } catch (error) {
@@ -230,7 +230,7 @@ const handleDelete = (row) => {
   )
     .then(async () => {
       try {
-        await api.delete(`/api/members/${row.uuid}`)
+        await deleteMember(row.uuid)
         ElMessage.success('删除成功')
         fetchData()
       } catch (error) {
@@ -250,10 +250,10 @@ const handleSubmit = async () => {
       submitLoading.value = true
       try {
         if (dialogType.value === 'add') {
-          await api.post('/api/members', form)
+          await createMember(form)
           ElMessage.success('创建成功')
         } else {
-          await api.put(`/api/members/${form.uuid}`, form)
+          await updateMember(form.uuid, form)
           ElMessage.success('更新成功')
         }
         dialogVisible.value = false

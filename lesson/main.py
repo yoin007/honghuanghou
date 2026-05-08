@@ -185,6 +185,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 @app.post("/")
 async def root(request: Request):
     body = await request.json()
+    print(body)
     log.debug(f"Received request body: {body}")
     msg = WxMsg(body)
     with MessageDB() as db:

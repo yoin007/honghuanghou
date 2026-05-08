@@ -188,7 +188,16 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useApiPermission } from '@/composables/useApiPermission'
-import request from '@/utils/api'
+import {
+  getGrades,
+  getClasses,
+  getCollectiveEvents,
+  createCollectiveEvent,
+  getCollectiveEvent,
+  updateCollectiveEvent,
+  deleteCollectiveEvent,
+  updateDistribution
+} from '@/api/modules/moral'
 
 // 权限检查
 const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
@@ -267,7 +276,7 @@ const getEventTypeTag = (type) => {
 
 const fetchGrades = async () => {
   try {
-    const res = await request.get('/api/moral/admin/grades')
+    const res = await getGrades()
     if (res.success) {
       gradeList.value = res.data
     }
@@ -278,7 +287,7 @@ const fetchGrades = async () => {
 
 const fetchClasses = async () => {
   try {
-    const res = await request.get('/api/moral/admin/classes')
+    const res = await getClasses()
     if (res.success) {
       classList.value = res.data
     }
@@ -297,7 +306,7 @@ const fetchEvents = async () => {
     if (filterForm.class_id) params.class_id = filterForm.class_id
     if (filterForm.event_type) params.event_type = filterForm.event_type
 
-    const res = await request.get('/api/moral/collective-events', { params })
+    const res = await getCollectiveEvents(params)
     if (res.success) {
       eventList.value = res.data.items
       pagination.total = res.data.total
@@ -351,7 +360,7 @@ const handleSubmit = async () => {
   try {
     if (eventForm.event_id) {
       // 编辑
-      await request.put(`/api/moral/collective-events/${eventForm.event_id}`, {
+      await updateCollectiveEvent(eventForm.event_id, {
         event_name: eventForm.event_name,
         event_type: eventForm.event_type,
         event_date: eventForm.event_date,
@@ -361,7 +370,7 @@ const handleSubmit = async () => {
       ElMessage.success('更新成功')
     } else {
       // 新增
-      const res = await request.post('/api/moral/collective-events', eventForm)
+      const res = await createCollectiveEvent(eventForm)
       if (res.success) {
         ElMessage.success(res.message)
       }
@@ -380,7 +389,7 @@ const handleDelete = async (row) => {
     await ElMessageBox.confirm('删除该集体事件将同时删除所有分配记录，确认删除？', '确认删除', {
       type: 'warning'
     })
-    await request.delete(`/api/moral/collective-events/${row.event_id}`)
+    await deleteCollectiveEvent(row.event_id)
     ElMessage.success('删除成功')
     fetchEvents()
   } catch (e) {
@@ -395,7 +404,7 @@ const handleView = async (row) => {
   distributionDialogVisible.value = true
   distributionLoading.value = true
   try {
-    const res = await request.get(`/api/moral/collective-events/${row.event_id}`)
+    const res = await getCollectiveEvent(row.event_id)
     if (res.success) {
       distributions.value = res.data.distributions
     }
@@ -418,14 +427,11 @@ const handleEditDistribution = (row) => {
 const handleAdjustSubmit = async () => {
   adjustSubmitting.value = true
   try {
-    await request.put(
-      `/api/moral/collective-events/${adjustForm.event_id}/distributions/${adjustForm.id}`,
-      {
-        is_participant: adjustForm.is_participant,
-        score_assigned: adjustForm.is_participant ? adjustForm.score_assigned : 0,
-        remark: adjustForm.remark
-      }
-    )
+    await updateDistribution(adjustForm.event_id, adjustForm.id, {
+      is_participant: adjustForm.is_participant,
+      score_assigned: adjustForm.is_participant ? adjustForm.score_assigned : 0,
+      remark: adjustForm.remark
+    })
     ElMessage.success('调整成功')
     adjustDialogVisible.value = false
     // 刷新分配列表

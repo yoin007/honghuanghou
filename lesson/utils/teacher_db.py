@@ -15,6 +15,12 @@ from contextlib import contextmanager
 
 from utils.db_config import AUTH_DB, MORAL_DB
 
+
+def _get_sqlite_connection():
+    """延迟导入避免循环依赖"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
+
 logger = logging.getLogger(__name__)
 _AUTH_MIGRATED = False
 
@@ -33,7 +39,7 @@ class TeacherDB:
 
     def __enter__(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        self._connection = sqlite3.connect(self.db_path)
+        self._connection = _get_sqlite_connection()(self.db_path)
         self._connection.row_factory = sqlite3.Row
         if self.db_path == MORAL_DB:
             ensure_teacher_schema(self._connection)
@@ -85,86 +91,87 @@ def ensure_teacher_schema(conn: sqlite3.Connection = None):
     should_close = conn is None
     if conn is None:
         os.makedirs(os.path.dirname(MORAL_DB), exist_ok=True)
-        conn = sqlite3.connect(MORAL_DB)
+        conn = _get_sqlite_connection()(MORAL_DB)
 
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS teacher (
-            teacher_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            wxid TEXT,
-            subject TEXT,
-            password_hash TEXT,
-            role TEXT DEFAULT 'teacher',
-            level INTEGER DEFAULT 0,
-            is_active INTEGER DEFAULT 1,
-            notice_enabled INTEGER DEFAULT 1,
-            is_password_changed INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now', 'localtime')),
-            updated_at TEXT DEFAULT (datetime('now', 'localtime'))
-        )
-        """
-    )
-
-    columns = {row[1] for row in cursor.execute("PRAGMA table_info(teacher)").fetchall()}
-    if "alias" in columns:
+    try:
+        cursor = conn.cursor()
         cursor.execute(
-            "UPDATE teacher SET name = alias WHERE (name IS NULL OR name = '') AND alias IS NOT NULL AND alias != ''"
+            """
+            CREATE TABLE IF NOT EXISTS teacher (
+                teacher_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                wxid TEXT,
+                subject TEXT,
+                password_hash TEXT,
+                role TEXT DEFAULT 'teacher',
+                level INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                notice_enabled INTEGER DEFAULT 1,
+                is_password_changed INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+            """
         )
-        try:
-            cursor.execute("ALTER TABLE teacher DROP COLUMN alias")
-            columns.remove("alias")
-        except sqlite3.OperationalError as e:
-            logger.warning(f"Could not drop obsolete teacher.alias column: {e}")
-    if "member_active" in columns:
-        cursor.execute(
-            "UPDATE teacher SET is_active = COALESCE(is_active, member_active) WHERE is_active IS NULL"
-        )
-        try:
-            cursor.execute("ALTER TABLE teacher DROP COLUMN member_active")
-            columns.remove("member_active")
-        except sqlite3.OperationalError as e:
-            logger.warning(f"Could not drop obsolete teacher.member_active column: {e}")
-    if "uuid" in columns:
-        cursor.execute(
-            "UPDATE teacher SET wxid = uuid WHERE (wxid IS NULL OR wxid = '') AND uuid IS NOT NULL AND uuid != ''"
-        )
-        cursor.execute("DROP INDEX IF EXISTS idx_teacher_uuid")
-        try:
-            cursor.execute("ALTER TABLE teacher DROP COLUMN uuid")
-            columns.remove("uuid")
-        except sqlite3.OperationalError as e:
-            logger.warning(f"Could not drop obsolete teacher.uuid column: {e}")
-    if "priority" in columns:
-        try:
-            cursor.execute("ALTER TABLE teacher DROP COLUMN priority")
-            columns.remove("priority")
-        except sqlite3.OperationalError as e:
-            logger.warning(f"Could not drop obsolete teacher.priority column: {e}")
 
-    additions = {
-        "course": "TEXT",
-        "raw_pwd": "TEXT",
-        "score": "INTEGER DEFAULT 50",
-        "balance": "INTEGER DEFAULT 0",
-        "model": "TEXT DEFAULT 'basic'",
-        "ai_flag": "INTEGER DEFAULT 0",
-        "birthday": "TEXT",
-        "note": "TEXT",
-        "identity_type": "TEXT DEFAULT 'teacher'",
-    }
-    for column, definition in additions.items():
-        if column not in columns:
-            cursor.execute(f"ALTER TABLE teacher ADD COLUMN {column} {definition}")
+        columns = {row[1] for row in cursor.execute("PRAGMA table_info(teacher)").fetchall()}
+        if "alias" in columns:
+            cursor.execute(
+                "UPDATE teacher SET name = alias WHERE (name IS NULL OR name = '') AND alias IS NOT NULL AND alias != ''"
+            )
+            try:
+                cursor.execute("ALTER TABLE teacher DROP COLUMN alias")
+                columns.remove("alias")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not drop obsolete teacher.alias column: {e}")
+        if "member_active" in columns:
+            cursor.execute(
+                "UPDATE teacher SET is_active = COALESCE(is_active, member_active) WHERE is_active IS NULL"
+            )
+            try:
+                cursor.execute("ALTER TABLE teacher DROP COLUMN member_active")
+                columns.remove("member_active")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not drop obsolete teacher.member_active column: {e}")
+        if "uuid" in columns:
+            cursor.execute(
+                "UPDATE teacher SET wxid = uuid WHERE (wxid IS NULL OR wxid = '') AND uuid IS NOT NULL AND uuid != ''"
+            )
+            cursor.execute("DROP INDEX IF EXISTS idx_teacher_uuid")
+            try:
+                cursor.execute("ALTER TABLE teacher DROP COLUMN uuid")
+                columns.remove("uuid")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not drop obsolete teacher.uuid column: {e}")
+        if "priority" in columns:
+            try:
+                cursor.execute("ALTER TABLE teacher DROP COLUMN priority")
+                columns.remove("priority")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not drop obsolete teacher.priority column: {e}")
 
-    cursor.execute("UPDATE teacher SET identity_type = 'teacher' WHERE identity_type IS NULL")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_name ON teacher(name)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_identity_type ON teacher(identity_type)")
-    conn.commit()
+        additions = {
+            "course": "TEXT",
+            "raw_pwd": "TEXT",
+            "score": "INTEGER DEFAULT 50",
+            "balance": "INTEGER DEFAULT 0",
+            "model": "TEXT DEFAULT 'basic'",
+            "ai_flag": "INTEGER DEFAULT 0",
+            "birthday": "TEXT",
+            "note": "TEXT",
+            "identity_type": "TEXT DEFAULT 'teacher'",
+        }
+        for column, definition in additions.items():
+            if column not in columns:
+                cursor.execute(f"ALTER TABLE teacher ADD COLUMN {column} {definition}")
 
-    if should_close:
-        conn.close()
+        cursor.execute("UPDATE teacher SET identity_type = 'teacher' WHERE identity_type IS NULL")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_name ON teacher(name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_identity_type ON teacher(identity_type)")
+        conn.commit()
+    finally:
+        if should_close:
+            conn.close()
 
 
 def migrate_auth_teachers_to_moral() -> int:
@@ -176,73 +183,77 @@ def migrate_auth_teachers_to_moral() -> int:
         return 0
 
     ensure_teacher_schema()
-    auth_conn = sqlite3.connect(AUTH_DB)
-    auth_conn.row_factory = sqlite3.Row
-    moral_conn = sqlite3.connect(MORAL_DB)
-    moral_conn.row_factory = sqlite3.Row
-    ensure_teacher_schema(moral_conn)
-
+    auth_conn = None
+    moral_conn = None
     try:
-        rows = auth_conn.execute("SELECT * FROM teacher").fetchall()
-    except sqlite3.OperationalError:
-        auth_conn.close()
-        moral_conn.close()
-        return 0
+        auth_conn = _get_sqlite_connection()(AUTH_DB)
+        auth_conn.row_factory = sqlite3.Row
+        moral_conn = _get_sqlite_connection()(MORAL_DB)
+        moral_conn.row_factory = sqlite3.Row
+        ensure_teacher_schema(moral_conn)
 
-    migrated = 0
-    for row in rows:
-        teacher = dict(row)
-        name = teacher.get("name")
-        if not name:
-            continue
+        try:
+            rows = auth_conn.execute("SELECT * FROM teacher").fetchall()
+        except sqlite3.OperationalError:
+            return 0
 
-        existing = moral_conn.execute(
-            "SELECT teacher_id FROM teacher WHERE name = ? AND COALESCE(identity_type, 'teacher') = 'teacher'",
-            (name,),
-        ).fetchone()
-        teacher_id = existing["teacher_id"] if existing else _teacher_id_from_name(name)
+        migrated = 0
+        for row in rows:
+            teacher = dict(row)
+            name = teacher.get("name")
+            if not name:
+                continue
 
-        moral_conn.execute(
-            """
-            INSERT INTO teacher
-            (teacher_id, name, subject, course, password_hash, raw_pwd, role, level,
-             is_active, notice_enabled, is_password_changed, identity_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher')
-            ON CONFLICT(teacher_id) DO UPDATE SET
-                name = COALESCE(NULLIF(teacher.name, ''), excluded.name),
-                subject = COALESCE(NULLIF(teacher.subject, ''), excluded.subject),
-                course = COALESCE(NULLIF(teacher.course, ''), excluded.course),
-                password_hash = COALESCE(NULLIF(teacher.password_hash, ''), excluded.password_hash),
-                raw_pwd = COALESCE(NULLIF(teacher.raw_pwd, ''), excluded.raw_pwd),
-                role = COALESCE(NULLIF(teacher.role, ''), excluded.role),
-                level = COALESCE(teacher.level, excluded.level),
-                is_active = COALESCE(teacher.is_active, excluded.is_active),
-                notice_enabled = COALESCE(teacher.notice_enabled, excluded.notice_enabled),
-                is_password_changed = COALESCE(teacher.is_password_changed, excluded.is_password_changed),
-                identity_type = 'teacher',
-                updated_at = datetime('now', 'localtime')
-            """,
-            (
-                teacher_id,
-                name,
-                teacher.get("subject", ""),
-                teacher.get("course", ""),
-                teacher.get("pwd", ""),
-                teacher.get("raw_pwd", ""),
-                teacher.get("role", "teacher"),
-                teacher.get("level", 10),
-                teacher.get("active", 1),
-                teacher.get("notice", 1),
-                teacher.get("is_password_changed", 0),
-            ),
-        )
-        migrated += 1
+            existing = moral_conn.execute(
+                "SELECT teacher_id FROM teacher WHERE name = ? AND COALESCE(identity_type, 'teacher') = 'teacher'",
+                (name,),
+            ).fetchone()
+            teacher_id = existing["teacher_id"] if existing else _teacher_id_from_name(name)
 
-    moral_conn.commit()
-    auth_conn.close()
-    moral_conn.close()
-    _AUTH_MIGRATED = True
-    return migrated
+            moral_conn.execute(
+                """
+                INSERT INTO teacher
+                (teacher_id, name, subject, course, password_hash, raw_pwd, role, level,
+                 is_active, notice_enabled, is_password_changed, identity_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher')
+                ON CONFLICT(teacher_id) DO UPDATE SET
+                    name = COALESCE(NULLIF(teacher.name, ''), excluded.name),
+                    subject = COALESCE(NULLIF(teacher.subject, ''), excluded.subject),
+                    course = COALESCE(NULLIF(teacher.course, ''), excluded.course),
+                    password_hash = COALESCE(NULLIF(teacher.password_hash, ''), excluded.password_hash),
+                    raw_pwd = COALESCE(NULLIF(teacher.raw_pwd, ''), excluded.raw_pwd),
+                    role = COALESCE(NULLIF(teacher.role, ''), excluded.role),
+                    level = COALESCE(teacher.level, excluded.level),
+                    is_active = COALESCE(teacher.is_active, excluded.is_active),
+                    notice_enabled = COALESCE(teacher.notice_enabled, excluded.notice_enabled),
+                    is_password_changed = COALESCE(teacher.is_password_changed, excluded.is_password_changed),
+                    identity_type = 'teacher',
+                    updated_at = datetime('now', 'localtime')
+                """,
+                (
+                    teacher_id,
+                    name,
+                    teacher.get("subject", ""),
+                    teacher.get("course", ""),
+                    teacher.get("pwd", ""),
+                    teacher.get("raw_pwd", ""),
+                    teacher.get("role", "teacher"),
+                    teacher.get("level", 10),
+                    teacher.get("active", 1),
+                    teacher.get("notice", 1),
+                    teacher.get("is_password_changed", 0),
+                ),
+            )
+            migrated += 1
+
+        moral_conn.commit()
+        _AUTH_MIGRATED = True
+        return migrated
+    finally:
+        if auth_conn is not None:
+            auth_conn.close()
+        if moral_conn is not None:
+            moral_conn.close()
 
 
 def _teacher_select_sql(where: str = "", teacher_only: bool = True) -> str:

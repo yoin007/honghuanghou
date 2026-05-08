@@ -1,0 +1,137 @@
+/**
+ * 监考安排相关 API
+ */
+import { httpClient } from '@/shared/api/httpClient'
+
+export const invigilationApi = {
+  /**
+   * 获取监考项目列表
+   * @returns {Promise}
+   */
+  getProjects() {
+    return httpClient.get('/api/invigilation/projects')
+  },
+
+  /**
+   * 获取监考教师列表
+   * @returns {Promise}
+   */
+  getTeachers() {
+    return httpClient.get('/api/invigilation/teachers')
+  },
+
+  /**
+   * 获取单个监考项目详情
+   * @param {number} projectId 项目ID
+   * @returns {Promise}
+   */
+  getProject(projectId) {
+    return httpClient.get(`/api/invigilation/projects/${projectId}`)
+  },
+
+  /**
+   * 获取项目监考安排槽位
+   * @param {number} projectId 项目ID
+   * @returns {Promise}
+   */
+  getSlots(projectId) {
+    return httpClient.get(`/api/invigilation/projects/${projectId}/slots`)
+  },
+
+  /**
+   * 创建监考项目
+   * @param {Object} data 项目数据
+   * @returns {Promise}
+   */
+  createProject(data) {
+    return httpClient.post('/api/invigilation/projects', data)
+  },
+
+  /**
+   * 更新项目监考安排
+   * @param {number} projectId 项目ID
+   * @param {Object} data 安排数据 { slots, notify }
+   * @returns {Promise}
+   */
+  updateSlots(projectId, data) {
+    return httpClient.put(`/api/invigilation/projects/${projectId}/slots`, data)
+  },
+
+  /**
+   * 获取项目变更预览
+   * @param {number} projectId 项目ID
+   * @param {Object} params 查询参数
+   * @returns {Promise}
+   */
+  getChanges(projectId, params = {}) {
+    return httpClient.get(`/api/invigilation/projects/${projectId}/changes`, { params })
+  },
+
+  /**
+   * 发送监考通知
+   * @param {number} projectId 项目ID
+   * @param {Object} body 通知内容
+   * @returns {Promise}
+   */
+  sendNotification(projectId, body) {
+    return httpClient.post(`/api/invigilation/projects/${projectId}/notify`, body)
+  },
+
+  /**
+   * 获取通知日志
+   * @param {number} projectId 项目ID
+   * @returns {Promise}
+   */
+  getNotificationLogs(projectId) {
+    return httpClient.get(`/api/invigilation/projects/${projectId}/notification-logs`)
+  },
+
+  /**
+   * 下载导入模板
+   * @returns {Promise} blob响应
+   */
+  downloadTemplate() {
+    return httpClient.get('/api/invigilation/template', { responseType: 'blob' })
+  },
+
+  /**
+   * 导入监考安排
+   * @param {number} projectId 项目ID
+   * @param {FormData} formData Excel文件
+   * @returns {Promise}
+   */
+  importSlots(projectId, formData) {
+    return httpClient.post(`/api/invigilation/projects/${projectId}/import`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+
+  /**
+   * 导出监考安排
+   * @param {number} projectId 项目ID
+   * @returns {Promise} blob响应
+   */
+  exportSlots(projectId) {
+    return httpClient.get(`/api/invigilation/projects/${projectId}/export`, { responseType: 'blob' })
+  },
+
+  /**
+   * 下载工作量报表
+   * @param {number} projectId 项目ID
+   * @returns {Promise} blob响应
+   */
+  downloadReport(projectId) {
+    return httpClient.get(`/api/invigilation/projects/${projectId}/report`, { responseType: 'blob' })
+  },
+
+  /**
+   * 删除监考项目
+   * @param {number} projectId 项目ID
+   * @returns {Promise}
+   */
+  deleteProject(projectId) {
+    return httpClient.delete(`/api/invigilation/projects/${projectId}`)
+  }
+}
+
+export default invigilationApi

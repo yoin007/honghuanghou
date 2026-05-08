@@ -12,8 +12,12 @@ import sqlite3
 import os
 import json
 from datetime import datetime
+import sys
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "databases", "invigilation.db")
+# 添加项目路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils.db_config import INVIGILATION_DB as DB_PATH
 
 
 def create_tables():

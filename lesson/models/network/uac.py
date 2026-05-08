@@ -20,8 +20,12 @@ pwd = uac_conf["pwd"]
 admin = Config().get_config("admin", "wechat.yaml")
 
 def get_token(url=url):
+    """获取 UAC 登录 token（内网设备，禁用 SSL 验证）
+
+    Batch79: 补充 timeout=30，避免登录流程挂起
+    """
     url = url + "/login.php"
-    resp = requests.get(url, verify=False)
+    resp = requests.get(url, verify=False, timeout=30)  # 内网UAC设备，禁用SSL验证
     cookies = resp.cookies.get_dict().get("SEV_SESSID", "")
     html = resp.text
     hex_str  = re.search(r"document\.write\((.*)\)", html).group(1).split("'")[1]
@@ -81,7 +85,7 @@ def login_uac(username=user, password=pwd, url=url):
     en_pwd = crypto_encrypt(password, token[:16])
     data = f"tokenid=&token={token}&encrypt=1&lang=zh_CN&name={username}&password={en_pwd}"
     session = requests.Session()
-    resp = session.post(login_url, headers=headers, data=data, verify=False)
+    resp = session.post(login_url, headers=headers, data=data, verify=False, timeout=30)  # 内网UAC设备，禁用SSL验证
     if "index.php" in resp.text:
         new_cookies = resp.headers.get('Set-Cookie').split(";")[0]
         return new_cookies
@@ -89,10 +93,14 @@ def login_uac(username=user, password=pwd, url=url):
         return None
 
 def get_tokenid(url, cookies):
+    """获取 tokenid（内网设备，禁用 SSL 验证）
+
+    Batch79: 补充 timeout=30
+    """
     headers = {
         "Cookie": cookies,
     }
-    resp = requests.get(url, verify=False, headers=headers)
+    resp = requests.get(url, verify=False, headers=headers, timeout=30)  # 内网UAC设备，禁用SSL验证
     html = resp.text
     soup = BeautifulSoup(html, "html.parser")
     tokenid = soup.find("input", {"name": "tokenid"}).get("value")
@@ -411,8 +419,9 @@ def export_pc_user(url=url):
         params=query_string,
         headers=headers,
         data=form_data,
-        verify=False,  # 禁用SSL证书验证
-        stream=True
+        verify=False,  # 内网UAC设备，禁用SSL验证
+        stream=True,
+        timeout=30  # Batch79: 补充 timeout
     )
     if response.status_code == 200:
         with open("pc_users.csv", "wb") as f:
@@ -456,6 +465,10 @@ def init_white():
     shutil.copy("white_list_template.txt", "white_list.txt")
     
 def black_ip(ip_addr="", init=False):
+    """添加 IP 到黑名单（内网设备，禁用 SSL 验证）
+
+    Batch79: 补充 timeout=30
+    """
     sessionid = login_uac()
     if not sessionid:
         print("登录UAC失败")
@@ -470,7 +483,7 @@ def black_ip(ip_addr="", init=False):
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0',
         'Cookie': sessionid,
     }
-    resp = requests.get(black_url, headers=headers, verify=False)
+    resp = requests.get(black_url, headers=headers, verify=False, timeout=30)  # Batch79: 内网UAC设备，补充timeout
     if resp.status_code == 200:
         soup = BeautifulSoup(resp.text, "html.parser")
         ips = soup.find("textarea", id="ip").text
@@ -484,7 +497,7 @@ def black_ip(ip_addr="", init=False):
         headers.update({
             'Content-Type': 'application/x-www-form-urlencoded',
         })
-        resp = requests.post(black_url, headers=headers, data=data, verify=False, params=params)
+        resp = requests.post(black_url, headers=headers, data=data, verify=False, params=params, timeout=30)  # Batch79: 内网UAC设备，补充timeout
         if resp.status_code == 200:
             # print(resp.text)
             return ip_addr
@@ -504,6 +517,10 @@ async def black_ip_async(record):
         send_text(f"添加IP地址 {ip_addr} 到黑名单失败，IP地址为空", record.roomid)
 
 def del_black_ip(ip_addr):
+    """从黑名单删除 IP（内网设备，禁用 SSL 验证）
+
+    Batch79: 补充 timeout=30
+    """
     sessionid = login_uac()
     if not sessionid:
         print("登录UAC失败")
@@ -518,7 +535,7 @@ def del_black_ip(ip_addr):
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0',
         'Cookie': sessionid,
     }
-    resp = requests.get(black_url, headers=headers, verify=False)
+    resp = requests.get(black_url, headers=headers, verify=False, timeout=30)  # Batch79: 内网UAC设备，补充timeout
     if resp.status_code == 200:
         soup = BeautifulSoup(resp.text, "html.parser")
         ips = soup.find("textarea", id="ip").text
@@ -534,7 +551,7 @@ def del_black_ip(ip_addr):
         headers.update({
             'Content-Type': 'application/x-www-form-urlencoded',
         })
-        resp = requests.post(black_url, headers=headers, data=data, verify=False, params=params)
+        resp = requests.post(black_url, headers=headers, data=data, verify=False, params=params, timeout=30)  # Batch79: 内网UAC设备，补充timeout
         if resp.status_code == 200:
             # print(resp.text)
             return ip_addr
@@ -554,6 +571,10 @@ async def del_black_ip_async(record):
         send_text(f"删除IP地址 {ip_addr} 从黑名单失败，IP地址为空", record.roomid)
 
 def high_risk_data(count=8, ic=1, fc=50, url=url):
+    """获取高风险数据（内网设备，禁用 SSL 验证）
+
+    Batch79: 补充 timeout=30
+    """
     sessionid = login_uac()
     if not sessionid:
         print("登录UAC失败")
@@ -579,7 +600,7 @@ def high_risk_data(count=8, ic=1, fc=50, url=url):
     cookies = {"SEV_SESSID": "8916ede6b8a11177473253c2fd17a6aa"}
     users = []
     # 发送 POST（无 body，仅 headers 与 cookies）
-    resp = requests.post(hr_url, headers=headers, cookies=cookies, params=params, verify=False)   # 等价于 curl 的 --insecure
+    resp = requests.post(hr_url, headers=headers, cookies=cookies, params=params, verify=False, timeout=30)   # Batch79: 内网UAC设备，补充timeout，等价于 curl 的 --insecure
     if resp.status_code == 200:
         data = resp.json()
         if data:

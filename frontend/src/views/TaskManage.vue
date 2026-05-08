@@ -165,7 +165,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api from '../utils/api'
+import { getTaskFuncs, getTasks, createTask, updateTask, deleteTask } from '@/api/modules/task'
 
 const loading = ref(false)
 const tableData = ref([])
@@ -208,7 +208,7 @@ const handleTriggerTypeChange = (value) => {
 
 const fetchFuncOptions = async () => {
   try {
-    const res = await api.get('/api/tasks/funcs')
+    const res = await getTaskFuncs()
     funcOptions.value = res.data.funcs || []
   } catch (error) {
     console.error('获取函数列表失败:', error)
@@ -225,7 +225,7 @@ const fetchData = async () => {
       search: searchQuery.value || undefined,
       consumed: statusFilter.value || undefined
     }
-    const res = await api.get('/api/tasks', { params })
+    const res = await getTasks(params)
     tableData.value = res.data.data
     total.value = res.data.total
   } catch (error) {
@@ -301,7 +301,7 @@ const handleDelete = (row) => {
   )
     .then(async () => {
       try {
-        await api.delete(`/api/tasks/${row.id}`)
+        await deleteTask(row.id)
         ElMessage.success('删除成功')
         fetchData()
       } catch (error) {
@@ -330,11 +330,11 @@ const handleSubmit = async () => {
         }
         
         if (dialogType.value === 'add') {
-          await api.post('/api/tasks', taskData)
+          await createTask(taskData)
           ElMessage.success('创建成功')
         } else {
           taskData.consumed = form.consumed
-          await api.put(`/api/tasks/${form.id}`, taskData)
+          await updateTask(form.id, taskData)
           ElMessage.success('更新成功')
         }
         dialogVisible.value = false

@@ -4,8 +4,12 @@
 import json
 import os
 import sys
+from contextlib import contextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import pytest
+from fastapi import HTTPException
 
 from models.datas_api.auth import User
 from models.datas_api.auth import is_admin_user
@@ -40,6 +44,125 @@ def test_api_policy_rejects_multi_role_when_level_is_too_low(monkeypatch):
 
     assert decision["allowed"] is False
     assert "最低等级=20" in decision["reason"]
+
+
+@contextmanager
+def fake_permission_db():
+    yield object()
+
+
+@pytest.mark.asyncio
+async def test_unified_api_permission_allows_public_yaml_without_user(monkeypatch):
+    """数据库无配置时，YAML 公开规则不应强制登录。"""
+    monkeypatch.setattr(api_permission, "get_moral_db", fake_permission_db)
+    monkeypatch.setattr(api_permission, "ensure_api_permission_schema", lambda db: None)
+    monkeypatch.setattr(api_permission, "_get_matching_config", lambda db, path, method: None)
+    monkeypatch.setattr(
+        api_permission,
+        "_get_yaml_rule",
+        lambda path: {"allowed_roles": ["all"], "min_level": 0, "jwt_required": True},
+    )
+
+    checker = api_permission.unified_api_permission("/api/public")
+
+    assert await checker(None) is None
+
+
+@pytest.mark.asyncio
+async def test_unified_api_permission_rejects_private_yaml_without_user(monkeypatch):
+    """数据库无配置时，YAML 私有规则应拒绝未登录访问。"""
+    monkeypatch.setattr(api_permission, "get_moral_db", fake_permission_db)
+    monkeypatch.setattr(api_permission, "ensure_api_permission_schema", lambda db: None)
+    monkeypatch.setattr(api_permission, "_get_matching_config", lambda db, path, method: None)
+    monkeypatch.setattr(
+        api_permission,
+        "_get_yaml_rule",
+        lambda path: {"allowed_roles": ["xuefa"], "min_level": 0, "jwt_required": True},
+    )
+
+    checker = api_permission.unified_api_permission("/api/private")
+
+    with pytest.raises(HTTPException) as exc:
+        await checker(None)
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_unified_api_permission_allows_matching_yaml_role(monkeypatch):
+    """数据库无配置时，YAML fallback 应按角色和等级放行。"""
+    monkeypatch.setattr(api_permission, "get_moral_db", fake_permission_db)
+    monkeypatch.setattr(api_permission, "ensure_api_permission_schema", lambda db: None)
+    monkeypatch.setattr(api_permission, "_get_matching_config", lambda db, path, method: None)
+    monkeypatch.setattr(
+        api_permission,
+        "_get_yaml_rule",
+        lambda path: {"allowed_roles": ["xuefa"], "min_level": 20, "jwt_required": True},
+    )
+    monkeypatch.setattr(api_permission, "get_user_role_level", lambda user: 50)
+    user = User(username="苏子腾", role="teacher/xuefa")
+
+    checker = api_permission.unified_api_permission("/api/private")
+
+    assert await checker(user) is user
+
+
+@pytest.mark.asyncio
+async def test_unified_api_permission_allows_public_db_config_without_user(monkeypatch):
+    """数据库配置为公开接口时，不应强制登录。"""
+    monkeypatch.setattr(api_permission, "get_moral_db", fake_permission_db)
+    monkeypatch.setattr(api_permission, "ensure_api_permission_schema", lambda db: None)
+    monkeypatch.setattr(
+        api_permission,
+        "_get_matching_config",
+        lambda db, path, method: {"is_public": 1, "allowed_roles": "[]", "min_level": 0, "policy_mode": "role_and_level"},
+    )
+
+    checker = api_permission.unified_api_permission("/api/db-public")
+
+    assert await checker(None) is None
+
+
+@pytest.mark.asyncio
+async def test_unified_api_permission_rejects_private_db_config_without_user(monkeypatch):
+    """数据库私有配置应拒绝未登录访问。"""
+    monkeypatch.setattr(api_permission, "get_moral_db", fake_permission_db)
+    monkeypatch.setattr(api_permission, "ensure_api_permission_schema", lambda db: None)
+    monkeypatch.setattr(
+        api_permission,
+        "_get_matching_config",
+        lambda db, path, method: {"is_public": 0, "allowed_roles": "[\"xuefa\"]", "min_level": 0, "policy_mode": "role_and_level"},
+    )
+
+    checker = api_permission.unified_api_permission("/api/db-private")
+
+    with pytest.raises(HTTPException) as exc:
+        await checker(None)
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_unified_api_permission_rejects_db_role_mismatch(monkeypatch):
+    """数据库私有配置应按角色和等级策略拒绝不匹配用户。"""
+    monkeypatch.setattr(api_permission, "get_moral_db", fake_permission_db)
+    monkeypatch.setattr(api_permission, "ensure_api_permission_schema", lambda db: None)
+    monkeypatch.setattr(
+        api_permission,
+        "_get_matching_config",
+        lambda db, path, method: {
+            "is_public": 0,
+            "allowed_roles": "[\"xuefa\"]",
+            "min_level": 0,
+            "policy_mode": "role_and_level",
+            "inherit_from_module": 0,
+        },
+    )
+    user = User(username="普通教师", role="teacher")
+
+    checker = api_permission.unified_api_permission("/api/db-private")
+
+    with pytest.raises(HTTPException) as exc:
+        await checker(user)
+    assert exc.value.status_code == 403
 
 
 class FakeScopeDB:

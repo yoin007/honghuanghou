@@ -9,14 +9,14 @@
     </div>
     <div v-if="hasData" ref="chartRef" class="chart-canvas"></div>
     <div v-else class="empty-state">
-      <span>暂无可视化数据</span>
+      <span>{{ emptyText }}</span>
     </div>
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import * as echarts from 'echarts'
+import { init as initChart } from '@/utils/charting'
 
 const props = defineProps({
   title: {
@@ -34,6 +34,10 @@ const props = defineProps({
   empty: {
     type: Boolean,
     default: false
+  },
+  emptyText: {
+    type: String,
+    default: '暂无可视化数据'
   }
 })
 
@@ -46,7 +50,7 @@ const renderChart = async () => {
   await nextTick()
   if (!chartRef.value || !hasData.value) return
   if (!chartInstance) {
-    chartInstance = echarts.init(chartRef.value)
+    chartInstance = initChart(chartRef.value)
   }
   chartInstance.setOption(props.option, true)
 }

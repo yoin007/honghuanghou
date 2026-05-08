@@ -31,6 +31,17 @@ MEMBER_COLUMNS = [
 ]
 
 
+def _get_sqlite_connection_manager():
+    """延迟导入 SQLiteConnectionManager，避免循环导入"""
+    from models.datas_api.repositories.sqlite_base import SQLiteConnectionManager
+    return SQLiteConnectionManager
+
+
+def _get_member_db_path():
+    """获取 member.db 路径"""
+    return os.path.join(DB_DIR, "member.db")
+
+
 def _member_teacher_id(uuid: str) -> str:
     safe_uuid = re.sub(r"[^0-9A-Za-z_\-\u4e00-\u9fff]", "_", str(uuid or ""))
     return f"M_{safe_uuid[:120]}"
@@ -40,16 +51,27 @@ class Member:
     def __init__(self):
         self.__conn__ = None
         self.__cursor__ = None
+        self.__conn_wrapper__ = None  # sqlite_base 连接包装器
         self.log = LogConfig().get_logger()
 
-    def __enter__(self, db=os.path.join(DB_DIR, "member.db")):
-        self.__conn__ = sqlite3.connect(db)
+    def __enter__(self, db=None):
+        """使用 sqlite_base 获取连接，避免散落的 sqlite3.connect"""
+        if db is None:
+            db = _get_member_db_path()
+
+        # 使用 sqlite_base 连接管理器，确保 with 退出时提交/回滚并关闭连接。
+        self.__conn_wrapper__ = _get_sqlite_connection_manager()(db, row_factory=sqlite3.Row)
+        self.__conn__ = self.__conn_wrapper__.__enter__()
         self.__cursor__ = self.__conn__.cursor()
         return self
 
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
-        if self.__conn__:
-            self.__conn__.close()
+        # 通过 sqlite_base wrapper 管理连接释放
+        if self.__conn_wrapper__:
+            self.__conn_wrapper__.__exit__(exc_type, exc_val, exc_tb)
+            self.__conn_wrapper__ = None
+            self.__conn__ = None
+            self.__cursor__ = None
 
     def __create_table__(self):
         self.ensure_unified_member_schema()
@@ -380,8 +402,6 @@ class Member:
             """, (chat_room_id,))
             current_count = m.__cursor__.fetchone()[0]
 
-            self.__conn__.close()
-
         report = {
             "chat_room_id": chat_room_id,
             "current_count": current_count,
@@ -508,7 +528,7 @@ class Member:
     ):
         """插入成员"""
         self.ensure_unified_member_schema()
-        with sqlite3.connect(MORAL_DB) as conn:
+        with _get_sqlite_connection_manager()(MORAL_DB) as conn:
             cursor = conn.cursor()
             wxid = wxid or uuid
             existing = cursor.execute(
@@ -572,7 +592,7 @@ class Member:
     def delte_member(self, uuid):
         """删除成员"""
         self.ensure_unified_member_schema()
-        with sqlite3.connect(MORAL_DB) as conn:
+        with _get_sqlite_connection_manager()(MORAL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -590,7 +610,7 @@ class Member:
         """获取成员信息"""
         self.ensure_unified_member_schema()
         self.migrate_legacy_members_to_teacher()
-        with sqlite3.connect(MORAL_DB) as conn:
+        with _get_sqlite_connection_manager()(MORAL_DB) as conn:
             if uuid == "":
                 rows = conn.execute(
                     self._member_select_sql() + " ORDER BY id"
@@ -632,7 +652,7 @@ class Member:
         
         sql = f"UPDATE teacher SET {', '.join(set_clauses)}, updated_at = datetime('now', 'localtime') WHERE wxid = ?"
         self.ensure_unified_member_schema()
-        with sqlite3.connect(MORAL_DB) as conn:
+        with _get_sqlite_connection_manager()(MORAL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql, tuple(values))
             conn.commit()
@@ -646,7 +666,7 @@ class Member:
         """获取成员微信ID"""
         self.ensure_unified_member_schema()
         self.migrate_legacy_members_to_teacher()
-        with sqlite3.connect(MORAL_DB) as conn:
+        with _get_sqlite_connection_manager()(MORAL_DB) as conn:
             result = conn.execute(
                 """
                 SELECT wxid FROM teacher
@@ -682,7 +702,8 @@ class Member:
     def ensure_unified_member_schema():
         """确保 moral.teacher 可以承载原 member 表字段。"""
         os.makedirs(os.path.dirname(MORAL_DB), exist_ok=True)
-        with sqlite3.connect(MORAL_DB) as conn:
+        log = LogConfig().get_logger()
+        with _get_sqlite_connection_manager()(MORAL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -714,7 +735,7 @@ class Member:
                     cursor.execute("ALTER TABLE teacher DROP COLUMN alias")
                     columns.remove("alias")
                 except sqlite3.OperationalError as e:
-                    self.log.warning(f"Could not drop obsolete teacher.alias column: {e}")
+                    log.warning(f"Could not drop obsolete teacher.alias column: {e}")
             if "member_active" in columns:
                 cursor.execute(
                     "UPDATE teacher SET is_active = COALESCE(is_active, member_active) WHERE is_active IS NULL"
@@ -723,7 +744,7 @@ class Member:
                     cursor.execute("ALTER TABLE teacher DROP COLUMN member_active")
                     columns.remove("member_active")
                 except sqlite3.OperationalError as e:
-                    self.log.warning(f"Could not drop obsolete teacher.member_active column: {e}")
+                    log.warning(f"Could not drop obsolete teacher.member_active column: {e}")
             if "uuid" in columns:
                 cursor.execute(
                     "UPDATE teacher SET wxid = uuid WHERE (wxid IS NULL OR wxid = '') AND uuid IS NOT NULL AND uuid != ''"
@@ -733,13 +754,13 @@ class Member:
                     cursor.execute("ALTER TABLE teacher DROP COLUMN uuid")
                     columns.remove("uuid")
                 except sqlite3.OperationalError as e:
-                    self.log.warning(f"Could not drop obsolete teacher.uuid column: {e}")
+                    log.warning(f"Could not drop obsolete teacher.uuid column: {e}")
             if "priority" in columns:
                 try:
                     cursor.execute("ALTER TABLE teacher DROP COLUMN priority")
                     columns.remove("priority")
                 except sqlite3.OperationalError as e:
-                    self.log.warning(f"Could not drop obsolete teacher.priority column: {e}")
+                    log.warning(f"Could not drop obsolete teacher.priority column: {e}")
 
             additions = {
                 "score": "INTEGER DEFAULT 50",
@@ -773,7 +794,7 @@ class Member:
             return 0
 
         migrated = 0
-        with sqlite3.connect(MORAL_DB) as conn:
+        with _get_sqlite_connection_manager()(MORAL_DB) as conn:
             cursor = conn.cursor()
             for row in rows:
                 member = dict(zip(legacy_columns, row))

@@ -35,7 +35,7 @@
         <el-descriptions-item label="姓名">{{ student.name }}</el-descriptions-item>
         <el-descriptions-item label="班级">{{ student.class_name }}</el-descriptions-item>
         <el-descriptions-item label="生成时间">
-          {{ formatDateTime(profile.generated_at) }}
+          {{ formatDateTimeLocal(profile.generated_at) }}
         </el-descriptions-item>
       </el-descriptions>
 
@@ -150,6 +150,7 @@ import {
   getStudentProfileGenerationStatus
 } from '@/api/modules/moral'
 import { useApiPermission } from '@/composables/useApiPermission'
+import { formatDateTimeLocal } from '@/utils/time'
 
 const route = useRoute()
 
@@ -289,11 +290,6 @@ const getProgressColor = (score) => {
   if (score >= 80) return '#67c23a'
   if (score >= 60) return '#e6a23c'
   return '#f56c6c'
-}
-
-const formatDateTime = (datetime) => {
-  if (!datetime) return '-'
-  return new Date(datetime).toLocaleString('zh-CN')
 }
 
 const formatSigned = (score) => {

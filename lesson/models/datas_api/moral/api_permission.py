@@ -17,12 +17,14 @@ from pydantic import BaseModel, Field
 from .base import (
     get_moral_db,
     get_current_user,
+    get_current_user_optional,
     log_operation,
     is_admin_user,
     get_user_role_level,
     get_user_roles,
 )
 from models.datas_api.auth import User
+from config.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -691,7 +693,10 @@ def check_configured_api_permission(
                 "config": None,
             }
 
-        if int(config.get("enforce_backend") or 1) != 1:
+        # Batch77: 修复 enforce_backend=0 判定逻辑
+        # enforce_backend 字段：0=不启用后端鉴权（放行），1=启用，None/缺失=默认启用
+        enforce_backend_val = config.get("enforce_backend")
+        if enforce_backend_val is not None and int(enforce_backend_val) == 0:
             return {
                 "allowed": True,
                 "reason": "该API未启用后端配置鉴权",
@@ -718,6 +723,126 @@ def require_configured_api_permission(
             http_method,
             allow_missing=allow_missing,
         )
+        if not decision["allowed"]:
+            raise HTTPException(status_code=403, detail=decision["reason"])
+        return user
+
+    return check
+
+
+# =============================================================================
+# 统一鉴权入口 - 支持数据库配置 + YAML fallback
+# =============================================================================
+
+def _match_route_yaml(path: str, pattern: str) -> bool:
+    """YAML路由匹配逻辑"""
+    path_parts = [p for p in path.strip("/").split("/") if p != ""]
+    pattern_parts = [p for p in pattern.strip("/").split("/") if p != ""]
+    if len(path_parts) != len(pattern_parts):
+        return False
+    for pp, tp in zip(path_parts, pattern_parts):
+        if tp.startswith("{") and tp.endswith("}"):
+            continue
+        if pp != tp:
+            return False
+    return True
+
+
+def _get_yaml_rule(path: str) -> Dict[str, Any]:
+    """获取YAML配置的API规则"""
+    norm_path = path
+    if norm_path.startswith("/api/"):
+        norm_path = norm_path[4:]
+    try:
+        cfg_all = Config().get_config_all("api_level.yaml")
+    except Exception:
+        cfg_all = {}
+    defaults = cfg_all.get("defaults", {})
+    routes = cfg_all.get("routes", {})
+    for patt, conf in routes.items():
+        if _match_route_yaml(norm_path, patt):
+            merged = dict(defaults)
+            merged.update(conf or {})
+            return merged
+    return defaults
+
+
+def _check_yaml_permission(user: Optional[User], rule: Dict[str, Any]) -> Dict[str, Any]:
+    """基于YAML规则的权限检查"""
+    allowed_roles = rule.get("allowed_roles", [])
+    min_level = int(rule.get("min_level", 0))
+    jwt_required = rule.get("jwt_required", True)
+
+    # 公开API判断
+    if "all" in allowed_roles and min_level == 0:
+        return {"allowed": True, "reason": "公开API (yaml)", "source": "yaml"}
+    if not jwt_required:
+        return {"allowed": True, "reason": "jwt_required=false (yaml)", "source": "yaml"}
+
+    # 需要登录
+    if not user:
+        return {"allowed": False, "reason": "未登录", "source": "yaml"}
+
+    # admin放行
+    if is_admin_user(user):
+        return {"allowed": True, "reason": "admin拥有所有权限", "source": "yaml"}
+
+    # 角色检查
+    user_roles = get_user_roles(user)
+    user_level = get_user_role_level(user)
+    if allowed_roles and not any(role in allowed_roles for role in user_roles):
+        return {"allowed": False, "reason": f"角色不允许: {user_roles} vs {allowed_roles}", "source": "yaml"}
+    if user_level < min_level:
+        return {"allowed": False, "reason": f"等级不足: {user_level} < {min_level}", "source": "yaml"}
+
+    return {"allowed": True, "reason": "权限通过", "source": "yaml"}
+
+
+def unified_api_permission(
+    api_path: str,
+    http_method: str = "*",
+    *,
+    allow_missing: bool = True,
+):
+    """
+    统一鉴权入口 - 先查数据库，找不到则fallback到YAML。
+    公开API (is_public=1) 不强制要求token。
+    """
+    async def check(user: Optional[User] = Depends(get_current_user_optional)):
+        # 1. 先查数据库配置
+        with get_moral_db() as db:
+            ensure_api_permission_schema(db)
+            config = _get_matching_config(db, api_path, http_method)
+
+        if config:
+            # 数据库有配置 → 用数据库规则
+            # is_public=1 时，user 可能为 None，直接放行
+            if int(config.get("is_public") or 0) == 1:
+                return user  # 公开API，返回用户（可能为None）
+
+            # 非公开API需要登录
+            if not user:
+                raise HTTPException(status_code=401, detail="未登录")
+
+            decision = is_api_allowed(user, config)
+            if not decision["allowed"]:
+                raise HTTPException(status_code=403, detail=decision["reason"])
+            return user
+
+        # 2. 数据库无配置 → fallback到YAML
+        rule = _get_yaml_rule(api_path)
+
+        # YAML公开API
+        if "all" in rule.get("allowed_roles", []) and int(rule.get("min_level", 0)) == 0:
+            return user
+        if not rule.get("jwt_required", True):
+            return user
+
+        # YAML需要登录
+        if not user:
+            raise HTTPException(status_code=401, detail="未登录")
+
+        decision = _check_yaml_permission(user, rule)
         if not decision["allowed"]:
             raise HTTPException(status_code=403, detail=decision["reason"])
         return user

@@ -196,7 +196,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api from '../utils/api'
+import { getPermissions, createPermission, updatePermission, deletePermission, togglePermission } from '@/api/modules/permission'
 
 const loading = ref(false)
 const tableData = ref([])
@@ -249,7 +249,7 @@ const fetchData = async () => {
       search: searchQuery.value || undefined,
       activate: statusFilter.value !== '' ? statusFilter.value : undefined
     }
-    const res = await api.get('/api/permissions', { params })
+    const res = await getPermissions(params)
     tableData.value = res.data.data
     total.value = res.data.total
   } catch (error) {
@@ -277,7 +277,7 @@ const handleCurrentChange = (val) => {
 
 const handleStatusChange = async (row) => {
   try {
-    await api.put(`/api/permissions/${row.id}`, { activate: row.activate })
+    await togglePermission(row.id, row.activate)
     ElMessage.success('状态更新成功')
   } catch (error) {
     console.error('状态更新失败:', error)
@@ -321,7 +321,7 @@ const handleDelete = (row) => {
   )
     .then(async () => {
       try {
-        await api.delete(`/api/permissions/${row.id}`)
+        await deletePermission(row.id)
         ElMessage.success('删除成功')
         fetchData()
       } catch (error) {
@@ -341,10 +341,10 @@ const handleSubmit = async () => {
       submitLoading.value = true
       try {
         if (dialogType.value === 'add') {
-          await api.post('/api/permissions', form)
+          await createPermission(form)
           ElMessage.success('创建成功')
         } else {
-          await api.put(`/api/permissions/${form.id}`, form)
+          await updatePermission(form.id, form)
           ElMessage.success('更新成功')
         }
         dialogVisible.value = false

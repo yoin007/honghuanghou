@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import api from '../utils/api'
+import { getClassCodes } from '@/api/modules/user'
 
 export const useAppStore = defineStore('app', () => {
   const classCode = ref(localStorage.getItem('selectedClassCode') || '')
@@ -28,9 +28,7 @@ export const useAppStore = defineStore('app', () => {
         }
       }
 
-      const response = await api.get('/api/class-codes/', {
-        params: { ip: clientIp }
-      })
+      const response = await getClassCodes({ ip: clientIp })
       if (response.data && Array.isArray(response.data.class_codes)) {
         classCodes.value = response.data.class_codes
         const savedCode = localStorage.getItem('selectedClassCode')

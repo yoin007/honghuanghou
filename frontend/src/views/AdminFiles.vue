@@ -33,7 +33,7 @@
       <el-table v-else :data="files" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="uploaded_at" label="上传时间" width="160">
           <template #default="{ row }">
-            {{ formatDateTime(row.uploaded_at) }}
+            {{ formatDateTimeCompact(row.uploaded_at) }}
           </template>
         </el-table-column>
         <el-table-column prop="username" label="上传者" width="100" />
@@ -42,7 +42,7 @@
         <el-table-column prop="use_date" label="使用日期" width="120" />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)">{{ row.status }}</el-tag>
+            <el-tag :type="getFileStatusType(row.status)">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="note" label="备注" min-width="150" show-overflow-tooltip />
@@ -102,50 +102,30 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { filegatherApi } from '../api/modules/filegather'
 import { useAuthStore } from '../stores/auth'
+import { formatDateTimeCompact } from '@/utils/time'
+import {
+  downloadResponseFile,
+  getFileErrorMessage,
+  getFileListFromResponse,
+  getFileStatsFromResponse,
+  getFileStatusType
+} from '@/utils/filegather'
 
 const authStore = useAuthStore()
 const isLoggedIn = computed(() => authStore.isLoggedIn)
-const userRole = computed(() => authStore.role)
-
-const hasPermission = computed(() => {
-  const role = userRole.value
-  return role === 'jiaowu' || role?.includes('jiaowu') || authStore.isAdmin
-})
+const hasPermission = computed(() => authStore.isJiaowu)
 
 const loading = ref(false)
 const files = ref([])
 const markingId = ref(null)
 const stats = ref({})
 
-const formatDateTime = (dt) => {
-  if (!dt) return ''
-  // 将 UTC 时间转换为东八区时间
-  const date = new Date(dt)
-  // 加8小时转换为东八区
-  date.setHours(date.getHours() + 8)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}`
-}
-
-const getStatusType = (status) => {
-  switch (status) {
-    case '否': return 'warning'
-    case '打印中': return 'primary'
-    case '是': return 'success'
-    default: return 'info'
-  }
-}
-
 const fetchFiles = async () => {
   if (!isLoggedIn.value || !hasPermission.value) return
   loading.value = true
   try {
     const response = await filegatherApi.getPendingFiles()
-    files.value = response.data?.items || []
+    files.value = getFileListFromResponse(response)
   } catch (error) {
     if (error?.response?.status === 403) {
       ElMessage.error('无权限访问')
@@ -161,7 +141,7 @@ const fetchStats = async () => {
   if (!isLoggedIn.value || !hasPermission.value) return
   try {
     const response = await filegatherApi.getStatistics()
-    stats.value = response.data || {}
+    stats.value = getFileStatsFromResponse(response)
   } catch (error) {
     console.error('Failed to fetch stats:', error)
   }
@@ -170,17 +150,11 @@ const fetchStats = async () => {
 const handleDownload = async (row) => {
   try {
     const response = await filegatherApi.downloadFile(row.id)
-    const blob = new Blob([response.data])
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = row.original_name
-    link.click()
-    window.URL.revokeObjectURL(url)
+    downloadResponseFile(response, row.original_name)
     // 刷新列表以更新状态
     await fetchFiles()
   } catch (error) {
-    ElMessage.error('下载失败')
+    ElMessage.error(getFileErrorMessage(error, '下载失败'))
   }
 }
 
@@ -196,8 +170,7 @@ const handleMarkDone = async (row) => {
     await fetchStats()
   } catch (error) {
     if (error !== 'cancel') {
-      const detail = error?.response?.data?.detail || '操作失败'
-      ElMessage.error(detail)
+      ElMessage.error(getFileErrorMessage(error, '操作失败'))
     }
   } finally {
     markingId.value = null

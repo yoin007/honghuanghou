@@ -15,7 +15,7 @@
               <el-option
                 v-for="month in months"
                 :key="month"
-                :label="formatMonth(month)"
+                :label="formatYearMonth(month)"
                 :value="month"
               />
             </el-select>
@@ -38,7 +38,7 @@
       <el-table v-else :data="files" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="uploaded_at" label="上传时间" width="160">
           <template #default="{ row }">
-            {{ formatDateTime(row.uploaded_at) }}
+            {{ formatDateTimeSimple(row.uploaded_at) }}
           </template>
         </el-table-column>
         <el-table-column prop="original_name" label="文件名" min-width="200" show-overflow-tooltip />
@@ -46,7 +46,7 @@
         <el-table-column prop="use_date" label="使用日期" width="120" />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)">{{ row.status }}</el-tag>
+            <el-tag :type="getFileStatusType(row.status)">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="note" label="备注" min-width="150" show-overflow-tooltip />
@@ -73,6 +73,12 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { filegatherApi } from '../api/modules/filegather'
 import { useAuthStore } from '../stores/auth'
+import { formatDateTimeSimple, formatYearMonth, generateRecentMonths } from '@/utils/time'
+import {
+  getFileErrorMessage,
+  getFileListFromResponse,
+  getFileStatusType
+} from '@/utils/filegather'
 
 const authStore = useAuthStore()
 const isLoggedIn = computed(() => authStore.isLoggedIn)
@@ -83,43 +89,12 @@ const months = ref([])
 const selectedMonth = ref('')
 const deletingId = ref(null)
 
-// 生成最近12个月
-const generateMonths = () => {
-  const now = new Date()
-  const result = []
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const month = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
-    result.push(month)
-  }
-  return result
-}
-
-const formatMonth = (month) => {
-  if (!month || month.length !== 6) return month
-  return `${month.slice(0, 4)}-${month.slice(4)}`
-}
-
-const formatDateTime = (dt) => {
-  if (!dt) return ''
-  return dt.replace('T', ' ').slice(0, 16)
-}
-
-const getStatusType = (status) => {
-  switch (status) {
-    case '否': return 'warning'
-    case '打印中': return 'primary'
-    case '是': return 'success'
-    default: return 'info'
-  }
-}
-
 const fetchFiles = async () => {
   if (!isLoggedIn.value) return
   loading.value = true
   try {
     const response = await filegatherApi.getMyFiles(selectedMonth.value)
-    files.value = response.data?.items || []
+    files.value = getFileListFromResponse(response)
   } catch (error) {
     ElMessage.error('获取文件列表失败')
   } finally {
@@ -142,8 +117,7 @@ const handleDelete = async (row) => {
     await fetchFiles()
   } catch (error) {
     if (error !== 'cancel') {
-      const detail = error?.response?.data?.detail || '删除失败'
-      ElMessage.error(detail)
+      ElMessage.error(getFileErrorMessage(error, '删除失败'))
     }
   } finally {
     deletingId.value = null
@@ -159,7 +133,7 @@ watch(() => authStore.isLoggedIn, (val) => {
 })
 
 onMounted(() => {
-  months.value = generateMonths()
+  months.value = generateRecentMonths()
   if (isLoggedIn.value) {
     fetchFiles()
   }

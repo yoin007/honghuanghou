@@ -12,11 +12,17 @@ import os
 import sqlite3
 import shutil
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
 from utils.db_config import FILEGATHER_DB
+
+
+def _get_sqlite_connection():
+    """延迟导入避免循环依赖"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +34,27 @@ ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "doc", "docx", "xlsx", "xls", "ppt",
 
 # 最大文件大小 (50MB)
 MAX_FILE_SIZE = 50 * 1024 * 1024
+
+
+def _parse_upload_datetime(value: str) -> Optional[datetime]:
+    """解析文件上传时间，兼容 SQLite 历史格式和 ISO UTC 格式。"""
+    if not value:
+        return None
+    text = str(value).strip()
+    candidates = [
+        text,
+        text.replace("Z", "+00:00"),
+        text[:19].replace("T", " "),
+    ]
+    for candidate in candidates:
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC)
+        except ValueError:
+            continue
+    return None
 
 
 class FileGatherDB:
@@ -54,8 +81,7 @@ class FileGatherDB:
     @contextmanager
     def _get_connection(self):
         """获取数据库连接的上下文管理器"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = _get_sqlite_connection()(self.db_path, row_factory=sqlite3.Row)
         try:
             yield conn
         finally:
@@ -145,7 +171,7 @@ class FileGatherDB:
         import uuid
 
         # 生成安全的文件名
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         safe_name = filename.replace("/", "_").replace("\\", "_")
         unique_id = uuid.uuid4().hex[:8]
         stored_name = f"{ts}_{unique_id}_{safe_name}"
@@ -199,7 +225,7 @@ class FileGatherDB:
                     stored_path,
                     content_type,
                     "否",
-                    datetime.utcnow().isoformat(),
+                    datetime.now(UTC).isoformat(),
                     copies,
                     use_date,
                     month,
@@ -292,7 +318,7 @@ class FileGatherDB:
         if not os.path.exists(src_path):
             raise FileNotFoundError("源文件不存在")
 
-        month = file_info["month"] or datetime.utcnow().strftime("%Y%m")
+        month = file_info["month"] or datetime.now(UTC).strftime("%Y%m")
         target_dir = os.path.join(self.done_dir, month)
         os.makedirs(target_dir, exist_ok=True)
 
@@ -302,7 +328,7 @@ class FileGatherDB:
         with self._get_connection() as conn:
             conn.execute(
                 "UPDATE files SET status = ?, stored_path = ?, done_at = ? WHERE id = ?",
-                ("是", target_path, datetime.utcnow().isoformat(), file_id),
+                ("是", target_path, datetime.now(UTC).isoformat(), file_id),
             )
             conn.commit()
 
@@ -387,8 +413,13 @@ class FileGatherDB:
             month: 月份筛选
 
         Returns:
-            统计信息
+            统计信息（Batch46 增加深度指标）
         """
+        from datetime import timedelta
+
+        now = datetime.now(UTC)
+        overdue_threshold = timedelta(days=3)  # 逾期阈值：3天
+
         with self._get_connection() as conn:
             # 构建基础条件
             month_where = "WHERE month = ?" if month else ""
@@ -434,9 +465,89 @@ class FileGatherDB:
                 )
             by_user = [{"username": r["username"], "count": r["count"]} for r in cur.fetchall()]
 
+            # Batch46: 完成率
+            completion_rate = round(done_files / total_files * 100, 1) if total_files > 0 else 0.0
+
+            # Batch46: 逾期待处理文件全量计数，列表仅展示最近 20 条。
+            overdue_pending_count = 0
+            pending_query = "SELECT uploaded_at FROM files WHERE status != '是'"
+            pending_params = ()
+            if month:
+                pending_query = "SELECT uploaded_at FROM files WHERE month = ? AND status != '是'"
+                pending_params = (month,)
+            cur = conn.execute(pending_query, pending_params)
+            for r in cur.fetchall():
+                uploaded_at_dt = _parse_upload_datetime(r["uploaded_at"])
+                if uploaded_at_dt and (now - uploaded_at_dt).days > overdue_threshold.days:
+                    overdue_pending_count += 1
+
+            if month:
+                cur = conn.execute(
+                    """SELECT id, username, original_name, status, use_date, uploaded_at, note
+                       FROM files WHERE month = ? AND status != '是'
+                       ORDER BY uploaded_at DESC LIMIT 20""",
+                    (month,)
+                )
+            else:
+                cur = conn.execute(
+                    """SELECT id, username, original_name, status, use_date, uploaded_at, note
+                       FROM files WHERE status != '是'
+                       ORDER BY uploaded_at DESC LIMIT 20"""
+                )
+            pending_file_list = []
+            for r in cur.fetchall():
+                overdue_days = 0
+                uploaded_at_dt = _parse_upload_datetime(r["uploaded_at"])
+                if uploaded_at_dt:
+                    days_elapsed = (now - uploaded_at_dt).days
+                    if days_elapsed > overdue_threshold.days:
+                        overdue_days = days_elapsed - overdue_threshold.days
+                pending_file_list.append({
+                    "id": r["id"],
+                    "username": r["username"],
+                    "original_name": r["original_name"],
+                    "status": r["status"],
+                    "use_date": r["use_date"],
+                    "uploaded_at": r["uploaded_at"],
+                    "note": r["note"],
+                    "overdue_days": overdue_days,
+                })
+
+            # Batch46: 最近上传文件列表（已完成和待处理都包含）
+            if month:
+                cur = conn.execute(
+                    """SELECT id, username, original_name, status, use_date, uploaded_at, done_at, note
+                       FROM files WHERE month = ?
+                       ORDER BY uploaded_at DESC LIMIT 10""",
+                    (month,)
+                )
+            else:
+                cur = conn.execute(
+                    """SELECT id, username, original_name, status, use_date, uploaded_at, done_at, note
+                       FROM files
+                       ORDER BY uploaded_at DESC LIMIT 10"""
+                )
+            recent_file_list = []
+            for r in cur.fetchall():
+                recent_file_list.append({
+                    "id": r["id"],
+                    "username": r["username"],
+                    "original_name": r["original_name"],
+                    "status": r["status"],
+                    "use_date": r["use_date"],
+                    "uploaded_at": r["uploaded_at"],
+                    "done_at": r["done_at"],
+                    "note": r["note"],
+                })
+
             return {
                 "total_files": total_files,
                 "pending_files": pending_files,
                 "done_files": done_files,
                 "by_user": by_user,
+                # Batch46: 新增深度指标
+                "completion_rate": completion_rate,
+                "pending_file_list": pending_file_list,
+                "overdue_pending_count": overdue_pending_count,
+                "recent_file_list": recent_file_list,
             }

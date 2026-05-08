@@ -92,7 +92,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import api from '../utils/api'
+import { getStudents } from '@/api/modules/user'
 
 const loading = ref(false)
 const studentList = ref([])
@@ -119,12 +119,12 @@ const fetchStudentList = async () => {
     ElMessage.warning('请先选择班级')
     return
   }
-  
+
   classCode.value = code
   loading.value = true
-  
+
   try {
-    const response = await api.get(`/api/students/${encodeURIComponent(code)}`)
+    const response = await getStudents(code)
     if (response.data && Array.isArray(response.data.students)) {
       studentList.value = response.data.students
       // 重置选择数量

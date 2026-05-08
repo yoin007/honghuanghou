@@ -87,10 +87,21 @@ def check_admin_permission(current_user):
 
 
 def generate_random_password(length=8):
-    """生成随机密码"""
-    import random
+    """生成随机密码，强制包含字母和数字"""
+    import secrets
     import string
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+    alphabet = string.ascii_letters + string.digits
+    # 确保至少包含一个字母和一个数字
+    password_chars = [
+        secrets.choice(string.ascii_letters),  # 至少一个字母
+        secrets.choice(string.digits),         # 至少一个数字
+    ]
+    # 剩余字符从完整字母表随机选择
+    remaining_length = length - len(password_chars)
+    password_chars.extend(secrets.choice(alphabet) for _ in range(remaining_length))
+    # 打乱顺序避免固定模式
+    secrets.SystemRandom().shuffle(password_chars)
+    return ''.join(password_chars)
 
 
 def filter_users_by_role(users_dict, role_filter=None):

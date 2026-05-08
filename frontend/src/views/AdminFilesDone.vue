@@ -15,7 +15,7 @@
               <el-option
                 v-for="month in months"
                 :key="month"
-                :label="formatMonth(month)"
+                :label="formatYearMonth(month)"
                 :value="month"
               />
             </el-select>
@@ -54,12 +54,12 @@
       <el-table v-else :data="paginatedFiles" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="uploaded_at" label="上传时间" width="160">
           <template #default="{ row }">
-            {{ formatDateTime(row.uploaded_at) }}
+            {{ formatDateTimeCompact(row.uploaded_at) }}
           </template>
         </el-table-column>
         <el-table-column prop="done_at" label="完成时间" width="160">
           <template #default="{ row }">
-            {{ formatDateTime(row.done_at) }}
+            {{ formatDateTimeCompact(row.done_at) }}
           </template>
         </el-table-column>
         <el-table-column prop="username" label="上传者" width="100" />
@@ -99,15 +99,16 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { filegatherApi } from '../api/modules/filegather'
 import { useAuthStore } from '../stores/auth'
+import { formatDateTimeCompact, formatYearMonth, generateRecentMonths } from '@/utils/time'
+import {
+  downloadResponseFile,
+  getFileErrorMessage,
+  getFileListFromResponse
+} from '@/utils/filegather'
 
 const authStore = useAuthStore()
 const isLoggedIn = computed(() => authStore.isLoggedIn)
-const userRole = computed(() => authStore.role)
-
-const hasPermission = computed(() => {
-  const role = userRole.value
-  return role === 'jiaowu' || role?.includes('jiaowu') || authStore.isAdmin
-})
+const hasPermission = computed(() => authStore.isJiaowu)
 
 const loading = ref(false)
 const files = ref([])
@@ -132,41 +133,12 @@ const paginatedFiles = computed(() => {
   return filteredFiles.value.slice(start, end)
 })
 
-// 生成最近12个月
-const generateMonths = () => {
-  const now = new Date()
-  const result = []
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const month = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
-    result.push(month)
-  }
-  return result
-}
-
-const formatMonth = (month) => {
-  if (!month || month.length !== 6) return month
-  return `${month.slice(0, 4)}-${month.slice(4)}`
-}
-
-const formatDateTime = (dt) => {
-  if (!dt) return ''
-  const date = new Date(dt)
-  date.setHours(date.getHours() + 8)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}`
-}
-
 const fetchFiles = async () => {
   if (!isLoggedIn.value || !hasPermission.value) return
   loading.value = true
   try {
     const response = await filegatherApi.getDoneFiles(selectedMonth.value)
-    allFiles.value = response.data?.items || []
+    allFiles.value = getFileListFromResponse(response)
     currentPage.value = 1
   } catch (error) {
     if (error?.response?.status === 403) {
@@ -194,15 +166,9 @@ const handlePageChange = (page) => {
 const handleDownload = async (row) => {
   try {
     const response = await filegatherApi.downloadFile(row.id)
-    const blob = new Blob([response.data])
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = row.original_name
-    link.click()
-    window.URL.revokeObjectURL(url)
+    downloadResponseFile(response, row.original_name)
   } catch (error) {
-    ElMessage.error('下载失败')
+    ElMessage.error(getFileErrorMessage(error, '下载失败'))
   }
 }
 
@@ -215,7 +181,7 @@ watch(() => authStore.isLoggedIn, (val) => {
 })
 
 onMounted(() => {
-  months.value = generateMonths()
+  months.value = generateRecentMonths()
   if (isLoggedIn.value && hasPermission.value) {
     fetchFiles()
   }

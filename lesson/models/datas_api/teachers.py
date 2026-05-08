@@ -150,13 +150,13 @@ async def create_teacher(
 
     try:
         hashed_password = hash_password(str(teacher.password))
+        # 不再写入 raw_pwd 明文，只保存哈希值
         create_teacher_record(
             name=teacher.username,
             subject=teacher.subject,
             course=teacher.course,
             notice=teacher.notice,
             password_hash=str(hashed_password),
-            raw_pwd=teacher.password,
             role=teacher.role,
             level=teacher.level,
             active=1,
@@ -534,10 +534,10 @@ async def teacher_change_password(
         raise HTTPException(status_code=500, detail="密码加密失败")
 
     try:
+        # 不再写入 raw_pwd 明文，只保存哈希值
         update_teacher_record(
             username,
             pwd=str(hashed_password),
-            raw_pwd=str(request.new_password),
             is_password_changed=1,
         )
         logger.info(f"Teacher {username} changed password")

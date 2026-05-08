@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { canAccessDashboardRoute, getDefaultDashboardByRole } from './guards'
 
 // 公开页面，不需要登录
-const publicRoutes = ['/', '/zhf']
+const publicRoutes = ['/', '/zhf', '/homework', '/basic-info', '/class-students', '/announcement', '/delay-application', '/leave-record', '/schedule', '/schedules', '/random-call', '/loud-pk']
 
 const routes = [
   {
@@ -11,22 +12,28 @@ const routes = [
     meta: { requiresAuth: true, title: '数据驾驶舱' }
   },
   {
+    path: '/dashboard/forbidden',
+    name: 'DashboardForbidden',
+    component: () => import('../components/dashboard/ForbiddenState.vue'),
+    meta: { requiresAuth: true, title: '无权限' }
+  },
+  {
     path: '/dashboard/moral',
     name: 'MoralDashboard',
     component: () => import('../views/dashboard/MoralDashboard.vue'),
-    meta: { requiresAuth: true, title: '德育驾驶舱' }
+    meta: { requiresAuth: true, title: '德育驾驶舱', dashboardRoles: ['admin', 'jiaowu', 'xuefa', 'cleader'] }
   },
   {
     path: '/dashboard/teaching',
     name: 'TeachingDashboard',
     component: () => import('../views/dashboard/TeachingDashboard.vue'),
-    meta: { requiresAuth: true, title: '教务驾驶舱' }
+    meta: { requiresAuth: true, title: '教务驾驶舱', dashboardRoles: ['admin', 'jiaowu'] }
   },
   {
     path: '/dashboard/class',
     name: 'ClassDashboard',
     component: () => import('../views/dashboard/ClassDashboard.vue'),
-    meta: { requiresAuth: true, title: '班级驾驶舱' }
+    meta: { requiresAuth: true, title: '班级驾驶舱', dashboardRoles: ['admin', 'jiaowu', 'xuefa', 'cleader'] }
   },
   {
     path: '/dashboard/teacher',
@@ -38,38 +45,38 @@ const routes = [
     path: '/dashboard/invigilation',
     name: 'InvigilationDashboard',
     component: () => import('../views/dashboard/InvigilationDashboard.vue'),
-    meta: { requiresAuth: true, title: '监考驾驶舱' }
+    meta: { requiresAuth: true, title: '监考驾驶舱', dashboardRoles: ['admin', 'jiaowu'] }
   },
   {
     path: '/dashboard/system',
     name: 'SystemDashboard',
     component: () => import('../views/dashboard/SystemDashboard.vue'),
-    meta: { requiresAuth: true, title: '系统运维驾驶舱' }
+    meta: { requiresAuth: true, title: '系统运维驾驶舱', dashboardRoles: ['admin'] }
   },
   {
     path: '/schedule',
     name: 'Schedule',
     component: () => import('../views/Schedule.vue'),
-    meta: { requiresAuth: true, title: '课程表' }
+    meta: { requiresAuth: false, title: '课程表' }
   },
   {
     path: '/announcement',
     name: 'Announcement',
     component: () => import('../views/Announcement.vue'),
-    meta: { requiresAuth: true, title: '公告' }
+    meta: { requiresAuth: false, title: '公告' }
   },
   {
     path: '/basic-info',
     name: 'BasicInfo',
     component: () => import('../views/BasicInfo.vue'),
-    meta: { requiresAuth: true, title: '基本信息' }
+    meta: { requiresAuth: false, title: '基本信息' }
   },
   {
     path: '/class-students',
     name: 'ClassStudents',
     component: () => import('../views/ClassStudents.vue'),
     meta: {
-      requiresAuth: true,
+      requiresAuth: false,
       title: '班级学生'
     }
   },
@@ -83,14 +90,14 @@ const routes = [
     path: '/homework',
     name: 'Homework',
     component: () => import('../views/Homework.vue'),
-    meta: { requiresAuth: true, title: '作业' }
+    meta: { requiresAuth: false, title: '作业' }
   },
   {
     path: '/delay-application',
     name: 'DelayApplication',
     component: () => import('../views/DelayApplication.vue'),
     meta: {
-      requiresAuth: true,
+      requiresAuth: false,
       title: '延时申请'
     }
   },
@@ -99,7 +106,7 @@ const routes = [
     name: 'LeaveRecord',
     component: () => import('../views/LeaveRecord.vue'),
     meta: {
-      requiresAuth: true,
+      requiresAuth: false,
       title: '请假记录'
     }
   },
@@ -108,7 +115,7 @@ const routes = [
     name: 'RandomCall',
     component: () => import('../views/RandomCall.vue'),
     meta: {
-      requiresAuth: true,
+      requiresAuth: false,
       title: '随机点名'
     }
   },
@@ -117,7 +124,7 @@ const routes = [
     name: 'LoudPK',
     component: () => import('../views/LoudPK.vue'),
     meta: {
-      requiresAuth: true,
+      requiresAuth: false,
       title: '大声PK',
       protocol: 'https'
     }
@@ -136,7 +143,7 @@ const routes = [
     name: 'Schedules',
     component: () => import('../views/Schedules.vue'),
     meta: {
-      requiresAuth: true,
+      requiresAuth: false,
       title: '课表文件'
     }
   },
@@ -453,7 +460,9 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/schedules'
+    name: 'Root',
+    component: () => import('../views/Root.vue'),
+    meta: { requiresAuth: false }
   },
   {
     path: '/zhf',
@@ -520,13 +529,22 @@ router.beforeEach((to) => {
   if (requiresAuth && !token) {
     // 清除过期的 token
     localStorage.removeItem('token')
-    // 跳转到首页（登录页面），但先让首页加载
-    return true
+    // 未登录停留在公开页面（App.vue会显示登录对话框），不重定向避免循环
+    if (isPublicPath(to.path)) {
+      return true
+    }
+    // 未登录直达受保护页面时回到公开入口
+    return { path: '/' }
   }
 
-  // 已登录但访问公开页面，重定向到首页
-  if (token && isPublicPath(to.path)) {
-    return { path: '/schedules' }
+  if (token && !canAccessDashboardRoute(to.meta, token)) {
+    return { path: '/dashboard/forbidden' }
+  }
+
+  // 已登录访问根路径 '/' 时，重定向到角色默认驾驶舱
+  // 其他公开路由（班级、课表、趣味）无论是否登录都可访问
+  if (token && to.path === '/') {
+    return { path: getDefaultDashboardByRole(token) }
   }
 
   return true

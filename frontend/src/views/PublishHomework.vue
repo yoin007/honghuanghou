@@ -79,7 +79,8 @@
 <script setup>
 import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import api from '../utils/api'
+import { publishHomework } from '@/api/modules/homework'
+import { getClassCodes } from '@/api/modules/user'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
@@ -140,7 +141,7 @@ const submitHomework = async () => {
             duration: homeworkForm.duration,
             type: homeworkForm.type
           }
-          const response = await api.post('/api/homework/', formData)
+          const response = await publishHomework(formData)
           if (response.data && response.data.id) {
             successCount++
           } else {
@@ -174,7 +175,7 @@ const resetForm = () => {
 
 const fetchClassCodes = async () => {
   try {
-    const response = await api.get('/api/class-codes/')
+    const response = await getClassCodes()
     if (response.data && response.data.class_codes) {
       classCodes.value = response.data.class_codes
     }

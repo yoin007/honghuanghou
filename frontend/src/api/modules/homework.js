@@ -1,8 +1,7 @@
 /**
  * 作业相关 API
- * 使用带认证的 axios 实例
  */
-import api from '@/utils/api'
+import { httpClient } from '@/shared/api/httpClient'
 
 export const homeworkApi = {
   /**
@@ -11,7 +10,7 @@ export const homeworkApi = {
    * @returns {Promise}
    */
   getHomeworkList(classCode) {
-    return api.get(`/api/homework/${classCode}`)
+    return httpClient.get(`/api/homework/${classCode}`)
   },
 
   /**
@@ -20,7 +19,7 @@ export const homeworkApi = {
    * @returns {Promise}
    */
   getHomeworkDetail(homeworkId) {
-    return api.get(`/api/homework/detail/${homeworkId}`)
+    return httpClient.get(`/api/homework/detail/${homeworkId}`)
   },
 
   /**
@@ -29,7 +28,7 @@ export const homeworkApi = {
    * @returns {Promise}
    */
   createHomework(data) {
-    return api.post('/api/homework', data)
+    return httpClient.post('/api/homework', data)
   },
 
   /**
@@ -39,7 +38,7 @@ export const homeworkApi = {
    * @returns {Promise}
    */
   updateHomework(homeworkId, data) {
-    return api.put(`/api/homework/${homeworkId}`, data)
+    return httpClient.put(`/api/homework/${homeworkId}`, data)
   },
 
   /**
@@ -48,17 +47,32 @@ export const homeworkApi = {
    * @returns {Promise}
    */
   deleteHomework(homeworkId) {
-    return api.delete(`/api/homework/${homeworkId}`)
+    return httpClient.delete(`/api/homework/${homeworkId}`)
   },
 
   /**
    * 批量删除作业
-   * @param {Array<number>} ids 作业ID数组
+   * @param {Object} data { ids, classCode }
    * @returns {Promise}
    */
-  batchDeleteHomework(ids) {
-    return api.post('/api/homework/batch-delete', { ids })
+  batchDeleteHomework(data) {
+    return httpClient.delete('/api/homework/batch', { data })
+  },
+
+  /**
+   * 发布作业（multipart/form-data）
+   * @param {FormData} formData 作业数据
+   * @returns {Promise}
+   */
+  publishHomework(formData) {
+    return httpClient.post('/api/homework/', formData)
   }
 }
+
+export const getHomeworkList = homeworkApi.getHomeworkList
+export const updateHomework = homeworkApi.updateHomework
+export const deleteHomework = homeworkApi.deleteHomework
+export const batchDeleteHomework = homeworkApi.batchDeleteHomework
+export const publishHomework = homeworkApi.publishHomework
 
 export default homeworkApi

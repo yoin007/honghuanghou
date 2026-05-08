@@ -12,6 +12,12 @@ from config.config import Config
 from config.log import LogConfig
 from models.lesson.lesson import Lesson
 
+
+def _get_sqlite_connection():
+    """延迟导入 get_sqlite_connection，避免循环依赖"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
+
 config = Config()
 log = LogConfig().get_logger()
 event_list = config.get_config("event_list", "event.yaml")
@@ -23,7 +29,8 @@ class Daily:
         self.admin = config.get_config("daily_admin", "event.yaml")
 
     def __enter__(self, db=os.path.join(DB_DIR, "daily.db")):
-        self.__conn__ = sqlite3.connect(db)
+        get_sqlite_connection = _get_sqlite_connection()
+        self.__conn__ = get_sqlite_connection(db)
         self.__cursor__ = self.__conn__.cursor()
         return self
 

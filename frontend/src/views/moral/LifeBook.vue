@@ -117,7 +117,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import api from '@/utils/api'
+import { getClasses, searchTimeline, getStudentTimeline } from '@/api/modules/moral'
 
 const classList = ref([])
 const studentList = ref([])
@@ -155,7 +155,7 @@ const getTagType = (type) => {
 
 const fetchClasses = async () => {
   try {
-    const res = await api.get('/api/moral/admin/classes')
+    const res = await getClasses()
     if (res.success) {
       classList.value = res.data
     }
@@ -178,7 +178,7 @@ const fetchStudents = async () => {
       params.student_name = filterForm.student_name
     }
 
-    const res = await api.get('/api/moral/timeline/search', { params })
+    const res = await searchTimeline(params)
     if (res.success) {
       studentList.value = res.data.items
       studentPagination.total = res.data.total
@@ -218,7 +218,7 @@ const handleSelectStudent = async (student) => {
       params.event_types = filterForm.event_types.join(',')
     }
 
-    const res = await api.get(`/api/moral/timeline/${student.student_id}`, { params })
+    const res = await getStudentTimeline(student.student_id, params)
     if (res.success) {
       timeline.value = res.data.timeline
       stats.value = res.data.stats

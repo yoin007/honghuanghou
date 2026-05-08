@@ -7,7 +7,7 @@ import path from 'path'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const proxyTarget = env.VITE_API_BASE_URL || 'http://localhost:14600'
+  const proxyTarget = env.VITE_API_BASE_URL || 'http://172.31.24.235:14600'
   const useHttps = env.VITE_DEV_HTTPS === 'true'
   const devHost = env.VITE_DEV_HOST || 'localhost'
   const httpPort = Number(env.VITE_DEV_HTTP_PORT || 3333)
@@ -27,12 +27,27 @@ export default defineConfig(({ mode }) => {
       include: ['xlsx']
     },
     build: {
+      chunkSizeWarningLimit: 1000, // element-plus 是全局 UI 依赖，ECharts 已按需注册
       rollupOptions: {
         output: {
-          manualChunks: {
-            'element-plus': ['element-plus'],
-            'vue-vendor': ['vue', 'vue-router', 'pinia'],
-            'utils': ['axios']
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined
+            if (/[\\/]node_modules[\\/](vue|vue-router|pinia|@vue)[\\/]/.test(id)) {
+              return 'vue-vendor'
+            }
+            if (/[\\/]node_modules[\\/](element-plus|@element-plus)[\\/]/.test(id)) {
+              return 'element-plus'
+            }
+            if (/[\\/]node_modules[\\/](echarts|zrender)[\\/]/.test(id)) {
+              return 'echarts'
+            }
+            if (/[\\/]node_modules[\\/]xlsx[\\/]/.test(id)) {
+              return 'xlsx'
+            }
+            if (/[\\/]node_modules[\\/]axios[\\/]/.test(id)) {
+              return 'http-utils'
+            }
+            return undefined
           }
         }
       }

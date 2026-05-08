@@ -51,7 +51,7 @@
         </el-table-column>
         <el-table-column prop="next_birthday" label="生日日期" width="120">
           <template #default="{ row }">
-            {{ formatDate(row.next_birthday) }}
+            {{ formatDateChinese(row.next_birthday) }}
           </template>
         </el-table-column>
         <el-table-column prop="days_until" label="距今天数" width="100">
@@ -75,10 +75,11 @@ import {
   getTodayBirthdays,
   getClasses
 } from '@/api/modules/moral'
+import { formatDateChinese } from '@/utils/time'
 
 const { loadMyPermissions } = useApiPermission()
 const authStore = useAuthStore()
-const isCleader = computed(() => authStore.role === 'cleader')
+const isCleader = computed(() => authStore.isCleader)
 
 // 数据
 const loading = ref(false)
@@ -131,12 +132,6 @@ const getDaysTagType = (days) => {
   if (days === 0) return 'danger'
   if (days <= 3) return 'warning'
   return 'success'
-}
-
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  const d = new Date(dateStr)
-  return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
 onMounted(async () => {

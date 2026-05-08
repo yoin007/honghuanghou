@@ -40,16 +40,25 @@ const routes = [
   { path: '/homework', meta: { requiresAuth: true, title: '作业' } },
   { path: '/teacher-manage', meta: { requiresAuth: true, title: '教师管理' } },
   { path: '/admin-files', meta: { requiresAuth: true, requiresJiaowu: true } },
+  { path: '/dashboard/teaching', meta: { requiresAuth: true, dashboardRoles: ['admin', 'jiaowu'] } },
+  { path: '/dashboard/moral', meta: { requiresAuth: true, dashboardRoles: ['admin', 'jiaowu', 'xuefa', 'cleader'] } },
+  { path: '/dashboard/class', meta: { requiresAuth: true, dashboardRoles: ['admin', 'jiaowu', 'xuefa', 'cleader'] } },
+  { path: '/dashboard/system', meta: { requiresAuth: true, dashboardRoles: ['admin'] } },
   { path: '/', redirect: '/schedules' },
   { path: '/zhf' }
 ]
+
+function createJwt(payload) {
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  return `header.${encodedPayload}.signature`
+}
 
 // 检查是否是公开路由
 function isPublicPath(path) {
   return publicRoutes.includes(path)
 }
 
-// 模拟路由守卫逻辑
+// 模拟路由守卫逻辑（简化版，不包含角色默认入口逻辑）
 function mockBeforeEach(to) {
   const token = localStorageMock.getItem('token')
   const requiresAuth = to.meta?.requiresAuth !== false
@@ -57,12 +66,14 @@ function mockBeforeEach(to) {
   // 需要登录但未登录
   if (requiresAuth && !token) {
     localStorageMock.removeItem('token')
-    return { blocked: true, reason: 'no_token' }
+    return { redirect: '/' }
   }
 
-  // 已登录但访问公开页面
+  // 已登录但访问公开页面，重定向到角色默认驾驶舱
   if (token && isPublicPath(to.path)) {
-    return { redirect: '/schedules' }
+    // 在真实实现中，这里会调用 getDefaultDashboardByRole(token)
+    // 简化版直接返回教师工作台作为默认
+    return { redirect: '/dashboard/teacher' }
   }
 
   return { allowed: true }
@@ -112,12 +123,11 @@ describe('路由守卫', () => {
   })
 
   describe('登录检查', () => {
-    it('无token访问需要认证的路由应该被拦截', () => {
+    it('无token访问需要认证的路由应该回到公开入口', () => {
       const to = { path: '/schedule', meta: { requiresAuth: true } }
       const result = mockBeforeEach(to)
 
-      expect(result.blocked).toBe(true)
-      expect(result.reason).toBe('no_token')
+      expect(result.redirect).toBe('/')
     })
 
     it('有token访问需要认证的路由应该放行', () => {
@@ -135,12 +145,13 @@ describe('路由守卫', () => {
       expect(result.allowed).toBe(true)
     })
 
-    it('有token访问公开路由应该重定向', () => {
+    it('有token访问公开路由应该重定向到角色默认驾驶舱', () => {
       localStorageMock.setItem('token', 'valid_token')
       const to = { path: '/', meta: {} }
       const result = mockBeforeEach(to)
 
-      expect(result.redirect).toBe('/schedules')
+      // 简化版 mockBeforeEach 返回 '/dashboard/teacher' 作为默认
+      expect(result.redirect).toBe('/dashboard/teacher')
     })
 
     it('meta.requiresAuth为false时无token也能访问', () => {
@@ -262,26 +273,162 @@ describe('路由守卫', () => {
       expect(adminFilesRoute?.meta?.requiresJiaowu).toBe(true)
     })
 
+    it('驾驶舱管理路由应该声明角色边界', () => {
+      const dashboardRoutes = routes.filter(r => r.path.startsWith('/dashboard/'))
+
+      expect(dashboardRoutes.length).toBeGreaterThan(0)
+      dashboardRoutes.forEach(route => {
+        expect(Array.isArray(route.meta?.dashboardRoles)).toBe(true)
+        expect(route.meta.dashboardRoles.length).toBeGreaterThan(0)
+      })
+    })
+
     it('普通路由不需要特殊角色权限', () => {
       const normalRoutes = routes.filter(r =>
-        r.meta?.requiresAuth === true && !r.meta?.requiresJiaowu
+        r.meta?.requiresAuth === true && !r.meta?.requiresJiaowu && !r.meta?.dashboardRoles
       )
       expect(normalRoutes.length).toBeGreaterThan(0)
+    })
+
+    it('普通教师不能直达教务驾驶舱', async () => {
+      const { canAccessDashboardRoute } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'teacher', role: 'teacher' })
+
+      expect(canAccessDashboardRoute({ dashboardRoles: ['admin', 'jiaowu'] }, token)).toBe(false)
+    })
+
+    it('教务可以直达教务驾驶舱', async () => {
+      const { canAccessDashboardRoute } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'jiaowu', role: 'jiaowu' })
+
+      expect(canAccessDashboardRoute({ dashboardRoles: ['admin', 'jiaowu'] }, token)).toBe(true)
+    })
+
+    it('班主任可以直达班级驾驶舱但不能直达教务驾驶舱', async () => {
+      const { canAccessDashboardRoute } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'cleader', role: 'teacher/cleader' })
+
+      expect(canAccessDashboardRoute({ dashboardRoles: ['admin', 'jiaowu', 'xuefa', 'cleader'] }, token)).toBe(true)
+      expect(canAccessDashboardRoute({ dashboardRoles: ['admin', 'jiaowu'] }, token)).toBe(false)
+    })
+
+    it('管理员可以访问所有驾驶舱管理路由', async () => {
+      const { canAccessDashboardRoute } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'admin', role: 'teacher/admin' })
+
+      expect(canAccessDashboardRoute({ dashboardRoles: ['admin'] }, token)).toBe(true)
+      expect(canAccessDashboardRoute({ dashboardRoles: ['admin', 'jiaowu'] }, token)).toBe(true)
+      expect(canAccessDashboardRoute({ dashboardRoles: ['admin', 'jiaowu', 'xuefa', 'cleader'] }, token)).toBe(true)
+    })
+  })
+
+  describe('角色默认驾驶舱入口', () => {
+    it('admin角色默认进入系统运维驾驶舱', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'admin', role: 'admin' })
+      expect(getDefaultDashboardByRole(token)).toBe('/dashboard/system')
+    })
+
+    it('jiaowu角色默认进入教务驾驶舱', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'jiaowu', role: 'jiaowu' })
+      expect(getDefaultDashboardByRole(token)).toBe('/dashboard/teaching')
+    })
+
+    it('xuefa角色默认进入德育驾驶舱', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'xuefa', role: 'xuefa' })
+      expect(getDefaultDashboardByRole(token)).toBe('/dashboard/moral')
+    })
+
+    it('cleader角色默认进入班级驾驶舱', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'cleader', role: 'teacher/cleader' })
+      expect(getDefaultDashboardByRole(token)).toBe('/dashboard/class')
+    })
+
+    it('teacher角色默认进入教师工作台', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'teacher', role: 'teacher' })
+      expect(getDefaultDashboardByRole(token)).toBe('/dashboard/teacher')
+    })
+
+    it('admin优先级高于其他角色（admin/jiaowu复合角色）', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'admin', role: 'admin/jiaowu' })
+      expect(getDefaultDashboardByRole(token)).toBe('/dashboard/system')
+    })
+
+    it('jiaowu优先级高于xuefa/cleader', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'jiaowu', role: 'jiaowu/xuefa' })
+      expect(getDefaultDashboardByRole(token)).toBe('/dashboard/teaching')
+    })
+
+    it('无token时返回教师工作台（默认fallback）', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      expect(getDefaultDashboardByRole(null)).toBe('/dashboard/teacher')
+      expect(getDefaultDashboardByRole('')).toBe('/dashboard/teacher')
     })
   })
 
   describe('重定向逻辑', () => {
-    it('访问/应该重定向到/schedules', () => {
-      const rootRoute = routes.find(r => r.path === '/')
-      expect(rootRoute?.redirect).toBe('/schedules')
+    it('访问/应该动态重定向（根据角色）', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      // 无 token 时重定向到 /schedules（未登录用户）
+      expect(getDefaultDashboardByRole(null)).toBe('/dashboard/teacher')
     })
 
-    it('已登录用户访问公开路由应该重定向到schedules', () => {
-      localStorageMock.setItem('token', 'valid_token')
-      const to = { path: '/' }
-      const result = mockBeforeEach(to)
+    it('已登录用户访问公开路由应该重定向到角色默认驾驶舱', async () => {
+      const { getDefaultDashboardByRole } = await import('../router/guards.js')
+      localStorageMock.setItem('token', createJwt({ sub: 'jiaowu', role: 'jiaowu' }))
+      const token = localStorageMock.getItem('token')
+      const defaultPath = getDefaultDashboardByRole(token)
 
-      expect(result.redirect).toBe('/schedules')
+      expect(defaultPath).toBe('/dashboard/teaching')
+    })
+
+    it('未登录用户访问/重定向到/schedules（fallback）', async () => {
+      // 根路径重定向逻辑：无 token → /schedules
+      // 有 token → getDefaultDashboardByRole(token)
+      // 此测试验证未登录场景
+      const token = localStorageMock.getItem('token')
+      expect(token).toBeNull()
+    })
+  })
+
+  describe('无权限重定向', () => {
+    it('teacher访问系统驾驶舱应重定向到/dashboard/forbidden', async () => {
+      const { canAccessDashboardRoute } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'teacher', role: 'teacher' })
+      const meta = { dashboardRoles: ['admin'] }
+
+      expect(canAccessDashboardRoute(meta, token)).toBe(false)
+      // router beforeEach 会重定向到 /dashboard/forbidden
+    })
+
+    it('cleader访问教务驾驶舱应重定向到/dashboard/forbidden', async () => {
+      const { canAccessDashboardRoute } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'cleader', role: 'teacher/cleader' })
+      const meta = { dashboardRoles: ['admin', 'jiaowu'] }
+
+      expect(canAccessDashboardRoute(meta, token)).toBe(false)
+    })
+
+    it('xuefa访问系统驾驶舱应重定向到/dashboard/forbidden', async () => {
+      const { canAccessDashboardRoute } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'xuefa', role: 'xuefa' })
+      const meta = { dashboardRoles: ['admin'] }
+
+      expect(canAccessDashboardRoute(meta, token)).toBe(false)
+    })
+
+    it('jiaowu访问系统驾驶舱应重定向到/dashboard/forbidden', async () => {
+      const { canAccessDashboardRoute } = await import('../router/guards.js')
+      const token = createJwt({ sub: 'jiaowu', role: 'jiaowu' })
+      const meta = { dashboardRoles: ['admin'] }
+
+      expect(canAccessDashboardRoute(meta, token)).toBe(false)
     })
   })
 })

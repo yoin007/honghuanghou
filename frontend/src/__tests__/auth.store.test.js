@@ -3,6 +3,7 @@
  * 测试 login/logout 流程、JWT解析、状态管理
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { parseRolesFromToken } from '@/shared/auth/roles'
 
 // 模拟 localStorage
 const localStorageMock = {
@@ -31,10 +32,6 @@ const mockApi = {
   },
   post: vi.fn()
 }
-vi.mock('../utils/api', () => ({
-  default: mockApi
-}))
-
 // JWT 解析工具函数
 function parseJwtPayload(token) {
   if (!token) return null
@@ -68,6 +65,12 @@ function createAuthStore() {
 
   const isLoggedIn = () => !!state.token
 
+  const setRolesFromToken = (token) => {
+    const flags = parseRolesFromToken(token)
+    state.isAdmin = flags.admin
+    state.isJiaowu = flags.jiaowu
+  }
+
   const initAuth = () => {
     if (state.token) {
       try {
@@ -76,8 +79,7 @@ function createAuthStore() {
         if (payload) {
           state.username = payload.sub
           state.role = payload.role
-          state.isAdmin = payload.role === 'admin' || payload.role?.includes('/admin')
-          state.isJiaowu = payload.role === 'jiaowu' || payload.role?.includes('jiaowu') || state.isAdmin
+          setRolesFromToken(state.token)
         }
       } catch (error) {
         logout()
@@ -104,8 +106,7 @@ function createAuthStore() {
       if (payload) {
         state.username = payload.sub
         state.role = payload.role
-        state.isAdmin = payload.role === 'admin' || payload.role?.includes('/admin')
-        state.isJiaowu = payload.role === 'jiaowu' || payload.role?.includes('jiaowu') || state.isAdmin
+        setRolesFromToken(newToken)
       }
 
       return true

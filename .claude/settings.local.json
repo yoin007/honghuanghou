@@ -244,7 +244,25 @@
       "Bash(git checkout:*)",
       "Bash(npx eslint:*)",
       "Bash(pkill -f \"python main.py\")",
-      "Bash(pkill -f \"vite\")"
+      "Bash(pkill -f \"vite\")",
+      "Bash(chmod +x /Users/yoin/bdsync/program/honghuanghou/pack_for_windows.sh)",
+      "Bash(./pack_for_windows.sh /tmp/honghuanghou_deploy)",
+      "Bash(sort -t: -k2 -nr)",
+      "Bash(pytest:*)",
+      "mcp__plugin_claude-mem_mcp-search__smart_search",
+      "Bash(rg:*)",
+      "Bash(sort -t: -k2 -n -r)",
+      "Bash(wc:*)",
+      "Bash(echo \"后端启动命令已执行，PID: $!\")",
+      "Bash(echo \"前端启动命令已执行，PID: $!\")",
+      "Bash(ps:*)",
+      "Bash(kill -0 33831)",
+      "Bash(kill -9 58199)",
+      "Bash(pkill -9 vitest)",
+      "Bash(bash:*)",
+      "Bash(kill -9 33924 28485 34427)",
+      "Bash(VITE_DEV_HTTPS=false npm run dev)",
+      "Bash(kill 46354)"
     ]
   }
 }

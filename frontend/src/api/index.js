@@ -1,50 +1,12 @@
 /**
- * API 模块化导出
+ * API 模块化导出 - 聚合入口
+ *
+ * 不再创建 axios 实例，统一使用 httpClient
  */
-import axios from 'axios'
 
-const envBaseURL = import.meta.env.VITE_API_BASE_URL || ''
-const isHttpsPage =
-  typeof window !== 'undefined' && window.location && window.location.protocol === 'https:'
-const isEnvHttp = /^http:\/\//i.test(envBaseURL)
-const baseURL = import.meta.env.DEV ? '' : (isHttpsPage && isEnvHttp ? '' : envBaseURL)
-
-const api = axios.create({
-  baseURL,
-  timeout: 5000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-  },
-  withCredentials: false
-})
-
-// 请求拦截器
-api.interceptors.request.use(
-  config => {
-    console.log('Request URL:', config.url)
-    return config
-  },
-  error => {
-    console.error('Request Error:', error)
-    return Promise.reject(error)
-  }
-)
-
-// 响应拦截器
-api.interceptors.response.use(
-  response => {
-    console.log('Response:', response.data)
-    return response
-  },
-  error => {
-    console.error('Response Error:', error.response || error)
-    return Promise.reject(error)
-  }
-)
-
-// 导出 axios 实例
-export { api }
+// 导出 httpClient
+export { httpClient, default as api } from '@/shared/api/httpClient'
+export { default } from '@/shared/api/httpClient'
 
 // 导出各模块 API
 export { authApi } from './modules/auth'
@@ -52,6 +14,15 @@ export { userApi } from './modules/user'
 export { homeworkApi } from './modules/homework'
 export { scheduleApi } from './modules/schedule'
 export { filegatherApi } from './modules/filegather'
-
-// 默认导出
-export default api
+export { teacherApi } from './modules/teacher'
+export { invigilationApi } from './modules/invigilation'
+export { taskApi } from './modules/task'
+export { permissionApi } from './modules/permission'
+export { leaveApi } from './modules/leave'
+export { delayApi } from './modules/delay'
+export { memberApi } from './modules/member'
+export { systemApi } from './modules/system'
+export { announcementApi } from './modules/announcement'
+export { loudpkApi } from './modules/loudpk'
+export { messageApi } from './modules/message'
+export { dashboardApi } from './modules/dashboard'

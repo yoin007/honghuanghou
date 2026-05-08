@@ -166,7 +166,13 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/composables/usePermission'
-import request from '@/utils/api'
+import {
+  getConsultations,
+  createConsultation,
+  getConsultation,
+  addConsultationMessage,
+  closeConsultation
+} from '@/api/modules/moral'
 
 // 权限检查
 const { hasPermission } = usePermission()
@@ -260,7 +266,7 @@ const fetchConsultations = async () => {
     if (filterForm.consultation_type) params.consultation_type = filterForm.consultation_type
     if (filterForm.status) params.status = filterForm.status
 
-    const res = await request.get('/api/moral/consultations', { params })
+    const res = await getConsultations(params)
     if (res.data.success) {
       consultationList.value = res.data.data.items
       pagination.total = res.data.data.total
@@ -298,7 +304,7 @@ const handleCreateSubmit = async () => {
   await createFormRef.value.validate()
   creating.value = true
   try {
-    const res = await request.post('/api/moral/consultations', createForm)
+    const res = await createConsultation(createForm)
     if (res.data.success) {
       ElMessage.success('诊疗会话已创建')
       createDialogVisible.value = false
@@ -317,7 +323,7 @@ const handleView = async (row) => {
 
   // 获取消息记录
   try {
-    const res = await request.get(`/api/moral/consultations/${row.id}`)
+    const res = await getConsultation(row.id)
     if (res.data.success) {
       currentConsultation.value = res.data.data
       messages.value = res.data.data.messages || []
@@ -331,7 +337,7 @@ const handleSendMessage = async () => {
   if (!newMessage.value.trim()) return
   sending.value = true
   try {
-    await request.post(`/api/moral/consultations/${currentConsultation.value.id}/messages`, {
+    await addConsultationMessage(currentConsultation.value.id, {
       content: newMessage.value,
       sender_type: 'user'
     })
@@ -348,7 +354,7 @@ const handleSendMessage = async () => {
 const handleRequestAI = async () => {
   requestingAI.value = true
   try {
-    const res = await request.post(`/api/moral/consultations/${currentConsultation.value.id}/messages`, {
+    const res = await addConsultationMessage(currentConsultation.value.id, {
       content: '请AI助手分析当前情况并提供建议',
       sender_type: 'user',
       message_type: 'analysis_request'
@@ -369,9 +375,7 @@ const handleClose = async (row) => {
       inputErrorMessage: '请输入处理结果'
     })
 
-    await request.post(`/api/moral/consultations/${row.id}/close`, null, {
-      params: { outcome }
-    })
+    await closeConsultation(row.id, outcome)
 
     ElMessage.success('会话已关闭')
     fetchConsultations()

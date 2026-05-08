@@ -9,10 +9,12 @@ import sqlite3
 import random
 from datetime import date, timedelta
 import os
+import sys
 
-# 使用相对路径，兼容跨平台
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(os.path.dirname(SCRIPT_DIR), "databases", "moral.db")
+# 添加项目路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils.db_config import MORAL_DB as DB_PATH
 
 def generate_test_data():
     """生成测试数据"""

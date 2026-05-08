@@ -20,7 +20,7 @@ def create_mock_user(role='admin', username='test_admin'):
 # 测试客户端
 client = TestClient(app)
 
-def test_api_endpoint(method, path, json_data=None, role='admin'):
+def call_api_endpoint(method, path, json_data=None, role='admin'):
     """通用 API 测试函数"""
     mock_user = create_mock_user(role=role, username=f'test_{role}')
 
@@ -57,7 +57,7 @@ def main():
         mock_conn.query_all.return_value = [
             {'grade_id': 1, 'grade_name': '2025级', 'enrollment_year': 2025, 'class_count': 4, 'student_count': 160}
         ]
-        status, data = test_api_endpoint('GET', '/api/moral/admin/grades')
+        status, data = call_api_endpoint('GET', '/api/moral/admin/grades')
         print(f"  GET /api/moral/admin/grades: {status} - {'✓' if status == 200 else '✗'}")
         if status == 200:
             print(f"    数据: {data}")
@@ -73,7 +73,7 @@ def main():
         mock_conn.query_all.return_value = [
             {'class_id': 1, 'class_name': '1班', 'grade_id': 1, 'grade_name': '2025级', 'student_count': 40}
         ]
-        status, data = test_api_endpoint('GET', '/api/moral/admin/classes')
+        status, data = call_api_endpoint('GET', '/api/moral/admin/classes')
         print(f"  GET /api/moral/admin/classes: {status} - {'✓' if status == 200 else '✗'}")
 
     # 3. 测试学生管理 API
@@ -88,7 +88,7 @@ def main():
         mock_conn.query_all.return_value = [
             {'student_id': '2025001', 'name': '张三', 'gender': '男', 'class_name': '1班'}
         ]
-        status, data = test_api_endpoint('GET', '/api/moral/admin/students')
+        status, data = call_api_endpoint('GET', '/api/moral/admin/students')
         print(f"  GET /api/moral/admin/students: {status} - {'✓' if status == 200 else '✗'}")
 
     # 4. 测试学年学期管理 API
@@ -102,7 +102,7 @@ def main():
         mock_conn.query_all.return_value = [
             {'semester_id': 1, 'semester_name': '2025-2026上', 'status': 1}
         ]
-        status, data = test_api_endpoint('GET', '/api/moral/admin/semesters')
+        status, data = call_api_endpoint('GET', '/api/moral/admin/semesters')
         print(f"  GET /api/moral/admin/semesters: {status} - {'✓' if status == 200 else '✗'}")
 
     # 5. 测试日常事件类型 API
@@ -116,7 +116,7 @@ def main():
         mock_conn.query_all.return_value = [
             {'event_id': 1, 'event_name': '拾金不昧', 'event_type': 1, 'score': 3, 'is_active': 1}
         ]
-        status, data = test_api_endpoint('GET', '/api/moral/daily-records/types')
+        status, data = call_api_endpoint('GET', '/api/moral/daily-records/types')
         print(f"  GET /api/moral/daily-records/types: {status} - {'✓' if status == 200 else '✗'}")
 
     # 6. 测试校级事件类型 API
@@ -130,7 +130,7 @@ def main():
         mock_conn.query_all.return_value = [
             {'event_id': 1, 'event_name': '三好学生', 'event_type': 1, 'event_level': '校级', 'score': 10, 'is_active': 1}
         ]
-        status, data = test_api_endpoint('GET', '/api/moral/school-records/types')
+        status, data = call_api_endpoint('GET', '/api/moral/school-records/types')
         print(f"  GET /api/moral/school-records/types: {status} - {'✓' if status == 200 else '✗'}")
 
     # 7. 测试操作日志 API
@@ -145,7 +145,7 @@ def main():
         mock_conn.query_all.return_value = [
             {'log_id': 1, 'operator': '管理员', 'operation': 'INSERT', 'table_name': 'grade'}
         ]
-        status, data = test_api_endpoint('GET', '/api/moral/admin/logs')
+        status, data = call_api_endpoint('GET', '/api/moral/admin/logs')
         print(f"  GET /api/moral/admin/logs: {status} - {'✓' if status == 200 else '✗'}")
 
     # 8. 测试系统配置 API
@@ -157,7 +157,7 @@ def main():
         mock_db.return_value.__enter__.return_value = mock_conn
 
         mock_conn.query_all.return_value = []
-        status, data = test_api_endpoint('GET', '/api/moral/admin/config')
+        status, data = call_api_endpoint('GET', '/api/moral/admin/config')
         print(f"  GET /api/moral/admin/config: {status} - {'✓' if status == 200 else '✗'}")
         if status == 200:
             print(f"    配置数据: {data}")

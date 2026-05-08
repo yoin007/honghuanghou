@@ -1,11 +1,13 @@
 <template>
-  <div class="command-dashboard teaching-theme">
-    <header class="hero-band">
-      <div>
-        <span class="kicker">Teaching Operations</span>
-        <h1>教务驾驶舱</h1>
-        <p>围绕课表、教师课时和班级规模做可视化分析，指定时间段内的教师课时排行来自课表文件。</p>
-      </div>
+  <DashboardLoadingState v-if="errorState === 'loading'" :metric-count="5" :chart-count="4" />
+  <ErrorState v-else-if="errorState" :type="errorState" :show-retry="errorState === 'error'" @retry="fetchSummary" />
+  <ForbiddenState v-else-if="forbidden" />
+  <div v-else class="command-dashboard teaching-theme">
+    <DashboardHero
+      kicker="Teaching Operations"
+      title="教务驾驶舱"
+      description="围绕课表、教师课时和班级规模做可视化分析，指定时间段内的教师课时排行来自课表文件。"
+    >
       <el-form :inline="true" class="filter-console">
         <el-form-item label="开始">
           <el-date-picker v-model="filters.start_date" type="date" value-format="YYYY-MM-DD" />
@@ -24,22 +26,9 @@
           <el-button type="primary" :loading="loading" @click="fetchSummary">查询</el-button>
         </el-form-item>
       </el-form>
-    </header>
+    </DashboardHero>
 
-    <section class="metric-grid">
-      <button
-        v-for="(card, index) in summary.cards"
-        :key="card.label"
-        class="metric-card"
-        :style="{ '--accent': accents[index % accents.length] }"
-        type="button"
-        @click="go(card.route)"
-      >
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value }}<small>{{ card.unit }}</small></strong>
-        <i></i>
-      </button>
-    </section>
+    <DashboardMetricGrid :cards="summary.cards" :accents="accents" @click="go" />
 
     <section class="live-course-panel">
       <div class="live-header">
@@ -80,25 +69,32 @@
         :eyebrow="`WORKLOAD TOP${topN}`"
         :option="teacherWorkloadOption"
         :empty="isEmpty(teacherWorkloadRows, 'lesson_count')"
+        emptyText="暂无教师课时排行数据"
       />
       <DashboardChart
         :title="`班级学生规模 Top${topN}`"
         eyebrow="CLASS SIZE"
         :option="classSizeOption"
         :empty="isEmpty(classSizeRows, 'student_count')"
+        emptyText="暂无班级规模数据"
       />
       <DashboardChart
         title="教务资源结构"
         eyebrow="RESOURCE MIX"
         :option="resourceMixOption"
         :empty="isEmpty(summary.charts?.resource_mix)"
+        emptyText="暂无教务资源数据"
+      />
+      <DashboardChart
+        title="文件上传状态"
+        eyebrow="FILE UPLOAD STATUS"
+        :option="fileUploadStatusOption"
+        :empty="isEmpty(summary.charts?.file_upload_status)"
+        emptyText="暂无文件上传记录"
       />
 
       <section class="coverage-panel">
-        <div class="panel-header">
-          <span>SCHEDULE COVERAGE</span>
-          <h3>课表覆盖说明</h3>
-        </div>
+        <DashboardPanelHeader eyebrow="SCHEDULE COVERAGE" title="课表覆盖说明" />
         <div class="coverage-number">
           <strong>{{ summary.covered_dates?.length || 0 }}</strong>
           <span>天有可统计课表</span>
@@ -109,6 +105,20 @@
         </div>
       </section>
     </section>
+
+    <TeachingFileUploadPanel
+      :cards="summary.cards"
+      :pending-files="pendingFileList"
+      :top-users="fileUploadTopUsers"
+    />
+
+    <!-- Insights Panel -->
+    <DashboardInsights
+      v-if="insights.length"
+      :insights="insights"
+      title="教学运行态势"
+      eyebrow="OPERATION INSIGHTS"
+    />
   </div>
 </template>
 
@@ -116,7 +126,17 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import DashboardChart from '@/components/dashboard/DashboardChart.vue'
+import DashboardLoadingState from '@/components/dashboard/DashboardLoadingState.vue'
+import ErrorState from '@/components/dashboard/ErrorState.vue'
+import ForbiddenState from '@/components/dashboard/ForbiddenState.vue'
+import DashboardInsights from '@/components/dashboard/DashboardInsights.vue'
+import TeachingFileUploadPanel from '@/components/dashboard/TeachingFileUploadPanel.vue'
+import DashboardHero from '@/components/dashboard/DashboardHero.vue'
+import DashboardMetricGrid from '@/components/dashboard/DashboardMetricGrid.vue'
+import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue'
 import { getTeachingDashboardSummary } from '@/api/modules/dashboard'
+import { baseHorizontalBarOption, basePieOption } from '@/utils/charting'
+import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
 const router = useRouter()
 const today = new Date()
@@ -137,15 +157,15 @@ const filters = reactive({
   top_n: 5
 })
 const summary = ref({ cards: [], charts: {}, tables: {}, message: '', covered_dates: [] })
-const loading = ref(false)
-const accents = ['#38bdf8', '#fbbf24', '#34d399', '#f472b6']
+const { loading, errorState, forbidden, execute } = useDashboardRequest()
+const accents = ['#38bdf8', '#fbbf24', '#34d399', '#f472b6', '#f87171']
 
 const go = (route) => route && router.push(route)
 const isEmpty = (items = [], field = 'value') => !items?.some(item => Number(item?.[field]) > 0)
 const currentClasses = computed(() => summary.value.current_course?.current_classes || [])
 const topN = computed(() => summary.value.top_n || filters.top_n)
-const teacherWorkloadRows = computed(() => summary.value.charts?.teacher_workload_rank || summary.value.charts?.teacher_workload_top5 || [])
-const classSizeRows = computed(() => summary.value.charts?.class_size_rank || summary.value.charts?.class_size_top5 || [])
+const teacherWorkloadRows = computed(() => summary.value.charts?.teacher_workload_rank || [])
+const classSizeRows = computed(() => summary.value.charts?.class_size_rank || [])
 const currentCourseText = computed(() => {
   const current = summary.value.current_course || {}
   if (!current.current_period) return '当前时间没有命中课表作息时段。'
@@ -154,129 +174,54 @@ const currentCourseText = computed(() => {
 
 const teacherWorkloadOption = computed(() => {
   const rows = [...teacherWorkloadRows.value].reverse()
-  return {
-    backgroundColor: 'transparent',
-    color: ['#38bdf8'],
-    tooltip: { trigger: 'axis' },
+  return baseHorizontalBarOption({
+    yAxisData: rows.map(item => item.teacher_name),
+    seriesData: rows.map(item => item.lesson_count),
     grid: { left: 82, right: 24, top: 24, bottom: 28 },
-    xAxis: {
-      type: 'value',
-      axisLabel: { color: '#94a3b8' },
-      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)' } }
-    },
-    yAxis: {
-      type: 'category',
-      data: rows.map(item => item.teacher_name),
-      axisLabel: { color: '#cbd5e1' },
-      axisLine: { show: false }
-    },
-    series: [{
-      type: 'bar',
-      data: rows.map(item => item.lesson_count),
-      barWidth: 18,
-      label: { show: true, position: 'right', color: '#e2e8f0' },
-      itemStyle: { borderRadius: [0, 9, 9, 0] }
-    }]
-  }
+    color: ['#38bdf8']
+  })
 })
 
 const classSizeOption = computed(() => {
   const rows = [...classSizeRows.value].reverse()
-  return {
-    backgroundColor: 'transparent',
-    color: ['#fbbf24'],
-    tooltip: { trigger: 'axis' },
+  return baseHorizontalBarOption({
+    yAxisData: rows.map(item => item.class_name),
+    seriesData: rows.map(item => item.student_count),
     grid: { left: 96, right: 24, top: 24, bottom: 28 },
-    xAxis: {
-      type: 'value',
-      axisLabel: { color: '#94a3b8' },
-      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)' } }
-    },
-    yAxis: {
-      type: 'category',
-      data: rows.map(item => item.class_name),
-      axisLabel: { color: '#cbd5e1' },
-      axisLine: { show: false }
-    },
-    series: [{
-      type: 'bar',
-      data: rows.map(item => item.student_count),
-      barWidth: 18,
-      label: { show: true, position: 'right', color: '#e2e8f0' },
-      itemStyle: { borderRadius: [0, 9, 9, 0] }
-    }]
-  }
+    color: ['#fbbf24']
+  })
 })
 
-const resourceMixOption = computed(() => ({
-  backgroundColor: 'transparent',
+const resourceMixOption = computed(() => basePieOption({
   color: ['#38bdf8', '#34d399', '#fbbf24'],
-  tooltip: { trigger: 'item' },
-  legend: { bottom: 0, textStyle: { color: '#cbd5e1' } },
-  series: [{
-    type: 'pie',
-    radius: ['45%', '70%'],
-    center: ['50%', '44%'],
-    label: { color: '#e2e8f0', formatter: '{b}\n{c}' },
-    itemStyle: { borderColor: '#07111f', borderWidth: 3 },
-    data: summary.value.charts?.resource_mix || []
-  }]
+  data: summary.value.charts?.resource_mix || []
 }))
 
-const fetchSummary = async () => {
-  loading.value = true
-  try {
-    const res = await getTeachingDashboardSummary(filters)
-    if (res.success) summary.value = res.data
-  } finally {
-    loading.value = false
-  }
-}
+const fileUploadStatusOption = computed(() => basePieOption({
+  color: ['#f472b6', '#34d399'],
+  data: summary.value.charts?.file_upload_status || []
+}))
+
+const fileUploadTopUsers = computed(() => summary.value.tables?.file_upload_top_users || [])
+const pendingFileList = computed(() => summary.value.tables?.pending_file_list || [])
+const insights = computed(() => summary.value.insights || [])
+
+const fetchSummary = () => execute(
+  () => getTeachingDashboardSummary(filters),
+  data => { summary.value = data }
+)
 
 onMounted(fetchSummary)
 </script>
 
 <style scoped>
 .command-dashboard {
-  min-height: calc(100vh - 80px);
-  padding: 24px;
-  color: #e2e8f0;
+  --dashboard-chart-columns-desktop: repeat(2, minmax(0, 1fr));
+
   background:
     linear-gradient(135deg, rgba(8, 16, 32, 0.98), rgba(12, 22, 42, 0.96)),
     radial-gradient(circle at 10% 8%, rgba(56, 189, 248, 0.2), transparent 30%),
     radial-gradient(circle at 92% 14%, rgba(251, 191, 36, 0.14), transparent 28%);
-}
-
-.hero-band {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 26px;
-  margin-bottom: 18px;
-  border: 1px solid rgba(125, 211, 252, 0.25);
-  border-radius: 8px;
-  background: linear-gradient(145deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.72));
-}
-
-.kicker,
-.panel-header span {
-  color: #67e8f9;
-  font-size: 12px;
-}
-
-h1 {
-  margin: 8px 0;
-  color: #f8fafc;
-  font-size: 40px;
-  line-height: 1.08;
-  letter-spacing: 0;
-}
-
-p {
-  max-width: 720px;
-  margin: 0;
-  color: rgba(226, 232, 240, 0.72);
 }
 
 .filter-console {
@@ -435,69 +380,6 @@ p {
   color: rgba(226, 232, 240, 0.68);
 }
 
-.metric-grid,
-.chart-grid {
-  display: grid;
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.metric-grid {
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-}
-
-.chart-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.metric-card {
-  position: relative;
-  min-height: 112px;
-  padding: 18px;
-  color: #e2e8f0;
-  text-align: left;
-  cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--accent), transparent 62%);
-  border-radius: 8px;
-  background: linear-gradient(155deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.62));
-  overflow: hidden;
-}
-
-.metric-card span,
-.metric-card strong {
-  position: relative;
-  z-index: 1;
-}
-
-.metric-card span {
-  color: #94a3b8;
-}
-
-.metric-card strong {
-  display: block;
-  margin-top: 16px;
-  color: #f8fafc;
-  font-size: 32px;
-  line-height: 1;
-}
-
-.metric-card small {
-  margin-left: 5px;
-  color: #cbd5e1;
-  font-size: 14px;
-}
-
-.metric-card i {
-  position: absolute;
-  right: -34px;
-  bottom: -38px;
-  width: 110px;
-  height: 110px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent), transparent 74%);
-  filter: blur(8px);
-}
-
 .coverage-panel {
   min-height: 320px;
   padding: 18px;
@@ -505,12 +387,6 @@ p {
   border-radius: 8px;
   background: linear-gradient(145deg, rgba(12, 26, 48, 0.94), rgba(7, 15, 30, 0.9));
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.26);
-}
-
-.panel-header h3 {
-  margin: 4px 0 20px;
-  color: #e5f6ff;
-  font-size: 17px;
 }
 
 .coverage-number {
@@ -547,11 +423,6 @@ p {
 }
 
 @media (max-width: 980px) {
-  .hero-band {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
   .filter-console {
     min-width: 0;
   }
@@ -561,12 +432,5 @@ p {
     flex-direction: column;
   }
 
-  .chart-grid {
-    grid-template-columns: 1fr;
-  }
-
-  h1 {
-    font-size: 34px;
-  }
 }
 </style>

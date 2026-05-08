@@ -15,7 +15,7 @@ import sys
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.sqlite_moral_db import DB_PATH
+from utils.db_config import MORAL_DB as DB_PATH
 
 def migrate():
     """执行迁移"""

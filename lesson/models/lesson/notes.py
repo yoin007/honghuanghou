@@ -4,8 +4,8 @@ DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 # @Time : 2024/11/4 20:56
 # @Author : Tech_T
 
-import re
 import sqlite3
+import re
 from sendqueue import send_text
 
 from config.config import Config
@@ -15,9 +15,15 @@ config = Config()
 log = LogConfig().get_logger()
 
 
+def _get_sqlite_connection():
+    """延迟导入避免循环依赖"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
+
+
 class Notes:
     def __enter__(self, db=os.path.join(DB_DIR, "notes.db")):
-        self.__conn__ = sqlite3.connect(db)
+        self.__conn__ = _get_sqlite_connection()(db)
         self.__cursor__ = self.__conn__.cursor()
         return self
 

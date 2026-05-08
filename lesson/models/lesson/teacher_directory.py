@@ -5,7 +5,6 @@
 避免 Lesson 主类直接承担人员目录职责。
 """
 
-import bcrypt
 import pandas as pd
 
 from models.manage.member import Member
@@ -15,10 +14,6 @@ from utils.teacher_db import (
     get_teachers_dataframe,
     update_teacher_record,
 )
-
-
-def hash_teacher_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 class TeacherDirectory:
@@ -114,8 +109,7 @@ class TeacherDirectory:
                 name=name,
                 subject=subject,
                 course=subject[:2] if subject else "",
-                password_hash=hash_teacher_password(default_password),
-                raw_pwd=default_password,
+                password_hash=default_password,
                 role="teacher",
                 level=10,
                 notice=1,

@@ -18,7 +18,7 @@ from fastapi import Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
-from models.datas_api.auth import User, get_current_user, is_admin_user
+from models.datas_api.auth import User, get_current_user, get_current_user_optional, is_admin_user
 
 logger = logging.getLogger(__name__)
 

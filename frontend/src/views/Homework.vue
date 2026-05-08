@@ -59,12 +59,12 @@
               <el-table-column label="截止时间" min-width="100" max-width="300" align="center">
                 <template #default="scope">
                   <span v-if="getContentLines(scope.row.content) === 1" class="deadline-cell" :class="getDeadlineClass(scope.row.deadline)">
-                    <span class="deadline-date">{{ formatDate(scope.row.deadline) }}</span>
+                    <span class="deadline-date">{{ formatDateMonthDay(scope.row.deadline, true) }}</span>
                     <span class="deadline-status">{{ getDeadlineStatus(scope.row.deadline) }}</span>
                   </span>
                   <div v-else class="deadline-multi">
                     <div class="deadline-cell" :class="getDeadlineClass(scope.row.deadline)">
-                      <div class="deadline-date">{{ formatDate(scope.row.deadline) }}</div>
+                      <div class="deadline-date">{{ formatDateMonthDay(scope.row.deadline, true) }}</div>
                       <div class="deadline-status">{{ getDeadlineStatus(scope.row.deadline) }}</div>
                     </div>
                   </div>
@@ -114,12 +114,12 @@
               <el-table-column label="截止时间" min-width="100" max-width="300" align="center">
                 <template #default="scope">
                   <span v-if="getContentLines(scope.row.content) === 1" class="deadline-cell" :class="getDeadlineClass(scope.row.deadline)">
-                    <span class="deadline-date">{{ formatDate(scope.row.deadline) }}</span>
+                    <span class="deadline-date">{{ formatDateMonthDay(scope.row.deadline, true) }}</span>
                     <span class="deadline-status">{{ getDeadlineStatus(scope.row.deadline) }}</span>
                   </span>
                   <div v-else class="deadline-multi">
                     <div class="deadline-cell" :class="getDeadlineClass(scope.row.deadline)">
-                      <div class="deadline-date">{{ formatDate(scope.row.deadline) }}</div>
+                      <div class="deadline-date">{{ formatDateMonthDay(scope.row.deadline, true) }}</div>
                       <div class="deadline-status">{{ getDeadlineStatus(scope.row.deadline) }}</div>
                     </div>
                   </div>
@@ -182,8 +182,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElLoading, ElMessage, ElEmpty, ElTabs, ElTabPane, ElTable, ElTableColumn, ElTag, ElAlert, ElButton, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElInput, ElDatePicker, ElInputNumber, ElRadioGroup, ElRadio } from 'element-plus'
-import api from '../utils/api'
+import { getHomeworkList, updateHomework, deleteHomework, batchDeleteHomework } from '@/api/modules/homework'
 import { useAuthStore } from '../stores/auth'
+import { formatDateMonthDay } from '@/utils/time'
 
 const authStore = useAuthStore()
 const username = computed(() => authStore.username)
@@ -243,9 +244,7 @@ const handleSelectAll = (checked) => {
 const handleBatchDelete = async () => {
   if (selectedIds.value.length === 0) return
   try {
-    await api.delete('/api/homework/batch', {
-      data: { ids: selectedIds.value, classCode: classCode.value }
-    })
+    await batchDeleteHomework({ ids: selectedIds.value, classCode: classCode.value })
     ElMessage.success(`成功删除 ${selectedIds.value.length} 条作业`)
     selectedIds.value = []
     selectAll.value = false
@@ -359,16 +358,6 @@ const getSubjectClass = (subject) => {
   return classes[subject] || 'subject-default'
 }
 
-const formatDate = (deadline) => {
-  if (!deadline) return ''
-  const date = new Date(deadline.replace(' ', 'T'))
-  const month = date.getMonth() + 1
-  const day = date.getDate()
-  const hours = date.getHours()
-  const minutes = date.getMinutes()
-  return `${month}/${day} ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
-}
-
 const getDeadlineClass = (deadline) => {
   const now = new Date()
   const dueDate = new Date(deadline.replace(' ', 'T'))
@@ -413,7 +402,7 @@ const openEditDialog = (hw) => {
 const handleUpdate = async () => {
   updating.value = true
   try {
-    await api.put(`/api/homework/${editForm.value.id}`, {
+    await updateHomework(editForm.value.id, {
       homework: {
         subject: editForm.value.subject,
         content: editForm.value.content,
@@ -426,7 +415,6 @@ const handleUpdate = async () => {
     editDialogVisible.value = false
     fetchHomework()
   } catch (error) {
-    console.log('Up ror:', editForm.value)
     console.error('Update homework error:', error)
     ElMessage.error('更新失败：' + (error.response?.data?.detail || '未知错误'))
   } finally {
@@ -436,7 +424,7 @@ const handleUpdate = async () => {
 
 const handleDelete = async (hwId) => {
   try {
-    await api.delete(`/api/homework/${hwId}`)
+    await deleteHomework(hwId)
     ElMessage.success('作业删除成功')
     fetchHomework()
   } catch (error) {
@@ -454,7 +442,7 @@ const fetchHomework = async () => {
 
   loading.value = true
   try {
-    const response = await api.get(`/api/homework/${code}`)
+    const response = await getHomeworkList(code)
     homework.value = response.data || { 日常: {}, 周末: {} }
   } catch (error) {
     console.error('Error fetching homework:', error)

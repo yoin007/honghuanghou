@@ -4,7 +4,6 @@
 
 import os
 DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
-import sqlite3
 import time
 from datetime import datetime
 import pandas as pd
@@ -14,6 +13,12 @@ from sendqueue import send_text, send_image, send_file
 from models.lesson.lesson import Lesson
 from models.manage.member import check_permission
 from functools import lru_cache
+
+
+def _get_sqlite_connection():
+    """延迟导入避免循环依赖"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -40,7 +45,7 @@ class Application:
         self.biaodaoyan = ['服装表演', '影视表演', '影视导演']
 
     def __enter__(self):
-        self.__conn__ = sqlite3.connect(self.db_path)
+        self.__conn__ = _get_sqlite_connection()(self.db_path)
         self.__cursor__ = self.__conn__.cursor()
         return self
 

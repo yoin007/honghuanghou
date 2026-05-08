@@ -160,7 +160,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import api from '../utils/api'
+import { getCleaderClasses, getStudentsByClass, getLeaveRecords, createLeaveRecord, consumeLeaveRecord } from '@/api/modules/leave'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
@@ -211,7 +211,7 @@ const classLabel = (item) => {
 const fetchCleaderClasses = async () => {
   if (!isLoggedIn.value) return
   try {
-    const response = await api.get('/api/cleader-classes/')
+    const response = await getCleaderClasses()
     const list = Array.isArray(response.data?.classes) ? response.data.classes : []
     classOptions.value = list
     if (!form.value.class_code && list.length > 0) {
@@ -239,7 +239,7 @@ const handleClassChange = async (val) => {
   }
   studentsLoading.value = true
   try {
-    const response = await api.get(`/api/students/${val}`)
+    const response = await getStudentsByClass(val)
     students.value = Array.isArray(response.data?.students)
       ? response.data.students.map(name => ({ name }))
       : []
@@ -254,12 +254,10 @@ const fetchRecords = async () => {
   if (!isLoggedIn.value || !hasPermission.value) return
   listLoading.value = true
   try {
-    const response = await api.get('/api/leave-records/', {
-      params: {
-        page: page.value,
-        page_size: pageSize.value,
-        class_code: filterClassCode.value || undefined
-      }
+    const response = await getLeaveRecords({
+      page: page.value,
+      page_size: pageSize.value,
+      class_code: filterClassCode.value || undefined
     })
     records.value = Array.isArray(response.data?.records) ? response.data.records : []
     total.value = Number(response.data?.total) || 0
@@ -290,7 +288,7 @@ const submitForm = async () => {
     if (!valid) return
     submitting.value = true
     try {
-      await api.post('/api/leave-records/', {
+      await createLeaveRecord({
         class_code: form.value.class_code,
         names: form.value.names,
         style: form.value.style,
@@ -318,7 +316,7 @@ const handleConsume = async (row) => {
   if (!row?.id) return
   consumingId.value = row.id
   try {
-    await api.post(`/api/leave-records/${row.id}/consume`)
+    await consumeLeaveRecord(row.id)
     ElMessage.success('销假成功')
     await fetchRecords()
   } catch (error) {

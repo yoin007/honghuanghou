@@ -307,7 +307,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import api from '@/utils/api'
+import { invigilationApi } from '@/api/modules/invigilation'
 
 // 数据
 const projects = ref([])
@@ -383,7 +383,7 @@ onMounted(async () => {
 
 async function loadProjects() {
   try {
-    const res = await api.get('/api/invigilation/projects')
+    const res = await invigilationApi.getProjects()
     if (res.success) {
       projects.value = res.data
     }
@@ -394,7 +394,7 @@ async function loadProjects() {
 
 async function loadTeachers() {
   try {
-    const res = await api.get('/api/invigilation/teachers')
+    const res = await invigilationApi.getTeachers()
     if (res.success) {
       teachers.value = res.data
     }
@@ -412,7 +412,7 @@ async function loadProjectSlots() {
   }
 
   try {
-    const projectRes = await api.get(`/api/invigilation/projects/${selectedProjectId.value}`)
+    const projectRes = await invigilationApi.getProject(selectedProjectId.value)
     if (projectRes.success) {
       currentProject.value = projectRes.data
       // 自动选择第一个可用年级
@@ -422,7 +422,7 @@ async function loadProjectSlots() {
       }
     }
 
-    const slotsRes = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/slots`)
+    const slotsRes = await invigilationApi.getSlots(selectedProjectId.value)
     if (slotsRes.success) {
       slots.value = slotsRes.data
       convertToHorizontal()
@@ -620,7 +620,7 @@ async function createProject() {
       grade_ids: projectForm.grade_ids
     }
 
-    const res = await api.post('/api/invigilation/projects', data)
+    const res = await invigilationApi.createProject(data)
     if (res.success) {
       ElMessage.success('创建成功')
       createProjectVisible.value = false
@@ -639,7 +639,7 @@ async function saveSlots() {
 
   try {
     const verticalSlots = convertToVertical()
-    const res = await api.put(`/api/invigilation/projects/${selectedProjectId.value}/slots`, {
+    const res = await invigilationApi.updateSlots(selectedProjectId.value, {
       slots: verticalSlots
     })
     if (res.success) {
@@ -679,7 +679,7 @@ async function loadChangesPreview() {
       ? { subjects: selectedSubjects.value.join(',') }
       : {}
 
-    const res = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/changes`, { params })
+    const res = await invigilationApi.getChanges(selectedProjectId.value, params)
     if (res.success) {
       changesPreview.value = res.data
     }
@@ -704,7 +704,7 @@ async function sendNotificationsV2() {
       notify_reminder: notifyOptions.notify_reminder
     }
 
-    const res = await api.post(`/api/invigilation/projects/${selectedProjectId.value}/notify`, body)
+    const res = await invigilationApi.sendNotification(selectedProjectId.value, body)
     if (res.success) {
       const stats = res.data
       ElMessage.success(`通知发送完成: 成功${stats.success}, 失败${stats.failed}, 跳过${stats.skipped}`)
@@ -726,7 +726,7 @@ function showNotificationLogs() {
 
 async function loadNotificationLogs() {
   try {
-    const res = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/notification-logs`)
+    const res = await invigilationApi.getNotificationLogs(selectedProjectId.value)
     if (res.success) {
       notificationLogs.value = res.data
     }
@@ -738,7 +738,7 @@ async function loadNotificationLogs() {
 // Excel
 async function downloadTemplate() {
   try {
-    const response = await api.get('/api/invigilation/template', { responseType: 'blob' })
+    const response = await invigilationApi.downloadTemplate()
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
@@ -773,9 +773,7 @@ async function importExcel() {
     const formData = new FormData()
     formData.append('file', importFile.value)
 
-    const res = await api.post(`/api/invigilation/projects/${selectedProjectId.value}/import`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+    const res = await invigilationApi.importSlots(selectedProjectId.value, formData)
 
     if (res.success) {
       ElMessage.success(`导入成功，共${res.data.count}条`)
@@ -797,7 +795,7 @@ async function importExcel() {
 
 async function exportExcel() {
   try {
-    const response = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/export`, { responseType: 'blob' })
+    const response = await invigilationApi.exportSlots(selectedProjectId.value)
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
@@ -815,7 +813,7 @@ async function exportExcel() {
 
 async function exportReport() {
   try {
-    const response = await api.get(`/api/invigilation/projects/${selectedProjectId.value}/report`, { responseType: 'blob' })
+    const response = await invigilationApi.downloadReport(selectedProjectId.value)
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
@@ -872,7 +870,7 @@ async function confirmDeleteProject() {
     )
 
     // 执行删除
-    const res = await api.delete(`/api/invigilation/projects/${selectedProjectId.value}`)
+    const res = await invigilationApi.deleteProject(selectedProjectId.value)
     if (res.success) {
       ElMessage.success('项目已删除')
       selectedProjectId.value = null

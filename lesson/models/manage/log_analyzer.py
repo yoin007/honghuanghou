@@ -161,16 +161,19 @@ def analyze_group_stats(all_messages):
 def analyze_inactive_members(group_id, active_senders):
     if not group_id:
         return None
-        
+
     try:
-        import sqlite3
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT member_wx_id, name FROM chatroom_member WHERE chat_room_id = ? AND is_deleted = 0", (group_id,))
-        all_members = {row[0]: row[1] for row in cursor.fetchall()}
-        conn.close()
-        
+        # 使用 sqlite_base 连接管理器，确保退出时关闭连接。
+        from models.datas_api.repositories.sqlite_base import SQLiteConnectionManager
+
+        with SQLiteConnectionManager(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT member_wx_id, name FROM chatroom_member WHERE chat_room_id = ? AND is_deleted = 0",
+                (group_id,)
+            )
+            all_members = {row[0]: row[1] for row in cursor.fetchall()}
+
         if not all_members:
             return f"数据库中未找到群 {group_id} 的成员信息"
 

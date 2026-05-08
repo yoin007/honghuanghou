@@ -2,7 +2,7 @@
  * 文件收集系统 API 模块
  * 使用带认证的 axios 实例
  */
-import api from '@/utils/api'
+import { httpClient } from '@/shared/api/httpClient'
 
 export const filegatherApi = {
   // ==================== 教师端 ====================
@@ -23,7 +23,7 @@ export const filegatherApi = {
     if (note) {
       formData.append('note', note)
     }
-    return api.post('/api/filegather/upload', formData, {
+    return httpClient.post('/api/filegather/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 60000 // 60秒超时
     })
@@ -36,7 +36,7 @@ export const filegatherApi = {
    */
   getMyFiles(month = '') {
     const params = month ? { month } : {}
-    return api.get('/api/filegather/my-files', { params })
+    return httpClient.get('/api/filegather/my-files', { params })
   },
 
   /**
@@ -45,7 +45,7 @@ export const filegatherApi = {
    * @returns {Promise}
    */
   deleteFile(fileId) {
-    return api.delete(`/api/filegather/my-files/${fileId}`)
+    return httpClient.delete(`/api/filegather/my-files/${fileId}`)
   },
 
   // ==================== 教务端 ====================
@@ -55,7 +55,7 @@ export const filegatherApi = {
    * @returns {Promise}
    */
   getPendingFiles() {
-    return api.get('/api/filegather/admin/files')
+    return httpClient.get('/api/filegather/admin/files')
   },
 
   /**
@@ -65,7 +65,7 @@ export const filegatherApi = {
    */
   getDoneFiles(month = '') {
     const params = month ? { month } : {}
-    return api.get('/api/filegather/admin/done-files', { params })
+    return httpClient.get('/api/filegather/admin/done-files', { params })
   },
 
   /**
@@ -74,7 +74,7 @@ export const filegatherApi = {
    * @returns {Promise}
    */
   markDone(fileId) {
-    return api.post(`/api/filegather/admin/mark-done/${fileId}`)
+    return httpClient.post(`/api/filegather/admin/mark-done/${fileId}`)
   },
 
   /**
@@ -95,7 +95,7 @@ export const filegatherApi = {
    * @returns {Promise}
    */
   downloadFile(fileId) {
-    return api.get(`/api/filegather/admin/download/${fileId}`, {
+    return httpClient.get(`/api/filegather/admin/download/${fileId}`, {
       responseType: 'blob'
     })
   },
@@ -107,7 +107,7 @@ export const filegatherApi = {
    */
   getStatistics(month = '') {
     const params = month ? { month } : {}
-    return api.get('/api/filegather/admin/statistics', { params })
+    return httpClient.get('/api/filegather/admin/statistics', { params })
   },
 
   /**
@@ -115,7 +115,7 @@ export const filegatherApi = {
    * @returns {Promise}
    */
   getMonths() {
-    return api.get('/api/filegather/admin/months')
+    return httpClient.get('/api/filegather/admin/months')
   }
 }
 

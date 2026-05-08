@@ -59,7 +59,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, House } from '@element-plus/icons-vue'
-import api from '../utils/api'
+import { getStudentsStatus } from '@/api/modules/user'
 
 const students = ref([])
 const loading = ref(false)
@@ -136,7 +136,7 @@ const fetchStudents = async () => {
       return
     }
     // 将 class_code 添加到路径中
-    const response = await api.get(`/api/students_status/${classCode}`)
+    const response = await getStudentsStatus(classCode)
     
     // 兼容不同的返回格式
     if (Array.isArray(response.data)) {

@@ -53,7 +53,8 @@
 <script setup>
 import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import api from '../utils/api'
+import { publishAnnouncement } from '@/api/modules/announcement'
+import { getClassCodes } from '@/api/modules/user'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
@@ -92,7 +93,7 @@ const submitAnnouncement = async () => {
             author: username.value,
             content: announcementForm.content
           }
-          const response = await api.post('/api/announcement/', formData)
+          const response = await publishAnnouncement(formData)
           if (response.data && response.data.id) {
             successCount++
           } else {
@@ -124,7 +125,7 @@ const resetForm = () => {
 
 const fetchClassCodes = async () => {
   try {
-    const response = await api.get('/api/class-codes/')
+    const response = await getClassCodes()
     if (response.data && response.data.class_codes) {
       classCodes.value = response.data.class_codes
     }

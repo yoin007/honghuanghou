@@ -27,7 +27,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import api from '../utils/api'
+import { scheduleApi } from '@/api/modules/schedule'
 
 const route = useRoute()
 const schedule = ref(null)
@@ -170,14 +170,6 @@ const getCellStyle = ({ row, column }) => {
   const periodIndex = tableData.value.findIndex(r => r.period === row.period)
   const currentPeriod = getCurrentPeriod()
 
-  // console.log('Cell info:', {
-  //   day: column.property,
-  //   currentDay: currentDayNumber,
-  //   cellDay: cellDayNumber,
-  //   periodIndex,
-  //   currentPeriod
-  // }) // 调试日志
-  
   // 基础样式
   const baseStyle = {
     fontSize: '14px',
@@ -230,9 +222,7 @@ const fetchSchedule = async () => {
 
   loading.value = true
   try {
-    const response = await api.get(`/api/schedule/${classCode}`, {
-      params: { _ts: Date.now() }
-    })
+    const response = await scheduleApi.getClassSchedule(classCode)
     if (response.data && response.data.schedule) {
       schedule.value = response.data.schedule
     } else {
@@ -250,9 +240,7 @@ const fetchSchedule = async () => {
 
 const fetchPeriods = async () => {
   try {
-    const response = await api.get('/api/periods', {
-      params: { _ts: Date.now() }
-    })
+    const response = await scheduleApi.getPeriods()
     periods.value = response.data.periods
   } catch (error) {
     ElMessage.error('获取课程时间表失败')

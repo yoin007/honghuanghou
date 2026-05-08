@@ -7,10 +7,12 @@ import sqlite3
 import json
 from datetime import datetime
 import os
+import sys
 
-# 使用相对路径，兼容跨平台
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(os.path.dirname(SCRIPT_DIR), "databases", "invigilation.db")
+# 添加项目路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils.db_config import INVIGILATION_DB as DB_PATH
 
 def verify_invigilation_system():
     """验证监考安排系统"""

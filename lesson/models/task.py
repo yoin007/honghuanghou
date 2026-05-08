@@ -53,6 +53,12 @@ from models.daily.inout import check_inout_days
 from models.manage.log_analyzer import analyze_log_file
 
 
+def _get_sqlite_connection():
+    """延迟导入避免循环依赖"""
+    from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    return get_sqlite_connection
+
+
 TASK_REGISTRY = {}
 
 def register_task(description: str):
@@ -114,7 +120,7 @@ class Task:
         self.__enter__()
 
     def __enter__(self, db=TASK_DB):
-        self.__conn__ = sqlite3.connect(db, check_same_thread=False)
+        self.__conn__ = _get_sqlite_connection()(db, check_same_thread=False)
         self.__cursor__ = self.__conn__.cursor()
         return self
 
@@ -327,19 +333,23 @@ class Task:
         :param consumed: 是否已消费
         :return: 是否更新成功
         """
+        conn = None
         try:
             # 创建新的数据库连接，确保在当前线程中使用
-            with sqlite3.connect(TASK_DB) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE tasks SET consumed = ? WHERE id = ? AND one_off = 1",
-                    (consumed, task_id),
-                )
-                conn.commit()
+            conn = _get_sqlite_connection()(TASK_DB)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE tasks SET consumed = ? WHERE id = ? AND one_off = 1",
+                (consumed, task_id),
+            )
+            conn.commit()
             return True
         except Exception as e:
             print(f"更新任务状态失败: {e}")
             return False
+        finally:
+            if conn is not None:
+                conn.close()
 
 
 task_scheduler = Task()

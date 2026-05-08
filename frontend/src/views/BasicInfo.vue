@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElCard, ElDescriptions, ElDescriptionsItem, ElMessage, ElEmpty } from 'element-plus'
-import api from '../utils/api'
+import { getClassInfo } from '@/api/modules/user'
 
 const classInfo = ref(null)
 const loading = ref(false)
@@ -21,8 +21,7 @@ const fetchClassInfo = async () => {
 
   loading.value = true
   try {
-    const response = await api.get(`/api/class-info/${classCode}`)
-    console.log('Class info response:', response.data)
+    const response = await getClassInfo(classCode)
     if (response.data && response.data.class_info) {
       classInfo.value = response.data.class_info
     } else {

@@ -74,20 +74,33 @@ async def admin_reset_password(
     if not is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="只有管理员可以执行此操作")
 
-    import random
+    import secrets
     import string
-    new_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+    # 使用 secrets 模块生成安全随机密码，强制包含字母和数字
+    alphabet = string.ascii_letters + string.digits
+    # 确保至少包含一个字母和一个数字
+    password_chars = [
+        secrets.choice(string.ascii_letters),  # 至少一个字母
+        secrets.choice(string.digits),         # 至少一个数字
+    ]
+    # 剩余字符从完整字母表随机选择
+    remaining_length = 8 - len(password_chars)
+    password_chars.extend(secrets.choice(alphabet) for _ in range(remaining_length))
+    # 打乱顺序避免固定模式
+    secrets.SystemRandom().shuffle(password_chars)
+    new_password = ''.join(password_chars)
 
     try:
         hashed_password = hash_password(new_password)
+        # 不再写入 raw_pwd 明文，只保存哈希值
         update_teacher_record(
             request.username,
             pwd=str(hashed_password),
-            raw_pwd=new_password,
             is_password_changed=1,
         )
         admin_name = str(current_user.username)
         logger.info(f"Admin {admin_name} reset password for {request.username}")
+        # 临时密码只在响应中显示，不落库
         return {"message": f"密码已重置为: {new_password}", "success": True}
 
     except HTTPException:
@@ -110,10 +123,10 @@ async def admin_set_password(
 
     try:
         hashed_password = hash_password(str(request.new_password))
+        # 不再写入 raw_pwd 明文，只保存哈希值
         update_teacher_record(
             request.username,
             pwd=str(hashed_password),
-            raw_pwd=str(request.new_password),
             is_password_changed=1,
         )
         admin_name = str(current_user.username)

@@ -99,7 +99,8 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import api from '../utils/api'
+import { ElMessage } from 'element-plus'
+import { scheduleApi } from '@/api/modules/schedule'
 
 const schedules = ref([])
 const todays = ref([])
@@ -190,10 +191,7 @@ const selectedDateInfo = computed(() => {
 const fetchTodays = async (date = null) => {
   loading.value = true
   try {
-    const params = date ? { date } : {}
-    const response = await api.get('/api/todays', {
-      params: { ...params, _ts: Date.now() }
-    })
+    const response = await scheduleApi.getTodays(date)
     if (Array.isArray(response.data)) {
       todays.value = response.data
     } else {
@@ -216,16 +214,13 @@ const fetchTodays = async (date = null) => {
 const fetchSchedules = async () => {
   loading.value = true
   try {
-    const response = await api.get('/api/schedules', {
-      params: { _ts: Date.now() }
-    })
+    const response = await scheduleApi.getAllSchedules()
     if (Array.isArray(response.data)) {
       schedules.value = response.data
     } else {
       console.error('API返回数据格式错误:', response.data)
       schedules.value = []
     }
-    console.log('原始课表数据:', schedules.value)
   } catch (error) {
     console.error('获取课程表数据失败:', error)
     schedules.value = []

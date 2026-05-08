@@ -8,6 +8,7 @@ from functools import wraps
 import logging
 
 from utils.db_config import DATABASES_DIR
+from models.datas_api.repositories.sqlite_base import get_sqlite_connection, SQLiteConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +47,8 @@ class DatabaseOptimized:
             try:
                 if not os.path.exists(db_path):
                     continue
-                conn = sqlite3.connect(db_path)
-                # 启用 WAL 模式
-                conn.execute("PRAGMA journal_mode=WAL")
+                # 使用 sqlite_base 连接，启用 WAL 模式
+                conn = get_sqlite_connection(db_path, wal_mode=True)
                 # 启用外键约束
                 conn.execute("PRAGMA foreign_keys=ON")
                 # 设置同步模式为 NORMAL（平衡性能和数据安全）
@@ -81,15 +81,8 @@ def get_db_connection(db_path: str):
     with get_db_connection("databases/homework.db") as conn:
         conn.execute("SELECT * FROM homework")
     """
-    conn = sqlite3.connect(db_path)
-    # 每次获取连接时设置优化参数
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    try:
+    # 使用 SQLiteConnectionManager 自动处理提交/回滚/关闭
+    with SQLiteConnectionManager(db_path, wal_mode=True) as conn:
+        # 设置同步模式
+        conn.execute("PRAGMA synchronous=NORMAL")
         yield conn
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        conn.close()

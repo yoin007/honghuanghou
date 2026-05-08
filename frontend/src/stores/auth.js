@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import api from '../utils/api'
+import { authApi } from '@/api/modules/auth'
 import { ElMessage } from 'element-plus'
+import { parseRolesFromToken } from '@/shared/auth/roles'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || '')
@@ -13,24 +14,25 @@ export const useAuthStore = defineStore('auth', () => {
   const isCleader = ref(false)
   const isLoggedIn = computed(() => !!token.value)
 
+  // 从 token 解析角色并设置 refs
+  const setRolesFromToken = (tokenValue) => {
+    const flags = parseRolesFromToken(tokenValue)
+    isAdmin.value = flags.admin
+    isJiaowu.value = flags.jiaowu
+    isXuefa.value = flags.xuefa
+    isCleader.value = flags.cleader
+  }
+
   // 初始化时解析 token
   const initAuth = () => {
     if (token.value) {
       try {
-        api.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
         const base64Url = token.value.split('.')[1]
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
         const payload = JSON.parse(window.atob(base64))
         username.value = payload.sub
         role.value = payload.role
-        // 检查是否包含 admin 角色（支持多角色格式如 teacher/admin）
-        isAdmin.value = payload.role === 'admin' || payload.role?.includes('/admin')
-        // 检查是否为教务角色
-        isJiaowu.value = payload.role === 'jiaowu' || payload.role?.includes('jiaowu') || isAdmin.value
-        // 检查是否为学发角色
-        isXuefa.value = payload.role === 'xuefa' || payload.role?.includes('xuefa') || isAdmin.value
-        // 检查是否为班主任角色
-        isCleader.value = payload.role === 'cleader' || payload.role?.includes('cleader')
+        setRolesFromToken(token.value)
       } catch (error) {
         console.error('Failed to parse token:', error)
         logout()
@@ -39,33 +41,19 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   const login = async (user, password) => {
-    const formData = new URLSearchParams()
-    formData.append('username', user)
-    formData.append('password', password)
-
-    const response = await api.post('/api/token', formData, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    })
+    const response = await authApi.login(user, password)
 
     if (response.data.access_token) {
       const newToken = response.data.access_token
       token.value = newToken
       localStorage.setItem('token', newToken)
-      api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
 
       const base64Url = newToken.split('.')[1]
       const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
       const payload = JSON.parse(window.atob(base64))
       username.value = payload.sub
       role.value = payload.role
-      // 检查是否包含 admin 角色（支持多角色格式如 teacher/admin）
-      isAdmin.value = payload.role === 'admin' || payload.role?.includes('/admin')
-      // 检查是否为教务角色
-      isJiaowu.value = payload.role === 'jiaowu' || payload.role?.includes('jiaowu') || isAdmin.value
-      // 检查是否为学发角色
-      isXuefa.value = payload.role === 'xuefa' || payload.role?.includes('xuefa') || isAdmin.value
-      // 检查是否为班主任角色
-      isCleader.value = payload.role === 'cleader' || payload.role?.includes('cleader')
+      setRolesFromToken(newToken)
 
       ElMessage.success('登录成功')
       return true
@@ -82,7 +70,6 @@ export const useAuthStore = defineStore('auth', () => {
     isXuefa.value = false
     isCleader.value = false
     localStorage.removeItem('token')
-    delete api.defaults.headers.common['Authorization']
     ElMessage.success('已退出登录')
   }
 

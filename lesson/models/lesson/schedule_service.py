@@ -138,10 +138,13 @@ class ScheduleService:
         teacher_template = self.get_cache_data("teacher_template")
         if teacher_template is None:
             return subject
-        subject_teacher = teacher_template.apply(list, axis=1)
-        for item in subject_teacher:
-            if subject in self.split_subjects(item[1]):
-                return item[0]
+        for _, row in teacher_template.iterrows():
+            if subject in self.split_subjects(row.get("subject")):
+                return row["name"]
+        for _, row in teacher_template.iterrows():
+            for s in self.split_subjects(row.get("subject")):
+                if len(s) >= 2 and subject.startswith(s):
+                    return row["name"]
         return subject
 
     def replace_subject_teacher(self, df_schedule: pd.DataFrame, teacher_flag: bool = True) -> pd.DataFrame:

@@ -59,8 +59,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import * as echarts from 'echarts'
-import api from '../utils/api'
+import { createLoudpk, getLoudpkList } from '@/api/modules/loudpk'
+import { init as initChartInstance } from '@/utils/charting'
 
 const listening = ref(false)
 const initializing = ref(false)
@@ -182,7 +182,7 @@ const getMicErrorMessage = (error) => {
 const syncDecibel = async () => {
   if (!classCode.value) return
   try {
-    await api.post('/api/loudpk', {
+    await createLoudpk({
       class_code: classCode.value,
       decibel: currentDb.value
     })
@@ -322,9 +322,7 @@ const updateChart = () => {
 
 const fetchStats = async () => {
   try {
-    const response = await api.get('/api/loudpk', {
-      params: { _ts: Date.now() }
-    })
+    const response = await getLoudpkList({ _ts: Date.now() })
     const data = response.data
     let list = []
     if (Array.isArray(data)) {
@@ -346,7 +344,7 @@ const fetchStats = async () => {
 const initChart = () => {
   if (!chartRef.value) return
   if (!chartInstance) {
-    chartInstance = echarts.init(chartRef.value)
+    chartInstance = initChartInstance(chartRef.value)
   }
   updateChart()
 }

@@ -55,7 +55,7 @@
           <template #default="scope">
             <el-popconfirm 
               title="确定要删除这条记录吗？"
-              @confirm="deleteDelay(scope.row.序号)"
+              @confirm="handleDeleteDelay(scope.row.序号)"
             >
               <template #reference>
                 <el-button type="danger" size="small" link>删除</el-button>
@@ -71,7 +71,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import api from '../utils/api'
+import { getStudentInfo, createDelay, getDelayList, deleteDelay, deleteDelayGet } from '@/api/modules/delay'
 
 const sid = ref('')
 const studentInfo = ref(null)
@@ -90,7 +90,7 @@ const fetchStudentInfo = async () => {
   if (!sid.value) return
   
   try {
-    const response = await api.post(`/api/student_info/`, { sid: sid.value, classCode: getClassCode() })
+    const response = await getStudentInfo({ sid: sid.value, classCode: getClassCode() })
     if (response.data) {
       studentInfo.value = response.data
     } else {
@@ -110,7 +110,7 @@ const submitDelay = async () => {
   
   submitting.value = true
   try {
-    await api.post('/api/insert_delay/', { sid: sid.value, classCode: getClassCode() })
+    await createDelay({ sid: sid.value, classCode: getClassCode() })
     ElMessage.success('申请提交成功')
     sid.value = ''
     studentInfo.value = null
@@ -131,8 +131,7 @@ const fetchDelayRecords = async () => {
 
   loading.value = true
   try {
-    const response = await api.get(`/api/delay_infos/${classCode}`)
-    console.log('API Response:', response)
+    const response = await getDelayList(classCode)
     delayRecords.value = response.data || []
   } catch (error) {
     console.error('Fetch delay records error:', error)
@@ -143,16 +142,16 @@ const fetchDelayRecords = async () => {
 }
 
 // 4. 删除记录
-const deleteDelay = async (id) => {
+const handleDeleteDelay = async (id) => {
   try {
-    await api.delete(`/api/del_delay/${id}`) // Assuming DELETE method based on intent, user said "api/del_delay/id"
+    await deleteDelay(id)
     ElMessage.success('删除成功')
     fetchDelayRecords()
   } catch (error) {
     console.error('Delete delay error:', error)
     // Fallback if it was a GET or POST
     try {
-        await api.get(`/api/del_delay/${id}`)
+        await deleteDelayGet(id)
         ElMessage.success('删除成功')
         fetchDelayRecords()
     } catch (retryError) {
