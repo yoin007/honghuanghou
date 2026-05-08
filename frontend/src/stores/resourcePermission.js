@@ -82,7 +82,7 @@ const RESOURCE_CONFIG = {
 
   // 菜单分组定义
   menuGroups: [
-    { key: 'class', label: '班级', items: 'public', requiresAuth: false },
+    { key: 'class', label: '班级', items: 'public', requiresAuth: false, itemFilter: ['homework', 'basic-info', 'class-students', 'announcement', 'delay-application', 'leave-record'] },
     { key: 'schedule', label: '课表', items: 'public', requiresAuth: false, itemFilter: ['schedule', 'schedules'] },
     { key: 'fun', label: '趣味', items: 'public', requiresAuth: false, itemFilter: ['random-call', 'loud-pk'] },
     { key: 'teacher', label: '教师', items: 'teacher', requiresAuth: true },
