@@ -44,6 +44,7 @@
           <el-select v-model="configForm.daily_record_roles" multiple placeholder="选择可录入日常记录的角色">
             <el-option label="教师" value="teacher" />
             <el-option label="班主任" value="cleader" />
+            <el-option label="年级主任" value="g_leader" />
             <el-option label="学发部" value="xuefa" />
             <el-option label="教务处" value="jiaowu" />
             <el-option label="管理员" value="admin" />
@@ -53,6 +54,7 @@
         <el-form-item label="学生画像角色">
           <el-select v-model="configForm.student_profile_roles" multiple placeholder="选择可生成学生画像的角色">
             <el-option label="班主任" value="cleader" />
+            <el-option label="年级主任" value="g_leader" />
             <el-option label="学发部" value="xuefa" />
             <el-option label="教务处" value="jiaowu" />
             <el-option label="管理员" value="admin" />
@@ -62,6 +64,7 @@
         <el-form-item label="AI诊疗角色">
           <el-select v-model="configForm.ai_consultation_roles" multiple placeholder="选择可使用AI诊疗的角色">
             <el-option label="班主任" value="cleader" />
+            <el-option label="年级主任" value="g_leader" />
             <el-option label="学发部" value="xuefa" />
             <el-option label="管理员" value="admin" />
           </el-select>

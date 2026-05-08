@@ -139,6 +139,7 @@
           <el-select v-model="teacherForm.role" multiple placeholder="请选择角色（可多选）">
             <el-option label="教师" value="teacher" />
             <el-option label="班主任" value="cleader" />
+            <el-option label="年级主任" value="g_leader" />
             <el-option label="教务" value="jiaowu" />
             <el-option label="学发" value="xuefa" />
             <el-option label="管理员" value="admin" />
@@ -188,6 +189,7 @@
           <el-select v-model="editForm.role" multiple placeholder="请选择角色（可多选）">
             <el-option label="教师" value="teacher" />
             <el-option label="班主任" value="cleader" />
+            <el-option label="年级主任" value="g_leader" />
             <el-option label="教务" value="jiaowu" />
             <el-option label="学发" value="xuefa" />
             <el-option label="管理员" value="admin" />
@@ -472,6 +474,7 @@ const getRoleText = (role) => {
     admin: '管理员',
     teacher: '教师',
     cleader: '班主任',
+    g_leader: '年级主任',
     jiaowu: '教务',
     xuefa: '学发'
   }
