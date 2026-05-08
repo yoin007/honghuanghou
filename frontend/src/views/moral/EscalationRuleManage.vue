@@ -108,6 +108,7 @@
               <template #default="{ row }">
                 <el-checkbox-group v-model="row.notify_roles" size="small">
                   <el-checkbox label="cleader">班主任</el-checkbox>
+                  <el-checkbox label="g_leader">年级主任</el-checkbox>
                   <el-checkbox label="xuefa">学发部</el-checkbox>
                 </el-checkbox-group>
               </template>
@@ -296,7 +297,7 @@ const createDefaultRule = () => {
     threshold: 3,
     action: firstType.action,
     description: firstType.name,
-    notify_roles: ['cleader'],
+    notify_roles: ['cleader', 'g_leader'],
     score_penalty: 0
   }
 }
@@ -308,7 +309,7 @@ const addRule = () => {
     threshold: lastThreshold + 2,
     action: nextType?.action || 'criticism',
     description: nextType?.name || '通报',
-    notify_roles: ['cleader', 'xuefa'],
+    notify_roles: ['cleader', 'g_leader', 'xuefa'],
     score_penalty: -5
   })
 }

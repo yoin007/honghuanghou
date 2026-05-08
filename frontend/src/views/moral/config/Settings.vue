@@ -126,9 +126,9 @@ const configForm = reactive({
   evaluation_good_line: 75,
   evaluation_pass_line: 60,
   birthday_reminder_days: 3,
-  daily_record_roles: ['teacher', 'cleader'],
-  student_profile_roles: ['admin', 'jiaowu', 'xuefa', 'cleader'],
-  ai_consultation_roles: ['admin', 'xuefa', 'cleader'],
+  daily_record_roles: ['teacher', 'cleader', 'g_leader'],
+  student_profile_roles: ['admin', 'jiaowu', 'xuefa', 'g_leader', 'cleader'],
+  ai_consultation_roles: ['admin', 'xuefa', 'g_leader', 'cleader'],
   semester_carryover_enabled: 1,
   punishment_types: [
     { action: 'warning', name: '警告', level: null },

@@ -269,6 +269,7 @@ const roleOptions = [
   { value: 'admin', label: '管理员' },
   { value: 'jiaowu', label: '教发部' },
   { value: 'xuefa', label: '学发部' },
+  { value: 'g_leader', label: '年级主任' },
   { value: 'cleader', label: '班主任' },
   { value: 'teacher', label: '教师' },
   { value: 'student', label: '学生' },
