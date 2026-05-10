@@ -44,11 +44,11 @@
       <h2>本周课表</h2>
       
       <div class="week-tabs">
-        <div 
-          v-for="day in weekDays" 
+        <div
+          v-for="day in visibleWeekDays"
           :key="day.date"
           class="week-tab"
-          :class="{ 
+          :class="{
             'active': selectedDate === day.date,
             'today': day.isToday,
             'past': day.isPast
@@ -106,33 +106,34 @@ const schedules = ref([])
 const todays = ref([])
 const loading = ref(false)
 const selectedDate = ref('')
+const weekHasClass = ref({}) // 记录一周各天是否有课
 
 const getWeekDays = () => {
   const today = new Date()
   const dayOfWeek = today.getDay()
   const monday = new Date(today)
   monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
-  
+
   const days = []
-  const labels = ['周一', '周二', '周三', '周四', '周五']
-  
-  for (let i = 0; i < 5; i++) {
+  const labels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
+  for (let i = 0; i < 7; i++) {
     const date = new Date(monday)
     date.setDate(monday.getDate() + i)
-    const dateStr = `${date.getMonth() + 1}月${date.getDate()}日`
-    const dateStr2 = `${date.getMonth() + 1}-${date.getDate()}`
+    const dateStr = `${date.getMonth() + 1}-${date.getDate()}`
     const isToday = date.toDateString() === today.toDateString()
     const isPast = date < new Date(today.setHours(0, 0, 0, 0))
-    
+
     days.push({
       date: date.toISOString().split('T')[0],
       label: labels[i],
-      dateStr: dateStr2,
+      dateStr: dateStr,
       isToday,
-      isPast
+      isPast,
+      hasClass: true // 默认显示，后续根据数据动态调整
     })
   }
-  
+
   return days
 }
 
@@ -187,6 +188,49 @@ const selectedDateInfo = computed(() => {
     return ''
   }
 })
+
+// 根据有课日期过滤显示的日期标签
+const visibleWeekDays = computed(() => {
+  return weekDays.value.filter(day => day.hasClass)
+})
+
+const fetchWeekSchedule = async () => {
+  // 获取一周7天的课表数据，判断哪些天有课
+  const today = new Date()
+  const dayOfWeek = today.getDay()
+  const monday = new Date(today)
+  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+
+  const hasClassMap = {}
+
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + i)
+    const dateStr = date.toISOString().split('T')[0]
+
+    try {
+      const response = await scheduleApi.getTodays(dateStr)
+      const data = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : [])
+      // 判断是否有课：数据不为空且有实际课程内容（不只是空行）
+      const hasRealClass = data.some(row => {
+        // 检查是否有非空课程内容（排除只包含 week/order 等固定列的空行）
+        const keys = Object.keys(row)
+        const classColumns = keys.filter(k => !['style', 'date', 'week', 'order'].includes(k))
+        return classColumns.some(col => row[col] && row[col].trim() !== '')
+      })
+      hasClassMap[dateStr] = hasRealClass
+    } catch {
+      hasClassMap[dateStr] = false
+    }
+  }
+
+  // 更新 weekDays 的 hasClass 属性
+  weekDays.value.forEach(day => {
+    day.hasClass = hasClassMap[day.date] ?? false
+  })
+
+  weekHasClass.value = hasClassMap
+}
 
 const fetchTodays = async (date = null) => {
   loading.value = true
@@ -262,14 +306,21 @@ const tableRowClassName = ({ rowIndex }) => {
   return groupIndex % 2 === 0 ? 'color-group-1' : 'color-group-2'
 }
 
-onMounted(() => {
+onMounted(async () => {
   const today = new Date()
-  const dayOfWeek = today.getDay()
-  const monday = new Date(today)
-  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
-  
   selectedDate.value = today.toISOString().split('T')[0]
-  
+
+  // 先获取一周课表数据，判断哪些天有课
+  await fetchWeekSchedule()
+
+  // 如果今天没课，自动选择第一个有课的日期
+  if (!weekHasClass.value[selectedDate.value]) {
+    const firstDayWithClass = weekDays.value.find(d => d.hasClass)
+    if (firstDayWithClass) {
+      selectedDate.value = firstDayWithClass.date
+    }
+  }
+
   fetchSchedules()
   fetchTodays(selectedDate.value)
 })
