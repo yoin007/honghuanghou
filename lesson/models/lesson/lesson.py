@@ -475,19 +475,31 @@ async def _update_schedule(l: Lesson, title: str, temp_file: str, new_name: str,
     if rsp != "ok":
         l.notify_admins(f"{rsp}", log_level="error")
         return False
-    # 更新课表文件
+
+    # 判断是否为微调模式
+    diff_flag = 1 if "微调" in content else 0
+    schedule_key = "next_schedule" if week[4] else "current_schedule"
+
+    # 如果是微调模式，在替换文件前保存旧课表副本
+    old_schedule_copy = None
+    if diff_flag:
+        old_schedule = l.get_cache_data(schedule_key)
+        if old_schedule is not None and not old_schedule.empty:
+            old_schedule_copy = old_schedule.copy()  # 创建副本，避免后续被修改
+
+    # 更新课表文件（此时磁盘上已是新文件）
     rsp = l.update_schedule_file(temp_file, title, new_name)
-    # print(rsp)
     if not rsp:
         return False
-    diff_flag = 1 if "微调" in content else 0
+
     if diff_flag:
-        schedule = "next_schedule" if week[4] else "current_schedule"
-        old_schedule = l.get_cache_data(schedule)
+        # 刷新缓存，获取新课表数据
         if not l.refresh_cache():
             return False
-        new_schedule = l.get_cache_data(schedule)
-        diffs = l.schedule_diff(old_schedule, new_schedule)
+        new_schedule = l.get_cache_data(schedule_key)
+
+        # 比较旧课表副本和新课表
+        diffs = l.schedule_diff(old_schedule_copy, new_schedule)
         if diffs != ([], []):
             week_next = True if week[4] else False
             week_flag = "下周" if week_next else "本周"
