@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS student_school_record (
     class_id INTEGER NOT NULL,
     grade_id INTEGER NOT NULL,
     score INTEGER,
-    proof TEXT UNIQUE,
+    proof TEXT,
     is_deleted INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (student_id) REFERENCES student(student_id),
@@ -1020,8 +1020,7 @@ CREATE TABLE IF NOT EXISTS student_school_record (
     FOREIGN KEY (event_id) REFERENCES school_event_type(event_id),
     FOREIGN KEY (semester_id) REFERENCES semester(semester_id),
     FOREIGN KEY (class_id) REFERENCES class(class_id),
-    FOREIGN KEY (grade_id) REFERENCES grade(grade_id),
-    UNIQUE KEY uk_proof (proof)
+    FOREIGN KEY (grade_id) REFERENCES grade(grade_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='学生校级事件记录表';
 """,
     # 16. 学生任务完成记录表
