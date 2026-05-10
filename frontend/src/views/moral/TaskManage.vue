@@ -535,7 +535,7 @@ const fetchGradeList = async () => {
 
 const fetchClassList = async () => {
   try {
-    const res = await getClasses()
+    const res = await getClasses({ for_record_input: 1 })
     if (res.success) {
       classList.value = res.data
     }

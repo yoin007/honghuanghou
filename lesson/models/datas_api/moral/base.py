@@ -576,7 +576,16 @@ def target_student_in_scope(
         return my_class_id is not None and my_class_id == student.get("class_id")
     if "teaching_classes" in scopes:
         teaching_class_ids = get_teacher_teaching_class_ids(user, db)
-        return not teaching_class_ids or student.get("class_id") in teaching_class_ids
+        # 修复：没有任教班级时禁止添加记录，而不是默认全校
+        if not teaching_class_ids:
+            return False
+        return student.get("class_id") in teaching_class_ids
+    # 新增年级主任角色支持
+    if "g_leader_grade" in scopes or "grade_students" in scopes:
+        # 年级主任可以管理本年级学生
+        student_grade_id = student.get("grade_id")
+        my_grade_ids = get_teacher_grade_ids(user, db)  # 获取年级主任管理的年级
+        return student_grade_id in my_grade_ids
     return False
 
 
@@ -684,7 +693,11 @@ def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[
     """获取教师任教班级ID列表。
 
     依赖 teacher_teaching_class 映射表。没有维护映射时返回空列表；
-    teaching_classes 范围会把空列表解释为全校班级。
+    teaching_classes 范围会把空列表解释为禁止所有（需显式配置）。
+
+    支持两种 teacher_id 格式匹配：
+    - 直接匹配（如 'T_李婷婷'）
+    - 加 T_ 前缀匹配（如 username='李婷婷' → 'T_李婷婷'）
     """
     if not user:
         return []
@@ -699,26 +712,67 @@ def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[
         return []
 
     username = user.username if hasattr(user, 'username') else ''
-    teacher_name = None
-    teacher = db.query_one(
-        "SELECT name FROM teacher WHERE teacher_id = %s",
-        (username,)
-    )
-    if teacher:
-        teacher_name = teacher.get('name')
 
-    conditions = ["is_active = 1", "(teacher_id = %s"]
-    params = [username]
-    if teacher_name:
-        conditions[-1] += " OR teacher_name = %s"
-        params.append(teacher_name)
-    conditions[-1] += ")"
+    # 兼容两种 teacher_id 格式：'xxx' 和 'T_xxx'
+    teacher_id_candidates = [username]
+    if not username.startswith('T_'):
+        teacher_id_candidates.append(f'T_{username}')
+
+    # 查询 teacher 表获取教师姓名
+    teacher_names = []
+    for tid in teacher_id_candidates:
+        teacher = db.query_one(
+            "SELECT name FROM teacher WHERE teacher_id = %s",
+            (tid,)
+        )
+        if teacher and teacher.get('name'):
+            teacher_names.append(teacher.get('name'))
+
+    # 构建查询条件
+    conditions = ["is_active = 1"]
+    teacher_id_match = " OR ".join([f"teacher_id = %s" for _ in teacher_id_candidates])
+    conditions.append(f"({teacher_id_match})")
+    params = teacher_id_candidates
+
+    if teacher_names:
+        teacher_name_match = " OR ".join([f"teacher_name = %s" for _ in teacher_names])
+        conditions[-1] = conditions[-1][:-1] + f" OR {teacher_name_match})"
+        params.extend(teacher_names)
 
     rows = db.query_all(
         f"SELECT DISTINCT class_id FROM teacher_teaching_class WHERE {' AND '.join(conditions)}",
         tuple(params)
     )
     return [int(row["class_id"]) for row in rows if row.get("class_id") is not None]
+
+
+def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
+    """获取年级主任管理的年级ID列表。
+
+    基于 teacher_teaching_class 映射推断：任教班级所属的年级。
+    若无任教班级映射则返回空列表。
+
+    Args:
+        user: 用户对象
+        db: 数据库连接
+
+    Returns:
+        年级ID列表
+    """
+    if not user:
+        return []
+
+    # 获取任教班级
+    teaching_class_ids = get_teacher_teaching_class_ids(user, db)
+    if not teaching_class_ids:
+        return []
+
+    # 查询这些班级所属的年级
+    class_ids_str = ','.join(map(str, teaching_class_ids))
+    rows = db.query_all(
+        f"SELECT DISTINCT grade_id FROM class WHERE class_id IN ({class_ids_str}) AND is_active = 1"
+    )
+    return [int(row["grade_id"]) for row in rows if row.get("grade_id") is not None]
 
 
 def require_permission(permission: str):

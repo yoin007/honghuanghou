@@ -104,21 +104,21 @@ class ApiPermissionModuleUpdate(BaseModel):
 
 DEFAULT_API_PERMISSIONS = [
     # 日常表现记录
-    {"api_path": "/api/moral/daily-records", "api_name": "获取日常记录列表", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/daily-records/types", "api_name": "获取事件类型", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/daily-records/create", "api_name": "创建日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/daily-records", "api_name": "获取日常记录列表", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/daily-records/types", "api_name": "获取事件类型", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/daily-records/create", "api_name": "创建日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
     {"api_path": "/api/moral/daily-records/batch", "api_name": "批量创建记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/daily-records/update", "api_name": "更新日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/daily-records/delete", "api_name": "删除日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/daily-records/update", "api_name": "更新日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/daily-records/delete", "api_name": "删除日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
 
     # 点滴记录
-    {"api_path": "/api/moral/moment-records", "api_name": "获取点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/moment-records/create", "api_name": "创建点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/moment-records/update", "api_name": "更新点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/moment-records/delete", "api_name": "删除点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/moment-records", "api_name": "获取点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/moment-records/create", "api_name": "创建点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/moment-records/update", "api_name": "更新点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/moment-records/delete", "api_name": "删除点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
 
     # 校级事件
-    {"api_path": "/api/moral/school-records", "api_name": "获取校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/school-records", "api_name": "获取校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/school-records/create", "api_name": "创建校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/school-records/update", "api_name": "更新校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/school-records/delete", "api_name": "删除校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
@@ -129,18 +129,18 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/punishments/revoke", "api_name": "撤销处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
 
     # 集体事件
-    {"api_path": "/api/moral/collective-events", "api_name": "集体事件管理", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/collective-events/create", "api_name": "创建集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/collective-events/update", "api_name": "更新集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/collective-events/delete", "api_name": "删除集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/collective-events/distributions/update", "api_name": "调整集体事件分配", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/collective-events", "api_name": "集体事件管理", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/collective-events/create", "api_name": "创建集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/collective-events/update", "api_name": "更新集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/collective-events/delete", "api_name": "删除集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/collective-events/distributions/update", "api_name": "调整集体事件分配", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
 
     # 德育任务
-    {"api_path": "/api/moral/tasks", "api_name": "获取德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/tasks", "api_name": "获取德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/tasks/create", "api_name": "创建德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/tasks/update", "api_name": "更新德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/tasks/delete", "api_name": "删除德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/tasks/finish", "api_name": "记录任务完成", "api_group": "德育任务", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/tasks/finish", "api_name": "记录任务完成", "api_group": "德育任务", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
 
     # 事件类型管理
     {"api_path": "/api/moral/event-types", "api_name": "创建事件类型", "api_group": "事件类型", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
@@ -148,9 +148,9 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/event-types/import", "api_name": "批量导入事件类型", "api_group": "事件类型", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 
     # 学生管理
-    {"api_path": "/api/moral/admin/students", "api_name": "获取学生列表", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/admin/students", "api_name": "获取学生列表", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/admin/students/create", "api_name": "创建学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/admin/students/update", "api_name": "更新学生信息", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/admin/students/update", "api_name": "更新学生信息", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/admin/students/batch", "api_name": "批量导入学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 
     # 系统配置
@@ -158,17 +158,17 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
 
     # 生日查看
-    {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日查看", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/birthdays/today", "api_name": "获取今日生日", "api_group": "生日查看", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日查看", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/birthdays/today", "api_name": "获取今日生日", "api_group": "生日查看", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
 
     # 学生画像
-    {"api_path": "/api/moral/profiles/student", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/profiles/student", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/profiles/student/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
 
     # 评价查询
-    {"api_path": "/api/moral/evaluations/class", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/evaluations/grade", "api_name": "年级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/evaluations/calculate", "api_name": "计算德育评价", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/evaluations/class", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/evaluations/grade", "api_name": "年级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50},
+    {"api_path": "/api/moral/evaluations/calculate", "api_name": "计算德育评价", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50},
 ]
 
 VALID_POLICY_MODES = {"role_and_level", "role_or_level", "role_only", "level_only", "public"}
@@ -179,6 +179,7 @@ DEFAULT_DATA_SCOPE_RULES = {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["own_created", "g_leader_grade"],
         "cleader": ["own_created", "own_class"],
         "teacher": ["own_created"],
     },
@@ -186,6 +187,7 @@ DEFAULT_DATA_SCOPE_RULES = {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["own_created"],
         "cleader": ["own_created"],
         "teacher": ["own_created"],
     },
@@ -193,6 +195,7 @@ DEFAULT_DATA_SCOPE_RULES = {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["own_created"],
         "cleader": ["own_created"],
         "teacher": ["own_created"],
     },
@@ -200,6 +203,7 @@ DEFAULT_DATA_SCOPE_RULES = {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["own_created", "g_leader_grade"],
         "cleader": ["own_created", "own_class"],
         "teacher": ["own_created"],
     },
@@ -207,6 +211,7 @@ DEFAULT_DATA_SCOPE_RULES = {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["own_created"],
         "cleader": ["own_created"],
         "teacher": ["own_created"],
     },
@@ -214,6 +219,7 @@ DEFAULT_DATA_SCOPE_RULES = {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["own_created"],
         "cleader": ["own_created"],
         "teacher": ["own_created"],
     },
@@ -221,48 +227,56 @@ DEFAULT_DATA_SCOPE_RULES = {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
         "cleader": ["own_class"],
     },
     "/api/moral/profiles/student/generate": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
         "cleader": ["own_class"],
     },
     "/api/moral/evaluations/class": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
         "cleader": ["own_class"],
     },
     "/api/moral/evaluations/calculate": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
         "cleader": ["own_class"],
     },
     "/api/moral/admin/students": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
         "cleader": ["own_class"],
     },
     "/api/moral/admin/students/create": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
         "cleader": ["own_class"],
     },
     "/api/moral/admin/students/update": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
         "cleader": ["own_class"],
     },
     "/api/moral/admin/students/batch": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
         "cleader": ["own_class"],
     },
 }
@@ -272,15 +286,17 @@ DEFAULT_TARGET_SCOPE_RULES = {
         "admin": ["all_students"],
         "jiaowu": ["all_students"],
         "xuefa": ["all_students"],
-        "cleader": ["all_students"],
-        "teacher": ["all_students"],
+        "g_leader": ["g_leader_grade"],
+        "cleader": ["own_class"],
+        "teacher": ["teaching_classes"],
     },
     "/api/moral/moment-records/create": {
         "admin": ["all_students"],
         "jiaowu": ["all_students"],
         "xuefa": ["all_students"],
-        "cleader": ["all_students"],
-        "teacher": ["all_students"],
+        "g_leader": ["g_leader_grade"],
+        "cleader": ["own_class"],
+        "teacher": ["teaching_classes"],
     },
 }
 
@@ -423,7 +439,11 @@ def ensure_api_permission_schema(db) -> None:
 
 
 def _backfill_default_scope_rules(db) -> None:
-    """为重点业务API补齐默认数据范围规则，保留管理员已有手工配置。"""
+    """为重点业务API补齐默认数据范围规则，保留管理员已有手工配置。
+
+    对于 daily-records/create 和 moment-records/create，强制修复 teacher 的错误范围。
+    """
+    # 先处理正常的补齐逻辑
     for api_path, rules in DEFAULT_DATA_SCOPE_RULES.items():
         db.execute(
             """UPDATE api_permission_config
@@ -440,6 +460,129 @@ def _backfill_default_scope_rules(db) -> None:
                  AND (target_scope_rules IS NULL OR target_scope_rules = '' OR target_scope_rules = '{}')""",
             (_json_dict_dump(rules), api_path),
         )
+
+    # 修复 teacher 的错误目标范围：从 all_students 改为 teaching_classes
+    # 同时补齐 g_leader 的范围规则
+    _fix_incorrect_scope_rules(db)
+
+
+def _fix_incorrect_scope_rules(db) -> None:
+    """修复已知的范围规则错误：
+    - target_scope: teacher: all_students → teaching_classes
+    - target_scope: 新增 g_leader: g_leader_grade
+    - data_scope: 新增 g_leader 规则（针对日常记录、点滴记录、学生管理等API）
+    - allowed_roles: 新增 g_leader 角色
+    """
+    # 修复 target_scope_rules
+    for api_path in ["/api/moral/daily-records/create", "/api/moral/moment-records/create"]:
+        config = db.query_one(
+            "SELECT target_scope_rules FROM api_permission_config WHERE api_path = %s",
+            (api_path,)
+        )
+        if not config:
+            continue
+
+        try:
+            rules = json.loads(config.get("target_scope_rules") or "{}")
+        except Exception:
+            continue
+
+        # 修复 teacher 的范围
+        if "teacher" in rules and "all_students" in rules["teacher"]:
+            rules["teacher"] = ["teaching_classes"]
+
+        # 补齐 g_leader 的范围
+        if "g_leader" not in rules:
+            rules["g_leader"] = ["g_leader_grade"]
+
+        db.execute(
+            "UPDATE api_permission_config SET target_scope_rules = %s WHERE api_path = %s",
+            (_json_dict_dump(rules), api_path),
+        )
+
+    # 修复 data_scope_rules：为相关API补齐 g_leader 规则
+    apis_need_g_leader = [
+        "/api/moral/daily-records",
+        "/api/moral/daily-records/update",
+        "/api/moral/daily-records/delete",
+        "/api/moral/moment-records",
+        "/api/moral/moment-records/update",
+        "/api/moral/moment-records/delete",
+        "/api/moral/profiles/student",
+        "/api/moral/profiles/student/generate",
+        "/api/moral/evaluations/class",
+        "/api/moral/evaluations/calculate",
+        "/api/moral/admin/students",
+        "/api/moral/admin/students/create",
+        "/api/moral/admin/students/update",
+        "/api/moral/admin/students/batch",
+    ]
+
+    for api_path in apis_need_g_leader:
+        config = db.query_one(
+            "SELECT data_scope_rules FROM api_permission_config WHERE api_path = %s",
+            (api_path,)
+        )
+        if not config:
+            continue
+
+        try:
+            rules = json.loads(config.get("data_scope_rules") or "{}")
+        except Exception:
+            continue
+
+        # 补齐 g_leader 的范围规则
+        if "g_leader" not in rules:
+            # 根据API类型设置合适的范围
+            if api_path.endswith("/update") or api_path.endswith("/delete"):
+                rules["g_leader"] = ["own_created"]
+            else:
+                rules["g_leader"] = ["own_created", "g_leader_grade"]
+
+            db.execute(
+                "UPDATE api_permission_config SET data_scope_rules = %s WHERE api_path = %s",
+                (_json_dict_dump(rules), api_path),
+            )
+
+    # 补齐 allowed_roles：为相关API添加 g_leader 角色
+    for api_path in apis_need_g_leader + ["/api/moral/daily-records/create", "/api/moral/moment-records/create",
+                                            "/api/moral/daily-records/types", "/api/moral/birthdays/upcoming",
+                                            "/api/moral/birthdays/today"]:
+        config = db.query_one(
+            "SELECT allowed_roles FROM api_permission_config WHERE api_path = %s",
+            (api_path,)
+        )
+        if not config:
+            continue
+
+        try:
+            roles = json.loads(config.get("allowed_roles") or "[]")
+        except Exception:
+            continue
+
+        if "g_leader" not in roles:
+            roles.append("g_leader")
+            db.execute(
+                "UPDATE api_permission_config SET allowed_roles = %s WHERE api_path = %s",
+                (_json_dump(roles), api_path),
+            )
+
+
+def apply_permission_fix_on_startup() -> None:
+    """启动时应用权限范围修复。
+
+    修复 teacher 的错误范围（all_students → teaching_classes）
+    以及补齐 g_leader 的范围规则。
+    """
+    try:
+        with get_moral_db() as db:
+            # 先确保表存在
+            ensure_api_permission_schema(db)
+            # 应用修复
+            _fix_incorrect_scope_rules(db)
+            logger.info("[APIPermission] Permission scope fix applied on startup")
+    except Exception as e:
+        logger.warning(f"[APIPermission] Permission fix failed on startup: {e}")
 
 
 def _module_key_from_group(group_name: str) -> str:

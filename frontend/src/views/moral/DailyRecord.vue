@@ -274,7 +274,8 @@ const fetchEventTypes = async () => {
 
 const fetchClassList = async () => {
   try {
-    const res = await getClasses()
+    // 新增记录场景只获取用户有权限的班级
+    const res = await getClasses({ for_record_input: 1 })
     if (res.success) {
       classList.value = res.data
     }

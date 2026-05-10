@@ -81,6 +81,12 @@ async def lifespan(app: FastAPI):
     init_monitor()
     # 启动时检查数据库完整性
     check_database_integrity_on_startup()
+    # 启动时应用权限范围修复（修复 teacher/g_leader 的范围错误）
+    try:
+        from models.datas_api.moral.api_permission import apply_permission_fix_on_startup
+        apply_permission_fix_on_startup()
+    except Exception as e:
+        logger.warning(f"权限修复初始化失败（非致命）: {e}")
 
     # 启动时启动队列消费任务
     tasks = [

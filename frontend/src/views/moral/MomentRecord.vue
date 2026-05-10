@@ -232,7 +232,7 @@ const fetchRecords = async () => {
 const fetchClassesAndStudents = async () => {
   try {
     // 获取班级列表
-    const classRes = await getClasses()
+    const classRes = await getClasses({ for_record_input: 1 })
     if (classRes.success) {
       classList.value = classRes.data
     }

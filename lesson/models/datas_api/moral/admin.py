@@ -562,12 +562,65 @@ async def get_archived_grades(
 async def get_classes(
     grade_id: Optional[int] = Query(None),
     is_active: Optional[int] = Query(None),
+    for_record_input: Optional[int] = Query(None, description="是否用于录入记录场景（1=按权限过滤班级）"),
     user: User = Depends(get_current_user)
 ):
-    """获取班级列表"""
+    """获取班级列表
+
+    for_record_input=1 时，按用户权限过滤班级：
+    - admin/jiaowu/xuefa：所有班级
+    - g_leader：任教班级 + 管理年级的班级
+    - cleader：任教班级 + 管理班级（班主任班级）
+    - teacher：任教班级
+    """
+    from .base import (
+        get_teacher_teaching_class_ids,
+        get_teacher_class_id,
+        get_teacher_grade_ids,
+        has_user_role,
+        is_admin_user,
+    )
+
     with get_moral_db() as db:
-        conditions = ["1=1"]
+        conditions = ["c.is_active = 1"]
         params = []
+
+        # 如果用于录入记录，按权限过滤班级
+        if for_record_input == 1:
+            # admin/jiaowu/xuefa 可以看所有班级
+            if is_admin_user(user) or has_user_role(user, 'jiaowu') or has_user_role(user, 'xuefa'):
+                # 不额外过滤
+                pass
+            else:
+                # 计算可见班级ID列表
+                visible_class_ids = set()
+
+                # 任教班级（所有角色都有）
+                teaching_ids = get_teacher_teaching_class_ids(user, db)
+                visible_class_ids.update(teaching_ids)
+
+                # 班主任班级
+                if has_user_role(user, 'cleader'):
+                    own_class_id = get_teacher_class_id(user, db)
+                    if own_class_id:
+                        visible_class_ids.add(own_class_id)
+
+                # 年级主任管理的年级班级
+                if has_user_role(user, 'g_leader'):
+                    grade_ids = get_teacher_grade_ids(user, db)
+                    if grade_ids:
+                        # 获取这些年级的所有班级
+                        grade_classes = db.query_all(
+                            f"SELECT class_id FROM class WHERE grade_id IN ({','.join(map(str, grade_ids))}) AND is_active = 1"
+                        )
+                        visible_class_ids.update(c['class_id'] for c in grade_classes)
+
+                if not visible_class_ids:
+                    # 没有任何班级权限，返回空列表
+                    return {"success": True, "data": []}
+
+                # 添加班级过滤条件
+                conditions.append(f"c.class_id IN ({','.join(map(str, visible_class_ids))})")
 
         if grade_id:
             conditions.append("c.grade_id = %s")

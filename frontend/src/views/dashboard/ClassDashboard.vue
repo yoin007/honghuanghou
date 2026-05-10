@@ -229,7 +229,7 @@ const studentTrendOption = computed(() => {
 
 const fetchClassList = async () => {
   if (!_isManager.value) return
-  const res = await getClasses()
+  const res = await getClasses({ for_record_input: 1 })
   if (res.success) {
     classList.value = res.data.filter(c => c.is_active === 1)
   }
