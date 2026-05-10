@@ -7,76 +7,81 @@
  * - 菜单权限：canShowMenu
  *
  * 基于 authStore 的角色标志 + apiPermission 缓存
+ * 支持动态菜单配置（从后端加载）
  */
 
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, reactive } from 'vue'
 import { useAuthStore } from './auth'
 import { useApiPermissionStore } from './apiPermission'
+import httpClient from '../shared/api/httpClient'
 
-// 资源定义：菜单 + 路由 + API的权限配置
-const RESOURCE_CONFIG = {
+// 静态资源配置（作为 fallback）
+const STATIC_RESOURCE_CONFIG = {
   // === 公开菜单（无需登录） ===
   menus: {
     public: [
-      { key: 'homework', label: '班级作业', route: '/homework', roles: ['all'] },
-      { key: 'basic-info', label: '班级信息', route: '/basic-info', roles: ['all'] },
-      { key: 'class-students', label: '班级学生', route: '/class-students', roles: ['all'] },
-      { key: 'announcement', label: '班级公告', route: '/announcement', roles: ['all'] },
-      { key: 'delay-application', label: '延时申请', route: '/delay-application', roles: ['all'] },
-      { key: 'leave-record', label: '请假记录', route: '/leave-record', roles: ['all'] },
-      { key: 'schedule', label: '课程表', route: '/schedule', roles: ['all'] },
-      { key: 'schedules', label: '总课表', route: '/schedules', roles: ['all'] },
-      { key: 'random-call', label: '随机点名', route: '/random-call', roles: ['all'] },
-      { key: 'loud-pk', label: '大声PK', route: '/loud-pk', roles: ['all'] },
+      { key: 'homework', label: '班级作业', route: '/homework', roles: ['all'], sort_order: 10 },
+      { key: 'basic-info', label: '班级信息', route: '/basic-info', roles: ['all'], sort_order: 20 },
+      { key: 'class-students', label: '班级学生', route: '/class-students', roles: ['all'], sort_order: 30 },
+      { key: 'announcement', label: '班级公告', route: '/announcement', roles: ['all'], sort_order: 40 },
+      { key: 'delay-application', label: '延时申请', route: '/delay-application', roles: ['all'], sort_order: 50 },
+      { key: 'leave-record', label: '请假记录', route: '/leave-record', roles: ['all'], sort_order: 60 },
+      { key: 'schedule', label: '课程表', route: '/schedule', roles: ['all'], sort_order: 70 },
+      { key: 'schedules', label: '总课表', route: '/schedules', roles: ['all'], sort_order: 80 },
+      { key: 'random-call', label: '随机点名', route: '/random-call', roles: ['all'], sort_order: 90 },
+      { key: 'loud-pk', label: '大声PK', route: '/loud-pk', roles: ['all'], sort_order: 100 },
     ],
 
     teacher: [
-      { key: 'publish-homework', label: '发布作业', route: '/publish-homework', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'publish-announcement', label: '发布公告', route: '/publish-announcement', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'file-upload', label: '文件上传', route: '/file-upload', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'my-files', label: '我的文件', route: '/my-files', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
+      { key: 'publish-homework', label: '发布作业', route: '/publish-homework', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 10 },
+      { key: 'publish-announcement', label: '发布公告', route: '/publish-announcement', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 20 },
+      { key: 'file-upload', label: '文件上传', route: '/file-upload', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 30 },
+      { key: 'my-files', label: '我的文件', route: '/my-files', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 40 },
     ],
 
     jiaowu: [
-      { key: 'admin-files', label: '文件管理', route: '/admin-files', roles: ['jiaowu', 'admin'] },
-      { key: 'admin-files-done', label: '已查阅文件', route: '/admin-files-done', roles: ['jiaowu', 'admin'] },
-      { key: 'upload-schedule', label: '更新课表', route: '/upload-schedule', roles: ['jiaowu', 'admin'] },
-      { key: 'invigilation', label: '监考安排', route: '/invigilation', roles: ['jiaowu', 'admin'] },
+      { key: 'admin-files', label: '文件管理', route: '/admin-files', roles: ['jiaowu', 'admin'], sort_order: 10 },
+      { key: 'admin-files-done', label: '已查阅文件', route: '/admin-files-done', roles: ['jiaowu', 'admin'], sort_order: 20 },
+      { key: 'upload-schedule', label: '更新课表', route: '/upload-schedule', roles: ['jiaowu', 'admin'], sort_order: 30 },
+      { key: 'invigilation', label: '监考安排', route: '/invigilation', roles: ['jiaowu', 'admin'], sort_order: 40 },
     ],
 
     moral: [
-      { key: 'moral-daily', label: '日常表现', route: '/moral/daily-record', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-school', label: '校级事件', route: '/moral/school-event', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-task', label: '德育任务', route: '/moral/task', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-punishment', label: '处分管理', route: '/moral/punishment', roles: ['xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-collective', label: '集体事件', route: '/moral/collective', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-evaluation', label: '评价查询', route: '/moral/evaluation', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-moment', label: '点滴记录', route: '/moral/moment', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-lifebook', label: '一生一册', route: '/moral/lifebook', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-profile', label: '学生画像', route: '/moral/profile', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-birthday', label: '生日提醒', route: '/moral/birthday', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-student-manage', label: '学生管理', route: '/moral/config/student', roles: ['g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'moral-config', label: '德育配置', route: '/moral/config', roles: ['xuefa', 'jiaowu', 'admin'] },
+      { key: 'moral-daily', label: '日常表现', route: '/moral/daily-record', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 10 },
+      { key: 'moral-school', label: '校级事件', route: '/moral/school-event', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 20 },
+      { key: 'moral-task', label: '德育任务', route: '/moral/task', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 30 },
+      { key: 'moral-punishment', label: '处分管理', route: '/moral/punishment', roles: ['xuefa', 'jiaowu', 'admin'], sort_order: 40 },
+      { key: 'moral-collective', label: '集体事件', route: '/moral/collective', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 50 },
+      { key: 'moral-evaluation', label: '评价查询', route: '/moral/evaluation', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 60 },
+      { key: 'moral-moment', label: '点滴记录', route: '/moral/moment', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 70 },
+      { key: 'moral-lifebook', label: '一生一册', route: '/moral/lifebook', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 80 },
+      { key: 'moral-profile', label: '学生画像', route: '/moral/profile', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 90 },
+      { key: 'moral-birthday', label: '生日提醒', route: '/moral/birthday', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 100 },
+      { key: 'moral-student-manage', label: '学生管理', route: '/moral/config/student', roles: ['g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 110 },
+      { key: 'moral-config', label: '德育配置', route: '/moral/config', roles: ['xuefa', 'jiaowu', 'admin'], sort_order: 120 },
     ],
 
     dashboard: [
-      { key: 'dashboard-overview', label: '总览', route: '/dashboard', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'dashboard-moral', label: '德育驾驶舱', route: '/dashboard/moral', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'dashboard-teaching', label: '教务驾驶舱', route: '/dashboard/teaching', roles: ['jiaowu', 'admin'] },
-      { key: 'dashboard-class', label: '班级驾驶舱', route: '/dashboard/class', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'dashboard-grade', label: '年级驾驶舱', route: '/dashboard/grade', roles: ['g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'dashboard-teacher', label: '教师工作台', route: '/dashboard/teacher', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },
-      { key: 'dashboard-invigilation', label: '监考驾驶舱', route: '/dashboard/invigilation', roles: ['jiaowu', 'admin'] },
-      { key: 'dashboard-system', label: '系统运维', route: '/dashboard/system', roles: ['admin'] },
+      { key: 'dashboard-overview', label: '总览', route: '/dashboard', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 10 },
+      { key: 'dashboard-moral', label: '德育驾驶舱', route: '/dashboard/moral', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 20 },
+      { key: 'dashboard-teaching', label: '教务驾驶舱', route: '/dashboard/teaching', roles: ['jiaowu', 'admin'], sort_order: 30 },
+      { key: 'dashboard-class', label: '班级驾驶舱', route: '/dashboard/class', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 40 },
+      { key: 'dashboard-grade', label: '年级驾驶舱', route: '/dashboard/grade', roles: ['g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 50 },
+      { key: 'dashboard-teacher', label: '教师工作台', route: '/dashboard/teacher', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 60 },
+      { key: 'dashboard-invigilation', label: '监考驾驶舱', route: '/dashboard/invigilation', roles: ['jiaowu', 'admin'], sort_order: 70 },
+      { key: 'dashboard-system', label: '系统运维', route: '/dashboard/system', roles: ['admin'], sort_order: 80 },
     ],
 
     system: [
-      { key: 'member-manage', label: '会员管理', route: '/member-manage', roles: ['admin'] },
-      { key: 'permission-manage', label: '权限管理', route: '/permission-manage', roles: ['admin'] },
-      { key: 'task-manage', label: '任务管理', route: '/task-manage', roles: ['admin'] },
-      { key: 'system-monitor', label: '系统监控', route: '/system-monitor', roles: ['admin'] },
-      { key: 'teacher-manage', label: '教师管理', route: '/teacher-manage', roles: ['admin'] },
+      { key: 'member-manage', label: '会员管理', route: '/member-manage', roles: ['admin'], sort_order: 10 },
+      { key: 'permission-manage', label: '权限管理', route: '/permission-manage', roles: ['admin'], sort_order: 20 },
+      { key: 'task-manage', label: '任务管理', route: '/task-manage', roles: ['admin'], sort_order: 30 },
+      { key: 'system-monitor', label: '系统监控', route: '/system-monitor', roles: ['admin'], sort_order: 40 },
+      { key: 'teacher-manage', label: '教师管理', route: '/teacher-manage', roles: ['admin'], sort_order: 50 },
+      { key: 'moral-api-permission', label: 'API权限', route: '/moral/config/api-permission', roles: ['admin'], sort_order: 60 },
+      { key: 'moral-database', label: '数据库管理', route: '/moral/config/database', roles: ['admin'], sort_order: 70 },
+      { key: 'moral-menu-permission', label: '菜单权限', route: '/moral/config/menu-permission', roles: ['admin'], sort_order: 80 },
     ],
   },
 
@@ -97,6 +102,10 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
   const authStore = useAuthStore()
   const apiPermissionStore = useApiPermissionStore()
 
+  // 动态加载的菜单配置（从后端加载）
+  const dynamicMenuConfig = ref(null)
+  const configLoaded = ref(false)
+
   // 用户角色集合（从authStore提取）
   const userRoles = computed(() => {
     const roles = []
@@ -111,6 +120,100 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
 
   // 是否登录
   const isLoggedIn = computed(() => authStore.isLoggedIn)
+
+  // 合后的资源配置（动态配置优先，静态配置补充缺失项）
+  const mergedConfig = computed(() => {
+    // 如果有动态配置且已加载，使用动态配置 + 静态配置补充
+    if (dynamicMenuConfig.value && configLoaded.value) {
+      // 将后端配置转换为前端格式
+      const menus = {}
+      const menuMap = new Map()
+
+      // 按 menu_group 分组
+      for (const item of dynamicMenuConfig.value) {
+        if (!item.is_active) continue // 跳过禁用的菜单
+
+        const group = item.menu_group
+        if (!menus[group]) menus[group] = []
+
+        const menuItem = {
+          key: item.menu_key,
+          label: item.menu_label,
+          route: item.menu_route,
+          roles: item.is_public ? ['all'] : item.allowed_roles
+        }
+
+        menus[group].push(menuItem)
+        menuMap.set(item.menu_key, menuItem)
+      }
+
+      // 用静态配置补充缺失的菜单项（如新增的管理功能）
+      for (const [groupKey, items] of Object.entries(STATIC_RESOURCE_CONFIG.menus)) {
+        if (!menus[groupKey]) menus[groupKey] = []
+        for (const staticItem of items) {
+          if (!menuMap.has(staticItem.key)) {
+            // 动态配置中没有，从静态配置补充
+            menus[groupKey].push(staticItem)
+            menuMap.set(staticItem.key, staticItem)
+          }
+        }
+      }
+
+      // 按 sort_order 排序每个分组
+      for (const groupKey of Object.keys(menus)) {
+        menus[groupKey].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+      }
+
+      return {
+        menus,
+        menuGroups: STATIC_RESOURCE_CONFIG.menuGroups, // 分组定义保持静态
+        menuMap // 用于快速查找
+      }
+    }
+
+    // 使用静态配置作为 fallback
+    const menuMap = new Map()
+    for (const items of Object.values(STATIC_RESOURCE_CONFIG.menus)) {
+      for (const item of items) {
+        menuMap.set(item.key, item)
+      }
+    }
+
+    // 按 sort_order 排序每个分组
+    const menus = {}
+    for (const [groupKey, items] of Object.entries(STATIC_RESOURCE_CONFIG.menus)) {
+      menus[groupKey] = [...items].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    }
+
+    return {
+      menus,
+      menuGroups: STATIC_RESOURCE_CONFIG.menuGroups,
+      menuMap
+    }
+  })
+
+  /**
+   * 从后端加载菜单权限配置
+   */
+  const loadMenuConfigFromBackend = async () => {
+    try {
+      const res = await httpClient.get('/api/moral/menu-permission/list')
+      if (res.success && res.data && res.data.length > 0) {
+        dynamicMenuConfig.value = res.data
+        configLoaded.value = true
+        console.log('[MenuPermission] Loaded dynamic menu config:', res.data.length, 'items')
+        return true
+      }
+      // 没有动态配置，使用静态配置
+      configLoaded.value = false
+      return false
+    } catch (error) {
+      // 加载失败，使用静态配置作为 fallback
+      console.warn('[MenuPermission] Failed to load dynamic config, using static fallback:', error.message)
+      configLoaded.value = false
+      return false
+    }
+  }
 
   /**
    * 检查用户是否有某个角色
@@ -133,8 +236,7 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
    * 检查菜单项是否可见
    */
   const canShowMenu = (menuKey) => {
-    const allMenus = Object.values(RESOURCE_CONFIG.menus).flat()
-    const item = allMenus.find(m => m.key === menuKey)
+    const item = mergedConfig.value.menuMap.get(menuKey)
     if (!item) return false
 
     // 'all' 表示公开
@@ -151,15 +253,18 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
    * 检查路由是否可访问
    */
   const canAccessRoute = (routePath) => {
-    const allMenus = Object.values(RESOURCE_CONFIG.menus).flat()
-    const item = allMenus.find(m => m.route === routePath)
+    // 从合并配置中查找
+    for (const items of Object.values(mergedConfig.value.menus)) {
+      const item = items.find(m => m.route === routePath)
+      if (item) {
+        if (item.roles.includes('all')) return true
+        if (!isLoggedIn.value) return false
+        return hasAnyRole(item.roles)
+      }
+    }
 
     // 未定义的资源默认需要登录
-    if (!item) return isLoggedIn.value
-
-    if (item.roles.includes('all')) return true
-    if (!isLoggedIn.value) return false
-    return hasAnyRole(item.roles)
+    return isLoggedIn.value
   }
 
   /**
@@ -179,13 +284,13 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
   const buildMenuTree = () => {
     const visibleGroups = []
 
-    for (const group of RESOURCE_CONFIG.menuGroups) {
+    for (const group of mergedConfig.value.menuGroups) {
       // 检查分组权限
       if (group.requiresAuth && !isLoggedIn.value) continue
       if (group.roles && !hasAnyRole(group.roles)) continue
 
       // 过滤可见菜单项
-      let items = RESOURCE_CONFIG.menus[group.items] || []
+      let items = mergedConfig.value.menus[group.items] || []
       if (group.itemFilter) {
         items = items.filter(item => group.itemFilter.includes(item.key))
       }
@@ -208,7 +313,7 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
    * 获取用户可访问的所有路由
    */
   const getAccessibleRoutes = () => {
-    const allMenus = Object.values(RESOURCE_CONFIG.menus).flat()
+    const allMenus = Object.values(mergedConfig.value.menus).flat()
     return allMenus
       .filter(item => canShowMenu(item.key))
       .map(item => item.route)
@@ -224,6 +329,10 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
     canCallApi,
     buildMenuTree,
     getAccessibleRoutes,
-    RESOURCE_CONFIG,
+    loadMenuConfigFromBackend,
+    mergedConfig,
+    configLoaded,
+    // 保留静态配置供外部访问
+    RESOURCE_CONFIG: STATIC_RESOURCE_CONFIG,
   }
 })

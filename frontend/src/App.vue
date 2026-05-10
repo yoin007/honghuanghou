@@ -42,6 +42,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useApiPermissionStore } from '@/stores/apiPermission'
+import { useResourcePermissionStore } from '@/stores/resourcePermission'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ClassSelector from '@/components/layout/ClassSelector.vue'
 import TopNavigation from '@/components/layout/TopNavigation.vue'
@@ -54,6 +55,7 @@ const route = useRoute()
 const authStore = useAuthStore()
 const appStore = useAppStore()
 const apiPermissionStore = useApiPermissionStore()
+const resourcePermissionStore = useResourcePermissionStore()
 
 // Local UI state
 const showLoginDialog = ref(false)
@@ -131,6 +133,8 @@ const handleLoginSuccess = async () => {
 onMounted(() => {
   appStore.fetchClassCodes()
   appStore.initClassCode()
+  // 加载动态菜单配置
+  resourcePermissionStore.loadMenuConfigFromBackend()
 })
 </script>
 

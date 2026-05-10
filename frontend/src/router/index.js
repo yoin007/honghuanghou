@@ -465,6 +465,26 @@ const routes = [
     }
   },
   {
+    path: '/moral/config/database',
+    name: 'MoralConfigDatabase',
+    component: () => import('../views/moral/config/DatabaseManage.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '数据库管理',
+      requiresAdmin: true
+    }
+  },
+  {
+    path: '/moral/config/menu-permission',
+    name: 'MoralConfigMenuPermission',
+    component: () => import('../views/moral/config/MenuPermission.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '菜单权限配置',
+      requiresAdmin: true
+    }
+  },
+  {
     path: '/',
     name: 'Root',
     component: () => import('../views/Root.vue'),
