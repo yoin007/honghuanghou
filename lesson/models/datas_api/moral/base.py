@@ -73,6 +73,7 @@ MORAL_PERMISSIONS = {
             'moment_view_all',
             'profile_view_all',
             'collective_event_manage',
+            'semester_manage',        # 学期结转管理
         ]
     },
     'g_leader': {

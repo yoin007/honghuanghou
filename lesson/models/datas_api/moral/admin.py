@@ -219,6 +219,281 @@ async def delete_grade(
 
 
 # =============================================================================
+# API 路由 - 升年级管理
+# =============================================================================
+
+@router.get("/grades/promote/preview", summary="预览升年级情况")
+async def preview_grade_promotion(
+    user: User = Depends(require_permission('semester_manage'))
+):
+    """
+    预览升年级情况
+
+    权限要求：xuefa/admin
+
+    返回：
+    - 即将毕业的学生列表（years_after_enrollment >= 2）
+    - 即将归档的年级列表
+    - 当前学年信息
+    - 下一学年信息（如已创建）
+    """
+    import json
+    from datetime import datetime
+
+    with get_moral_db() as db:
+        # 获取当前年份
+        current_year = datetime.now().year
+
+        # 获取配置的年级层级映射（如果有）
+        level_config = db.query_all(
+            "SELECT grade_id, level_name FROM grade_level_config"
+        )
+        level_map = {c['grade_id']: c['level_name'] for c in level_config} if level_config else {}
+
+        # 计算各年级的 years_after_enrollment
+        grades = db.query_all(
+            """SELECT g.grade_id, g.grade_name, g.enrollment_year, g.is_archived,
+                (SELECT COUNT(*) FROM student WHERE grade_id = g.grade_id AND status = '在校') as student_count
+               FROM grade g
+               WHERE g.is_archived = 0
+               ORDER BY g.enrollment_year DESC"""
+        )
+
+        # 标记即将毕业的年级（高三）
+        graduating_grades = []
+        promoting_grades = []
+
+        for grade in grades:
+            years_after = current_year - grade['enrollment_year']
+            grade['years_after_enrollment'] = years_after
+            grade['current_level'] = level_map.get(grade['grade_id'], f"{years_after+1}年级")
+
+            if years_after >= 2:
+                # 高三，即将毕业
+                graduating_grades.append(grade)
+            else:
+                # 高一/高二，即将升年级
+                grade['next_level'] = level_map.get(grade['grade_id'], f"{years_after+2}年级")
+                promoting_grades.append(grade)
+
+        # 获取即将毕业的学生详情
+        graduating_students = []
+        for grade in graduating_grades:
+            students = db.query_all(
+                """SELECT s.student_id, s.name, s.class_id, s.grade_id,
+                   c.class_name, g.grade_name
+                   FROM student s
+                   JOIN class c ON s.class_id = c.class_id
+                   JOIN grade g ON s.grade_id = g.grade_id
+                   WHERE s.grade_id = %s AND s.status = '在校'
+                   ORDER BY c.class_number, s.student_id""",
+                (grade['grade_id'],)
+            )
+            graduating_students.extend(students)
+
+        # 获取当前学年
+        current_school_year = db.query_one(
+            "SELECT * FROM school_year WHERE is_current = 1"
+        )
+
+        # 获取下一学年（根据 start_date 提取年份 + 1 查找）
+        next_school_year = None
+        if current_school_year and current_school_year.get('start_date'):
+            try:
+                # 从 start_date 提取年份（如 '2025-09-01' → 2025）
+                start_date_str = current_school_year['start_date']
+                if isinstance(start_date_str, str):
+                    start_year = int(start_date_str.split('-')[0])
+                elif isinstance(start_date_str, date):
+                    start_year = start_date_str.year
+                else:
+                    start_year = None
+
+                if start_year:
+                    next_start_year = start_year + 1
+                    # 从 year_name 查找下一学年（如 '2026-2027学年'）
+                    next_school_year = db.query_one(
+                        "SELECT * FROM school_year WHERE year_name LIKE %s",
+                        (f"%{next_start_year}%",)
+                    )
+            except Exception as e:
+                logger.warning(f"解析学年日期失败: {e}")
+
+        return {
+            "success": True,
+            "data": {
+                "current_year": current_year,
+                "current_school_year": current_school_year,
+                "next_school_year": next_school_year,
+                "graduating_grades": graduating_grades,
+                "graduating_students": graduating_students,
+                "graduating_count": len(graduating_students),
+                "promoting_grades": promoting_grades,
+                "has_next_year": next_school_year is not None
+            }
+        }
+
+
+class PromoteExecuteRequest(BaseModel):
+    """执行升年级请求"""
+    next_year_id: Optional[int] = Field(None, description="下一学年ID（可选，用于结转）")
+
+
+@router.post("/grades/promote/execute", summary="执行升年级")
+async def execute_grade_promotion(
+    request_data: PromoteExecuteRequest,
+    request: Request,
+    user: User = Depends(require_permission('semester_manage'))
+):
+    """
+    执行升年级
+
+    权限要求：xuefa/admin
+
+    流程：
+    1. 高三学生（years_after_enrollment >= 2）→ status='毕业'
+    2. 对应 grade 记录 → is_archived=1, archived_at=now()
+    3. 更新学年 is_current 标记（如有下一学年）
+
+    注意：grade_id 不变，年级层级由 enrollment_year 动态计算
+    """
+    from datetime import datetime
+
+    with get_moral_db() as db:
+        current_year = datetime.now().year
+        today = date.today()
+        archive_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        result = {
+            'graduated_students': 0,
+            'archived_grades': 0,
+            'errors': []
+        }
+
+        # 查询所有未归档的年级
+        grades = db.query_all(
+            """SELECT g.grade_id, g.grade_name, g.enrollment_year
+               FROM grade g
+               WHERE g.is_archived = 0
+               ORDER BY g.enrollment_year"""
+        )
+
+        for grade in grades:
+            years_after = current_year - grade['enrollment_year']
+
+            if years_after >= 2:
+                # 高三，执行毕业和归档
+                try:
+                    # 标记该年级所有在校生为毕业
+                    graduated_count = db.query_value(
+                        """SELECT COUNT(*) FROM student
+                           WHERE grade_id = %s AND status = '在校'""",
+                        (grade['grade_id'],)
+                    )
+
+                    db.execute(
+                        """UPDATE student SET status = '毕业', status_date = %s
+                           WHERE grade_id = %s AND status = '在校'""",
+                        (today, grade['grade_id'])
+                    )
+
+                    # 结束班级履历
+                    db.execute(
+                        """UPDATE student_class_history SET end_date = %s
+                           WHERE grade_id = %s AND end_date IS NULL""",
+                        (today, grade['grade_id'])
+                    )
+
+                    # 归档年级
+                    db.execute(
+                        """UPDATE grade SET is_archived = 1, archived_at = %s
+                           WHERE grade_id = %s""",
+                        (archive_time, grade['grade_id'])
+                    )
+
+                    result['graduated_students'] += graduated_count
+                    result['archived_grades'] += 1
+
+                    logger.info(
+                        f"年级归档：{grade['grade_name']}，毕业学生 {graduated_count} 人"
+                    )
+
+                except Exception as e:
+                    result['errors'].append(f"{grade['grade_name']}: {str(e)}")
+                    logger.error(f"年级归档失败：{grade['grade_name']} - {e}")
+
+        # 更新学年标记（如果提供了下一学年ID）
+        if request_data.next_year_id:
+            next_year = db.query_one(
+                "SELECT * FROM school_year WHERE year_id = %s",
+                (request_data.next_year_id,)
+            )
+            if next_year:
+                # 取消当前学年标记
+                db.execute("UPDATE school_year SET is_current = 0")
+                # 设置新学年为当前
+                db.execute(
+                    "UPDATE school_year SET is_current = 1 WHERE year_id = %s",
+                    (request_data.next_year_id,)
+                )
+
+                # 执行任务结转（如果有未完成任务）
+                try:
+                    # 获取旧学年ID
+                    old_year = db.query_one("SELECT year_id FROM school_year WHERE is_current = 0 ORDER BY start_date DESC LIMIT 1")
+                    if old_year and old_year['year_id'] != request_data.next_year_id:
+                        from .carryover import execute_task_carryover
+                        carryover_result = execute_task_carryover(db, old_year['year_id'], request_data.next_year_id)
+                        result['carryover'] = carryover_result
+                        logger.info(f"任务结转完成：{carryover_result}")
+                except Exception as e:
+                    result['errors'].append(f"任务结转: {str(e)}")
+                    logger.error(f"任务结转失败：{e}")
+
+        # 记录操作日志
+        log_operation(
+            db, user.username, user.role, 'PROMOTE', 'grade', None,
+            new_data={
+                'graduated_students': result['graduated_students'],
+                'archived_grades': result['archived_grades'],
+                'next_year_id': request_data.next_year_id
+            },
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {
+            "success": True,
+            "message": f"升年级完成：毕业 {result['graduated_students']} 名学生，归档 {result['archived_grades']} 个年级",
+            "data": result
+        }
+
+
+@router.get("/grades/archived", summary="获取已归档年级列表")
+async def get_archived_grades(
+    user: User = Depends(require_permission('report_view_all'))
+):
+    """
+    获取已归档年级列表
+
+    权限要求：admin/jiaowu/xuefa
+
+    用于查看历史年级（已毕业）
+    """
+    with get_moral_db() as db:
+        grades = db.query_all(
+            """SELECT g.*,
+                (SELECT COUNT(*) FROM class WHERE grade_id = g.grade_id) as class_count,
+                (SELECT COUNT(*) FROM student WHERE grade_id = g.grade_id) as total_student_count,
+                (SELECT COUNT(*) FROM student WHERE grade_id = g.grade_id AND status = '毕业') as graduated_count
+               FROM grade g
+               WHERE g.is_archived = 1
+               ORDER BY g.enrollment_year DESC"""
+        )
+
+        return {"success": True, "data": grades}
+
+
+# =============================================================================
 # API 路由 - 班级管理
 # =============================================================================
 

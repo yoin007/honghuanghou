@@ -25,6 +25,7 @@ router = APIRouter(prefix="/timeline", tags=["一生一册"])
 async def search_students_for_timeline(
     class_id: Optional[int] = Query(None),
     student_name: Optional[str] = Query(None),
+    include_archived: int = Query(0, description="1=包含已归档（毕业/转出）学生"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     user: User = Depends(get_current_user)
@@ -35,10 +36,20 @@ async def search_students_for_timeline(
     权限说明：
     - 班主任只能搜索本班学生
     - 教发部/管理员可搜索所有学生
+
+    改进：
+    - 支持查询已归档学生（毕业/转出/休学）
     """
     with get_moral_db() as db:
-        conditions = ["s.is_active = 1"]
+        conditions = ["1=1"]
         params = []
+
+        # 是否包含已归档学生
+        if include_archived == 0:
+            conditions.append("s.status = '在校'")
+        else:
+            # 包含所有状态，但优先显示在校
+            pass
 
         # 权限过滤
         if not check_moral_permission(user, 'profile_view_all'):
@@ -66,13 +77,13 @@ async def search_students_for_timeline(
         # 分页查询
         offset = (page - 1) * page_size
         data_query = f"""
-            SELECT s.student_id, s.name, s.gender, s.birthday,
-                   c.class_name, g.grade_name
+            SELECT s.student_id, s.name, s.gender, s.birthday, s.status,
+                   c.class_name, g.grade_name, g.is_archived as grade_archived
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             JOIN grade g ON s.grade_id = g.grade_id
             WHERE {where_clause}
-            ORDER BY c.class_name, s.student_id
+            ORDER BY s.status = '在校' DESC, c.class_name, s.student_id
             LIMIT %s OFFSET %s
         """
         params.extend([page_size, offset])
@@ -95,6 +106,7 @@ async def get_student_timeline(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     event_types: Optional[str] = Query(None, description="事件类型筛选：moment,daily,school,punishment,task"),
+    include_archived: int = Query(0, description="1=允许查询已归档学生"),
     user: User = Depends(get_current_user)
 ):
     """
@@ -102,23 +114,32 @@ async def get_student_timeline(
 
     权限说明：
     - 班主任(cleader): 只能查看本班学生
-    - 教发部/管理员: 可查看所有学生
+    - 教发部/管理员: 可查看所有学生，包括已归档
+
+    改进：
+    - 支持查询已归档学生档案
+    - 添加加减分汇总显示
     """
     with get_moral_db() as db:
-        # 获取学生信息并检查权限
+        # 获取学生信息
         student = db.query_one("""
-            SELECT s.*, c.class_name, c.leader_name, g.grade_name
+            SELECT s.*, c.class_name, c.leader_name, g.grade_name, g.is_archived as grade_archived
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             JOIN grade g ON s.grade_id = g.grade_id
-            WHERE s.student_id = %s AND s.is_active = 1
+            WHERE s.student_id = %s
         """, (student_id,))
 
         if not student:
             raise HTTPException(404, f"学生 {student_id} 不存在")
 
-        # 权限检查：班主任只能看本班学生
-        if not check_moral_permission(user, 'profile_view_all'):
+        # 归档学生权限检查：只有管理员/教发部可查看
+        if student['status'] != '在校' or student.get('grade_archived'):
+            if not check_moral_permission(user, 'profile_view_all'):
+                raise HTTPException(403, "只能查看在校学生档案，已归档学生需管理员权限")
+
+        # 在校学生权限检查：班主任只能看本班
+        if student['status'] == '在校' and not check_moral_permission(user, 'profile_view_all'):
             my_class_id = get_teacher_class_id(user, db)
             if my_class_id is None or my_class_id != student['class_id']:
                 raise HTTPException(403, "只能查看本班学生的档案")
@@ -261,6 +282,51 @@ async def get_student_timeline(
             "total": len(timeline)
         }
 
+        # 加减分汇总（改进点）
+        score_summary = {
+            "daily_positive": 0,      # 日常表现加分
+            "daily_negative": 0,      # 日常表现扣分
+            "school_positive": 0,     # 校级事件加分
+            "school_negative": 0,     # 校级事件扣分
+            "task_total": 0,          # 任务完成总分
+            "punishment_deduct": 0,   # 处分扣分（按级别）
+            "total_score": 0          # 总计
+        }
+
+        # 计算日常表现加减分
+        for item in timeline:
+            if item['type'] == 'daily':
+                score = item.get('score') or 0
+                if item.get('event_type') == '积极':
+                    score_summary['daily_positive'] += score
+                else:
+                    score_summary['daily_negative'] += abs(score)
+            elif item['type'] == 'school':
+                score = item.get('score') or 0
+                if score > 0:
+                    score_summary['school_positive'] += score
+                else:
+                    score_summary['school_negative'] += abs(score)
+            elif item['type'] == 'task':
+                score_summary['task_total'] += item.get('score') or 0
+            elif item['type'] == 'punishment':
+                # 处分扣分按级别计算
+                level = item.get('title', '').split(' - ')[-1] if ' - ' in item.get('title', '') else ''
+                punishment_scores = {
+                    '警告': 0, '严重警告': 2, '通报': 5, '记过': 10, '留校查看': 20
+                }
+                score_summary['punishment_deduct'] += punishment_scores.get(level, 0)
+
+        # 总计
+        score_summary['total_score'] = (
+            score_summary['daily_positive'] +
+            score_summary['school_positive'] +
+            score_summary['task_total'] -
+            score_summary['daily_negative'] -
+            score_summary['school_negative'] -
+            score_summary['punishment_deduct']
+        )
+
         return {
             "success": True,
             "data": {
@@ -270,10 +336,13 @@ async def get_student_timeline(
                     "class_name": student['class_name'],
                     "grade_name": student['grade_name'],
                     "gender": student['gender'],
-                    "birthday": student['birthday']
+                    "birthday": student['birthday'],
+                    "status": student['status'],
+                    "grade_archived": student.get('grade_archived', 0)
                 },
                 "timeline": timeline,
-                "stats": stats
+                "stats": stats,
+                "score_summary": score_summary
             }
         }
                 

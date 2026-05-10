@@ -67,7 +67,9 @@ CREATE INDEX IF NOT EXISTS idx_semester_year ON semester(year_id);
 CREATE TABLE IF NOT EXISTS grade (
     grade_id INTEGER PRIMARY KEY AUTOINCREMENT,
     grade_name TEXT NOT NULL,
-    enrollment_year INTEGER NOT NULL UNIQUE
+    enrollment_year INTEGER NOT NULL UNIQUE,
+    is_archived INTEGER DEFAULT 0,
+    archived_at TEXT
 );
 """,
     # 4. 年级等级配置表
@@ -259,7 +261,10 @@ CREATE TABLE IF NOT EXISTS grade_moral_task (
     task_name TEXT NOT NULL,
     task_desc TEXT,
     score INTEGER NOT NULL,
+    start_date TEXT,
+    end_date TEXT,
     deadline_type TEXT,
+    can_carryover INTEGER DEFAULT 1,
     is_required INTEGER DEFAULT 1,
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -708,6 +713,26 @@ CREATE TABLE IF NOT EXISTS moment_record (
 CREATE INDEX IF NOT EXISTS idx_moment_student ON moment_record(student_id);
 CREATE INDEX IF NOT EXISTS idx_moment_date ON moment_record(record_date);
 """,
+    # 39. 菜单权限配置表
+    "menu_permission_config": """
+CREATE TABLE IF NOT EXISTS menu_permission_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    menu_key TEXT NOT NULL UNIQUE,
+    menu_label TEXT NOT NULL,
+    menu_route TEXT NOT NULL,
+    menu_group TEXT NOT NULL,
+    allowed_roles TEXT NOT NULL DEFAULT '[]',
+    is_public INTEGER DEFAULT 0,
+    requires_auth INTEGER DEFAULT 1,
+    sort_order INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    description TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_menu_permission_key ON menu_permission_config(menu_key);
+CREATE INDEX IF NOT EXISTS idx_menu_permission_group ON menu_permission_config(menu_group);
+""",
 }
 
 
@@ -747,6 +772,8 @@ CREATE TABLE IF NOT EXISTS grade (
     grade_id INT PRIMARY KEY AUTO_INCREMENT,
     grade_name VARCHAR(10) NOT NULL COMMENT '如：2025级',
     enrollment_year INT NOT NULL COMMENT '入学年份',
+    is_archived TINYINT DEFAULT 0 COMMENT '是否已归档（毕业）',
+    archived_at DATETIME COMMENT '归档时间',
     UNIQUE KEY uk_enrollment_year (enrollment_year)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='级号配置表';
 """,
@@ -941,7 +968,10 @@ CREATE TABLE IF NOT EXISTS grade_moral_task (
     task_name VARCHAR(100) NOT NULL,
     task_desc TEXT,
     score INT NOT NULL COMMENT '完成后获得分数',
+    start_date DATE COMMENT '任务开始日期',
+    end_date DATE COMMENT '任务结束日期',
     deadline_type VARCHAR(20) COMMENT 'semester/year/open',
+    can_carryover TINYINT DEFAULT 1 COMMENT '是否允许结转',
     is_required TINYINT DEFAULT 1 COMMENT '是否必修',
     is_active TINYINT DEFAULT 1,
     created_at DATETIME DEFAULT NOW(),

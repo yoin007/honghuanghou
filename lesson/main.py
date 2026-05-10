@@ -28,6 +28,7 @@ from models.lesson.lound import router as loud_router
 from websocket import websocket_endpoint, manager
 from utils.database import init_db_optimization
 from utils.monitor import init_monitor
+from utils.db_integrity import check_database_integrity_on_startup
 from models.api import bailian_req
 
 log = LogConfig().get_logger()
@@ -78,6 +79,8 @@ async def lifespan(app: FastAPI):
     init_db_optimization()
     # 启动时初始化监控
     init_monitor()
+    # 启动时检查数据库完整性
+    check_database_integrity_on_startup()
 
     # 启动时启动队列消费任务
     tasks = [

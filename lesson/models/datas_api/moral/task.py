@@ -37,10 +37,11 @@ class MoralTaskCreate(BaseModel):
     """创建德育任务"""
     grade_id: int = Field(..., description="级号ID")
     task_name: str = Field(..., description="任务名称")
-    task_type: Optional[int] = Field(1, description="任务类型")
+    task_type: Optional[int] = Field(1, description="任务类型：1=个人任务 2=集体任务")
     score: int = Field(5, description="完成得分")
     start_date: Optional[str] = Field(None, description="开始日期")
     end_date: Optional[str] = Field(None, description="结束日期")
+    can_carryover: Optional[int] = Field(1, description="是否允许结转：1=允许 0=不允许")
     description: Optional[str] = Field(None, description="任务描述")
 
 
@@ -59,13 +60,14 @@ class TaskFinishCreate(BaseModel):
 @router.get("", summary="获取德育任务列表")
 async def get_moral_tasks(
     grade_id: Optional[int] = Query(None),
-    is_active: Optional[int] = Query(1),
+    is_active: Optional[int] = Query(None),  # 不传参数时不过滤，传1查活跃，传0查已结束
     user: User = Depends(get_current_user)
 ):
     """获取德育任务列表"""
     with get_moral_db() as db:
         query = """SELECT t.task_id, t.grade_id, t.task_name, t.task_desc as description,
-                   t.score, t.deadline_type, t.is_required, t.is_active, t.created_at,
+                   t.score, t.task_type, t.start_date, t.end_date, t.deadline_type, t.can_carryover,
+                   t.is_required, t.is_active, t.created_at,
                    g.grade_name
                    FROM grade_moral_task t JOIN grade g ON t.grade_id = g.grade_id WHERE 1=1"""
         params = []
@@ -91,30 +93,72 @@ async def create_moral_task(
     request: Request,
     user: User = Depends(require_permission('event_type_manage'))
 ):
-    """创建德育任务"""
+    """
+    创建德育任务
+
+    创建后会自动为该年级所有在校学生初始化未完成记录
+    """
     with get_moral_db() as db:
+        # 获取当前学年
+        current_year = get_current_school_year(db)
+        if not current_year:
+            raise HTTPException(400, "当前学年未配置，无法创建任务")
+        year_id = current_year['year_id']
+
         # 根据结束日期判断截止类型
         deadline_type = "open"
         if task.end_date:
             deadline_type = "year"
 
+        # 插入任务记录
         db.execute(
             """INSERT INTO grade_moral_task
-            (grade_id, task_name, task_desc, score, deadline_type, is_required)
-            VALUES (%s, %s, %s, %s, %s, %s)""",
-            (task.grade_id, task.task_name, task.description, task.score,
-             deadline_type, 1)
+            (grade_id, task_name, task_desc, score, task_type, start_date, end_date,
+             deadline_type, can_carryover, is_required)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (task.grade_id, task.task_name, task.description, task.score, task.task_type or 1,
+             task.start_date, task.end_date, deadline_type, task.can_carryover or 1, 1)
         )
 
         task_id = db.lastrowid()
 
+        # 查询该年级所有在校学生
+        students = db.query_all(
+            """SELECT student_id, class_id FROM student
+               WHERE grade_id = %s AND status = '在校'""",
+            (task.grade_id,)
+        )
+
+        # 为每个学生初始化未完成记录
+        initialized_count = 0
+        for student in students:
+            try:
+                db.execute(
+                    """INSERT INTO student_task_finish
+                    (student_id, task_id, year_id, status, current_score,
+                     carryover_count, is_carried_over)
+                    VALUES (%s, %s, %s, 0, %s, 0, 0)""",
+                    (student['student_id'], task_id, year_id, task.score)
+                )
+                initialized_count += 1
+            except Exception as e:
+                logger.warning(f"初始化学生任务记录失败: {student['student_id']} - {e}")
+
         log_operation(
             db, user.username, user.role, 'INSERT', 'grade_moral_task', task_id,
-            new_data={'task_name': task.task_name, 'score': task.score},
+            new_data={
+                'task_name': task.task_name,
+                'score': task.score,
+                'initialized_students': initialized_count
+            },
             ip_address=request.client.host if request.client else None
         )
 
-        return {"success": True, "message": "任务创建成功", "data": {"task_id": task_id}}
+        return {
+            "success": True,
+            "message": f"任务创建成功，已为 {initialized_count} 名学生初始化未完成记录",
+            "data": {"task_id": task_id, "initialized_count": initialized_count}
+        }
 
 
 @router.put("/{task_id}", summary="更新德育任务")
@@ -140,11 +184,12 @@ async def update_moral_task(
 
         db.execute(
             """UPDATE grade_moral_task SET
-            grade_id = %s, task_name = %s, task_desc = %s, score = %s,
-            deadline_type = %s
+            grade_id = %s, task_name = %s, task_desc = %s, score = %s, task_type = %s,
+            start_date = %s, end_date = %s, deadline_type = %s, can_carryover = %s
             WHERE task_id = %s""",
-            (task.grade_id, task.task_name, task.description, task.score,
-             deadline_type, task_id)
+            (task.grade_id, task.task_name, task.description, task.score, task.task_type or old_task['task_type'] or 1,
+             task.start_date, task.end_date, deadline_type, task.can_carryover or old_task['can_carryover'],
+             task_id)
         )
 
         log_operation(
@@ -336,6 +381,111 @@ async def finish_task(
             )
 
         return {"success": True, "message": "任务完成记录已更新"}
+
+
+class BatchFinishRequest(BaseModel):
+    """批量完成请求"""
+    task_id: int = Field(..., description="任务ID")
+    class_id: Optional[int] = Field(None, description="班级ID（全班完成时使用）")
+    student_ids: Optional[List[str]] = Field(None, description="学生ID列表（指定学生时使用）")
+    finish_date: Optional[date] = Field(None, description="完成日期")
+    remark: Optional[str] = Field(None, description="备注")
+
+
+@router.post("/batch-finish", summary="批量标记任务完成")
+async def batch_finish_task(
+    request: BatchFinishRequest,
+    req: Request,
+    user: User = Depends(require_permission('moral_record_manage'))
+):
+    """
+    批量标记任务完成
+
+    权限要求：admin/xuefa（需要 moral_record_manage 权限）
+
+    使用方式：
+    1. 全班完成：传 class_id，自动标记该班级所有未完成学生
+    2. 指定学生：传 student_ids 数组，批量标记指定学生
+
+    只更新 status=0（未完成）的记录，已完成的不会重复更新
+    """
+    with get_moral_db() as db:
+        current_year = get_current_school_year(db)
+        if not current_year:
+            raise HTTPException(400, "当前学年未配置")
+        year_id = current_year['year_id']
+
+        # 获取任务信息
+        task = db.query_one(
+            "SELECT * FROM grade_moral_task WHERE task_id = %s AND is_active = 1",
+            (request.task_id,)
+        )
+        if not task:
+            raise HTTPException(404, "任务不存在")
+
+        # 确定要更新的学生列表
+        if request.class_id:
+            # 全班完成：查询该班级所有未完成的学生
+            unfinished = db.query_all(
+                """SELECT stf.id, stf.student_id, s.class_id, s.grade_id
+                   FROM student_task_finish stf
+                   JOIN student s ON stf.student_id = s.student_id
+                   WHERE stf.task_id = %s AND stf.status = 0 AND s.class_id = %s""",
+                (request.task_id, request.class_id)
+            )
+        elif request.student_ids:
+            # 指定学生：查询这些学生中未完成的
+            unfinished = db.query_all(
+                """SELECT stf.id, stf.student_id, s.class_id, s.grade_id
+                   FROM student_task_finish stf
+                   JOIN student s ON stf.student_id = s.student_id
+                   WHERE stf.task_id = %s AND stf.status = 0
+                   AND stf.student_id IN (%s)""",
+                (request.task_id, ','.join(request.student_ids))
+            )
+        else:
+            raise HTTPException(400, "请指定 class_id 或 student_ids")
+
+        if not unfinished:
+            return {"success": True, "message": "没有待完成的学生", "data": {"updated_count": 0}}
+
+        # 批量更新
+        finish_date = request.finish_date or date.today()
+        updated_count = 0
+
+        for record in unfinished:
+            db.execute(
+                """UPDATE student_task_finish SET
+                status = 1, finish_date = %s, finish_year_id = %s, proof = %s
+                WHERE id = %s""",
+                (finish_date, year_id, request.remark, record['id'])
+            )
+            updated_count += 1
+
+        # 重新计算德育评价（批量）
+        current_semester = get_current_semester(db)
+        if current_semester:
+            from .evaluation import calculate_evaluation
+            for record in unfinished:
+                calculate_evaluation(
+                    db,
+                    record['student_id'],
+                    current_semester['semester_id'],
+                    record['class_id'],
+                    record['grade_id'],
+                )
+
+        log_operation(
+            db, user.username, user.role, 'UPDATE', 'student_task_finish', request.task_id,
+            new_data={'action': 'batch_finish', 'updated_count': updated_count},
+            ip_address=req.client.host if req.client else None
+        )
+
+        return {
+            "success": True,
+            "message": f"已批量标记 {updated_count} 名学生完成任务",
+            "data": {"updated_count": updated_count}
+        }
 
 
 class MoralTaskImportItem(BaseModel):

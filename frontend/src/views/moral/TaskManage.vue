@@ -16,7 +16,7 @@
               </el-select>
             </el-form-item>
             <el-form-item label="状态">
-              <el-select v-model="taskFilterForm.status" placeholder="选择状态" clearable>
+              <el-select v-model="taskFilterForm.is_active" placeholder="选择状态" clearable>
                 <el-option label="进行中" :value="1" />
                 <el-option label="已结束" :value="0" />
               </el-select>
@@ -51,8 +51,8 @@
             <el-table-column prop="end_date" label="结束日期" width="120" />
             <el-table-column label="状态" width="80">
               <template #default="{ row }">
-                <el-tag :type="row.status === 1 ? 'success' : 'info'">
-                  {{ row.status === 1 ? '进行中' : '已结束' }}
+                <el-tag :type="row.is_active === 1 ? 'success' : 'info'">
+                  {{ row.is_active === 1 ? '进行中' : '已结束' }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -69,6 +69,89 @@
 
       <!-- 任务完成记录 -->
       <el-tab-pane label="完成记录" name="finish">
+        <!-- 任务结转管理 -->
+        <el-card class="carryover-card" v-if="canCarryover">
+          <template #header>
+            <div class="card-header">
+              <span>任务结转管理</span>
+              <el-button type="primary" size="small" @click="handleSaveCarryoverConfig" :loading="carryoverConfigSaving">
+                保存配置
+              </el-button>
+            </div>
+          </template>
+
+          <el-form :inline="true" class="carryover-config-form">
+            <el-form-item label="结转系数">
+              <el-input-number
+                v-model="carryoverConfig.carryover_factor"
+                :min="0.1"
+                :max="1"
+                :step="0.1"
+                :precision="2"
+                size="small"
+              />
+              <span class="hint">（每次结转分值衰减比例，如 0.6 表示衰减为 60%）</span>
+            </el-form-item>
+            <el-form-item label="最大结转次数">
+              <el-input-number
+                v-model="carryoverConfig.max_carryover_times"
+                :min="1"
+                :max="5"
+                :step="1"
+                size="small"
+              />
+              <span class="hint">（超过次数的任务将作废）</span>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="warning" @click="handlePreviewCarryover" :loading="carryoverLoading">
+                预览结转
+              </el-button>
+              <el-button type="danger" @click="handleExecuteCarryover" :loading="carryoverLoading" :disabled="!carryoverPreviewData">
+                执行结转
+              </el-button>
+            </el-form-item>
+          </el-form>
+
+          <!-- 结转预览 -->
+          <div v-if="carryoverPreviewData" class="carryover-preview">
+            <el-descriptions :column="4" border size="small">
+              <el-descriptions-item label="下一学年">{{ carryoverPreviewData.next_year?.year_name || '未创建' }}</el-descriptions-item>
+              <el-descriptions-item label="待结转">{{ carryoverPreviewData.to_carryover?.length || 0 }} 个</el-descriptions-item>
+              <el-descriptions-item label="将作废">{{ carryoverPreviewData.to_expire?.length || 0 }} 个</el-descriptions-item>
+              <el-descriptions-item label="结转系数">{{ carryoverPreviewData.carryover_factor }}</el-descriptions-item>
+            </el-descriptions>
+
+            <el-collapse v-if="carryoverPreviewData.to_carryover?.length || carryoverPreviewData.to_expire?.length" class="preview-collapse">
+              <el-collapse-item title="待结转任务详情" name="carryover" v-if="carryoverPreviewData.to_carryover?.length">
+                <el-table :data="carryoverPreviewData.to_carryover" size="small" max-height="300">
+                  <el-table-column prop="student_name" label="学生" width="100" />
+                  <el-table-column prop="task_name" label="任务" width="180" />
+                  <el-table-column prop="carryover_count" label="已结转次数" width="100" />
+                  <el-table-column prop="score_before" label="原分值" width="80" />
+                  <el-table-column prop="score_after" label="结转后分值" width="100">
+                    <template #default="{ row }">
+                      <span class="score-positive">{{ row.score_after }}</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-collapse-item>
+              <el-collapse-item title="将作废任务详情" name="expire" v-if="carryoverPreviewData.to_expire?.length">
+                <el-table :data="carryoverPreviewData.to_expire" size="small" max-height="300">
+                  <el-table-column prop="student_name" label="学生" width="100" />
+                  <el-table-column prop="task_name" label="任务" width="180" />
+                  <el-table-column prop="carryover_count" label="已结转次数" width="100" />
+                  <el-table-column prop="current_score" label="当前分值" width="80" />
+                  <el-table-column prop="reason" label="作废原因" />
+                </el-table>
+              </el-collapse-item>
+            </el-collapse>
+
+            <el-alert v-if="!carryoverPreviewData.has_next_year" type="warning" :closable="false" style="margin-top: 10px">
+              未找到下一学年，请先在系统配置中创建新学年
+            </el-alert>
+          </div>
+        </el-card>
+
         <el-card class="filter-card">
           <el-form :inline="true" :model="finishFilterForm" class="filter-form">
             <el-form-item label="学生学号">
@@ -102,14 +185,29 @@
           <el-table :data="finishList" v-loading="finishLoading" stripe>
             <el-table-column prop="student_id" label="学号" width="120" />
             <el-table-column prop="student_name" label="姓名" width="100" />
-            <el-table-column prop="task_name" label="任务名称" width="200" />
-            <el-table-column prop="score" label="得分" width="80">
+            <el-table-column prop="task_name" label="任务名称" width="180" />
+            <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <span class="score-positive">+{{ row.score }}</span>
+                <el-tag :type="row.status === 1 ? 'success' : row.status === 2 ? 'danger' : 'info'" size="small">
+                  {{ row.status === 1 ? '已完成' : row.status === 2 ? '已作废' : '未完成' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="分值" width="100">
+              <template #default="{ row }">
+                <span v-if="row.current_score" :class="row.current_score > 0 ? 'score-positive' : 'score-negative'">
+                  {{ row.current_score > 0 ? '+' : '' }}{{ row.current_score }}
+                </span>
+                <span v-else :class="row.original_score > 0 ? 'score-positive' : 'score-negative'">
+                  {{ row.original_score > 0 ? '+' : '' }}{{ row.original_score }}
+                </span>
+                <el-tag v-if="row.carryover_count > 0" type="warning" size="small" style="margin-left: 4px">
+                  结转{{ row.carryover_count }}次
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="finish_date" label="完成日期" width="120" />
-            <el-table-column prop="remark" label="备注" show-overflow-tooltip />
+            <el-table-column prop="proof" label="证明/备注" show-overflow-tooltip />
             <el-table-column label="操作" width="100" fixed="right">
               <template #default="{ row }">
                 <el-button link type="danger" @click="handleDeleteFinish(row)" v-if="canDeleteFinishRecord">删除</el-button>
@@ -199,24 +297,34 @@
             </el-option-group>
           </el-select>
         </el-form-item>
-        <el-form-item label="学生" prop="student_ids">
-          <el-select
-            v-model="finishForm.student_ids"
-            placeholder="选择学生（可多选）"
-            style="width: 100%"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            filterable
-            :disabled="!finishForm.class_id"
-          >
-            <el-option
-              v-for="student in classStudents"
-              :key="student.student_id"
-              :label="`${student.student_id} - ${student.name}`"
-              :value="student.student_id"
-            />
-          </el-select>
+        <el-form-item label="学生">
+          <div class="student-select-row">
+            <el-select
+              v-model="finishForm.student_ids"
+              placeholder="选择学生（可多选）"
+              style="flex: 1"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              filterable
+              :disabled="!finishForm.class_id"
+            >
+              <el-option
+                v-for="student in classStudents"
+                :key="student.student_id"
+                :label="`${student.student_id} - ${student.name}`"
+                :value="student.student_id"
+              />
+            </el-select>
+            <el-button
+              type="success"
+              @click="finishForm.student_ids = classStudents.map(s => s.student_id)"
+              :disabled="!finishForm.class_id || classStudents.length === 0"
+              style="margin-left: 10px"
+            >
+              全选
+            </el-button>
+          </div>
         </el-form-item>
         <el-form-item label="任务" prop="task_id">
           <el-select v-model="finishForm.task_id" placeholder="选择任务" style="width: 100%" filterable>
@@ -228,7 +336,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="完成日期" prop="finish_date">
+        <el-form-item label="完成日期">
           <el-date-picker
             v-model="finishForm.finish_date"
             type="date"
@@ -238,11 +346,31 @@
           />
         </el-form-item>
         <el-form-item label="备注">
-          <el-input v-model="finishForm.remark" type="textarea" :rows="3" />
+          <el-input v-model="finishForm.remark" type="textarea" :rows="2" />
         </el-form-item>
+        <el-alert
+          v-if="finishForm.class_id && finishForm.task_id"
+          type="info"
+          :closable="false"
+          style="margin-bottom: 10px"
+        >
+          <template #title>
+            <el-button
+              link
+              type="primary"
+              @click="handleBatchFinishAll"
+              style="font-weight: normal"
+            >
+              一键标记全班未完成学生
+            </el-button>
+          </template>
+        </el-alert>
       </el-form>
       <template #footer>
         <el-button @click="finishDialogVisible = false">取消</el-button>
+        <el-button type="success" @click="handleBatchFinishAll" v-if="finishForm.class_id && finishForm.task_id">
+          全班批量完成
+        </el-button>
         <el-button type="primary" @click="handleFinishSubmit">确定</el-button>
       </template>
     </el-dialog>
@@ -259,9 +387,15 @@ import {
   deleteMoralTask,
   getTaskFinishRecords,
   finishTask,
+  batchFinishTask,
   getGrades,
   getClasses,
-  getStudents
+  getStudents,
+  previewCarryover,
+  executeCarryover,
+  getCarryoverConfig,
+  updateCarryoverConfig,
+  getSchoolYears
 } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
 import { useApiPermission } from '@/composables/useApiPermission'
@@ -273,6 +407,16 @@ const canUpdateTask = ref(false)
 const canDeleteTask = ref(false)
 const canFinishTask = ref(false)
 const canDeleteFinishRecord = ref(false)
+const canCarryover = ref(false)
+
+// 任务结转
+const carryoverLoading = ref(false)
+const carryoverConfigSaving = ref(false)
+const carryoverPreviewData = ref(null)
+const carryoverConfig = reactive({
+  carryover_factor: 0.6,
+  max_carryover_times: 2
+})
 
 // Tab
 const activeTab = ref('tasks')
@@ -287,7 +431,7 @@ const classStudents = ref([])
 // 任务筛选
 const taskFilterForm = reactive({
   grade_id: null,
-  status: null
+  is_active: null  // null 表示全部，1 表示进行中，0 表示已结束
 })
 
 // 任务对话框
@@ -353,7 +497,7 @@ const finishRules = {
 
 // 计算属性
 const activeTasks = computed(() =>
-  taskList.value.filter(t => t.status === 1)
+  taskList.value.filter(t => t.is_active === 1)
 )
 
 // 方法
@@ -448,7 +592,7 @@ const handleTaskSearch = () => {
 
 const handleTaskReset = () => {
   taskFilterForm.grade_id = null
-  taskFilterForm.status = null
+  taskFilterForm.is_active = null
   fetchTasks()
 }
 
@@ -556,25 +700,136 @@ const handleDeleteFinish = async (row) => {
 const handleFinishSubmit = async () => {
   try {
     await finishFormRef.value.validate()
-    // 批量为每个学生创建完成记录
-    const results = []
-    for (const studentId of finishForm.student_ids) {
-      const res = await finishTask({
-        student_id: studentId,
-        task_id: finishForm.task_id,
-        finish_date: finishForm.finish_date,
-        remark: finishForm.remark
-      })
-      results.push(res.success)
-    }
-    const successCount = results.filter(r => r).length
-    if (successCount > 0) {
-      ElMessage.success(`成功记录 ${successCount} 条`)
+    // 使用批量完成 API（一次请求，高效）
+    const res = await batchFinishTask({
+      task_id: finishForm.task_id,
+      student_ids: finishForm.student_ids,
+      finish_date: finishForm.finish_date,
+      remark: finishForm.remark
+    })
+    if (res.success) {
+      ElMessage.success(res.message || `成功记录 ${res.data?.updated_count || finishForm.student_ids.length} 条`)
       finishDialogVisible.value = false
       fetchFinishRecords()
     }
   } catch (error) {
     console.error('提交失败:', error)
+  }
+}
+
+// 全班批量完成
+const handleBatchFinishAll = async () => {
+  if (!finishForm.class_id || !finishForm.task_id) {
+    ElMessage.warning('请先选择班级和任务')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      '确定要标记全班所有未完成的学生吗？',
+      '全班批量完成',
+      { type: 'info' }
+    )
+    const res = await batchFinishTask({
+      task_id: finishForm.task_id,
+      class_id: finishForm.class_id,
+      finish_date: finishForm.finish_date || getGMT8DateString(),
+      remark: finishForm.remark || '全班批量完成'
+    })
+    if (res.success) {
+      ElMessage.success(res.message || '全班批量完成成功')
+      finishDialogVisible.value = false
+      fetchFinishRecords()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('全班批量完成失败:', error)
+    }
+  }
+}
+
+// 任务结转相关方法
+const fetchCarryoverConfig = async () => {
+  try {
+    const res = await getCarryoverConfig()
+    if (res.success && res.data) {
+      carryoverConfig.carryover_factor = res.data.carryover_factor
+      carryoverConfig.max_carryover_times = res.data.max_carryover_times
+    }
+  } catch (error) {
+    console.error('获取结转配置失败:', error)
+  }
+}
+
+const handleSaveCarryoverConfig = async () => {
+  carryoverConfigSaving.value = true
+  try {
+    const res = await updateCarryoverConfig({
+      carryover_factor: carryoverConfig.carryover_factor,
+      max_carryover_times: carryoverConfig.max_carryover_times
+    })
+    if (res.success) {
+      ElMessage.success('结转配置已保存')
+    }
+  } catch (error) {
+    ElMessage.error('保存配置失败')
+    console.error('保存结转配置失败:', error)
+  } finally {
+    carryoverConfigSaving.value = false
+  }
+}
+
+const handlePreviewCarryover = async () => {
+  carryoverLoading.value = true
+  try {
+    const yearRes = await getSchoolYears()
+    if (yearRes.success && yearRes.data?.length > 0) {
+      const currentYear = yearRes.data.find(y => y.is_current) || yearRes.data[0]
+      const res = await previewCarryover(currentYear.school_year_id || currentYear.year_id)
+      if (res.success) {
+        carryoverPreviewData.value = res.data
+        if (!res.data.has_next_year) {
+          ElMessage.warning('未找到下一学年，请先创建新学年')
+        } else if (res.data.to_carryover?.length === 0 && res.data.to_expire?.length === 0) {
+          ElMessage.info('当前学年没有待结转的任务')
+        }
+      }
+    }
+  } catch (error) {
+    ElMessage.error('获取结转预览失败')
+    console.error('结转预览失败:', error)
+  } finally {
+    carryoverLoading.value = false
+  }
+}
+
+const handleExecuteCarryover = async () => {
+  if (!carryoverPreviewData.value?.has_next_year) {
+    ElMessage.warning('请先预览结转情况，确保下一学年已创建')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定要执行任务结转吗？将结转 ${carryoverPreviewData.value.to_carryover?.length || 0} 个任务，作废 ${carryoverPreviewData.value.to_expire?.length || 0} 个任务`,
+      '任务结转确认',
+      { type: 'warning' }
+    )
+    carryoverLoading.value = true
+    const res = await executeCarryover({
+      from_year_id: carryoverPreviewData.value.from_year_id,
+      to_year_id: carryoverPreviewData.value.to_year_id
+    })
+    if (res.success) {
+      ElMessage.success(res.message || '结转执行成功')
+      carryoverPreviewData.value = null
+      fetchFinishRecords()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('结转执行失败')
+      console.error('结转执行失败:', error)
+    }
+  } finally {
+    carryoverLoading.value = false
   }
 }
 
@@ -585,10 +840,15 @@ onMounted(async () => {
   canUpdateTask.value = hasApiPermissionSync('/api/moral/tasks/update')
   canDeleteTask.value = hasApiPermissionSync('/api/moral/tasks/delete')
   canFinishTask.value = hasApiPermissionSync('/api/moral/tasks/finish')
+  canDeleteFinishRecord.value = hasApiPermissionSync('/api/moral/tasks/finish/delete')
+  canCarryover.value = hasApiPermissionSync('/api/moral/carryover/execute')
   fetchGradeList()
   fetchClassList()
   fetchTasks()
   fetchFinishRecords()
+  if (canCarryover.value) {
+    fetchCarryoverConfig()
+  }
 })
 </script>
 
@@ -603,6 +863,24 @@ onMounted(async () => {
 
 .filter-card {
   margin-bottom: 20px;
+}
+
+.carryover-card {
+  margin-bottom: 20px;
+}
+
+.carryover-config-form .hint {
+  color: #909399;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.carryover-preview {
+  margin-top: 15px;
+}
+
+.preview-collapse {
+  margin-top: 15px;
 }
 
 .card-header {
@@ -620,5 +898,15 @@ onMounted(async () => {
 .score-positive {
   color: #67c23a;
   font-weight: bold;
+}
+
+.score-negative {
+  color: #f56c6c;
+  font-weight: bold;
+}
+
+.student-select-row {
+  display: flex;
+  align-items: center;
 }
 </style>

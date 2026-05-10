@@ -104,11 +104,29 @@
           <span class="hint">等级为空则只发预警通知，有等级则自动创建处分记录</span>
         </el-form-item>
 
-        <el-divider content-position="left">其他配置</el-divider>
+        <el-divider content-position="left">升年级管理</el-divider>
 
-        <el-form-item label="学期结转">
-          <el-switch v-model="configForm.semester_carryover_enabled" :active-value="1" :inactive-value="0" />
-          <span class="hint">是否启用学期数据结转</span>
+        <el-form-item label="升年级操作">
+          <el-button type="info" @click="handlePreviewPromotion" :loading="promotionLoading">
+            预览升年级情况
+          </el-button>
+          <el-button type="danger" @click="handleExecutePromotion" :loading="promotionLoading" :disabled="!promotionData">
+            执行升年级
+          </el-button>
+          <span class="hint">高三毕业归档，高一/高二升级</span>
+        </el-form-item>
+
+        <el-form-item label="升年级预览" v-if="promotionData">
+          <el-descriptions :column="3" border size="small">
+            <el-descriptions-item label="即将毕业学生">{{ promotionData.graduating_count || 0 }} 人</el-descriptions-item>
+            <el-descriptions-item label="即将归档年级">{{ promotionData.graduating_grades?.length || 0 }} 个</el-descriptions-item>
+            <el-descriptions-item label="下一学年">{{ promotionData.has_next_year ? '已创建' : '未创建' }}</el-descriptions-item>
+          </el-descriptions>
+          <el-table v-if="promotionData.graduating_grades?.length" :data="promotionData.graduating_grades" size="small" style="margin-top: 10px">
+            <el-table-column prop="grade_name" label="年级" width="120" />
+            <el-table-column prop="student_count" label="学生数" width="100" />
+            <el-table-column prop="current_level" label="当前层级" width="100" />
+          </el-table>
         </el-form-item>
       </el-form>
     </el-card>
@@ -117,11 +135,18 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { getSystemConfig, updateSystemConfig } from '@/api/modules/moral'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  getSystemConfig,
+  updateSystemConfig,
+  previewGradePromotion,
+  executeGradePromotion
+} from '@/api/modules/moral'
 
 const loading = ref(false)
 const saving = ref(false)
+const promotionLoading = ref(false)
+const promotionData = ref(null)
 
 const configForm = reactive({
   evaluation_base_score: 80,
@@ -132,7 +157,6 @@ const configForm = reactive({
   daily_record_roles: ['teacher', 'cleader', 'g_leader'],
   student_profile_roles: ['admin', 'jiaowu', 'xuefa', 'g_leader', 'cleader'],
   ai_consultation_roles: ['admin', 'xuefa', 'g_leader', 'cleader'],
-  semester_carryover_enabled: 1,
   punishment_types: [
     { action: 'warning', name: '警告', level: null },
     { action: 'serious_warning', name: '严重警告', level: '一级' },
@@ -195,6 +219,51 @@ const handleSave = async () => {
     console.error('保存配置失败:', error)
   } finally {
     saving.value = false
+  }
+}
+
+// 升年级预览
+const handlePreviewPromotion = async () => {
+  promotionLoading.value = true
+  try {
+    const res = await previewGradePromotion()
+    if (res.success) {
+      promotionData.value = res.data
+      if (res.data.graduating_count === 0) {
+        ElMessage.info('当前没有即将毕业的年级')
+      }
+    }
+  } catch (error) {
+    ElMessage.error('获取升年级预览失败')
+    console.error('升年级预览失败:', error)
+  } finally {
+    promotionLoading.value = false
+  }
+}
+
+// 执行升年级
+const handleExecutePromotion = async () => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要执行升年级吗？将毕业 ${promotionData.value.graduating_count || 0} 名学生，归档 ${promotionData.value.graduating_grades?.length || 0} 个年级`,
+      '升年级确认',
+      { type: 'warning' }
+    )
+    promotionLoading.value = true
+    const res = await executeGradePromotion({
+      next_year_id: promotionData.value.next_school_year?.school_year_id || null
+    })
+    if (res.success) {
+      ElMessage.success(res.message || '升年级执行成功')
+      promotionData.value = null
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('升年级执行失败')
+      console.error('升年级执行失败:', error)
+    }
+  } finally {
+    promotionLoading.value = false
   }
 }
 

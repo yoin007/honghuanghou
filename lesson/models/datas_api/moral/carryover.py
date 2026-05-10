@@ -19,9 +19,71 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
-# 结转配置
-CARRYOVER_FACTOR = 0.60  # 每次结转 ×60%
-MAX_CARRYOVER_TIMES = 2   # 最大结转次数（高一→高二→高三）
+# 默认结转配置（当数据库配置不存在时使用）
+DEFAULT_CARRYOVER_FACTOR = 0.60
+DEFAULT_MAX_CARRYOVER_TIMES = 2
+
+
+def get_carryover_config(db) -> Dict[str, Any]:
+    """
+    获取结转配置参数
+
+    从 moral_config 表读取配置，不存在时使用默认值
+
+    Returns:
+        Dict: {carryover_factor, max_carryover_times}
+    """
+    config = db.query_one(
+        "SELECT config_value FROM moral_config WHERE config_key = 'carryover_config'"
+    )
+
+    if config:
+        try:
+            import json
+            data = json.loads(config['config_value'])
+            return {
+                'carryover_factor': float(data.get('carryover_factor', DEFAULT_CARRYOVER_FACTOR)),
+                'max_carryover_times': int(data.get('max_carryover_times', DEFAULT_MAX_CARRYOVER_TIMES))
+            }
+        except Exception as e:
+            logger.warning(f"解析结转配置失败: {e}")
+
+    # 返回默认值
+    return {
+        'carryover_factor': DEFAULT_CARRYOVER_FACTOR,
+        'max_carryover_times': DEFAULT_MAX_CARRYOVER_TIMES
+    }
+
+
+def save_carryover_config(db, carryover_factor: float, max_carryover_times: int) -> None:
+    """
+    保存结转配置参数
+
+    Args:
+        db: 数据库连接
+        carryover_factor: 结转系数（0-1）
+        max_carryover_times: 最大结转次数
+    """
+    import json
+    config_value = json.dumps({
+        'carryover_factor': carryover_factor,
+        'max_carryover_times': max_carryover_times
+    })
+
+    existing = db.query_one(
+        "SELECT config_id FROM moral_config WHERE config_key = 'carryover_config'"
+    )
+
+    if existing:
+        db.execute(
+            "UPDATE moral_config SET config_value = %s WHERE config_key = 'carryover_config'",
+            (config_value,)
+        )
+    else:
+        db.execute(
+            "INSERT INTO moral_config (config_key, config_value) VALUES ('carryover_config', %s)",
+            (config_value,)
+        )
 
 
 # =============================================================================
@@ -42,15 +104,21 @@ def execute_task_carryover(db, from_year_id: int, to_year_id: int) -> Dict[str, 
     """
     logger.info(f"开始执行任务结转：从学年 {from_year_id} 到学年 {to_year_id}")
 
+    # 获取结转配置
+    config = get_carryover_config(db)
+    CARRYOVER_FACTOR = config['carryover_factor']
+    MAX_CARRYOVER_TIMES = config['max_carryover_times']
+
     result = {
         'total_unfinished': 0,
         'carryover_success': 0,
         'carryover_skipped': 0,  # 超过最大次数，作废
         'carryover_failed': 0,
-        'details': []
+        'details': [],
+        'config': config  # 返回配置参数供前端显示
     }
 
-    # 1. 查询所有未完成任务
+    # 1. 查询所有未完成任务（仅在校学生）
     unfinished_tasks = db.query_all(
         """SELECT stf.id, stf.student_id, stf.task_id, stf.year_id,
            stf.is_carried_over, stf.carryover_count, stf.current_score,
@@ -64,7 +132,8 @@ def execute_task_carryover(db, from_year_id: int, to_year_id: int) -> Dict[str, 
         WHERE stf.year_id = %s
         AND stf.status = 0  -- 未完成
         AND t.can_carryover = 1  -- 允许结转
-        AND t.is_active = 1""",
+        AND t.is_active = 1
+        AND s.status = '在校'  -- 仅处理在校学生""",
         (from_year_id,)
     )
 
@@ -168,18 +237,25 @@ def get_next_school_year(db, current_year_id: int) -> Optional[Dict]:
         Dict: 下一个学年信息，若无则返回None
     """
     current_year = db.query_one(
-        "SELECT year_id, year_name, start_year FROM school_year WHERE year_id = %s",
+        "SELECT year_id, year_name FROM school_year WHERE year_id = %s",
         (current_year_id,)
     )
 
     if not current_year:
         return None
 
-    # 根据起始年份查找下一个学年
-    next_start_year = current_year['start_year'] + 1
+    # 从 year_name 提取起始年份（如 "2025-2026学年" -> 2025）
+    import re
+    match = re.match(r'(\d{4})', current_year['year_name'])
+    if not match:
+        return None
+
+    start_year = int(match.group(1))
+    next_year_name = f"{start_year + 1}-{start_year + 2}学年"
+
     next_year = db.query_one(
-        "SELECT year_id, year_name, start_year FROM school_year WHERE start_year = %s",
-        (next_start_year,)
+        "SELECT year_id, year_name FROM school_year WHERE year_name = %s",
+        (next_year_name,)
     )
 
     return next_year
@@ -297,8 +373,14 @@ async def api_preview_carryover(
     - 未完成任务列表
     - 各任务的当前分值和结转后分值
     - 将作废的任务列表
+    - 当前结转配置参数
     """
     with get_moral_db() as db:
+        # 获取结转配置
+        config = get_carryover_config(db)
+        CARRYOVER_FACTOR = config['carryover_factor']
+        MAX_CARRYOVER_TIMES = config['max_carryover_times']
+
         # 获取下一个学年
         next_year = get_next_school_year(db, year_id)
         if not next_year:
@@ -306,11 +388,12 @@ async def api_preview_carryover(
                 "success": True,
                 "data": {
                     "has_next_year": False,
-                    "message": "未找到下一学年，无法结转"
+                    "message": "未找到下一学年，无法结转",
+                    "config": config
                 }
             }
 
-        # 查询待结转任务
+        # 查询待结转任务（仅在校学生）
         unfinished_tasks = db.query_all(
             """SELECT stf.id, stf.student_id, stf.task_id, stf.carryover_count,
                stf.current_score, stf.status,
@@ -323,7 +406,8 @@ async def api_preview_carryover(
             WHERE stf.year_id = %s
             AND stf.status = 0
             AND t.can_carryover = 1
-            AND t.is_active = 1""",
+            AND t.is_active = 1
+            AND s.status = '在校'""",
             (year_id,)
         )
 
@@ -363,6 +447,7 @@ async def api_preview_carryover(
                 "next_year": next_year,
                 "from_year_id": year_id,
                 "to_year_id": next_year['year_id'],
+                "config": config,
                 "carryover_factor": CARRYOVER_FACTOR,
                 "max_carryover_times": MAX_CARRYOVER_TIMES,
                 "total_unfinished": len(unfinished_tasks),
@@ -426,5 +511,68 @@ async def api_get_carryover_logs(
                 "total": total,
                 "page": page,
                 "page_size": page_size
+            }
+        }
+
+
+@router.get("/config", summary="获取结转配置")
+async def api_get_carryover_config(
+    user: User = Depends(require_permission('semester_manage'))
+):
+    """
+    获取结转配置参数
+
+    返回：
+    - carryover_factor: 结转系数（0-1）
+    - max_carryover_times: 最大结转次数
+    """
+    with get_moral_db() as db:
+        config = get_carryover_config(db)
+        return {
+            "success": True,
+            "data": config
+        }
+
+
+class CarryoverConfigUpdate(BaseModel):
+    """更新结转配置"""
+    carryover_factor: float = Field(..., ge=0, le=1, description="结转系数（0-1）")
+    max_carryover_times: int = Field(..., ge=1, le=5, description="最大结转次数（1-5）")
+
+
+@router.put("/config", summary="更新结转配置")
+async def api_update_carryover_config(
+    config: CarryoverConfigUpdate,
+    req: Request,
+    user: User = Depends(require_permission('semester_manage'))
+):
+    """
+    更新结转配置参数
+
+    权限要求：xuefa/admin
+
+    参数：
+    - carryover_factor: 结转系数（例如 0.6 表示每次结转分值衰减为60%）
+    - max_carryover_times: 最大结转次数（例如 2 表示最多结转2次）
+    """
+    with get_moral_db() as db:
+        save_carryover_config(db, config.carryover_factor, config.max_carryover_times)
+
+        log_operation(
+            db, user.username, user.role, 'UPDATE', 'moral_config', None,
+            new_data={
+                'config_key': 'carryover_config',
+                'carryover_factor': config.carryover_factor,
+                'max_carryover_times': config.max_carryover_times
+            },
+            ip_address=req.client.host if req.client else None
+        )
+
+        return {
+            "success": True,
+            "message": "结转配置已更新",
+            "data": {
+                "carryover_factor": config.carryover_factor,
+                "max_carryover_times": config.max_carryover_times
             }
         }

@@ -11,25 +11,9 @@
         <el-form-item label="学生姓名">
           <el-input v-model="filterForm.student_name" placeholder="输入姓名搜索" clearable style="width: 150px" />
         </el-form-item>
-        <el-form-item label="日期范围">
-          <el-date-picker
-            v-model="filterForm.date_range"
-            type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            value-format="YYYY-MM-DD"
-            style="width: 240px"
-          />
-        </el-form-item>
-        <el-form-item label="事件类型">
-          <el-select v-model="filterForm.event_types" multiple placeholder="全部类型" collapse-tags style="width: 180px">
-            <el-option label="点滴记录" value="moment" />
-            <el-option label="日常表现" value="daily" />
-            <el-option label="校级事件" value="school" />
-            <el-option label="处分记录" value="punishment" />
-            <el-option label="德育任务" value="task" />
-          </el-select>
+        <el-form-item label="包含已归档">
+          <el-switch v-model="filterForm.include_archived" :active-value="1" :inactive-value="0" />
+          <span class="hint">毕业/转出/休学学生</span>
         </el-form-item>
         <el-form-item class="search-btn">
           <el-button type="primary" @click="handleSearch">搜索学生</el-button>
@@ -44,6 +28,13 @@
         <el-table-column prop="name" label="姓名" min-width="100" />
         <el-table-column prop="class_name" label="班级" min-width="120" />
         <el-table-column prop="grade_name" label="级号" min-width="100" />
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.status === '在校' ? 'success' : 'info'" size="small">
+              {{ row.status }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" min-width="100" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleSelectStudent(row)">查看档案</el-button>
@@ -69,6 +60,9 @@
           <div class="student-info">
             <span class="student-name">{{ selectedStudent.name }}</span>
             <span class="student-meta">{{ selectedStudent.class_name }} | {{ selectedStudent.grade_name }}</span>
+            <el-tag :type="selectedStudent.status === '在校' ? 'success' : 'info'" size="small" style="margin-left: 8px">
+              {{ selectedStudent.status }}
+            </el-tag>
           </div>
           <div class="stats-info">
             <el-tag type="primary">点滴 {{ stats.moment_count }}</el-tag>
@@ -79,6 +73,60 @@
           </div>
         </div>
       </template>
+
+      <!-- 加减分汇总 -->
+      <el-card v-if="scoreSummary" class="score-summary-card" shadow="never">
+        <el-descriptions :column="4" border size="small">
+          <el-descriptions-item label="日常加分">
+            <span class="score-positive">+{{ scoreSummary.daily_positive }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="日常扣分">
+            <span class="score-negative">-{{ scoreSummary.daily_negative }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="校级加分">
+            <span class="score-positive">+{{ scoreSummary.school_positive }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="校级扣分">
+            <span class="score-negative">-{{ scoreSummary.school_negative }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="任务得分">
+            <span class="score-positive">+{{ scoreSummary.task_total }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="处分扣分">
+            <span class="score-negative">-{{ scoreSummary.punishment_deduct }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="总计">
+            <span :class="scoreSummary.total_score >= 0 ? 'score-positive' : 'score-negative'" style="font-weight: bold">
+              {{ scoreSummary.total_score >= 0 ? '+' : '' }}{{ scoreSummary.total_score }}
+            </span>
+          </el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+
+      <!-- 日期和类型筛选（放在时光轴内） -->
+      <el-form :inline="true" class="timeline-filter">
+        <el-form-item label="日期范围">
+          <el-date-picker
+            v-model="timelineFilter.date_range"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            style="width: 240px"
+            @change="refreshTimeline"
+          />
+        </el-form-item>
+        <el-form-item label="事件类型">
+          <el-select v-model="timelineFilter.event_types" multiple placeholder="全部类型" collapse-tags style="width: 180px" @change="refreshTimeline">
+            <el-option label="点滴记录" value="moment" />
+            <el-option label="日常表现" value="daily" />
+            <el-option label="校级事件" value="school" />
+            <el-option label="处分记录" value="punishment" />
+            <el-option label="德育任务" value="task" />
+          </el-select>
+        </el-form-item>
+      </el-form>
 
       <!-- 时光轴 -->
       <div class="timeline-container" v-loading="timelineLoading">
@@ -124,6 +172,7 @@ const studentList = ref([])
 const selectedStudent = ref(null)
 const timeline = ref([])
 const stats = ref({})
+const scoreSummary = ref(null)
 const showStudentList = ref(true)
 
 const studentLoading = ref(false)
@@ -132,6 +181,11 @@ const timelineLoading = ref(false)
 const filterForm = reactive({
   class_id: null,
   student_name: '',
+  include_archived: 0
+})
+
+// 时光轴筛选（在选中学生后使用）
+const timelineFilter = reactive({
   date_range: null,
   event_types: []
 })
@@ -169,7 +223,8 @@ const fetchStudents = async () => {
   try {
     const params = {
       page: studentPagination.page,
-      page_size: studentPagination.pageSize
+      page_size: studentPagination.pageSize,
+      include_archived: filterForm.include_archived
     }
     if (filterForm.class_id) {
       params.class_id = filterForm.class_id
@@ -210,22 +265,50 @@ const handleSelectStudent = async (student) => {
 
   try {
     const params = {}
-    if (filterForm.date_range) {
-      params.start_date = filterForm.date_range[0]
-      params.end_date = filterForm.date_range[1]
+    if (timelineFilter.date_range) {
+      params.start_date = timelineFilter.date_range[0]
+      params.end_date = timelineFilter.date_range[1]
     }
-    if (filterForm.event_types.length) {
-      params.event_types = filterForm.event_types.join(',')
+    if (timelineFilter.event_types.length) {
+      params.event_types = timelineFilter.event_types.join(',')
     }
 
     const res = await getStudentTimeline(student.student_id, params)
     if (res.success) {
       timeline.value = res.data.timeline
       stats.value = res.data.stats
+      scoreSummary.value = res.data.score_summary
     }
   } catch (error) {
     console.error('获取时光轴失败:', error)
     ElMessage.error('获取学生档案失败')
+  } finally {
+    timelineLoading.value = false
+  }
+}
+
+// 刷新时光轴（筛选改变时）
+const refreshTimeline = async () => {
+  if (!selectedStudent.value) return
+  timelineLoading.value = true
+  try {
+    const params = {}
+    if (timelineFilter.date_range) {
+      params.start_date = timelineFilter.date_range[0]
+      params.end_date = timelineFilter.date_range[1]
+    }
+    if (timelineFilter.event_types.length) {
+      params.event_types = timelineFilter.event_types.join(',')
+    }
+
+    const res = await getStudentTimeline(selectedStudent.value.student_id, params)
+    if (res.success) {
+      timeline.value = res.data.timeline
+      stats.value = res.data.stats
+      scoreSummary.value = res.data.score_summary
+    }
+  } catch (error) {
+    console.error('刷新时光轴失败:', error)
   } finally {
     timelineLoading.value = false
   }
@@ -236,6 +319,7 @@ const handleBack = () => {
   showStudentList.value = true
   timeline.value = []
   stats.value = {}
+  scoreSummary.value = null
 }
 
 onMounted(() => {
@@ -386,6 +470,20 @@ onMounted(() => {
 
 .score-positive { color: #67c23a; }
 .score-negative { color: #f56c6c; }
+
+.hint {
+  color: #909399;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.score-summary-card {
+  margin-bottom: 20px;
+}
+
+.timeline-filter {
+  margin-bottom: 20px;
+}
 
 .content-body {
   margin-top: 10px;

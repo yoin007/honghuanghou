@@ -12,7 +12,7 @@ import os
 import sqlite3
 import shutil
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
@@ -37,7 +37,7 @@ MAX_FILE_SIZE = 50 * 1024 * 1024
 
 
 def _parse_upload_datetime(value: str) -> Optional[datetime]:
-    """解析文件上传时间，兼容 SQLite 历史格式和 ISO UTC 格式。"""
+    """解析文件上传时间，兼容 SQLite 历史格式和 ISO timezone.utc 格式。"""
     if not value:
         return None
     text = str(value).strip()
@@ -50,8 +50,8 @@ def _parse_upload_datetime(value: str) -> Optional[datetime]:
         try:
             parsed = datetime.fromisoformat(candidate)
             if parsed.tzinfo is None:
-                return parsed.replace(tzinfo=UTC)
-            return parsed.astimezone(UTC)
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
         except ValueError:
             continue
     return None
@@ -171,7 +171,7 @@ class FileGatherDB:
         import uuid
 
         # 生成安全的文件名
-        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         safe_name = filename.replace("/", "_").replace("\\", "_")
         unique_id = uuid.uuid4().hex[:8]
         stored_name = f"{ts}_{unique_id}_{safe_name}"
@@ -225,7 +225,7 @@ class FileGatherDB:
                     stored_path,
                     content_type,
                     "否",
-                    datetime.now(UTC).isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     copies,
                     use_date,
                     month,
@@ -318,7 +318,7 @@ class FileGatherDB:
         if not os.path.exists(src_path):
             raise FileNotFoundError("源文件不存在")
 
-        month = file_info["month"] or datetime.now(UTC).strftime("%Y%m")
+        month = file_info["month"] or datetime.now(timezone.utc).strftime("%Y%m")
         target_dir = os.path.join(self.done_dir, month)
         os.makedirs(target_dir, exist_ok=True)
 
@@ -328,7 +328,7 @@ class FileGatherDB:
         with self._get_connection() as conn:
             conn.execute(
                 "UPDATE files SET status = ?, stored_path = ?, done_at = ? WHERE id = ?",
-                ("是", target_path, datetime.now(UTC).isoformat(), file_id),
+                ("是", target_path, datetime.now(timezone.utc).isoformat(), file_id),
             )
             conn.commit()
 
@@ -417,7 +417,7 @@ class FileGatherDB:
         """
         from datetime import timedelta
 
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         overdue_threshold = timedelta(days=3)  # 逾期阈值：3天
 
         with self._get_connection() as conn:

@@ -222,6 +222,83 @@ export function batchImportMoralTasks(items) {
   return httpClient.post('/api/moral/tasks/batch-import', items)
 }
 
+/**
+ * 批量标记任务完成
+ * @param {Object} data - { task_id, class_id?, student_ids?, finish_date?, remark? }
+ */
+export function batchFinishTask(data) {
+  return httpClient.post('/api/moral/tasks/batch-finish', data)
+}
+
+// =============================================================================
+// 任务结转 API
+// =============================================================================
+
+/**
+ * 预览结转情况
+ * @param {number} yearId - 学年ID
+ */
+export function previewCarryover(yearId) {
+  return httpClient.get('/api/moral/carryover/preview', { params: { year_id: yearId } })
+}
+
+/**
+ * 执行任务结转
+ * @param {Object} data - { from_year_id, to_year_id }
+ */
+export function executeCarryover(data) {
+  return httpClient.post('/api/moral/carryover/execute', data)
+}
+
+/**
+ * 获取结转日志
+ * @param {Object} params - 查询参数
+ */
+export function getCarryoverLogs(params = {}) {
+  return httpClient.get('/api/moral/carryover/logs', { params })
+}
+
+/**
+ * 获取结转配置
+ */
+export function getCarryoverConfig() {
+  return httpClient.get('/api/moral/carryover/config')
+}
+
+/**
+ * 更新结转配置
+ * @param {Object} data - { carryover_factor, max_carryover_times }
+ */
+export function updateCarryoverConfig(data) {
+  return httpClient.put('/api/moral/carryover/config', data)
+}
+
+// =============================================================================
+// 升年级管理 API
+// =============================================================================
+
+/**
+ * 预览升年级情况
+ */
+export function previewGradePromotion() {
+  return httpClient.get('/api/moral/admin/grades/promote/preview')
+}
+
+/**
+ * 执行升年级
+ * @param {Object} data - { next_year_id? }
+ */
+export function executeGradePromotion(data = {}) {
+  return httpClient.post('/api/moral/admin/grades/promote/execute', data)
+}
+
+/**
+ * 获取已归档年级列表
+ */
+export function getArchivedGrades() {
+  return httpClient.get('/api/moral/admin/grades/archived')
+}
+
 // =============================================================================
 // 处分管理 API
 // =============================================================================
@@ -881,6 +958,20 @@ export default {
   deleteMoralTask,
   getTaskFinishRecords,
   finishTask,
+  batchImportMoralTasks,
+  batchFinishTask,
+
+  // 任务结转
+  previewCarryover,
+  executeCarryover,
+  getCarryoverLogs,
+  getCarryoverConfig,
+  updateCarryoverConfig,
+
+  // 升年级管理
+  previewGradePromotion,
+  executeGradePromotion,
+  getArchivedGrades,
 
   // 处分管理
   getPunishments,

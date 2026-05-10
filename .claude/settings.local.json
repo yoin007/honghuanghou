@@ -262,7 +262,11 @@
       "Bash(bash:*)",
       "Bash(kill -9 33924 28485 34427)",
       "Bash(VITE_DEV_HTTPS=false npm run dev)",
-      "Bash(kill 46354)"
+      "Bash(kill 46354)",
+      "Bash(pkill -f \"python.*main.py\")",
+      "Bash(xargs -r kill -9)",
+      "Bash(cat /Users/yoin/bdsync/program/honghuanghou/frontend/.env*)",
+      "Bash(kill -9 50615 77749)"
     ]
   }
 }
