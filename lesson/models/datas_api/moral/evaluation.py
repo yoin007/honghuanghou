@@ -132,14 +132,14 @@ async def get_student_evaluation(
                 (student_id, semester_id)
             ) or 0
 
+            # 任务完成分（只计算完成时间在当前学期内的任务）
             task_score = db.query_value(
-                """SELECT COALESCE(SUM(current_score), 0)
+                """SELECT COALESCE(SUM(stf.current_score), 0)
                 FROM student_task_finish stf
-                JOIN grade_moral_task gmt ON stf.task_id = gmt.task_id
-                JOIN school_year sy ON stf.year_id = sy.year_id
-                JOIN semester sem ON sem.year_id = sy.year_id
-                WHERE stf.student_id = %s AND sem.semester_id = %s AND stf.status = 1""",
-                (student_id, semester_id)
+                JOIN semester sem ON sem.semester_id = %s
+                WHERE stf.student_id = %s AND stf.status = 1
+                AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date""",
+                (semester_id, student_id)
             ) or 0
 
             collective_score = db.query_value(
@@ -422,15 +422,14 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
         (student_id, semester_id)
     ) or 0
 
-    # 任务完成分
+    # 任务完成分（只计算完成时间在当前学期内的任务）
     task_score = db.query_value(
-        """SELECT COALESCE(SUM(current_score), 0)
+        """SELECT COALESCE(SUM(stf.current_score), 0)
         FROM student_task_finish stf
-        JOIN grade_moral_task gmt ON stf.task_id = gmt.task_id
-        JOIN school_year sy ON stf.year_id = sy.year_id
-        JOIN semester sem ON sem.year_id = sy.year_id
-        WHERE stf.student_id = %s AND sem.semester_id = %s AND stf.status = 1""",
-        (student_id, semester_id)
+        JOIN semester sem ON sem.semester_id = %s
+        WHERE stf.student_id = %s AND stf.status = 1
+        AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date""",
+        (semester_id, student_id)
     ) or 0
 
     # 集体事件分
@@ -549,16 +548,15 @@ def get_school_statistics(db, student_id: str, semester_id: int) -> dict:
 
 
 def get_task_statistics(db, student_id: str, semester_id: int) -> dict:
-    """获取任务完成统计"""
+    """获取任务完成统计（只统计完成时间在当前学期内的任务）"""
     stats = db.query_one(
         """SELECT
-        COUNT(*) as total_tasks,
-        SUM(CASE WHEN stf.status = 1 THEN 1 ELSE 0 END) as finished_tasks,
-        SUM(CASE WHEN stf.status = 1 THEN stf.current_score ELSE 0 END) as total_score
+        COUNT(DISTINCT stf.task_id) as total_tasks,
+        SUM(CASE WHEN stf.status = 1 AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date THEN 1 ELSE 0 END) as finished_tasks,
+        SUM(CASE WHEN stf.status = 1 AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date THEN stf.current_score ELSE 0 END) as total_score
         FROM student_task_finish stf
         JOIN semester sem ON sem.semester_id = %s
-        JOIN school_year sy ON sem.year_id = sy.year_id
-        WHERE stf.student_id = %s AND stf.year_id = sy.year_id""",
+        WHERE stf.student_id = %s""",
         (semester_id, student_id)
     )
 
