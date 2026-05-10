@@ -190,6 +190,49 @@ async def list_menu_config(
         return {"success": True, "data": configs}
 
 
+@router.get("/my-menu", summary="获取当前用户可见的菜单配置")
+async def get_my_menu_config(user: User = Depends(get_current_user)):
+    """获取当前登录用户可见的菜单配置（无需 admin 权限）"""
+    # 从 user.role 解析用户角色
+    role_text = str(user.role or '')
+    user_roles = role_text.split('/') if role_text else []
+
+    # 默认所有教师都有 teacher 角色
+    if 'teacher' not in user_roles and 'admin' not in user_roles:
+        user_roles.append('teacher')
+
+    with get_moral_db() as db:
+        ensure_menu_table_exists(db)
+
+        # 查询所有启用的菜单配置
+        rows = db.query_all(
+            "SELECT * FROM menu_permission_config WHERE is_active = 1 ORDER BY menu_group, sort_order, menu_key"
+        )
+
+        configs = []
+        for row in rows:
+            allowed_roles = json.loads(row["allowed_roles"]) if row["allowed_roles"] else []
+
+            # 判断用户是否可见：
+            # 1. is_public = 1 公开菜单，所有人可见
+            # 2. allowed_roles 包含用户任一角色
+            is_visible = bool(row["is_public"]) or any(r in user_roles for r in allowed_roles)
+
+            if is_visible:
+                configs.append({
+                    "menu_key": row["menu_key"],
+                    "menu_label": row["menu_label"],
+                    "menu_route": row["menu_route"],
+                    "menu_group": row["menu_group"],
+                    "allowed_roles": allowed_roles,
+                    "is_public": bool(row["is_public"]),
+                    "sort_order": row["sort_order"],
+                    "is_active": bool(row["is_active"])
+                })
+
+        return {"success": True, "data": configs}
+
+
 @router.get("/groups", summary="获取菜单分组列表")
 async def get_menu_groups(user: User = Depends(get_current_user)):
     """获取所有菜单分组"""

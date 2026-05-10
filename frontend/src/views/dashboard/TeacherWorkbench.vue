@@ -61,6 +61,32 @@
       </button>
     </section>
 
+    <!-- 教师德育记录趋势图 -->
+    <section class="trend-section">
+      <div class="trend-header">
+        <div class="trend-title">
+          <span class="kicker">MORAL RECORDS TREND</span>
+          <h2>我的德育记录趋势</h2>
+        </div>
+        <div class="trend-controls">
+          <el-radio-group v-model="trendUnit" size="small" @change="onTrendUnitChange">
+            <el-radio-button label="week">按周</el-radio-button>
+            <el-radio-button label="month">按月</el-radio-button>
+          </el-radio-group>
+        </div>
+      </div>
+      <div v-if="teacherTrendOption" class="trend-chart-wrapper">
+        <DashboardChart
+          title=""
+          :option="teacherTrendOption"
+          :empty="!teacherTrendData.periods?.length"
+          emptyText="暂无德育记录趋势数据"
+          :loading="trendLoading"
+        />
+      </div>
+      <DashboardEmptyStrip v-else text="暂无德育记录趋势数据。" />
+    </section>
+
     <section class="workload-section">
       <div class="workload-header">
         <div class="workload-title">
@@ -141,7 +167,8 @@ import DashboardMetricGrid from '@/components/dashboard/DashboardMetricGrid.vue'
 import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue'
 import DashboardTimeChip from '@/components/dashboard/DashboardTimeChip.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
-import { getTeacherWorkbench } from '@/api/modules/dashboard'
+import DashboardChart from '@/components/dashboard/DashboardChart.vue'
+import { getTeacherWorkbench, getTeacherRecordTrend } from '@/api/modules/dashboard'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
 const router = useRouter()
@@ -162,6 +189,9 @@ const filters = reactive({
   end_date: fmt(weekEnd)
 })
 const summary = ref({ cards: [], tables: {}, workload: {}, range: {} })
+const trendUnit = ref('week')
+const teacherTrendData = ref({ periods: [], labels: [], daily_count: [], moment_count: [], total_count: [] })
+const trendLoading = ref(false)
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#38bdf8', '#fbbf24', '#67e8f9', '#fb7185', '#a78bfa']
 
@@ -186,12 +216,49 @@ const avgDaily = computed(() => {
   return days > 0 ? Math.round(total / days * 10) / 10 : 0
 })
 
+const teacherTrendOption = computed(() => {
+  const data = teacherTrendData.value
+  if (!data.periods?.length) return null
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['日常记录', '点滴记录', '总计'], top: 10 },
+    xAxis: { type: 'category', data: data.labels },
+    yAxis: { type: 'value', name: '记录数' },
+    series: [
+      { name: '日常记录', type: 'line', data: data.daily_count, smooth: true, itemStyle: { color: '#67e8f9' } },
+      { name: '点滴记录', type: 'line', data: data.moment_count, smooth: true, itemStyle: { color: '#fbbf24' } },
+      { name: '总计', type: 'line', data: data.total_count, smooth: true, itemStyle: { color: '#a78bfa' } }
+    ]
+  }
+})
+
+const fetchTeacherTrend = async () => {
+  trendLoading.value = true
+  try {
+    const res = await getTeacherRecordTrend({ unit: trendUnit.value })
+    if (res.success) {
+      teacherTrendData.value = res.data.trend
+    }
+  } catch (e) {
+    console.error('获取教师记录趋势失败:', e)
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+const onTrendUnitChange = () => {
+  fetchTeacherTrend()
+}
+
 const fetchSummary = () => execute(
   () => getTeacherWorkbench(filters),
   data => { summary.value = data }
 )
 
-onMounted(fetchSummary)
+onMounted(() => {
+  fetchSummary()
+  fetchTeacherTrend()
+})
 </script>
 
 <style scoped>
@@ -445,6 +512,45 @@ p {
 
 .col-subject {
   color: #a78bfa;
+}
+
+/* 趋势图区块 */
+.trend-section {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid rgba(167, 139, 250, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(12, 26, 48, 0.94), rgba(7, 15, 30, 0.9)),
+    radial-gradient(circle at 8% 10%, rgba(167, 139, 250, 0.16), transparent 40%);
+}
+
+.trend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.trend-title h2 {
+  margin: 6px 0;
+  color: #f8fafc;
+  font-size: 20px;
+}
+
+.trend-controls :deep(.el-radio-button__inner) {
+  background: rgba(15, 23, 42, 0.74);
+  border-color: rgba(167, 139, 250, 0.3);
+}
+
+.trend-controls :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: #a78bfa;
+  border-color: #a78bfa;
+}
+
+.trend-chart-wrapper {
+  height: 220px;
 }
 
 @media (max-width: 900px) {

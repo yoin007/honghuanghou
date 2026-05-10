@@ -38,6 +38,23 @@ export const dashboardApi = {
 
   getGradeSummary(params = {}) {
     return httpClient.get('/api/dashboard/grade/summary', { params })
+  },
+
+  // 趋势图 API
+  getStudentScoreTrend(studentId, params = {}) {
+    return httpClient.get(`/api/dashboard/score-trend/student/${studentId}`, { params })
+  },
+
+  getClassScoreTrend(classId, params = {}) {
+    return httpClient.get(`/api/dashboard/score-trend/class/${classId}`, { params })
+  },
+
+  getGradeScoreTrend(gradeId, params = {}) {
+    return httpClient.get(`/api/dashboard/score-trend/grade/${gradeId}`, { params })
+  },
+
+  getTeacherRecordTrend(params = {}) {
+    return httpClient.get('/api/dashboard/teacher-record-trend', { params })
   }
 }
 
@@ -51,5 +68,9 @@ export const getInvigilationDashboardSummary = dashboardApi.getInvigilationSumma
 export const getSystemDashboardSummary = dashboardApi.getSystemSummary
 export const fetchGradeList = dashboardApi.getGradeList
 export const fetchGradeDashboardSummary = dashboardApi.getGradeSummary
+export const getStudentScoreTrend = dashboardApi.getStudentScoreTrend
+export const getClassScoreTrend = dashboardApi.getClassScoreTrend
+export const getGradeScoreTrend = dashboardApi.getGradeScoreTrend
+export const getTeacherRecordTrend = dashboardApi.getTeacherRecordTrend
 
 export default dashboardApi

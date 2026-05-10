@@ -13,6 +13,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isXuefa = ref(false)
   const isGleader = ref(false)
   const isCleader = ref(false)
+  const isTeacher = ref(false)
   const isLoggedIn = computed(() => !!token.value)
 
   // 从 token 解析角色并设置 refs
@@ -23,6 +24,7 @@ export const useAuthStore = defineStore('auth', () => {
     isXuefa.value = flags.xuefa
     isGleader.value = flags.g_leader
     isCleader.value = flags.cleader
+    isTeacher.value = flags.teacher
   }
 
   // 初始化时解析 token
@@ -72,6 +74,7 @@ export const useAuthStore = defineStore('auth', () => {
     isXuefa.value = false
     isGleader.value = false
     isCleader.value = false
+    isTeacher.value = false
     localStorage.removeItem('token')
     ElMessage.success('已退出登录')
   }
@@ -88,6 +91,7 @@ export const useAuthStore = defineStore('auth', () => {
     isXuefa,
     isGleader,
     isCleader,
+    isTeacher,
     isLoggedIn,
     login,
     logout,

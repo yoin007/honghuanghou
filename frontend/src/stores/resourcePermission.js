@@ -147,17 +147,8 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
         menuMap.set(item.menu_key, menuItem)
       }
 
-      // 用静态配置补充缺失的菜单项（如新增的管理功能）
-      for (const [groupKey, items] of Object.entries(STATIC_RESOURCE_CONFIG.menus)) {
-        if (!menus[groupKey]) menus[groupKey] = []
-        for (const staticItem of items) {
-          if (!menuMap.has(staticItem.key)) {
-            // 动态配置中没有，从静态配置补充
-            menus[groupKey].push(staticItem)
-            menuMap.set(staticItem.key, staticItem)
-          }
-        }
-      }
+      // 动态配置已加载，完全信任数据库配置，不做静态补充
+      // 避免静态配置与数据库配置的角色定义冲突
 
       // 按 sort_order 排序每个分组
       for (const groupKey of Object.keys(menus)) {
@@ -197,7 +188,7 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
    */
   const loadMenuConfigFromBackend = async () => {
     try {
-      const res = await httpClient.get('/api/moral/menu-permission/list')
+      const res = await httpClient.get('/api/moral/menu-permission/my-menu')
       if (res.success && res.data && res.data.length > 0) {
         dynamicMenuConfig.value = res.data
         configLoaded.value = true

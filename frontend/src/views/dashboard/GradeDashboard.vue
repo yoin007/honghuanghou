@@ -35,6 +35,49 @@
       />
     </section>
 
+    <!-- 年级得分趋势图 -->
+    <section class="trend-section">
+      <div class="trend-header">
+        <h3>年级得分趋势</h3>
+        <div class="trend-controls">
+          <el-radio-group v-model="trendUnit" size="small" @change="onTrendUnitChange">
+            <el-radio-button label="week">按周</el-radio-button>
+            <el-radio-button label="month">按月</el-radio-button>
+          </el-radio-group>
+        </div>
+      </div>
+      <DashboardChart
+        title="年级平均得分变化"
+        eyebrow="GRADE TREND"
+        :option="gradeTrendOption"
+        :empty="!gradeTrendData.periods?.length"
+        emptyText="暂无年级得分趋势数据"
+        :loading="trendLoading"
+      />
+    </section>
+
+    <!-- 学生个人得分趋势图 -->
+    <section class="trend-section">
+      <div class="trend-header">
+        <h3>学生个人得分趋势</h3>
+        <div class="trend-controls">
+          <el-select v-model="selectedStudentId" placeholder="选择学生" clearable filterable size="small" @change="onStudentChange" style="width: 180px">
+            <el-option v-for="s in studentList" :key="s.student_id" :label="`${s.name} (${s.class_name})`" :value="s.student_id" />
+          </el-select>
+        </div>
+      </div>
+      <DashboardChart
+        v-if="selectedStudentId"
+        title="学生得分变化"
+        eyebrow="STUDENT TREND"
+        :option="studentTrendOption"
+        :empty="!studentTrendData.periods?.length"
+        emptyText="暂无学生得分趋势数据"
+        :loading="trendLoading"
+      />
+      <DashboardEmptyStrip v-else text="请选择学生查看个人得分趋势。" />
+    </section>
+
     <section class="info-panel">
       <DashboardPanelSection eyebrow="LOW SCORE ALERT" title="低分学生">
         <div v-if="lowStudents.length" class="risk-list">
@@ -91,7 +134,8 @@ import DashboardTimeChip from '@/components/dashboard/DashboardTimeChip.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
-import { fetchGradeDashboardSummary, fetchGradeList } from '@/api/modules/dashboard'
+import { fetchGradeDashboardSummary, fetchGradeList, getGradeScoreTrend, getStudentScoreTrend } from '@/api/modules/dashboard'
+import { getStudents } from '@/api/modules/moral'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -100,6 +144,12 @@ const summary = ref({ cards: [], charts: {}, tables: {} })
 const gradeList = ref([])
 const selectedGradeId = ref(null)
 const gradeInfo = ref({})
+const studentList = ref([])
+const selectedStudentId = ref(null)
+const trendUnit = ref('week')
+const gradeTrendData = ref({ periods: [], labels: [], task_scores: [], record_scores: [], total_scores: [] })
+const studentTrendData = ref({ periods: [], labels: [], task_scores: [], record_scores: [], total_scores: [] })
+const trendLoading = ref(false)
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#E6A23C', '#67C23A', '#409EFF', '#F56C6C', '#909399', '#E6A23C', '#409EFF', '#67C23A']
 
@@ -149,6 +199,38 @@ const scoreBandOption = computed(() => {
   }
 })
 
+const gradeTrendOption = computed(() => {
+  const data = gradeTrendData.value
+  if (!data.periods?.length) return null
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['任务得分', '加减分', '总分'], top: 10 },
+    xAxis: { type: 'category', data: data.labels },
+    yAxis: { type: 'value', name: '平均得分' },
+    series: [
+      { name: '任务得分', type: 'line', data: data.task_scores, smooth: true, itemStyle: { color: '#E6A23C' } },
+      { name: '加减分', type: 'line', data: data.record_scores, smooth: true, itemStyle: { color: '#67C23A' } },
+      { name: '总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#409EFF' } }
+    ]
+  }
+})
+
+const studentTrendOption = computed(() => {
+  const data = studentTrendData.value
+  if (!data.periods?.length) return null
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['任务得分', '加减分', '总分'], top: 10 },
+    xAxis: { type: 'category', data: data.labels },
+    yAxis: { type: 'value', name: '得分' },
+    series: [
+      { name: '任务得分', type: 'line', data: data.task_scores, smooth: true, itemStyle: { color: '#E6A23C' } },
+      { name: '加减分', type: 'line', data: data.record_scores, smooth: true, itemStyle: { color: '#67C23A' } },
+      { name: '总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#409EFF' } }
+    ]
+  }
+})
+
 function go(card) {
   if (card?.route) {
     router.push(card.route)
@@ -170,6 +252,69 @@ function onGradeChange(gradeId) {
   const grade = gradeList.value.find(g => g.grade_id === gradeId)
   if (grade) gradeInfo.value = grade
   fetchSummary()
+  fetchGradeStudentList()
+  fetchGradeTrend()
+}
+
+const fetchGradeStudentList = async () => {
+  if (!selectedGradeId.value) return
+  try {
+    // 根据年级过滤获取学生
+    const res = await getStudents({ page_size: 500 })
+    if (res.success) {
+      const gradeIdText = selectedGradeId.value
+      const allStudents = res.data.items || res.data || []
+      // 过滤年级学生（通过班级名判断）
+      studentList.value = allStudents.filter(s => {
+        const className = s.class_name || ''
+        return className.includes(gradeIdText)
+      })
+    }
+  } catch (e) {
+    console.error('获取年级学生列表失败:', e)
+  }
+}
+
+const fetchGradeTrend = async () => {
+  if (!selectedGradeId.value) return
+  trendLoading.value = true
+  try {
+    const res = await getGradeScoreTrend(selectedGradeId.value, { unit: trendUnit.value })
+    if (res.success) {
+      gradeTrendData.value = res.data.trend
+    }
+  } catch (e) {
+    console.error('获取年级趋势失败:', e)
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+const fetchStudentTrend = async () => {
+  if (!selectedStudentId.value) {
+    studentTrendData.value = { periods: [], labels: [], task_scores: [], record_scores: [], total_scores: [] }
+    return
+  }
+  trendLoading.value = true
+  try {
+    const res = await getStudentScoreTrend(selectedStudentId.value, { unit: trendUnit.value })
+    if (res.success) {
+      studentTrendData.value = res.data.trend
+    }
+  } catch (e) {
+    console.error('获取学生趋势失败:', e)
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+const onTrendUnitChange = () => {
+  fetchGradeTrend()
+  fetchStudentTrend()
+}
+
+const onStudentChange = () => {
+  fetchStudentTrend()
 }
 
 async function loadGradeList() {
@@ -181,6 +326,8 @@ async function loadGradeList() {
         selectedGradeId.value = gradeList.value[0].grade_id
         gradeInfo.value = gradeList.value[0]
         fetchSummary()
+        fetchGradeStudentList()
+        fetchGradeTrend()
       }
     }
   } catch (e) {
@@ -234,5 +381,37 @@ onMounted(() => {
 
 .birthday-list.highlight .birthday-item {
   background: var(--accent-light);
+}
+
+.trend-section {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid rgba(230, 162, 60, 0.2);
+  border-radius: 8px;
+  background: rgba(250, 236, 216, 0.12);
+}
+
+.trend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.trend-header h3 {
+  color: #E6A23C;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.trend-controls :deep(.el-radio-button__inner) {
+  background: rgba(250, 236, 216, 0.74);
+  border-color: rgba(230, 162, 60, 0.3);
+}
+
+.trend-controls :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: #E6A23C;
+  border-color: #E6A23C;
+  color: #fff;
 }
 </style>

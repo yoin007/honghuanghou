@@ -59,6 +59,54 @@
       </el-col>
     </el-row>
 
+    <!-- 趋势图区域 -->
+    <el-card class="trend-card">
+      <div class="trend-header">
+        <div class="trend-controls-row">
+          <el-radio-group v-model="trendUnit" size="small" @change="onTrendUnitChange">
+            <el-radio-button label="week">按周</el-radio-button>
+            <el-radio-button label="month">按月</el-radio-button>
+          </el-radio-group>
+          <el-select v-model="selectedTrendStudent" placeholder="选择学生" clearable filterable size="small" @change="onTrendStudentChange" style="width: 200px; margin-left: 16px">
+            <el-option v-for="s in trendStudentList" :key="s.student_id" :label="`${s.name} (${s.class_name || ''})`" :value="s.student_id" />
+          </el-select>
+          <el-select v-model="selectedTrendTeacher" placeholder="选择教师" clearable filterable size="small" @change="onTrendTeacherChange" style="width: 160px; margin-left: 12px">
+            <el-option v-for="t in trendTeacherList" :key="t.username || t.teacher_id" :label="t.name || t.username" :value="t.username || t.name" />
+          </el-select>
+        </div>
+      </div>
+      <el-row :gutter="20">
+        <el-col :span="12">
+          <div class="trend-chart-wrapper">
+            <h4>学生得分趋势</h4>
+            <DashboardChart
+              v-if="selectedTrendStudent"
+              title=""
+              :option="studentTrendOption"
+              :empty="!studentTrendData.periods?.length"
+              emptyText="暂无学生得分趋势数据"
+              :loading="trendLoading"
+            />
+            <el-empty v-else description="请选择学生查看趋势" :image-size="60" />
+          </div>
+        </el-col>
+        <el-col :span="12">
+          <div class="trend-chart-wrapper">
+            <h4>教师德育记录趋势</h4>
+            <DashboardChart
+              v-if="selectedTrendTeacher"
+              title=""
+              :option="teacherTrendOption"
+              :empty="!teacherTrendData.periods?.length"
+              emptyText="暂无教师记录趋势数据"
+              :loading="trendLoading"
+            />
+            <el-empty v-else description="请选择教师查看趋势" :image-size="60" />
+          </div>
+        </el-col>
+      </el-row>
+    </el-card>
+
     <el-card class="table-card">
       <el-table :data="evaluationList" v-loading="loading" stripe @sort-change="handleSortChange">
         <el-table-column type="index" label="排名" width="60" />
@@ -205,13 +253,17 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useApiPermission } from '@/composables/useApiPermission'
+import DashboardChart from '@/components/dashboard/DashboardChart.vue'
 import {
   getClasses,
   getSemesters,
   getClassEvaluation,
   getStudentEvaluation,
-  calculateEvaluation
+  calculateEvaluation,
+  getStudents,
+  getTeachers
 } from '@/api/modules/moral'
+import { getStudentScoreTrend, getTeacherRecordTrend } from '@/api/modules/dashboard'
 
 const router = useRouter()
 const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
@@ -238,6 +290,16 @@ const detailData = ref({})
 const currentSemesterName = computed(() => {
   return semesterList.value.find(s => s.semester_id === filterForm.semester_id)?.semester_name || '-'
 })
+
+// 趋势图数据
+const trendStudentList = ref([])
+const trendTeacherList = ref([])
+const selectedTrendStudent = ref(null)
+const selectedTrendTeacher = ref(null)
+const trendUnit = ref('week')
+const studentTrendData = ref({ periods: [], labels: [], task_scores: [], record_scores: [], total_scores: [] })
+const teacherTrendData = ref({ periods: [], labels: [], daily_count: [], moment_count: [], total_count: [] })
+const trendLoading = ref(false)
 const scoreBreakdown = computed(() => [
   { key: 'base', label: '基础分', value: detailData.value.base_score || 0, signed: false },
   { key: 'daily', label: '日常', value: detailData.value.daily_score || 0, signed: true },
@@ -441,12 +503,116 @@ const scoreClass = (score, signed = true) => {
   return Number(score || 0) >= 0 ? 'positive' : 'negative'
 }
 
+// 趋势图相关方法
+const fetchTrendStudentList = async () => {
+  try {
+    const res = await getStudents({ page_size: 1000 })
+    if (res.success) {
+      trendStudentList.value = res.data.items || res.data || []
+    }
+  } catch (e) {
+    console.error('获取学生列表失败:', e)
+  }
+}
+
+const fetchTrendTeacherList = async () => {
+  try {
+    const res = await getTeachers()
+    if (res.success) {
+      trendTeacherList.value = res.data || []
+    }
+  } catch (e) {
+    console.error('获取教师列表失败:', e)
+  }
+}
+
+const fetchStudentTrend = async () => {
+  if (!selectedTrendStudent.value) {
+    studentTrendData.value = { periods: [], labels: [], task_scores: [], record_scores: [], total_scores: [] }
+    return
+  }
+  trendLoading.value = true
+  try {
+    const res = await getStudentScoreTrend(selectedTrendStudent.value, { unit: trendUnit.value, semester_id: filterForm.semester_id })
+    if (res.success) {
+      studentTrendData.value = res.data.trend
+    }
+  } catch (e) {
+    console.error('获取学生趋势失败:', e)
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+const fetchTeacherTrend = async () => {
+  if (!selectedTrendTeacher.value) {
+    teacherTrendData.value = { periods: [], labels: [], daily_count: [], moment_count: [], total_count: [] }
+    return
+  }
+  trendLoading.value = true
+  try {
+    const res = await getTeacherRecordTrend({ teacher_name: selectedTrendTeacher.value, unit: trendUnit.value, semester_id: filterForm.semester_id })
+    if (res.success) {
+      teacherTrendData.value = res.data.trend
+    }
+  } catch (e) {
+    console.error('获取教师趋势失败:', e)
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+const onTrendUnitChange = () => {
+  fetchStudentTrend()
+  fetchTeacherTrend()
+}
+
+const onTrendStudentChange = () => {
+  fetchStudentTrend()
+}
+
+const onTrendTeacherChange = () => {
+  fetchTeacherTrend()
+}
+
+const studentTrendOption = computed(() => {
+  const data = studentTrendData.value
+  if (!data.periods?.length) return null
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['任务得分', '加减分', '总分'], top: 10 },
+    xAxis: { type: 'category', data: data.labels },
+    yAxis: { type: 'value', name: '得分' },
+    series: [
+      { name: '任务得分', type: 'line', data: data.task_scores, smooth: true, itemStyle: { color: '#67c23a' } },
+      { name: '加减分', type: 'line', data: data.record_scores, smooth: true, itemStyle: { color: '#e6a23c' } },
+      { name: '总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#409eff' } }
+    ]
+  }
+})
+
+const teacherTrendOption = computed(() => {
+  const data = teacherTrendData.value
+  if (!data.periods?.length) return null
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['日常记录', '点滴记录', '总计'], top: 10 },
+    xAxis: { type: 'category', data: data.labels },
+    yAxis: { type: 'value', name: '记录数' },
+    series: [
+      { name: '日常记录', type: 'line', data: data.daily_count, smooth: true, itemStyle: { color: '#67c23a' } },
+      { name: '点滴记录', type: 'line', data: data.moment_count, smooth: true, itemStyle: { color: '#e6a23c' } },
+      { name: '总计', type: 'line', data: data.total_count, smooth: true, itemStyle: { color: '#409eff' } }
+    ]
+  }
+})
+
 // 生命周期
 onMounted(async () => {
   await loadMyPermissions()
   canCalculateEvaluation.value = hasApiPermissionSync('/api/moral/evaluations/calculate')
   canViewProfile.value = hasApiPermissionSync('/api/moral/profiles/student')
-  await Promise.all([fetchClassList(), fetchSemesterList()])
+  await Promise.all([fetchClassList(), fetchSemesterList(), fetchTrendStudentList(), fetchTrendTeacherList()])
   if (filterForm.class_id) {
     fetchEvaluation()
   }
@@ -569,5 +735,28 @@ onMounted(async () => {
 .detail-stat-card p {
   margin: 6px 0;
   color: #606266;
+}
+
+.trend-card {
+  margin-bottom: 20px;
+}
+
+.trend-header {
+  margin-bottom: 16px;
+}
+
+.trend-controls-row {
+  display: flex;
+  align-items: center;
+}
+
+.trend-chart-wrapper h4 {
+  font-size: 14px;
+  color: #606266;
+  margin-bottom: 12px;
+}
+
+.trend-chart {
+  height: 200px;
 }
 </style>
