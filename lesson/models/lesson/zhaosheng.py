@@ -11,6 +11,7 @@ from models.lesson.lesson import Lesson
 from models.lesson.generate_qr import create_qr_code
 from utils.teacher_db import get_all_teachers
 from client import Client
+from models.api import bailian_req
 
 log = LogConfig().get_logger()
 logger = logging.getLogger(__name__)
@@ -92,6 +93,44 @@ async def async_gen_qrcode(record):
 
     # 发送图片
     send_image(pic_path, wxid, "zhaosheng")
+
+
+def separate_urls_from_text(text: str) -> str:
+    """
+    使用AI模型将文本中的URL分离出来，使其独立成段
+
+    Args:
+        text: 包含可能的URL的文本
+
+    Returns:
+        处理后的文本，URL被单独分离成段落
+    """
+    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+    
+    if not re.search(url_pattern, text):
+        return text
+    
+    try:
+        prompt = f"""请分析以下文本，将其中的URL网址单独分离出来，使其独立成段。
+
+要求：
+1. 保持原文的核心意思不变
+2. URL网址要单独放在一个段落，不要和正文内容混在一起
+3. 确保上下文意思流畅自然
+4. 只输出处理后的文本，不要输出任何解释
+
+原文：
+{text}"""
+        
+        result = bailian_req(prompt)
+        if result and not result.startswith("请求出错"):
+            return result.strip()
+        else:
+            logger.warning(f"AI处理URL分离失败: {result}")
+            return text
+    except Exception as e:
+        logger.error(f"URL分离处理异常: {e}")
+        return text
 
 
 def yuanqi_chat(user_message: str, user_id: str = "user") -> str:
@@ -185,9 +224,10 @@ async def smart_qa(record):
 
     功能说明：
     1. 消息来源群聊已在 permission 表 white_list 中配置（由 trigger 函数匹配）
-    2. 检查发送者是否在排除名单内（配置文件 + 教师表）
-    3. 调用腾讯元器 API 获取回复
-    4. 根据 test_mode 决定发送目标：
+    2. 排除企业微信用户（wxid 格式：xxx@openim）
+    3. 检查发送者是否在排除名单内（配置文件 + 教师表）
+    4. 调用腾讯元器 API 获取回复
+    5. 根据 test_mode 决定发送目标：
        - test_mode=true: 发送给管理员（用于测试验证）
        - test_mode=false: 发送到群聊并 @ 原消息发送者
 
@@ -226,29 +266,40 @@ async def smart_qa(record):
         logger.debug("智能问答仅支持群聊消息")
         return
 
-    # 5. 检查发送者是否在排除名单内
+    # 5. 检查是否为企业微信用户（格式：xxx@openim）
+    if record.sender.endswith("@openim"):
+        logger.debug(f"发送者 {record.sender} 是企业微信用户，不触发 AI 回复")
+        return
+
+    # 6. 检查发送者是否在排除名单内
     if record.sender in exclude_set:
         logger.debug(f"发送者 {record.sender} 在排除名单内，不触发 AI 回复")
         return
 
-    # 6. 检查是否为自己发送的消息（防止自回复）
+    # 7. 检查是否为自己发送的消息（防止自回复）
     if record.is_self:
         logger.debug("不回复自己发送的消息")
         return
 
-    # 7. 检查消息内容是否为空或特殊类型
+    # 8. 检查消息内容是否为空或特殊类型
     content = record.content
     if not content or (isinstance(content, str) and content.startswith("[")):
         logger.debug("消息内容为空或为特殊消息类型，不触发 AI 回复")
         return
 
-    # 8. 构建用户 ID（用于多轮对话追踪）
+    # 8.1 检查消息内容是否包含 @ 符号
+    if isinstance(content, str) and "@" in content:
+        logger.debug("消息内容包含 @ 符号，不触发 AI 回复")
+        return
+
+    # 9. 构建用户 ID（用于多轮对话追踪）
     user_id = f"{record.sender}_{record.roomid}"
 
-    # 9. 调用腾讯元器 API
+    # 10. 调用腾讯元器 API
     logger.info(f"智能问答触发: 群={record.roomid}, 发送者={record.sender}, 内容={content[:50]}")
     ai_reply = yuanqi_chat(content, user_id=user_id)
     ai_reply = ai_reply.replace("88857277", "")
+    ai_reply = separate_urls_from_text(ai_reply)
 
     # 10. 发送回复
     if not ai_reply:
@@ -270,63 +321,73 @@ async def get_group_qr(record):
     """
     管理员获取群二维码功能
 
-    消息格式：群二维码52100546629@chatroom
-    解析 roomid，调用 Client.group_qr() 获取二维码图片链接，发送给管理员
+    消息格式：群二维码：群昵称
+    通过群名称查询 roomid，调用 Client.group_qr() 获取二维码图片链接，发送给管理员
 
     Args:
         record: WxMsg 对象，包含消息信息
 
     流程：
-    1. 解析消息提取 roomid
-    2. 调用 client.group_qr(roomid) 获取二维码链接
-    3. 发送二维码图片给管理员
+    1. 解析消息提取群名称
+    2. 通过群名称查询 roomid
+    3. 调用 client.group_qr(roomid) 获取二维码链接
+    4. 发送二维码图片给管理员
     """
-    config = Config()
+    # config = Config()
 
-    # 1. 获取管理员配置（二次验证）
-    try:
-        admin_list = config.get_config("admin_list", "wechat.yaml")
-    except (KeyError, TypeError):
-        admin_list = []
+    # # 1. 获取管理员配置（二次验证）
+    # try:
+    #     admin_list = config.get_config("admin_list", "wechat.yaml")
+    # except (KeyError, TypeError):
+    #     admin_list = []
 
-    # 2. 检查发送者权限
+    # # 2. 检查发送者权限
     sender = record.sender
-    if sender not in admin_list:
-        logger.debug(f"非管理员触发群二维码功能: {sender}")
-        return
+    # if sender not in admin_list:
+    #     logger.debug(f"非管理员触发群二维码功能: {sender}")
+    #     return
 
-    # 3. 解析消息提取 roomid
+    # 3. 解析消息提取群名称
     content = record.content
-    pattern = r"群二维码(.+@chatroom)"
+    pattern = r"群二维码[：:](.+)"
     match = re.search(pattern, content)
 
     if not match:
-        send_text("格式错误，正确格式：群二维码<群ID>@chatroom\n例如：群二维码52100546629@chatroom", sender, producer="get_group_qr")
+        send_text("格式错误，正确格式：群二维码：群昵称\n例如：群二维码：高一二班家长群", sender, producer="get_group_qr")
         logger.warning(f"群二维码消息格式错误: {content}")
         return
 
-    roomid = match.group(1).strip()
-    logger.info(f"群二维码获取请求: sender={sender}, roomid={roomid}")
+    room_name = match.group(1).strip()
+    logger.info(f"群二维码获取请求: sender={sender}, room_name={room_name}")
 
-    # 4. 发送处理提示
-    send_text(f"正在获取群 {roomid} 的二维码，请稍候...", sender, producer="get_group_qr")
+    # 4. 通过群名称查询 roomid
+    from models.manage.member import Member
+    with Member() as member_db:
+        roomid = member_db.chatroom_id(room_name)
 
-    # 5. 调用 Client.group_qr() 获取二维码链接
+    if not roomid:
+        logger.warning(f"未找到群名称对应的群ID: {room_name}")
+        send_text(f"未找到群「{room_name}」，请检查群名称是否正确", sender, producer="get_group_qr")
+        return
+
+    # 5. 发送处理提示
+    send_text(f"正在获取群「{room_name}」的二维码，请稍候...", sender, producer="get_group_qr")
+
+    # 6. 调用 Client.group_qr() 获取二维码链接
     client = Client()
     try:
-        # group_qr 是同步阻塞函数，使用 asyncio.to_thread 包装
-        qr_url = await asyncio.to_thread(client.group_qr, roomid)
+        qr_url, qr_expr = await asyncio.to_thread(client.group_qr, roomid, record.msg_id)
 
-        # 6. 处理结果
+        # 7. 处理结果
         if qr_url and qr_url.strip():
-            # 成功获取二维码链接，发送图片
-            logger.info(f"群二维码获取成功: roomid={roomid}, url={qr_url}")
+            logger.info(f"群二维码获取成功: room_name={room_name}, roomid={roomid}, url={qr_url}")
+            expr = qr_expr.splitlines()[-1]
+            send_text(f"群「{room_name}」的二维码：\n{expr}\n{qr_url}", sender, producer="get_group_qr")
             send_image(qr_url, sender, producer="get_group_qr")
         else:
-            # 获取失败
-            logger.error(f"群二维码获取失败: roomid={roomid}")
-            send_text(f"群二维码获取失败，请检查群 ID 是否正确或群是否存在", sender, producer="get_group_qr")
+            logger.error(f"群二维码获取失败: room_name={room_name}, roomid={roomid}")
+            send_text(f"群二维码获取失败，请稍后重试", sender, producer="get_group_qr")
 
     except Exception as e:
-        logger.error(f"群二维码获取异常: roomid={roomid}, error={e}")
+        logger.error(f"群二维码获取异常: room_name={room_name}, roomid={roomid}, error={e}")
         send_text(f"群二维码获取异常: {str(e)[:100]}", sender, producer="get_group_qr")
