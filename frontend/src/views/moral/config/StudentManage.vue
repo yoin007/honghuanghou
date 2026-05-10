@@ -453,8 +453,9 @@ const handleImportSubmit = async () => {
     // 调用批量导入 API
     const res = await batchCreateStudents({ students })
     if (res.success) {
-      const { success_count, skip_count, error_count, errors } = res.data
-      let msg = `导入完成：成功 ${success_count} 条，跳过 ${skip_count} 条已存在`
+      const { success_count, update_count, skip_count, error_count, errors } = res.data
+      const updatedCount = update_count || skip_count || 0
+      let msg = `导入完成：新增 ${success_count} 条，更新 ${updatedCount} 条`
       if (error_count > 0) {
         msg += `，失败 ${error_count} 条`
       }

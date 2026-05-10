@@ -33,6 +33,67 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["系统管理"])
 
+
+def parse_birthday(birthday_str) -> Optional[date]:
+    """
+    解析生日字段，兼容多种格式：
+    - YYYY-MM-DD（标准格式）
+    - YYYY/MM/DD
+    - MM/DD/YYYY（美国格式）
+    - Excel 数字日期（如 45321 表示 2023-03-15）
+    - 中文格式 YYYY年MM月DD日
+
+    Args:
+        birthday_str: 生日字符串或数字
+
+    Returns:
+        date 对象或 None
+    """
+    if not birthday_str:
+        return None
+
+    # 尝试数字类型（Excel 日期）
+    if isinstance(birthday_str, (int, float)):
+        try:
+            # Excel 日期序列号：从 1900-01-01 开始（注意 Excel bug：1900-02-29 不存在）
+            # 序列号 1 = 1900-01-01
+            from datetime import timedelta
+            base_date = date(1899, 12, 30)  # Excel 基准日期（修正 bug）
+            return base_date + timedelta(days=int(birthday_str))
+        except (ValueError, OverflowError):
+            pass
+
+    # 转为字符串处理
+    birthday_str = str(birthday_str).strip()
+
+    # 尝试多种日期格式
+    date_formats = [
+        '%Y-%m-%d',       # 2008-05-15
+        '%Y/%m/%d',       # 2008/05/15
+        '%m/%d/%Y',       # 05/15/2008（美国格式）
+        '%d/%m/%Y',       # 15/05/2008（欧洲格式）
+        '%Y.%m.%d',       # 2008.05.15
+        '%Y年%m月%d日',   # 2008年05月15日
+        '%Y%m%d',         # 20080515（无分隔符）
+    ]
+
+    for fmt in date_formats:
+        try:
+            return datetime.strptime(birthday_str, fmt).date()
+        except ValueError:
+            continue
+
+    # 尝试解析为数字（可能是字符串形式的 Excel 日期）
+    try:
+        num = int(float(birthday_str))
+        from datetime import timedelta
+        base_date = date(1899, 12, 30)
+        return base_date + timedelta(days=num)
+    except (ValueError, TypeError):
+        pass
+
+    return None
+
 API_STUDENT_LIST = "/api/moral/admin/students"
 API_STUDENT_CREATE = "/api/moral/admin/students/create"
 API_STUDENT_BATCH = "/api/moral/admin/students/batch"
@@ -1039,15 +1100,6 @@ async def batch_import_students(
 
         for item in data.students:
             try:
-                # 检查学号是否已存在
-                existing = db.query_one(
-                    "SELECT student_id FROM student WHERE student_id = %s",
-                    (item.student_id,)
-                )
-                if existing:
-                    skip_count += 1
-                    continue
-
                 # 匹配班级
                 class_info = class_map.get(item.class_name)
                 if not class_info:
@@ -1064,13 +1116,8 @@ async def batch_import_students(
                     errors.append(f"学号 {item.student_id}: 班主任只能导入本班学生")
                     continue
 
-                # 解析生日
-                birthday = None
-                if item.birthday:
-                    try:
-                        birthday = datetime.strptime(item.birthday, '%Y-%m-%d').date()
-                    except:
-                        pass
+                # 解析生日（兼容多种格式）
+                birthday = parse_birthday(item.birthday)
 
                 # 从学号提取入学年份
                 enrollment_date = date.today()
@@ -1081,30 +1128,58 @@ async def batch_import_students(
                     except ValueError:
                         pass
 
-                # 插入学生
-                db.execute(
-                    """INSERT INTO student
-                    (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '在校')""",
-                    (item.student_id, item.name, item.gender, class_id, grade_id, grade_id, birthday, enrollment_date)
+                # 检查学号是否已存在
+                existing = db.query_one(
+                    "SELECT student_id, class_id FROM student WHERE student_id = %s",
+                    (item.student_id,)
                 )
 
-                # 创建班级履历
-                db.execute(
-                    """INSERT INTO student_class_history
-                    (student_id, class_id, grade_id, start_date, change_reason)
-                    VALUES (%s, %s, %s, %s, '入学')""",
-                    (item.student_id, class_id, grade_id, enrollment_date)
-                )
+                if existing:
+                    # 学生已存在，更新信息
+                    old_class_id = existing['class_id']
 
-                success_count += 1
+                    db.execute(
+                        """UPDATE student SET
+                        name = %s, gender = %s, class_id = %s, grade_id = %s, birthday = %s
+                        WHERE student_id = %s""",
+                        (item.name, item.gender, class_id, grade_id, birthday, item.student_id)
+                    )
+
+                    # 如果班级变更，记录班级履历
+                    if old_class_id != class_id:
+                        db.execute(
+                            """INSERT INTO student_class_history
+                            (student_id, class_id, grade_id, start_date, change_reason)
+                            VALUES (%s, %s, %s, %s, '批量导入更新班级')""",
+                            (item.student_id, class_id, grade_id, enrollment_date)
+                        )
+
+                    skip_count += 1  # 更新计数
+                else:
+                    # 新学生，插入
+                    db.execute(
+                        """INSERT INTO student
+                        (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '在校')""",
+                        (item.student_id, item.name, item.gender, class_id, grade_id, grade_id, birthday, enrollment_date)
+                    )
+
+                    # 创建班级履历
+                    db.execute(
+                        """INSERT INTO student_class_history
+                        (student_id, class_id, grade_id, start_date, change_reason)
+                        VALUES (%s, %s, %s, %s, '入学')""",
+                        (item.student_id, class_id, grade_id, enrollment_date)
+                    )
+
+                    success_count += 1
 
             except Exception as e:
                 errors.append(f"学号 {item.student_id}: {str(e)}")
 
         log_operation(
-            db, user.username, user.role, 'BATCH_INSERT', 'student', None,
-            new_data={'success': success_count, 'skip': skip_count, 'errors': len(errors)},
+            db, user.username, user.role, 'BATCH_IMPORT', 'student', None,
+            new_data={'created': success_count, 'updated': skip_count, 'errors': len(errors)},
             ip_address=request.client.host if request.client else None
         )
 
@@ -1112,11 +1187,12 @@ async def batch_import_students(
             "success": True,
             "data": {
                 "success_count": success_count,
-                "skip_count": skip_count,
+                "update_count": skip_count,  # rename for clarity
+                "skip_count": skip_count,  # keep for backward compatibility
                 "error_count": len(errors),
                 "errors": errors[:10] if errors else []  # 只返回前10条错误
             },
-            "message": f"导入完成：成功 {success_count} 条，跳过 {skip_count} 条已存在"
+            "message": f"导入完成：新增 {success_count} 条，更新 {skip_count} 条"
         }
 
 
