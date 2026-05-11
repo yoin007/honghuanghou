@@ -456,7 +456,7 @@ def _get_timeline_data(db, student_id: str, user: User):
         SELECT pr.id, pr.punishment_date, pr.level, pr.reason, pr.score_deduct,
                pr.is_revoked, pr.revoke_date, 'punishment' as source
         FROM punishment_record pr
-        WHERE pr.student_id = %s AND pr.is_deleted = 0
+        WHERE pr.student_id = %s
         ORDER BY pr.punishment_date DESC
     """, (student_id,))
 
