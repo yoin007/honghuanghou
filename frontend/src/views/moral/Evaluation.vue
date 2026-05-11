@@ -23,7 +23,6 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="handleCalculate" v-if="canCalculateEvaluation">计算评价</el-button>
           <el-button @click="handleExport">导出报表</el-button>
         </el-form-item>
       </el-form>
@@ -209,13 +208,11 @@ import {
   getClasses,
   getSemesters,
   getClassEvaluation,
-  getStudentEvaluation,
-  calculateEvaluation
+  getStudentEvaluation
 } from '@/api/modules/moral'
 
 const router = useRouter()
 const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
-const canCalculateEvaluation = ref(false)
 const canViewProfile = ref(false)
 
 // 数据
@@ -298,29 +295,6 @@ const fetchEvaluation = async () => {
     }
   } catch (error) {
     console.error('获取评价失败:', error)
-  } finally {
-    loading.value = false
-  }
-}
-
-const handleCalculate = async () => {
-  if (!filterForm.class_id) {
-    ElMessage.warning('请先选择班级')
-    return
-  }
-
-  try {
-    loading.value = true
-    const res = await calculateEvaluation({
-      class_id: filterForm.class_id,
-      semester_id: filterForm.semester_id
-    })
-    if (res.success) {
-      ElMessage.success(res.message)
-      fetchEvaluation()
-    }
-  } catch (error) {
-    console.error('计算评价失败:', error)
   } finally {
     loading.value = false
   }
@@ -454,7 +428,6 @@ const scoreClass = (score, signed = true) => {
 // 生命周期
 onMounted(async () => {
   await loadMyPermissions()
-  canCalculateEvaluation.value = hasApiPermissionSync('/api/moral/evaluations/calculate')
   canViewProfile.value = hasApiPermissionSync('/api/moral/profiles/student')
   await Promise.all([fetchClassList(), fetchSemesterList()])
   if (filterForm.class_id) {
