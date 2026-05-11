@@ -957,6 +957,16 @@ export function exportLifebookXlsx(studentId) {
 }
 
 /**
+ * 批量导出班级学生档案
+ * @param {number} classId - 班级ID
+ */
+export function exportClassLifebooks(classId) {
+  return httpClient.get(`/api/moral/timeline/export/class/${classId}`, {
+    responseType: 'blob'
+  })
+}
+
+/**
  * 获取操作日志
  */
 export function getOperationLogs(params = {}) {
@@ -1081,6 +1091,7 @@ export default {
   searchTimeline,
   getStudentTimeline,
   exportLifebookXlsx,
+  exportClassLifebooks,
   getOperationLogs,
   getSystemConfig,
   updateSystemConfig,

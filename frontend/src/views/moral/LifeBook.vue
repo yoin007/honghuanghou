@@ -17,6 +17,9 @@
         </el-form-item>
         <el-form-item class="search-btn">
           <el-button type="primary" @click="handleSearch">搜索学生</el-button>
+          <el-button type="success" @click="handleExportClass" :loading="exportClassLoading" :disabled="!filterForm.class_id">
+            批量导出班级
+          </el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -168,7 +171,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getClasses, searchTimeline, getStudentTimeline, exportLifebookXlsx } from '@/api/modules/moral'
+import { getClasses, searchTimeline, getStudentTimeline, exportLifebookXlsx, exportClassLifebooks } from '@/api/modules/moral'
 
 const classList = ref([])
 const studentList = ref([])
@@ -181,6 +184,7 @@ const showStudentList = ref(true)
 const studentLoading = ref(false)
 const timelineLoading = ref(false)
 const exportLoading = ref(false)
+const exportClassLoading = ref(false)
 
 const filterForm = reactive({
   class_id: null,
@@ -219,6 +223,31 @@ const handleExportXlsx = async () => {
     ElMessage.error('导出失败：' + (error.response?.data?.detail || '未知错误'))
   } finally {
     exportLoading.value = false
+  }
+}
+
+const handleExportClass = async () => {
+  if (!filterForm.class_id) {
+    ElMessage.warning('请先选择班级')
+    return
+  }
+
+  exportClassLoading.value = true
+  try {
+    const response = await exportClassLifebooks(filterForm.class_id)
+    const blob = new Blob([response.data], { type: 'application/zip' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `班级档案_${classList.value.find(c => c.class_id === filterForm.class_id)?.class_name || filterForm.class_id}.zip`
+    link.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出失败：' + (error.response?.data?.detail || '未知错误'))
+  } finally {
+    exportClassLoading.value = false
   }
 }
 

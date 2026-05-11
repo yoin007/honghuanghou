@@ -5,6 +5,7 @@
 班主任只可查看本班学生；教发部/管理员可查看所有学生
 """
 
+import logging
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -19,6 +20,7 @@ from .base import (
 from models.datas_api.auth import User
 
 router = APIRouter(prefix="/timeline", tags=["一生一册"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/search", summary="搜索学生（用于一生一册筛选）")
@@ -578,6 +580,93 @@ async def export_lifebook_xlsx(
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename.encode('utf-8').decode('latin-1')}"}
+        )
+
+
+@router.get("/export/class/{class_id}", summary="批量导出班级学生档案")
+async def export_class_lifebooks(
+    class_id: int,
+    user: User = Depends(get_current_user)
+):
+    """批量导出班级所有学生档案（zip打包）"""
+    import zipfile
+
+    with get_moral_db() as db:
+        # 权限检查
+        if not check_moral_permission(user, 'profile_view_all'):
+            my_class_id = get_teacher_class_id(user, db)
+            if my_class_id is None or my_class_id != class_id:
+                raise HTTPException(403, "只能导出本班学生的档案")
+
+        # 获取班级学生
+        students = db.query_all("""
+            SELECT s.student_id, s.name, s.class_name
+            FROM student s
+            WHERE s.class_id = %s AND s.status = '在校'
+            ORDER BY s.student_id
+        """, (class_id,))
+
+        if not students:
+            raise HTTPException(404, "班级无在校学生")
+
+        # 获取班级名称
+        class_info = db.query_one("SELECT class_name FROM class WHERE class_id = %s", (class_id,))
+        class_name = class_info['class_name'] if class_info else f"class_{class_id}"
+
+        # 批量生成 Excel
+        output = io.BytesIO()
+
+        with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for student in students:
+                try:
+                    student_data, timeline_data, stats_data, score_data = _get_timeline_data(db, student['student_id'], user)
+
+                    # 生成单个 Excel
+                    excel_buffer = io.BytesIO()
+
+                    student_df = pd.DataFrame([{
+                        "学号": student['student_id'],
+                        "姓名": student['name'],
+                        "班级": student['class_name'],
+                        "导出日期": dt.now().strftime('%Y-%m-%d'),
+                        "导出人": user.name
+                    }])
+
+                    timeline_df = pd.DataFrame([
+                        {
+                            "日期": item['date'],
+                            "类型": item['type'],
+                            "标题": item['title'],
+                            "内容": item['content'],
+                            "分数": item.get('score')
+                        }
+                        for item in timeline_data
+                    ])
+
+                    score_df = pd.DataFrame([score_data])
+                    stats_df = pd.DataFrame([stats_data])
+
+                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                        student_df.to_excel(writer, sheet_name='学生信息', index=False)
+                        timeline_df.to_excel(writer, sheet_name='时光轴', index=False)
+                        score_df.to_excel(writer, sheet_name='分数汇总', index=False)
+                        stats_df.to_excel(writer, sheet_name='统计', index=False)
+
+                    excel_buffer.seek(0)
+                    zipf.writestr(f"{student['name']}.xlsx", excel_buffer.read())
+
+                except Exception as e:
+                    logger.warning(f"导出学生 {student['name']} 失败: {e}")
+                    continue
+
+        output.seek(0)
+
+        filename = f"班级档案_{class_name}_{dt.now().strftime('%Y%m%d')}.zip"
+
+        return StreamingResponse(
+            output,
+            media_type="application/zip",
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename.encode('utf-8').decode('latin-1')}"}
         )
                 
