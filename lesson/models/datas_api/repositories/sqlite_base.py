@@ -33,7 +33,7 @@ def get_sqlite_connection(
     timeout: float = 30.0,
     row_factory: Optional[Callable] = None,
     check_same_thread: bool = True,
-    wal_mode: bool = False
+    wal_mode: bool = True  # 默认启用 WAL 模式
 ) -> sqlite3.Connection:
     """
     获取 SQLite 连接，统一参数和初始化。
@@ -43,7 +43,7 @@ def get_sqlite_connection(
         timeout: 连接超时秒数（默认 30）
         row_factory: 可选行工厂函数，如 sqlite3.Row
         check_same_thread: 多线程访问控制（默认 True，单线程安全）
-        wal_mode: 是否启用 WAL 模式（默认 False）
+        wal_mode: 是否启用 WAL 模式（默认 True）
 
     Returns:
         sqlite3.Connection 对象
@@ -74,9 +74,12 @@ def get_sqlite_connection(
     if row_factory:
         conn.row_factory = row_factory
 
-    # 启用 WAL 模式（提高并发写入性能）
+    # 启用 WAL 模式和优化设置（提高并发写入性能）
     if wal_mode:
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-2000")
+        conn.execute("PRAGMA busy_timeout=30000")  # 30秒忙等待超时
 
     return conn
 
