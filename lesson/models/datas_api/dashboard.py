@@ -45,6 +45,7 @@ from models.datas_api.dashboard_teaching import (
 )
 from models.datas_api.dashboard_moral import (
     class_score_rank as _class_score_rank,
+    class_score_rank_all as _class_score_rank_all,
     daily_event_mix as _daily_event_mix,
     daily_record_trend as _daily_record_trend,
     score_distribution as _score_distribution,
@@ -142,20 +143,34 @@ async def get_moral_dashboard_summary(
 ):
     """德育驾驶舱：德育分分布、日常记录、低分学生关注、请假出勤风险。
     Batch47: 增加请假与出勤风险数据展示。
+
+    权限范围：
+    - 班主任：本班学生 + 本班对比
+    - 年级主任：本年级学生 + 本年级班级对比
+    - 学发/教务/管理员：全校学生 + 全校班级对比
     """
-    if not (_is_moral_manager(user) or has_user_role(user, "cleader")):
+    if not (_is_moral_manager(user) or has_user_role(user, "cleader") or has_user_role(user, "g_leader")):
         raise HTTPException(status_code=403, detail="无德育驾驶舱权限")
     top_n = _normalize_top_n(top_n)
 
-    # Determine class filter for cleader
+    # Determine class/grade filter
     class_filter = None
+    grade_filter = None
     with get_moral_db() as db:
-        if not _is_moral_manager(user) and has_user_role(user, "cleader"):
+        # 班主任：本班范围
+        if not _is_moral_manager(user) and has_user_role(user, "cleader") and not has_user_role(user, "g_leader"):
             my_class_id = get_teacher_class_id(user, db)
             if my_class_id:
                 class_info = db.query_one("SELECT class_name FROM class WHERE class_id = %s", (my_class_id,))
                 if class_info:
                     class_filter = class_info["class_name"]
+
+        # 年级主任：本年级范围
+        elif has_user_role(user, "g_leader") and not _is_moral_manager(user):
+            from .moral.base import get_teacher_grade_ids
+            my_grade_ids = get_teacher_grade_ids(user, db)
+            if my_grade_ids:
+                grade_filter = my_grade_ids[0]  # 取第一个年级
 
     with get_moral_db() as db:
         conditions = ["s.status = '在校'"]
@@ -196,11 +211,13 @@ async def get_moral_dashboard_summary(
             tuple(params),
         )
         query_params = tuple(params)
+        # 班级得分对比：根据角色过滤班级范围
+        class_score_rank_data = _class_score_rank_all(db, class_filter, grade_filter, top_n)
         charts = {
             "score_distribution": _score_distribution(db, where_clause, query_params),
             "daily_event_mix": _daily_event_mix(db, where_clause, query_params),
             "daily_record_trend": _daily_record_trend(db, where_clause, query_params),
-            "class_score_rank": _class_score_rank(db, where_clause, query_params, top_n),
+            "class_score_rank": class_score_rank_data,
         }
 
     # Batch47: 请假与出勤风险数据
@@ -605,54 +622,49 @@ async def get_class_dashboard_summary(
 
 @router.get("/grade/list", summary="获取年级列表")
 async def get_grade_list(user: User = Depends(get_current_user)):
-    """获取年级列表，用于年级驾驶舱切换"""
+    """获取年级列表，用于年级驾驶舱切换。
+
+    年级主任只能看到自己管理的年级；其他管理员能看到全部年级。
+    """
     with get_moral_db() as db:
         # 检查权限：admin/jiaowu/xuefa/g_leader
         if not (_is_moral_manager(user) or _is_jiaowu(user) or has_user_role(user, "g_leader")):
             raise HTTPException(status_code=403, detail="无年级驾驶舱权限")
 
-        # 查询年级列表（按班级名中的年级信息推断）
-        classes = db.query_all(
-            "SELECT class_id, class_name FROM class WHERE is_active = 1 ORDER BY class_name"
+        # 从 grade 表获取年级列表
+        grades = db.query_all(
+            "SELECT grade_id, grade_name FROM grade ORDER BY grade_name"
         )
 
-        # 从班级名中提取年级（假设班级名格式为 "高一年级X班"）
-        grade_map = {}
-        for c in classes:
-            name = c["class_name"] or ""
-            # 提取年级信息
-            if "高一" in name or "高一" in name:
-                grade_id = "高一"
-                grade_name = "高一年级"
-            elif "高二" in name or "高二" in name:
-                grade_id = "高二"
-                grade_name = "高二年级"
-            elif "高三" in name or "高三" in name:
-                grade_id = "高三"
-                grade_name = "高三年级"
-            else:
-                continue
-
-            if grade_id not in grade_map:
-                grade_map[grade_id] = {
-                    "grade_id": grade_id,
-                    "grade_name": grade_name,
-                    "class_count": 0,
-                    "classes": []
-                }
-            grade_map[grade_id]["class_count"] += 1
-            grade_map[grade_id]["classes"].append({
-                "class_id": c["class_id"],
-                "class_name": name
+        # 转换为前端格式
+        grade_list = []
+        for g in grades:
+            grade_name = g["grade_name"] or ""
+            # 获取该年级下的班级数
+            class_count = db.query_value(
+                "SELECT COUNT(*) FROM class WHERE is_active = 1 AND grade_id = %s",
+                (g["grade_id"],)
+            ) or 0
+            grade_list.append({
+                "grade_id": g["grade_id"],  # 直接使用数据库 ID，前端统一用数字
+                "grade_id_int": g["grade_id"],  # 保持一致
+                "grade_name": grade_name,
+                "class_count": class_count
             })
 
-        grades = list(grade_map.values())
-        return {"success": True, "data": grades}
+        # 年级主任权限：只返回自己管理的年级
+        if has_user_role(user, "g_leader") and not (_is_moral_manager(user) or _is_jiaowu(user)):
+            from .moral.base import get_teacher_grade_ids
+            my_grade_ids = get_teacher_grade_ids(user, db)
+            if my_grade_ids:
+                grade_list = [g for g in grade_list if g["grade_id_int"] in my_grade_ids]
+
+        return {"success": True, "data": grade_list}
 
 
 @router.get("/grade/summary", summary="年级驾驶舱总览")
 async def get_grade_dashboard_summary(
-    grade_id: Optional[str] = Query(None, description="年级ID，如高一/高二/高三"),
+    grade_id: Optional[str] = Query(None, description="年级ID（数据库ID或名称）"),
     top_n: int = Query(10, ge=1, le=50),
     user: User = Depends(get_current_user),
 ):
@@ -668,57 +680,66 @@ async def get_grade_dashboard_summary(
         if not (_is_moral_manager(user) or _is_jiaowu(user) or has_user_role(user, "g_leader")):
             raise HTTPException(status_code=403, detail="无年级驾驶舱权限")
 
-        # 确定年级
-        if not grade_id:
+        # 确定年级（优先使用数据库 ID）
+        grade_id_int = None
+        if grade_id:
+            # 尝试解析为数字（数据库 ID）
+            try:
+                grade_id_int = int(grade_id)
+            except ValueError:
+                grade_id_int = None
+
+            # 如果不是数字，尝试从名称查找
+            if not grade_id_int:
+                grade_names = {"高一": "高一年级", "高二": "高二年级", "高三": "高三年级"}
+                grade_name = grade_names.get(grade_id, grade_id)
+                grade_row = db.query_one(
+                    "SELECT grade_id, grade_name FROM grade WHERE grade_name = %s OR grade_name = %s",
+                    (grade_name, grade_id + "年级" if not grade_id.endswith("级") else grade_id)
+                )
+                if grade_row:
+                    grade_id_int = grade_row["grade_id"]
+        else:
             # 年级主任默认自己管理的年级
             if has_user_role(user, "g_leader") and not (_is_moral_manager(user) or _is_jiaowu(user)):
                 from .moral.base import get_teacher_grade_ids
                 my_grade_ids = get_teacher_grade_ids(user, db)
                 if my_grade_ids:
-                    # 查询第一个年级的名称
-                    grade_info = db.query_one(
-                        "SELECT grade_name FROM grade WHERE grade_id = %s",
-                        (my_grade_ids[0],)
-                    )
-                    if grade_info:
-                        grade_id = grade_info["grade_name"].replace("年级", "")
+                    grade_id_int = my_grade_ids[0]
             else:
                 # 默认第一个年级
-                classes = db.query_all("SELECT class_name FROM class WHERE is_active = 1 ORDER BY class_name LIMIT 1")
-                if classes:
-                    name = classes[0]["class_name"] or ""
-                    if "高一" in name:
-                        grade_id = "高一"
-                    elif "高二" in name:
-                        grade_id = "高二"
-                    elif "高三" in name:
-                        grade_id = "高三"
+                first_grade = db.query_one("SELECT grade_id FROM grade ORDER BY grade_id LIMIT 1")
+                if first_grade:
+                    grade_id_int = first_grade["grade_id"]
 
-        if not grade_id:
+        if not grade_id_int:
             raise HTTPException(status_code=404, detail="年级不存在")
 
-        # 年级名称
-        grade_names = {"高一": "高一年级", "高二": "高二年级", "高三": "高三年级"}
-        grade_name = grade_names.get(grade_id, grade_id)
-
-        # 获取年级ID（用于权限检查）
+        # 获取年级信息
         grade_row = db.query_one(
-            "SELECT grade_id FROM grade WHERE grade_name = %s OR grade_name = %s",
-            (grade_name, grade_id + "年级")
+            "SELECT grade_id, grade_name FROM grade WHERE grade_id = %s",
+            (grade_id_int,)
         )
-        grade_id_int = grade_row["grade_id"] if grade_row else None
+        grade_name = grade_row["grade_name"] if grade_row else "未知年级"
 
         # 年级主任权限检查：只能查看自己管理的年级
         if has_user_role(user, "g_leader") and not (_is_moral_manager(user) or _is_jiaowu(user)):
-            if grade_id_int and not is_grade_leader(user, grade_id_int, db):
+            if not is_grade_leader(user, grade_id_int, db):
                 raise HTTPException(status_code=403, detail="只能查看自己管理的年级驾驶舱")
 
-        # 获取年级下所有班级
-        grade_filter = f"%{grade_id}%"
-        classes = db.query_all(
-            "SELECT class_id, class_name FROM class WHERE is_active = 1 AND class_name LIKE %s",
-            (grade_filter,)
-        )
+        # 获取年级下所有班级（通过 grade_id 关联）
+        if grade_id_int:
+            classes = db.query_all(
+                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND grade_id = %s",
+                (grade_id_int,)
+            )
+        else:
+            # 兜底：用班级名匹配
+            grade_filter = f"%{grade_id}%"
+            classes = db.query_all(
+                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND class_name LIKE %s",
+                (grade_filter,)
+            )
         class_ids = [c["class_id"] for c in classes]
 
         if not class_ids:

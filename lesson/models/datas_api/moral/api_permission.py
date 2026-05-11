@@ -163,7 +163,14 @@ DEFAULT_API_PERMISSIONS = [
 
     # 学生画像
     {"api_path": "/api/moral/profiles/student", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/profiles/student/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/profiles/student/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/profiles/batch-generate", "api_name": "批量生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+
+    # AI 诊疗
+    {"api_path": "/api/moral/consultations", "api_name": "获取诊疗会话列表", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/consultations/create", "api_name": "创建诊疗会话", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/consultations/update", "api_name": "更新诊疗会话", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/consultations/close", "api_name": "关闭诊疗会话", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
 
     # 评价查询
     {"api_path": "/api/moral/evaluations/class", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
@@ -236,6 +243,37 @@ DEFAULT_DATA_SCOPE_RULES = {
         "xuefa": ["all"],
         "g_leader": ["g_leader_grade"],
         "cleader": ["own_class"],
+    },
+    "/api/moral/profiles/batch-generate": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/consultations": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/consultations/create": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["g_leader_grade"],
+        "cleader": ["own_class"],
+    },
+    "/api/moral/consultations/update": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+    },
+    "/api/moral/consultations/close": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
     },
     "/api/moral/evaluations/class": {
         "admin": ["all"],
@@ -531,13 +569,35 @@ def _fix_incorrect_scope_rules(db) -> None:
         except Exception:
             continue
 
-        # 补齐 g_leader 的范围规则
+        # 学生管理 API 不应该有 own_created（学生表无创建者字段）
+        # 正确规则：g_leader 只需 g_leader_grade
+        student_apis = [
+            "/api/moral/admin/students",
+            "/api/moral/admin/students/create",
+            "/api/moral/admin/students/batch",
+            "/api/moral/admin/students/update",
+        ]
+
+        needs_fix = False
         if "g_leader" not in rules:
-            # 根据API类型设置合适的范围
-            if api_path.endswith("/update") or api_path.endswith("/delete"):
-                rules["g_leader"] = ["own_created"]
-            else:
-                rules["g_leader"] = ["own_created", "g_leader_grade"]
+            needs_fix = True
+        elif api_path in student_apis:
+            # 学生 API：检查是否有错误的 own_created
+            g_leader_rules = rules.get("g_leader", [])
+            if "own_created" in g_leader_rules:
+                # 移除 own_created，保留 g_leader_grade
+                rules["g_leader"] = ["g_leader_grade"]
+                needs_fix = True
+
+        if needs_fix:
+            if "g_leader" not in rules:
+                # 根据API类型设置合适的范围
+                if api_path in student_apis:
+                    rules["g_leader"] = ["g_leader_grade"]
+                elif api_path.endswith("/update") or api_path.endswith("/delete"):
+                    rules["g_leader"] = ["own_created"]
+                else:
+                    rules["g_leader"] = ["own_created", "g_leader_grade"]
 
             db.execute(
                 "UPDATE api_permission_config SET data_scope_rules = %s WHERE api_path = %s",
@@ -565,6 +625,51 @@ def _fix_incorrect_scope_rules(db) -> None:
             db.execute(
                 "UPDATE api_permission_config SET allowed_roles = %s WHERE api_path = %s",
                 (_json_dump(roles), api_path),
+            )
+
+    # 修复学生画像 API 的 allowed_roles（补齐 g_leader 和 cleader）
+    profile_apis = [
+        "/api/moral/profiles/student/generate",
+        "/api/moral/profiles/batch-generate"
+    ]
+    for api_path in profile_apis:
+        config = db.query_one(
+            "SELECT allowed_roles FROM api_permission_config WHERE api_path = %s",
+            (api_path,)
+        )
+        if not config:
+            continue
+        try:
+            roles = json.loads(config.get("allowed_roles") or "[]")
+        except Exception:
+            continue
+        if "g_leader" not in roles:
+            roles.append("g_leader")
+        if "cleader" not in roles:
+            roles.append("cleader")
+        db.execute(
+            "UPDATE api_permission_config SET allowed_roles = %s WHERE api_path = %s",
+            (_json_dump(roles), api_path),
+        )
+
+    # 确保 consultation API 权限配置存在
+    consultation_apis = [
+        ("/api/moral/consultations", "获取诊疗会话列表"),
+        ("/api/moral/consultations/create", "创建诊疗会话"),
+        ("/api/moral/consultations/update", "更新诊疗会话"),
+        ("/api/moral/consultations/close", "关闭诊疗会话"),
+    ]
+    for api_path, api_name in consultation_apis:
+        exists = db.query_one(
+            "SELECT 1 FROM api_permission_config WHERE api_path = %s",
+            (api_path,)
+        )
+        if not exists:
+            db.execute(
+                """INSERT INTO api_permission_config
+                   (api_path, api_name, api_group, allowed_roles, min_level, is_active)
+                   VALUES (%s, %s, 'AI诊疗', %s, 20, 1)""",
+                (api_path, api_name, _json_dump(["admin", "xuefa", "g_leader", "cleader"])),
             )
 
 
@@ -1226,6 +1331,84 @@ async def sync_legacy_yaml_permissions(
             "success": True,
             "message": f"同步完成：新增 {result['created']} 条，更新 {result['updated']} 条",
             "data": result,
+        }
+
+
+@router.post("/sync-default-scope-rules", summary="强制同步默认数据范围规则")
+async def sync_default_scope_rules(
+    request: Request,
+    force: int = Query(0, description="强制覆盖已有配置，默认只补齐空配置"),
+    user: User = Depends(require_admin),
+):
+    """将代码中的 DEFAULT_DATA_SCOPE_RULES 和 DEFAULT_TARGET_SCOPE_RULES 同步到数据库。
+
+    Args:
+        force: 0=只补齐空配置，1=强制覆盖所有配置
+
+    Returns:
+        更新统计
+    """
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        updated_data_scope = 0
+        updated_target_scope = 0
+
+        # 同步数据范围规则
+        for api_path, rules in DEFAULT_DATA_SCOPE_RULES.items():
+            if force:
+                # 强制覆盖
+                db.execute(
+                    "UPDATE api_permission_config SET data_scope_rules = %s WHERE api_path = %s",
+                    (_json_dict_dump(rules), api_path),
+                )
+                updated_data_scope += 1
+            else:
+                # 只补齐空配置
+                result = db.execute(
+                    """UPDATE api_permission_config
+                       SET data_scope_rules = %s
+                       WHERE api_path = %s
+                         AND (data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}')""",
+                    (_json_dict_dump(rules), api_path),
+                )
+                if result:
+                    updated_data_scope += 1
+
+        # 同步目标范围规则
+        for api_path, rules in DEFAULT_TARGET_SCOPE_RULES.items():
+            if force:
+                db.execute(
+                    "UPDATE api_permission_config SET target_scope_rules = %s WHERE api_path = %s",
+                    (_json_dict_dump(rules), api_path),
+                )
+                updated_target_scope += 1
+            else:
+                result = db.execute(
+                    """UPDATE api_permission_config
+                       SET target_scope_rules = %s
+                       WHERE api_path = %s
+                         AND (target_scope_rules IS NULL OR target_scope_rules = '' OR target_scope_rules = '{}')""",
+                    (_json_dict_dump(rules), api_path),
+                )
+                if result:
+                    updated_target_scope += 1
+
+        # 补齐 g_leader allowed_roles
+        _fix_incorrect_scope_rules(db)
+
+        log_operation(
+            db, user.username, user.role, "SYNC_SCOPE", "api_permission_config", None,
+            new_data={"data_scope": updated_data_scope, "target_scope": updated_target_scope, "force": force}
+        )
+
+        return {
+            "success": True,
+            "message": f"同步完成：数据范围更新 {updated_data_scope} 条，目标范围更新 {updated_target_scope} 条",
+            "data": {
+                "updated_data_scope": updated_data_scope,
+                "updated_target_scope": updated_target_scope,
+                "force": force,
+            },
         }
 
 

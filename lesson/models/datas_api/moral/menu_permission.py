@@ -61,6 +61,7 @@ DEFAULT_MENU_CONFIG = [
     {"key": "moral-moment", "label": "点滴记录", "route": "/moral/moment", "group": "moral", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 70},
     {"key": "moral-lifebook", "label": "一生一册", "route": "/moral/lifebook", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 80},
     {"key": "moral-profile", "label": "学生画像", "route": "/moral/profile", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 90},
+    {"key": "moral-consultation", "label": "AI诊疗", "route": "/moral/consultation", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "admin"], "is_public": 0, "sort_order": 95},
     {"key": "moral-birthday", "label": "生日提醒", "route": "/moral/birthday", "group": "moral", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 100},
     {"key": "moral-student-manage", "label": "学生管理", "route": "/moral/config/student", "group": "moral", "roles": ["g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 110},
     {"key": "moral-config", "label": "德育配置", "route": "/moral/config", "group": "moral", "roles": ["xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 120},

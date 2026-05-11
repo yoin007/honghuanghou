@@ -407,34 +407,44 @@ onMounted(() => {
 
 .timeline {
   position: relative;
-  padding-left: 150px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 120px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #e4e7ed;
 }
 
 .timeline-item {
-  position: relative;
-  padding-bottom: 30px;
   display: flex;
+  align-items: flex-start;
+  padding-bottom: 24px;
+  gap: 20px;
 }
 
 .timeline-date {
-  position: absolute;
-  left: 0;
-  width: 120px;
+  width: 100px;
   text-align: right;
   color: #909399;
   font-size: 14px;
-  padding-right: 20px;
+  padding-top: 2px;
+  flex-shrink: 0;
 }
 
 .timeline-marker {
-  position: absolute;
-  left: 130px;
   width: 12px;
   height: 12px;
   border-radius: 50%;
   background-color: #409eff;
   border: 2px solid #fff;
   box-shadow: 0 0 0 2px #409eff;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .marker-moment { background-color: #409eff; box-shadow: 0 0 0 2px #409eff; }
@@ -444,7 +454,6 @@ onMounted(() => {
 .marker-task { background-color: #909399; box-shadow: 0 0 0 2px #909399; }
 
 .timeline-content {
-  margin-left: 30px;
   background: #f5f7fa;
   padding: 15px;
   border-radius: 8px;

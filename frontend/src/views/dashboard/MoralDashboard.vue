@@ -40,12 +40,18 @@
         emptyText="近 14 天暂无日常记录数据"
       />
       <DashboardChart
-        :title="`班级平均分 Top${effectiveTopN}`"
-        :eyebrow="`CLASS TOP${effectiveTopN}`"
+        title="班级得分对比"
+        eyebrow="CLASS SCORES"
         :option="classRankOption"
         :empty="isEmpty(classScoreRows, 'avg_score')"
-        emptyText="当前无班级德育分排行数据"
+        emptyText="当前无班级德育分数据"
       />
+      <div class="score-legend">
+        <span class="legend-item excellent">80+优秀</span>
+        <span class="legend-item good">70-79良好</span>
+        <span class="legend-item pass">60-69及格</span>
+        <span class="legend-item fail">&lt;60不及格</span>
+      </div>
       <DashboardChart
         title="请假人数班级分布"
         eyebrow="LEAVE BY CLASS"
@@ -104,7 +110,7 @@ import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
 const router = useRouter()
 const summary = ref({ cards: [], charts: {}, tables: {} })
-const topN = ref(5)
+const topN = ref(50) // 默认50，获取全部班级对比
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#22d3ee', '#a3e635', '#f59e0b', '#fb7185']
 const chartColors = ['#22d3ee', '#84cc16', '#f59e0b', '#fb7185', '#818cf8']
@@ -149,15 +155,80 @@ const dailyTrendOption = computed(() => baseLineOption({
 }))
 
 const classRankOption = computed(() => {
-  const rows = [...classScoreRows.value].reverse()
-  return baseHorizontalBarOption({
-    yAxisData: rows.map(item => item.class_name),
-    seriesData: rows.map(item => item.avg_score),
-    grid: { left: 88, right: 24, top: 22, bottom: 28 },
-    barWidth: 16,
-    borderRadius: [0, 8, 8, 0],
-    color: ['#a3e635']
+  // 按班级名称排序：高一1班 < 高一2班 < 高二1班...
+  const rows = [...classScoreRows.value].sort((a, b) => {
+    // 提取年级和班级号进行排序
+    const parseClass = (name) => {
+      const gradeMatch = name.match(/高?([一二三])/)
+      const numMatch = name.match(/(\d+)班/)
+      const gradeOrder = { '一': 1, '二': 2, '三': 3 }
+      return {
+        grade: gradeOrder[gradeMatch?.[1]] || 0,
+        num: parseInt(numMatch?.[1]) || 0
+      }
+    }
+    const aInfo = parseClass(a.class_name)
+    const bInfo = parseClass(b.class_name)
+    return aInfo.grade * 100 + aInfo.num - (bInfo.grade * 100 + bInfo.num)
   })
+
+  // 根据分数段分配颜色：80+绿, 70-79蓝, 60-69黄, <60红
+  const getColor = (score) => {
+    if (score >= 80) return '#22c55e'  // 优秀-绿色
+    if (score >= 70) return '#3b82f6'  // 良好-蓝色
+    if (score >= 60) return '#f59e0b'  // 及格-黄色
+    return '#ef4444'  // 不及格-红色
+  }
+  return {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const d = params[0]
+        return `${d.name}<br/>平均分: ${d.value}<br/>学生数: ${rows[d.dataIndex]?.student_count || '-'}`
+      }
+    },
+    grid: { left: 24, right: 24, top: 32, bottom: 48 },
+    xAxis: {
+      type: 'category',
+      data: rows.map(item => item.class_name),
+      axisLabel: { rotate: 30, fontSize: 11 },
+      axisTick: { alignWithLabel: true }
+    },
+    yAxis: {
+      type: 'value',
+      name: '平均分',
+      min: 0,
+      max: 100,
+      splitLine: { lineStyle: { type: 'dashed', color: 'rgba(148,163,184,0.3)' } }
+    },
+    series: [{
+      type: 'bar',
+      data: rows.map(item => ({
+        value: item.avg_score,
+        itemStyle: {
+          color: getColor(item.avg_score),
+          borderRadius: [6, 6, 0, 0]
+        }
+      })),
+      barWidth: 24,
+      label: {
+        show: true,
+        position: 'top',
+        formatter: '{c}',
+        fontSize: 10,
+        color: '#94a3b8'
+      }
+    }],
+    // 分数段参考线
+    markLine: {
+      silent: true,
+      data: [
+        { yAxis: 80, lineStyle: { color: '#22c55e', type: 'dashed' }, label: { formatter: '优秀线' } },
+        { yAxis: 70, lineStyle: { color: '#3b82f6', type: 'dashed' }, label: { formatter: '良好线' } },
+        { yAxis: 60, lineStyle: { color: '#f59e0b', type: 'dashed' }, label: { formatter: '及格线' } }
+      ]
+    }
+  }
 })
 
 const leaveByClassOption = computed(() => {
@@ -248,4 +319,30 @@ p {
   font-size: 13px;
 }
 
+.score-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 0 20px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.legend-item::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.legend-item.excellent::before { background: #22c55e; }
+.legend-item.good::before { background: #3b82f6; }
+.legend-item.pass::before { background: #f59e0b; }
+.legend-item.fail::before { background: #ef4444; }
 </style>

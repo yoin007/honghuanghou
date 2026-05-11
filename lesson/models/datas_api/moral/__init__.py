@@ -33,6 +33,7 @@ from .base import (
     get_next_school_year,
     get_user_role_level,
     MORAL_PERMISSIONS,
+    get_user_data_scope_tabs,
 )
 
 from .daily_record import router as daily_record_router
@@ -58,6 +59,7 @@ from fastapi import APIRouter
 from fastapi import Depends
 from typing import List
 import json
+from models.datas_api.auth import User, get_current_user
 
 # 创建主路由聚合器
 router = APIRouter(prefix="/moral", tags=["德育评价"])
@@ -93,6 +95,48 @@ async def get_punishment_types_direct():
         {"action": "observation", "name": "留校查看", "level": "四级"}
     ]
     return {"success": True, "data": default_types}
+
+
+@router.get("/data-scope", summary="获取数据范围能力")
+async def get_data_scope(user: User = Depends(get_current_user)):
+    """
+    获取当前用户在各模块的数据范围能力（选项卡配置）。
+
+    返回用户在点滴记录、日常表现等模块可用的数据范围选项卡，
+    用于前端动态渲染选项卡 UI。
+
+    Returns:
+        {
+            "moment": {"tabs": [...], "default_tab": "..."},
+            "daily_record": {"tabs": [...], "default_tab": "..."},
+            ...
+        }
+    """
+    # 各模块的权限配置
+    module_configs = {
+        "moment-records": {
+            "all_permissions": ['moment_view_all', 'moral_record_manage', 'report_view_all'],
+            "own_class_permissions": ['moral_record_own_class', 'report_view_own_class'],
+            "own_permissions": ['moment_create', 'moment_view_own'],
+        },
+        "daily-records": {
+            "all_permissions": ['moral_record_manage', 'report_view_all'],
+            "own_class_permissions": ['moral_record_own_class', 'report_view_own_class'],
+            "own_permissions": ['moral_record_input', 'moral_record_view_own'],
+        },
+    }
+
+    with get_moral_db() as db:
+        result = {}
+        for module, config in module_configs.items():
+            result[module.replace("-", "_")] = get_user_data_scope_tabs(
+                db, user, module,
+                all_permissions=config["all_permissions"],
+                own_class_permissions=config["own_class_permissions"],
+                own_permissions=config["own_permissions"],
+            )
+
+        return {"success": True, "data": result}
 
 
 # 包含所有子路由

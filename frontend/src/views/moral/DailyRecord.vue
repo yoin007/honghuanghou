@@ -1,5 +1,12 @@
 <template>
   <div class="daily-record-page">
+    <!-- 数据范围选项卡 -->
+    <MoralScopeTabs
+      module="daily_records"
+      @change="handleScopeChange"
+      @ready="handleScopeReady"
+    />
+
     <el-card class="filter-card">
       <el-form :inline="true" :model="filterForm" class="filter-form">
         <el-form-item label="学生学号">
@@ -57,6 +64,11 @@
             <span :class="row.score > 0 ? 'score-positive' : 'score-negative'">
               {{ row.score > 0 ? '+' : '' }}{{ row.score }}
             </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="记录人" width="100">
+          <template #default="{ row }">
+            {{ row.recorder_name || row.recorder || '-' }}
           </template>
         </el-table-column>
         <el-table-column prop="record_date" label="时间" width="160" />
@@ -172,6 +184,7 @@ import {
 } from '@/api/modules/moral'
 import { getGMT8TimeString } from '@/utils/time'
 import { useApiPermission } from '@/composables/useApiPermission'
+import MoralScopeTabs from '@/components/MoralScopeTabs.vue'
 
 // API权限
 const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
@@ -187,6 +200,9 @@ const classList = ref([])
 const gradeList = ref([])
 const classStudents = ref([])
 const eventTypes = ref([])
+
+// 当前数据范围 scope
+const currentScope = ref(null)
 
 // 筛选表单
 const filterForm = reactive({
@@ -248,6 +264,10 @@ const fetchRecords = async () => {
         delete params[key]
       }
     })
+    // 添加数据范围参数
+    if (currentScope.value) {
+      params.scope = currentScope.value
+    }
 
     const res = await getDailyRecords(params)
     if (res.success) {
@@ -472,6 +492,22 @@ const handleExport = async () => {
   }
 }
 
+/**
+ * 数据范围选项卡变化处理
+ */
+const handleScopeChange = (scope) => {
+  currentScope.value = scope
+  pagination.page = 1
+  fetchRecords()
+}
+
+/**
+ * 数据范围选项卡初始化完成处理
+ */
+const handleScopeReady = ({ tabs, defaultTab }) => {
+  // 选项卡组件已通过 change 事件触发首次数据获取
+}
+
 // 生命周期
 onMounted(async () => {
   await loadMyPermissions()
@@ -482,7 +518,7 @@ onMounted(async () => {
   fetchEventTypes()
   fetchGradeList()
   fetchClassList()
-  fetchRecords()
+  // 不在这里调用 fetchRecords，等选项卡组件初始化后触发
 })
 </script>
 

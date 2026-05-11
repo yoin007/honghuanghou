@@ -1,5 +1,12 @@
 <template>
   <div class="moment-record-page">
+    <!-- 数据范围选项卡 -->
+    <MoralScopeTabs
+      module="moment_records"
+      @change="handleScopeChange"
+      @ready="handleScopeReady"
+    />
+
     <el-card class="filter-card">
       <el-form :inline="true" :model="filterForm">
         <el-form-item label="学生学号/姓名">
@@ -59,7 +66,12 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="record_date" label="记录日期" width="100" />
+        <el-table-column label="记录人" width="100">
+          <template #default="{ row }">
+            {{ row.recorder_name || row.recorder || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="record_date" label="记录日期" width="120" />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateMomentRecord && row.can_edit">编辑</el-button>
@@ -137,6 +149,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMomentRecords, createMomentRecord, updateMomentRecord, deleteMomentRecord, getClasses, getStudents } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
 import { useApiPermission } from '@/composables/useApiPermission'
+import MoralScopeTabs from '@/components/MoralScopeTabs.vue'
 
 const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
 const canCreateMomentRecord = ref(false)
@@ -147,6 +160,9 @@ const loading = ref(false)
 const recordList = ref([])
 const classList = ref([])
 const studentsByClass = ref({})
+
+// 当前数据范围 scope
+const currentScope = ref(null)
 
 const filterForm = reactive({
   student_keyword: '',
@@ -215,6 +231,10 @@ const fetchRecords = async () => {
     }
     if (filterForm.record_type) {
       params.record_type = filterForm.record_type
+    }
+    // 添加数据范围参数
+    if (currentScope.value) {
+      params.scope = currentScope.value
     }
 
     const res = await getMomentRecords(params)
@@ -375,12 +395,29 @@ const handleExport = async () => {
   }
 }
 
+/**
+ * 数据范围选项卡变化处理
+ */
+const handleScopeChange = (scope) => {
+  currentScope.value = scope
+  pagination.page = 1
+  fetchRecords()
+}
+
+/**
+ * 数据范围选项卡初始化完成处理
+ */
+const handleScopeReady = ({ tabs, defaultTab }) => {
+  // 选项卡组件已通过 change 事件触发首次数据获取
+  // 这里仅记录 tabs 信息，无需额外处理
+}
+
 onMounted(async () => {
   await loadMyPermissions()
   canCreateMomentRecord.value = hasApiPermissionSync('/api/moral/moment-records/create')
   canUpdateMomentRecord.value = hasApiPermissionSync('/api/moral/moment-records/update')
   canDeleteMomentRecord.value = hasApiPermissionSync('/api/moral/moment-records/delete')
-  fetchRecords()
+  // 不在这里调用 fetchRecords，等选项卡组件初始化后触发
   fetchClassesAndStudents()
 })
 </script>

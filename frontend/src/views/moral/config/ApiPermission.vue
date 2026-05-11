@@ -41,6 +41,7 @@
               <el-button @click="handleEditModule" :disabled="!selectedModule">编辑模块</el-button>
               <el-button @click="handleApplyModule" :disabled="!selectedModule">应用模块权限</el-button>
               <el-button @click="handleSyncLegacy" :loading="syncLoading">同步旧配置</el-button>
+              <el-button @click="handleSyncScopeRules" :loading="scopeLoading">同步范围规则</el-button>
               <el-button type="primary" @click="handleInit" :loading="initLoading">初始化默认配置</el-button>
               <el-button type="success" @click="handleAdd">新增API</el-button>
             </div>
@@ -143,7 +144,7 @@
             placeholder='{"teacher":["own_created"],"cleader":["own_created","own_class"],"xuefa":["all"]}'
           />
           <div class="scope-help">
-            控制查询、编辑、删除时能操作哪些已有数据。可选值：all=全部，own_created=自己创建，own_class=自己班级，teaching_classes=任教班级。例：班主任查看自己创建+本班，填 {"cleader":["own_created","own_class"]}。
+            控制查询、编辑、删除时能操作哪些已有数据。可选值：all=全部，own_created=自己创建，own_class=自己班级，teaching_classes=任教班级，g_leader_grade=年级主任管理的年级。例：班主任查看自己创建+本班，填 {"cleader":["own_created","own_class"]}；年级主任查看本年级，填 {"g_leader":["g_leader_grade"]}。
           </div>
         </el-form-item>
         <el-form-item label="目标范围">
@@ -154,7 +155,7 @@
             placeholder='{"teacher":["all_students"],"cleader":["all_students"]}'
           />
           <div class="scope-help">
-            控制新增、录入时能选择哪些学生。可选值：all_students=全校学生，own_class=自己班级，teaching_classes=任教班级。若填 {"teacher":["teaching_classes"]}，有维护任教班级时按任教班级限制；未维护任教班级时默认全校。
+            控制新增、录入时能选择哪些学生。可选值：all_students=全校学生，own_class=自己班级，teaching_classes=任教班级，g_leader_grade=年级主任管理的年级。若填 {"teacher":["teaching_classes"]}，有维护任教班级时按任教班级限制；未维护任教班级时默认全校。
           </div>
         </el-form-item>
         <template v-if="!form.inherit_from_module && !form.is_public">
@@ -234,6 +235,7 @@ import {
   updateApiPermission,
   deleteApiPermission,
   initApiPermissions,
+  syncDefaultScopeRules,
   getApiPermissionModules,
   createApiPermissionModule,
   updateApiPermissionModule,
@@ -244,6 +246,7 @@ import {
 const loading = ref(false)
 const initLoading = ref(false)
 const syncLoading = ref(false)
+const scopeLoading = ref(false)
 const submitLoading = ref(false)
 const moduleSubmitLoading = ref(false)
 const permissions = ref([])
@@ -426,6 +429,39 @@ const handleSyncLegacy = async () => {
     if (error !== 'cancel') console.error('同步旧配置失败:', error)
   } finally {
     syncLoading.value = false
+  }
+}
+
+const handleSyncScopeRules = async () => {
+  try {
+    const { value } = await ElMessageBox.confirm(
+      '将代码中的默认数据范围规则同步到数据库。\n\n选择"补齐"只更新空配置，选择"强制"会覆盖所有配置。',
+      '同步范围规则',
+      {
+        type: 'warning',
+        confirmButtonText: '强制覆盖',
+        cancelButtonText: '取消',
+        distinguishCancelAndClose: true,
+      }
+    ).catch((action) => {
+      if (action === 'cancel') {
+        // 用户点击了取消按钮，执行补齐模式
+        return { value: '补齐' }
+      }
+      throw action
+    })
+
+    const force = value === '强制覆盖' ? 1 : 0
+    scopeLoading.value = true
+    const res = await syncDefaultScopeRules(force)
+    if (res.success) {
+      ElMessage.success(res.message)
+      refreshAll()
+    }
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') console.error('同步范围规则失败:', error)
+  } finally {
+    scopeLoading.value = false
   }
 }
 

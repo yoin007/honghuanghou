@@ -6,6 +6,18 @@
 import { httpClient } from '@/shared/api/httpClient'
 
 // =============================================================================
+// 数据范围能力 API
+// =============================================================================
+
+/**
+ * 获取数据范围能力（选项卡配置）
+ * 返回用户在各模块可用的数据范围选项卡
+ */
+export function getDataScope() {
+  return httpClient.get('/api/moral/data-scope')
+}
+
+// =============================================================================
 // 日常表现记录 API
 // =============================================================================
 
@@ -702,6 +714,14 @@ export function initApiPermissions() {
 }
 
 /**
+ * 强制同步默认数据范围规则到数据库
+ * @param {number} force - 0=只补齐空配置，1=强制覆盖
+ */
+export function syncDefaultScopeRules(force = 0) {
+  return httpClient.post('/api/moral/api-permissions/sync-default-scope-rules', null, { params: { force } })
+}
+
+/**
  * 获取API分组列表
  */
 export function getApiGroups() {
@@ -949,6 +969,9 @@ export function updateSystemConfig(data) {
 
 // 导出所有 API
 export default {
+  // 数据范围能力
+  getDataScope,
+
   // 日常表现
   getDailyEventTypes,
   getDailyRecords,

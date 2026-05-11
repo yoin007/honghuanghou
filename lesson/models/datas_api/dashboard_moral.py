@@ -125,3 +125,41 @@ def class_score_rank(db, where_clause: str, params: tuple, top_n: int) -> List[D
             LIMIT {top_n}""",
         params,
     )
+
+
+def class_score_rank_all(db, class_filter: str = None, grade_filter: int = None, top_n: int = 10) -> List[Dict[str, object]]:
+    """Build class score rank for all visible classes based on role.
+
+    Args:
+        db: Moral database connection.
+        class_filter: Class name filter for cleader (single class).
+        grade_filter: Grade ID filter for g_leader (grade classes).
+        top_n: Maximum number of classes to return.
+
+    Returns:
+        List of dicts with class_name, avg_score, student_count.
+    """
+    # Build WHERE clause for class filtering
+    conditions = ["c.is_active = 1"]
+    params = []
+
+    if class_filter:
+        conditions.append("c.class_name = %s")
+        params.append(class_filter)
+    elif grade_filter:
+        conditions.append("c.grade_id = %s")
+        params.append(grade_filter)
+
+    where_clause = " AND ".join(conditions)
+
+    return safe_query_all(
+        db,
+        f"""SELECT c.class_name, ROUND(AVG(me.total_score), 1) AS avg_score, COUNT(*) AS student_count
+            FROM moral_evaluation me
+            JOIN class c ON me.class_id = c.class_id
+            WHERE {where_clause}
+            GROUP BY c.class_id, c.class_name
+            ORDER BY avg_score DESC
+            LIMIT {top_n}""",
+        tuple(params) if params else (),
+    )

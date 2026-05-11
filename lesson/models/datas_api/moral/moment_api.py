@@ -102,6 +102,7 @@ async def get_moment_records(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     record_type: Optional[str] = Query(None),
+    scope: Optional[str] = Query(None, description="数据范围: own(我创建的), own_class(我的班级), own_grade(我的年级), all(全校)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
     user: User = Depends(get_current_user)
@@ -110,21 +111,69 @@ async def get_moment_records(
     获取点滴记录列表
 
     权限说明：
-    - teacher/cleader: 只能查看自己创建的记录
-    - admin/jiaowu: 可以查看所有记录
+    - teacher: 只能查看自己创建的记录 (scope=own)
+    - cleader: 可以查看自己创建的和本班记录 (scope=own/own_class)
+    - g_leader: 可以查看自己创建的和本年级记录 (scope=own/own_grade)
+    - admin/jiaowu/xuefa: 可以查看全部记录 (scope=all)
+
+    scope参数用于主动切换数据范围，后端会校验越权。
     """
     with get_moral_db() as db:
         conditions = ["mr.is_private = 1"]
         params = []
 
         view_scope = _moment_view_scope(db, user)
-        append_record_scope_condition(
-            conditions,
-            params,
-            view_scope,
-            table_alias="mr",
-            username=user.username,
-        )
+
+        # 如果指定了 scope 参数，进行越权校验并调整数据范围
+        if scope:
+            # 越权校验
+            scope_allowed = False
+            if scope == "own" and view_scope.get("can_own"):
+                scope_allowed = True
+            elif scope == "own_class" and view_scope.get("can_own_class"):
+                scope_allowed = True
+            elif scope == "own_grade" and view_scope.get("can_own_grade"):
+                scope_allowed = True
+            elif scope == "all" and view_scope.get("can_all"):
+                scope_allowed = True
+
+            if not scope_allowed:
+                raise HTTPException(403, f"无权访问 scope={scope} 的数据")
+
+            # 构造仅包含指定 scope 的过滤条件
+            scope_conditions = []
+            scope_params = []
+
+            if scope == "own":
+                scope_conditions.append("mr.recorder = %s")
+                scope_params.append(user.username)
+            elif scope == "own_class" and view_scope.get("my_class_id"):
+                scope_conditions.append("mr.class_id = %s")
+                scope_params.append(view_scope["my_class_id"])
+            elif scope == "own_grade":
+                my_grade_class_ids = view_scope.get("my_grade_class_ids") or []
+                if my_grade_class_ids:
+                    placeholders = ", ".join(["%s"] * len(my_grade_class_ids))
+                    scope_conditions.append(f"mr.class_id IN ({placeholders})")
+                    scope_params.extend(my_grade_class_ids)
+                else:
+                    scope_conditions.append("1 = 0")
+            elif scope == "all":
+                # 全部权限，不加限制
+                pass
+
+            if scope_conditions:
+                conditions.append("(" + " OR ".join(scope_conditions) + ")")
+                params.extend(scope_params)
+        else:
+            # 未指定 scope，使用默认权限范围
+            append_record_scope_condition(
+                conditions,
+                params,
+                view_scope,
+                table_alias="mr",
+                username=user.username,
+            )
 
         if student_id:
             conditions.append("mr.student_id = %s")
@@ -151,11 +200,13 @@ async def get_moment_records(
         # 分页查询
         offset = (page - 1) * page_size
         data_query = f"""
-            SELECT mr.*, s.name as student_name, c.class_name, g.grade_name
+            SELECT mr.*, s.name as student_name, c.class_name, g.grade_name,
+                   t.name as recorder_name
             FROM moment_record mr
             JOIN student s ON mr.student_id = s.student_id
             JOIN class c ON mr.class_id = c.class_id
             JOIN grade g ON mr.grade_id = g.grade_id
+            LEFT JOIN teacher t ON mr.recorder = t.name
             WHERE {where_clause}
             ORDER BY mr.record_date DESC, mr.created_at DESC
             LIMIT %s OFFSET %s

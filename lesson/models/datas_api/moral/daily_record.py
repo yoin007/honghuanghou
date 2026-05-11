@@ -183,6 +183,7 @@ async def get_daily_records(
     event_type: Optional[int] = Query(None, description="事件类型"),
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
+    scope: Optional[str] = Query(None, description="数据范围: own(我创建的), own_class(我的班级), own_grade(我的年级), all(全校)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
     user: User = Depends(get_current_user)
@@ -191,8 +192,12 @@ async def get_daily_records(
     获取日常表现记录列表
 
     权限说明：
-    - admin/xuefa/jiaowu: 可查看所有记录
-    - cleader/teacher: 只能查看自己创建的记录
+    - teacher: 只能查看自己创建的记录 (scope=own)
+    - cleader: 可以查看自己创建的和本班记录 (scope=own/own_class)
+    - g_leader: 可以查看自己创建的和本年级记录 (scope=own/own_grade)
+    - admin/jiaowu/xuefa: 可以查看全部记录 (scope=all)
+
+    scope参数用于主动切换数据范围，后端会校验越权。
     """
     with get_moral_db() as db:
         # 获取当前学期
@@ -233,15 +238,58 @@ async def get_daily_records(
             params.append(end_date)
 
         # 权限过滤：API 控制入口，数据范围控制能查看哪些记录。
-        # 教师：自己创建；班主任：自己创建 + 本班学生；管理角色：全部。
         view_scope = _daily_view_scope(db, user)
-        append_record_scope_condition(
-            conditions,
-            params,
-            view_scope,
-            table_alias="dr",
-            username=user.username,
-        )
+
+        # 如果指定了 scope 参数，进行越权校验并调整数据范围
+        if scope:
+            # 越权校验
+            scope_allowed = False
+            if scope == "own" and view_scope.get("can_own"):
+                scope_allowed = True
+            elif scope == "own_class" and view_scope.get("can_own_class"):
+                scope_allowed = True
+            elif scope == "own_grade" and view_scope.get("can_own_grade"):
+                scope_allowed = True
+            elif scope == "all" and view_scope.get("can_all"):
+                scope_allowed = True
+
+            if not scope_allowed:
+                raise HTTPException(403, f"无权访问 scope={scope} 的数据")
+
+            # 构造仅包含指定 scope 的过滤条件
+            scope_conditions = []
+            scope_params = []
+
+            if scope == "own":
+                scope_conditions.append("dr.recorder = %s")
+                scope_params.append(user.username)
+            elif scope == "own_class" and view_scope.get("my_class_id"):
+                scope_conditions.append("dr.class_id = %s")
+                scope_params.append(view_scope["my_class_id"])
+            elif scope == "own_grade":
+                my_grade_class_ids = view_scope.get("my_grade_class_ids") or []
+                if my_grade_class_ids:
+                    placeholders = ", ".join(["%s"] * len(my_grade_class_ids))
+                    scope_conditions.append(f"dr.class_id IN ({placeholders})")
+                    scope_params.extend(my_grade_class_ids)
+                else:
+                    scope_conditions.append("1 = 0")
+            elif scope == "all":
+                # 全部权限，不加限制
+                pass
+
+            if scope_conditions:
+                conditions.append("(" + " OR ".join(scope_conditions) + ")")
+                params.extend(scope_params)
+        else:
+            # 未指定 scope，使用默认权限范围
+            append_record_scope_condition(
+                conditions,
+                params,
+                view_scope,
+                table_alias="dr",
+                username=user.username,
+            )
 
         where_clause = " AND ".join(conditions)
 
@@ -260,12 +308,13 @@ async def get_daily_records(
         offset = (page - 1) * page_size
         data_query = f"""
             SELECT dr.*, s.name as student_name, de.event_name, de.event_type,
-                   c.class_name, g.grade_name
+                   c.class_name, g.grade_name, t.name as recorder_name
             FROM student_daily_record dr
             JOIN student s ON dr.student_id = s.student_id
             JOIN daily_event_type de ON dr.event_id = de.event_id
             JOIN class c ON dr.class_id = c.class_id
             JOIN grade g ON dr.grade_id = g.grade_id
+            LEFT JOIN teacher t ON dr.recorder = t.name
             WHERE {where_clause}
             ORDER BY dr.record_date DESC, dr.created_at DESC
             LIMIT %s OFFSET %s

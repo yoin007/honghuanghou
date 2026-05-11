@@ -97,12 +97,16 @@ def _merge_trend_data(
     for row in task_data:
         period = row.get('period', '')
         all_periods.add(period)
-        task_map[period] = row.get('score', 0) or 0
+        # 兼容 'score' 和 'avg_score' 字段名
+        score = row.get('score') or row.get('avg_score') or 0
+        task_map[period] = score
 
     for row in record_data:
         period = row.get('period', '')
         all_periods.add(period)
-        record_map[period] = row.get('score', 0) or 0
+        # 兼容 'score' 和 'avg_score' 字段名
+        score = row.get('score') or row.get('avg_score') or 0
+        record_map[period] = score
 
     # 按周期排序
     sorted_periods = sorted(all_periods)
@@ -342,7 +346,7 @@ async def get_grade_score_trend(
     """年级平均得分趋势图数据。
 
     Args:
-        grade_id: 年级ID（如高一、高二、高三）
+        grade_id: 年级ID（如高一、高二、高三）或年级数据库ID
         unit: 聚合单位
         semester_id: 学期ID
         user: 当前用户
@@ -359,12 +363,26 @@ async def get_grade_score_trend(
         grade_names = {"高一": "高一年级", "高二": "高二年级", "高三": "高三年级"}
         grade_name = grade_names.get(grade_id, grade_id)
 
-        # 获取年级下所有班级
-        grade_filter = f"%{grade_id}%"
-        classes = db.query_all(
-            "SELECT class_id, class_name FROM class WHERE is_active = 1 AND class_name LIKE %s",
-            (grade_filter,)
+        # 获取年级ID（优先从 grade 表）
+        grade_row = db.query_one(
+            "SELECT grade_id, grade_name FROM grade WHERE grade_name = %s OR grade_name = %s OR grade_id = %s",
+            (grade_name, grade_id + "年级", grade_id)
         )
+        grade_id_int = grade_row["grade_id"] if grade_row else None
+
+        # 获取年级下所有班级（通过 grade_id 关联）
+        if grade_id_int:
+            classes = db.query_all(
+                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND grade_id = %s",
+                (grade_id_int,)
+            )
+        else:
+            # 兜底：用班级名匹配
+            grade_filter = f"%{grade_id}%"
+            classes = db.query_all(
+                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND class_name LIKE %s",
+                (grade_filter,)
+            )
         class_ids = [c['class_id'] for c in classes]
 
         if not class_ids:
