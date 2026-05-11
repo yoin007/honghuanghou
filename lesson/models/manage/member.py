@@ -607,9 +607,9 @@ class Member:
             return cursor.rowcount
 
     def member_info(self, uuid=""):
-        """获取成员信息"""
-        self.ensure_unified_member_schema()
-        self.migrate_legacy_members_to_teacher()
+        """获取成员信息（纯读取，不触发 schema 检查和迁移）"""
+        # ensure_unified_member_schema 和迁移已完成，移除每次调用的写入操作
+        # 避免并发读取时触发 database locked
         with _get_sqlite_connection_manager()(MORAL_DB) as conn:
             if uuid == "":
                 rows = conn.execute(
