@@ -9,7 +9,7 @@
       description="年级整体数据、班级对比、德育表现和出勤事务汇总。"
     >
       <div v-if="_isManager" class="filter-console">
-        <el-select v-model="selectedGradeId" placeholder="选择年级" @change="onGradeChange">
+        <el-select v-model="selectedGradeId" placeholder="选择年级" @change="onGradeChange" style="width: 140px">
           <el-option v-for="g in gradeList" :key="g.grade_id" :label="g.grade_name" :value="g.grade_id" />
         </el-select>
       </div>
@@ -23,14 +23,14 @@
         title="年级班级对比"
         eyebrow="CLASS COMPARISON"
         :option="classComparisonOption"
-        :empty="isEmpty(summary.charts?.class_comparison)"
+        :empty="!summary.charts?.class_comparison?.length"
         emptyText="暂无班级对比数据"
       />
       <DashboardChart
         title="德育分数段分布"
         eyebrow="SCORE BAND"
         :option="scoreBandOption"
-        :empty="isEmpty(summary.charts?.score_band)"
+        :empty="!summary.charts?.score_band?.length"
         emptyText="暂无德育分分布数据"
       />
     </section>
@@ -142,7 +142,7 @@ const authStore = useAuthStore()
 
 const summary = ref({ cards: [], charts: {}, tables: {} })
 const gradeList = ref([])
-const selectedGradeId = ref(null)
+const selectedGradeId = ref(null) // 直接使用数据库 ID
 const gradeInfo = ref({})
 const studentList = ref([])
 const selectedStudentId = ref(null)
@@ -250,7 +250,9 @@ const fetchSummary = async (filters = {}) => {
 function onGradeChange(gradeId) {
   selectedGradeId.value = gradeId
   const grade = gradeList.value.find(g => g.grade_id === gradeId)
-  if (grade) gradeInfo.value = grade
+  if (grade) {
+    gradeInfo.value = grade
+  }
   fetchSummary()
   fetchGradeStudentList()
   fetchGradeTrend()
@@ -259,16 +261,10 @@ function onGradeChange(gradeId) {
 const fetchGradeStudentList = async () => {
   if (!selectedGradeId.value) return
   try {
-    // 根据年级过滤获取学生
-    const res = await getStudents({ page_size: 500 })
+    // 直接传递 grade_id 参数获取该年级学生（后端会根据权限过滤）
+    const res = await getStudents({ grade_id: selectedGradeId.value, page_size: 500 })
     if (res.success) {
-      const gradeIdText = selectedGradeId.value
-      const allStudents = res.data.items || res.data || []
-      // 过滤年级学生（通过班级名判断）
-      studentList.value = allStudents.filter(s => {
-        const className = s.class_name || ''
-        return className.includes(gradeIdText)
-      })
+      studentList.value = res.data.items || res.data || []
     }
   } catch (e) {
     console.error('获取年级学生列表失败:', e)
@@ -276,6 +272,7 @@ const fetchGradeStudentList = async () => {
 }
 
 const fetchGradeTrend = async () => {
+  // 使用数据库年级 ID（selectedGradeId 就是数据库 ID）
   if (!selectedGradeId.value) return
   trendLoading.value = true
   try {
@@ -323,8 +320,9 @@ async function loadGradeList() {
     if (res.success) {
       gradeList.value = res.data || []
       if (gradeList.value.length > 0 && !selectedGradeId.value) {
-        selectedGradeId.value = gradeList.value[0].grade_id
-        gradeInfo.value = gradeList.value[0]
+        const firstGrade = gradeList.value[0]
+        selectedGradeId.value = firstGrade.grade_id // 直接使用数据库 ID
+        gradeInfo.value = firstGrade
         fetchSummary()
         fetchGradeStudentList()
         fetchGradeTrend()

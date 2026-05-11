@@ -28,6 +28,35 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/teachers", tags=["教师管理"])
 
 
+def calculate_level_from_role(role: str) -> int:
+    """
+    根据角色计算等级：
+    - teacher: 10
+    - cleader: 20
+    - g_leader: 30
+    - xuefa/jiaowu: 40
+    - admin: 50
+    """
+    role_levels = {
+        "teacher": 10,
+        "cleader": 20,
+        "g_leader": 30,
+        "xuefa": 40,
+        "jiaowu": 40,
+        "admin": 50,
+    }
+    # 多角色情况，取最高等级
+    if not role:
+        return 10
+    roles = role.split("/")
+    max_level = 10
+    for r in roles:
+        level = role_levels.get(r.strip(), 10)
+        if level > max_level:
+            max_level = level
+    return max_level
+
+
 # ==================== Request Models ====================
 
 class TeacherCreate(BaseModel):
@@ -37,7 +66,7 @@ class TeacherCreate(BaseModel):
     notice: int = 1  # 通知开关（原 active）
     password: str
     role: str = "teacher"
-    level: int = 5
+    level: Optional[int] = None  # 可手动覆盖，否则按 role 自动计算
 
 
 class TeacherUpdate(BaseModel):
@@ -48,7 +77,7 @@ class TeacherUpdate(BaseModel):
     notice: Optional[int] = None  # 通知开关
     active: Optional[int] = None  # 登录权限
     role: Optional[str] = None
-    level: Optional[int] = None
+    level: Optional[int] = None  # 可手动覆盖，否则按 role 自动计算
     score: Optional[int] = None
     balance: Optional[int] = None
     model: Optional[str] = None
@@ -150,7 +179,8 @@ async def create_teacher(
 
     try:
         hashed_password = hash_password(str(teacher.password))
-        # 不再写入 raw_pwd 明文，只保存哈希值
+        # 如果前端传了 level，使用传来的值；否则按角色自动计算
+        final_level = teacher.level if teacher.level is not None else calculate_level_from_role(teacher.role)
         create_teacher_record(
             name=teacher.username,
             subject=teacher.subject,
@@ -158,13 +188,13 @@ async def create_teacher(
             notice=teacher.notice,
             password_hash=str(hashed_password),
             role=teacher.role,
-            level=teacher.level,
+            level=final_level,
             active=1,
             is_password_changed=1,
         )
 
-        logger.info(f"Admin {current_user.username} created teacher {teacher.username}")
-        return {"message": f"教师 {teacher.username} 创建成功", "success": True}
+        logger.info(f"Admin {current_user.username} created teacher {teacher.username} with role={teacher.role}, level={final_level}")
+        return {"message": f"教师 {teacher.username} 创建成功", "success": True, "level": final_level}
 
     except HTTPException:
         raise
@@ -186,6 +216,12 @@ async def update_teacher(
         raise HTTPException(status_code=403, detail="只有管理员可以更新教师")
 
     try:
+        # 计算最终 level：前端传值则使用，否则按 role 自动计算
+        final_level = None
+        if teacher.level is not None:
+            final_level = teacher.level
+        elif teacher.role:
+            final_level = calculate_level_from_role(teacher.role)
         update_teacher_record(
             username,
             name=teacher.username,
@@ -195,7 +231,7 @@ async def update_teacher(
             notice=teacher.notice,
             active=teacher.active,
             role=teacher.role,
-            level=teacher.level,
+            level=final_level,
             score=teacher.score,
             balance=teacher.balance,
             model=teacher.model,
@@ -206,8 +242,8 @@ async def update_teacher(
             all_records=True,
         )
 
-        logger.info(f"Admin {current_user.username} updated teacher record {username}")
-        return {"message": f"记录 {username} 更新成功", "success": True}
+        logger.info(f"Admin {current_user.username} updated teacher record {username}, role={teacher.role}, level={final_level}")
+        return {"message": f"记录 {username} 更新成功", "success": True, "level": final_level}
 
     except HTTPException:
         raise

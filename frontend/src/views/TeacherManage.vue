@@ -147,6 +147,7 @@
         </el-form-item>
         <el-form-item label="等级" prop="level">
           <el-input-number v-model="teacherForm.level" :min="0" :max="100" />
+          <div class="form-help">默认按角色自动设置：教师10、班主任20、年级主任30、学发教务40、管理员50，可手动覆盖</div>
         </el-form-item>
         <el-form-item label="通知" prop="notice">
           <el-switch v-model="teacherForm.notice" :active-value="1" :inactive-value="0" />
@@ -197,6 +198,7 @@
         </el-form-item>
         <el-form-item label="等级" prop="level">
           <el-input-number v-model="editForm.level" :min="0" :max="100" />
+          <div class="form-help">默认按角色自动设置：教师10、班主任20、年级主任30、学发教务40、管理员50，可手动覆盖</div>
         </el-form-item>
         <el-form-item label="通知" prop="notice">
           <el-switch v-model="editForm.notice" :active-value="1" :inactive-value="0" />
@@ -349,7 +351,7 @@ const teacherForm = reactive({
   course: '',
   role: ['teacher'],
   notice: 1,
-  level: 1
+  level: 10  // 默认教师等级，管理员可覆盖
 })
 
 const teacherRules = {
@@ -372,7 +374,7 @@ const editForm = reactive({
   role: ['teacher'],
   notice: 1,
   active: 1,
-  level: 1,
+  level: 10,  // 显示当前等级，管理员可修改
   score: 50,
   balance: 0,
   model: 'basic',
@@ -598,7 +600,7 @@ const handleAdd = () => {
   teacherForm.course = ''
   teacherForm.role = ['teacher']
   teacherForm.notice = 1
-  teacherForm.level = 1
+  teacherForm.level = 10  // 默认教师等级
   addDialogVisible.value = true
 }
 
@@ -613,9 +615,9 @@ const handleAddSubmit = async () => {
           password: teacherForm.password,
           subject: teacherForm.subject,
           course: teacherForm.course,
-          role: teacherForm.role.join('/'), // 将数组连接为字符串
+          role: teacherForm.role.join('/'),
           notice: teacherForm.notice,
-          level: teacherForm.level
+          level: teacherForm.level  // 管理员可手动覆盖
         })
         ElMessage.success('添加成功')
         addDialogVisible.value = false
@@ -637,11 +639,10 @@ const handleEdit = (row) => {
   editForm.wxid = row.wxid || ''
   editForm.subject = row.subject || ''
   editForm.course = row.course || ''
-  // 将角色字符串拆分为数组（支持多角色如 "teacher/cleader"）
   editForm.role = row.role ? row.role.split('/') : ['teacher']
   editForm.notice = row.notice !== undefined ? row.notice : 1
   editForm.active = row.active !== undefined ? row.active : 1
-  editForm.level = row.level || 1
+  editForm.level = row.level || 10  // 显示当前等级
   editForm.score = row.score ?? 50
   editForm.balance = row.balance ?? 0
   editForm.model = row.model || ''
@@ -663,10 +664,10 @@ const handleEditSubmit = async () => {
           wxid: editForm.wxid,
           subject: editForm.subject,
           course: editForm.course,
-          role: editForm.role.join('/'), // 将数组连接为字符串
+          role: editForm.role.join('/'),
           notice: editForm.notice,
           active: editForm.active,
-          level: editForm.level,
+          level: editForm.level,  // 管理员可手动覆盖
           score: editForm.score,
           balance: editForm.balance,
           model: editForm.model,

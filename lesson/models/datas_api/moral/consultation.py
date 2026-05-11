@@ -10,7 +10,7 @@ from datetime import datetime, date
 from typing import Optional, List
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from .base import (
@@ -21,6 +21,15 @@ from .base import (
     get_teacher_class_id,
 )
 from models.datas_api.auth import User, get_current_user
+
+# 导入 AI 调用模块（放在顶部，确保后续函数可用）
+from .consultation_ai import (
+    generate_initial_analysis as ai_generate_initial_analysis,
+    detect_followup_type,
+    generate_followup_analysis,
+    generate_closure_report,
+    calculate_days_elapsed
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,13 +145,14 @@ async def get_consultations(
 async def create_consultation(
     consultation: ConsultationCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(require_permission('ai_consultation_own_class'))
 ):
-    """创建诊疗会话"""
+    """创建诊疗会话 - 异步处理 AI 分析"""
     with get_moral_db() as db:
         # 获取学生信息
         student = db.query_one(
-            """SELECT s.*, c.leader_name FROM student s
+            """SELECT s.*, c.leader_name, c.class_name FROM student s
             JOIN class c ON s.class_id = c.class_id
             WHERE s.student_id = %s""",
             (consultation.student_id,)
@@ -157,7 +167,7 @@ async def create_consultation(
                 if not check_moral_permission(user, 'ai_consultation'):
                     raise HTTPException(403, "只能处理本班学生")
 
-        # 创建会话
+        # 创建会话（初始状态为 pending）
         db.execute(
             """INSERT INTO ai_consultation
             (student_id, consultation_type, title, description, priority, creator)
@@ -169,25 +179,86 @@ async def create_consultation(
 
         consultation_id = db.lastrowid()
 
-        # 初始AI分析
-        ai_analysis = generate_initial_analysis(consultation, student)
-        if ai_analysis:
+    # 构建学生信息字典（用于 AI 分析）
+    student_info = {
+        'name': student.get('name', ''),
+        'class_name': student.get('class_name', ''),
+        'gender': student.get('gender', '未知')
+    }
+
+    # 注册后台任务 - AI 分析异步执行
+    background_tasks.add_task(
+        run_ai_analysis_background,
+        consultation_id,
+        consultation.consultation_type,
+        student_info,
+        consultation.description,
+        consultation.priority
+    )
+
+    return {
+        "success": True,
+        "message": "诊疗会话创建成功，AI 分析正在生成中",
+        "data": {
+            "id": consultation_id,
+            "ai_analysis_status": "pending",
+            "ai_analysis": None
+        }
+    }
+
+
+def run_ai_analysis_background(
+    consultation_id: int,
+    consultation_type: str,
+    student: dict,
+    description: str,
+    priority: str
+):
+    """后台任务：执行 AI 分析并更新数据库"""
+    try:
+        from .consultation_ai import generate_initial_analysis as ai_gen
+
+        # 调用 AI 分析
+        ai_result = ai_gen(
+            consultation_type=consultation_type,
+            student=student,
+            description=description,
+            priority=priority
+        )
+
+        # 更新分析结果
+        with get_moral_db() as db:
             db.execute(
                 """UPDATE ai_consultation SET
                 ai_analysis = %s, ai_suggestions = %s, ai_risk_assessment = %s
                 WHERE id = %s""",
-                (ai_analysis['analysis'], json.dumps(ai_analysis['suggestions'], ensure_ascii=False),
-                 ai_analysis['risk_assessment'], consultation_id)
+                (ai_result['analysis'],
+                 json.dumps(ai_result['suggestions'], ensure_ascii=False),
+                 ai_result['risk_assessment'],
+                 consultation_id)
             )
 
-        return {
-            "success": True,
-            "message": "诊疗会话创建成功",
-            "data": {
-                "id": consultation_id,
-                "ai_analysis": ai_analysis
-            }
-        }
+            # 如果有高风险，插入一条系统提示消息
+            if ai_result['risk_assessment'] == 'high':
+                db.execute(
+                    """INSERT INTO ai_consultation_message
+                    (consultation_id, message_type, content, sender)
+                    VALUES (%s, 'system', '⚠️ 本次分析检测到高风险信号，请立即查看并采取行动。', '系统')""",
+                    (consultation_id,)
+                )
+
+        logger.info(f"AI 分析完成: consultation_id={consultation_id}, risk={ai_result['risk_assessment']}")
+
+    except Exception as e:
+        logger.error(f"AI 异步分析失败: consultation_id={consultation_id}, error={e}")
+        with get_moral_db() as db:
+            db.execute(
+                """UPDATE ai_consultation SET
+                ai_analysis = 'AI 分析失败，请稍后手动请求分析。',
+                ai_risk_assessment = 'unknown'
+                WHERE id = %s""",
+                (consultation_id,)
+            )
 
 
 @router.get("/{consultation_id}", summary="获取诊疗会话详情")
@@ -198,7 +269,7 @@ async def get_consultation(
     """获取诊疗会话详情"""
     with get_moral_db() as db:
         consultation = db.query_one(
-            """SELECT ac.*, s.name as student_name, c.class_name
+            """SELECT ac.*, s.name as student_name, s.gender, c.class_name
             FROM ai_consultation ac
             JOIN student s ON ac.student_id = s.student_id
             JOIN class c ON s.class_id = c.class_id
@@ -210,18 +281,20 @@ async def get_consultation(
 
         # 获取消息列表
         messages = db.query_all(
-            """SELECT * FROM ai_consultation_message
+            """SELECT id, consultation_id, message_type as sender_type,
+                      content, sender, created_at
+            FROM ai_consultation_message
             WHERE consultation_id = %s
             ORDER BY created_at ASC""",
             (consultation_id,)
         )
 
+        # 直接返回 consultation 对象，messages 作为属性
+        consultation['messages'] = messages
+
         return {
             "success": True,
-            "data": {
-                "consultation": consultation,
-                "messages": messages
-            }
+            "data": consultation  # 直接返回 consultation，前端可直接访问字段
         }
 
 
@@ -295,10 +368,11 @@ async def update_consultation(
 async def add_consultation_message(
     consultation_id: int,
     message: MessageCreate,
+    background_tasks: BackgroundTasks,
     request: Request,
     user: User = Depends(get_current_user)
 ):
-    """添加诊疗消息"""
+    """添加诊疗消息 - 异步生成 AI 回复"""
     with get_moral_db() as db:
         consultation = db.query_one(
             "SELECT * FROM ai_consultation WHERE id = %s",
@@ -307,26 +381,113 @@ async def add_consultation_message(
         if not consultation:
             raise HTTPException(404, "诊疗会话不存在")
 
-        # 插入用户消息
+        # 获取历史消息（用于 AI 分析上下文）
+        history_messages = db.query_all(
+            """SELECT * FROM ai_consultation_message
+            WHERE consultation_id = %s
+            ORDER BY created_at ASC""",
+            (consultation_id,)
+        )
+
+        # 插入用户消息（立即返回）
         db.execute(
             """INSERT INTO ai_consultation_message
             (consultation_id, message_type, content, sender)
             VALUES (%s, %s, %s, %s)""",
-            (consultation_id, message.message_type, message.content, user.username)
+            (consultation_id, message.message_type or 'user', message.content, user.username)
         )
 
-        # 如果是用户消息，生成AI回复
-        if message.message_type == 'user':
-            ai_reply = generate_ai_reply(consultation, message.content)
-            if ai_reply:
-                db.execute(
-                    """INSERT INTO ai_consultation_message
-                    (consultation_id, message_type, content, sender)
-                    VALUES (%s, 'ai', %s, 'AI助手')""",
-                    (consultation_id, ai_reply)
-                )
+        message_id = db.lastrowid()
 
-        return {"success": True, "message": "消息添加成功"}
+    # 异步生成 AI 回复（不阻塞请求）
+    if message.message_type != 'ai':
+        background_tasks.add_task(
+            generate_ai_reply_background,
+            consultation_id,
+            message.content,
+            history_messages,
+            consultation
+        )
+
+    # 立即返回成功，前端轮询刷新
+    return {
+        "success": True,
+        "message": "消息已发送，AI回复正在生成",
+        "data": {
+            "message_id": message_id,
+            "ai_pending": message.message_type != 'ai'
+        }
+    }
+
+
+def generate_ai_reply_background(
+    consultation_id: int,
+    user_message: str,
+    history_messages: list,
+    consultation: dict
+):
+    """后台任务：生成 AI 回复"""
+    try:
+        # 构建 student 信息
+        student = {
+            'name': consultation.get('student_name', ''),
+            'class_name': consultation.get('class_name', ''),
+            'gender': consultation.get('gender', '未知')
+        }
+
+        # 获取上次分析
+        last_analysis = consultation.get('ai_analysis', '')
+        if not last_analysis and history_messages:
+            for msg in reversed(history_messages):
+                if msg.get('message_type') == 'ai':
+                    last_analysis = msg.get('content', '')[:600]
+                    break
+
+        # 计算天数和检测追问类型
+        days_elapsed = calculate_days_elapsed(consultation.get('created_at', ''))
+        followup_type = detect_followup_type(
+            consultation.get('consultation_type', 'comprehensive'),
+            user_message,
+            days_elapsed
+        )
+
+        # 调用 AI
+        ai_reply = generate_followup_analysis(
+            consultation_type=consultation.get('consultation_type', 'comprehensive'),
+            followup_type=followup_type,
+            student=student,
+            teacher_message=user_message,
+            last_analysis=last_analysis,
+            days_elapsed=days_elapsed,
+            current_risk_level=consultation.get('ai_risk_assessment', 'low')
+        )
+
+        # 保存 AI 回复
+        with get_moral_db() as db:
+            db.execute(
+                """INSERT INTO ai_consultation_message
+                (consultation_id, message_type, content, sender)
+                VALUES (%s, 'ai', %s, 'AI助手')""",
+                (consultation_id, ai_reply)
+            )
+
+            # 更新 ai_analysis 字段（最新分析）
+            db.execute(
+                """UPDATE ai_consultation SET ai_analysis = %s WHERE id = %s""",
+                (ai_reply[:2000], consultation_id)
+            )
+
+        logger.info(f"AI回复生成完成: consultation_id={consultation_id}")
+
+    except Exception as e:
+        logger.error(f"AI回复生成失败: {e}")
+        with get_moral_db() as db:
+            db.execute(
+                """INSERT INTO ai_consultation_message
+                (consultation_id, message_type, content, sender)
+                VALUES (%s, 'ai', 'AI分析暂时不可用，请稍后重试。', 'AI助手')""",
+                (consultation_id,)
+            )
 
 
 @router.post("/{consultation_id}/close", summary="关闭诊疗会话")
@@ -362,36 +523,84 @@ async def close_consultation(
 # 辅助函数
 # =============================================================================
 
+
 def generate_initial_analysis(consultation, student) -> dict:
-    """生成初始AI分析"""
-    # 简化版本，实际应调用AI模型
-    analysis_templates = {
-        'academic': f"针对学生{student['name']}的学业问题进行分析...",
-        'behavior': f"针对学生{student['name']}的行为表现进行分析...",
-        'psychological': f"针对学生{student['name']}的心理状况进行分析...",
-        'comprehensive': f"对学生{student['name']}进行综合分析..."
-    }
+    """
+    生成初始AI分析 - 调用真实 AI 模型
 
-    suggestions_map = {
-        'academic': ['加强课后辅导', '优化学习方法', '建立学习计划'],
-        'behavior': ['加强日常关注', '家校沟通', '制定行为规范'],
-        'psychological': ['心理咨询', '关爱陪伴', '积极引导'],
-        'comprehensive': ['全面关注', '定期跟进', '多方协作']
-    }
+    Args:
+        consultation: ConsultationCreate 模型对象
+        student: 学生信息字典
 
-    consultation_type = consultation.consultation_type
+    Returns:
+        dict: 包含 analysis, suggestions, risk_assessment
+    """
+    try:
+        return ai_generate_initial_analysis(
+            consultation_type=consultation.consultation_type,
+            student=student,
+            description=consultation.description,
+            priority=consultation.priority
+        )
+    except Exception as e:
+        logger.error(f"AI 初始分析失败: {e}")
+        # 降级处理：返回简单模板
+        return {
+            'analysis': f"针对学生{student.get('name', '该学生')}的{consultation.consultation_type}问题进行分析。\n\nAI分析暂时不可用，请稍后重试或手动补充分析。",
+            'suggestions': ['请稍后重新请求AI分析'],
+            'risk_assessment': 'low'
+        }
 
-    return {
-        'analysis': analysis_templates.get(consultation_type, '暂无分析'),
-        'suggestions': suggestions_map.get(consultation_type, []),
-        'risk_assessment': 'low'
-    }
 
+def generate_ai_reply(consultation: dict, user_message: str, messages: list = None) -> str:
+    """
+    根据教师消息生成AI追问分析 - 调用真实 AI 模型
 
-def generate_ai_reply(consultation, user_message: str) -> str:
-    """生成AI回复"""
-    # 简化版本
-    if '怎么办' in user_message or '如何' in user_message:
-        return "建议您可以从以下几个方面入手：\n1. 了解具体原因\n2. 制定改进计划\n3. 持续跟进进展"
+    Args:
+        consultation: 诊疗会话信息字典
+        user_message: 教师发送的消息内容
+        messages: 历史消息列表（可选）
 
-    return "感谢您的反馈，我会继续关注该学生的情况。如有其他问题，请随时沟通。"
+    Returns:
+        str: AI 回复内容
+    """
+    try:
+        # 计算持续天数
+        days_elapsed = calculate_days_elapsed(consultation.get('created_at', ''))
+
+        # 获取上次分析摘要（从 ai_analysis 字段或最近 AI 消息）
+        last_analysis = consultation.get('ai_analysis', '')
+        if not last_analysis and messages:
+            # 从历史消息中提取最近的 AI 回复
+            for msg in reversed(messages):
+                if msg.get('sender_type') == 'ai' or msg.get('message_type') == 'ai':
+                    last_analysis = msg.get('content', '')[:600]
+                    break
+
+        # 构建学生信息
+        student = {
+            'name': consultation.get('student_name', ''),
+            'class_name': consultation.get('class_name', ''),
+            'gender': '未知'  # 可以从其他字段补充
+        }
+
+        # 检测追问类型
+        followup_type = detect_followup_type(
+            consultation_type=consultation.get('consultation_type', 'comprehensive'),
+            teacher_message=user_message,
+            days_elapsed=days_elapsed
+        )
+
+        # 生成追问分析
+        return generate_followup_analysis(
+            consultation_type=consultation.get('consultation_type', 'comprehensive'),
+            followup_type=followup_type,
+            student=student,
+            teacher_message=user_message,
+            last_analysis=last_analysis,
+            days_elapsed=days_elapsed,
+            current_risk_level=consultation.get('ai_risk_assessment', 'low')
+        )
+    except Exception as e:
+        logger.error(f"AI 追问分析失败: {e}")
+        return f"AI 分析暂时不可用，请稍后重试。\n\n错误详情：{str(e)}"
