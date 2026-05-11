@@ -99,7 +99,7 @@ class SQLiteConnectionManager:
         *,
         timeout: float = 30.0,
         row_factory: Optional[Callable] = None,
-        wal_mode: bool = False
+        wal_mode: bool = True  # 默认启用 WAL 模式（与 get_sqlite_connection 保持一致）
     ):
         self.db_path = db_path
         self.timeout = timeout

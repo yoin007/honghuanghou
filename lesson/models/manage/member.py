@@ -775,10 +775,8 @@ class Member:
                 if column not in columns:
                     cursor.execute(f"ALTER TABLE teacher ADD COLUMN {column} {definition}")
 
-            cursor.execute(
-                "UPDATE teacher SET identity_type = 'teacher' WHERE identity_type IS NULL"
-            )
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_teacher_identity_type ON teacher(identity_type)")
+            # 只执行表结构变更（CREATE TABLE / ALTER TABLE），不做 UPDATE
+            # UPDATE 操作移到显式初始化脚本，避免每次查询时触发写入锁
             conn.commit()
 
     def migrate_legacy_members_to_teacher(self):
