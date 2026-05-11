@@ -224,29 +224,84 @@ async def get_class_evaluation(
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
 
-        # 获取班级学生评价列表
-        evaluations = db.query_all(
-            """SELECT me.*, s.name as student_name, s.student_id
-            FROM moral_evaluation me
-            JOIN student s ON me.student_id = s.student_id
-            WHERE me.class_id = %s AND me.semester_id = %s
-            ORDER BY me.total_score DESC""",
-            (class_id, semester_id)
+        # 实时计算各学生的分项得分和总分（不依赖存储值）
+        # 获取基础分配置
+        base_score_config = db.query_value(
+            "SELECT config_value FROM moral_config WHERE config_key = 'evaluation_base_score'"
+        )
+        base_score = float(base_score_config or 80)
+
+        # 通过 SQL 实时聚合各分项得分
+        students_raw = db.query_all(
+            """SELECT
+            s.student_id, s.name as student_name, s.class_id,
+            -- 日常分
+            COALESCE((SELECT SUM(score) FROM student_daily_record
+                      WHERE student_id = s.student_id AND semester_id = %s AND is_deleted = 0), 0) as daily_score,
+            -- 校级分
+            COALESCE((SELECT SUM(score) FROM student_school_record
+                      WHERE student_id = s.student_id AND semester_id = %s AND is_deleted = 0), 0) as school_score,
+            -- 任务分（学期内完成的任务）
+            COALESCE((SELECT SUM(stf.current_score) FROM student_task_finish stf
+                      JOIN semester sem ON sem.semester_id = %s
+                      WHERE stf.student_id = s.student_id AND stf.status = 1
+                      AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date), 0) as task_score,
+            -- 集体分
+            COALESCE((SELECT SUM(ced.score_assigned) FROM collective_event_distribution ced
+                      JOIN collective_event ce ON ced.event_id = ce.event_id
+                      WHERE ced.student_id = s.student_id AND ce.semester_id = %s AND ced.is_participant = 1), 0) as collective_score,
+            -- 处分扣分
+            COALESCE((SELECT SUM(ABS(score_deduct)) FROM punishment_record
+                      WHERE student_id = s.student_id AND semester_id = %s AND is_revoked = 0), 0) as punishment_score
+            FROM student s
+            WHERE s.class_id = %s""",
+            (semester_id, semester_id, semester_id, semester_id, semester_id, class_id)
         )
 
-        # 统计信息
-        stats = db.query_one(
-            """SELECT
-            COUNT(*) as total_count,
-            AVG(total_score) as avg_score,
-            SUM(CASE WHEN level = '优秀' THEN 1 ELSE 0 END) as excellent_count,
-            SUM(CASE WHEN level = '良好' THEN 1 ELSE 0 END) as good_count,
-            SUM(CASE WHEN level = '合格' THEN 1 ELSE 0 END) as pass_count,
-            SUM(CASE WHEN level = '不合格' THEN 1 ELSE 0 END) as fail_count
-            FROM moral_evaluation
-            WHERE class_id = %s AND semester_id = %s""",
-            (class_id, semester_id)
-        )
+        # 计算总分和等级
+        evaluations = []
+        for stu in students_raw:
+            total_score = base_score + float(stu.get('daily_score', 0) or 0) + float(stu.get('school_score', 0) or 0) \
+                        + float(stu.get('task_score', 0) or 0) + float(stu.get('collective_score', 0) or 0) \
+                        - float(stu.get('punishment_score', 0) or 0)
+            level = calculate_moral_level(total_score)
+            evaluations.append({
+                'student_id': stu['student_id'],
+                'student_name': stu['student_name'],
+                'class_id': stu['class_id'],
+                'base_score': base_score,
+                'daily_score': float(stu.get('daily_score', 0) or 0),
+                'school_score': float(stu.get('school_score', 0) or 0),
+                'task_score': float(stu.get('task_score', 0) or 0),
+                'collective_score': float(stu.get('collective_score', 0) or 0),
+                'punishment_score': float(stu.get('punishment_score', 0) or 0),
+                'total_score': total_score,
+                'level': level
+            })
+
+        # 按总分排序
+        evaluations.sort(key=lambda x: x['total_score'], reverse=True)
+
+        # 统计信息（基于实时计算的结果）
+        total_count = len(evaluations)
+        if total_count > 0:
+            avg_score = sum(e['total_score'] for e in evaluations) / total_count
+            excellent_count = sum(1 for e in evaluations if e['level'] == '优秀')
+            good_count = sum(1 for e in evaluations if e['level'] == '良好')
+            pass_count = sum(1 for e in evaluations if e['level'] == '合格')
+            fail_count = sum(1 for e in evaluations if e['level'] == '不合格')
+        else:
+            avg_score = 0
+            excellent_count = good_count = pass_count = fail_count = 0
+
+        stats = {
+            'total_count': total_count,
+            'avg_score': avg_score,
+            'excellent_count': excellent_count,
+            'good_count': good_count,
+            'pass_count': pass_count,
+            'fail_count': fail_count
+        }
 
         return {
             "success": True,

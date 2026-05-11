@@ -386,17 +386,23 @@ const handleViewDetail = async (row) => {
   selectedStudent.value = row
   detailVisible.value = true
 
+  // 先用列表行的实时计算数据填充（立即显示）
+  detailData.value = {
+    base_score: row.base_score || 80,
+    daily_score: row.daily_score || 0,
+    school_score: row.school_score || 0,
+    task_score: row.task_score || 0,
+    collective_score: row.collective_score || 0,
+    punishment_score: row.punishment_score || 0,
+    total_score: row.total_score || 0
+  }
+
+  // 异步加载详细统计数据
   try {
     const res = await getStudentEvaluation(row.student_id, filterForm.semester_id)
     if (res.success) {
       detailData.value = {
-        total_score: res.data.evaluation?.total_score || row.total_score || 0,
-        base_score: res.data.evaluation?.base_score || 80,
-        daily_score: res.data.evaluation?.daily_score || 0,
-        school_score: res.data.evaluation?.school_score || 0,
-        task_score: res.data.evaluation?.task_score || 0,
-        collective_score: res.data.evaluation?.collective_score || 0,
-        punishment_score: res.data.evaluation?.punishment_score || 0,
+        ...detailData.value, // 保留已有的分项数据（来自列表行的实时计算）
         daily_stats: res.data.daily_stats,
         school_stats: res.data.school_stats,
         task_stats: res.data.task_stats,

@@ -156,10 +156,6 @@ const fetchTeachers = async () => {
     console.error('获取教师列表失败:', error)
   }
 }
-  } catch (error) {
-    console.error('获取教师列表失败:', error)
-  }
-}
 
 const fetchClasses = async () => {
   loading.value = true
