@@ -387,14 +387,90 @@ def get_record_data_scope(
     teaching_class_ids = get_teacher_teaching_class_ids(user, db)
     can_own_class = bool(my_class_id) and scoped["has_any"](own_class_permissions)
     can_own = scoped["has_any"](own_permissions) or can_own_class
+
+    # 年级主任范围：如果未从配置获取，则回退到角色判断
+    can_own_grade = has_user_role(user, 'g_leader') and not (scoped["has_any"](all_permissions) or can_own_class)
+    my_grade_class_ids = []
+    if can_own_grade:
+        my_grade_ids = get_teacher_grade_ids(user, db)
+        if my_grade_ids:
+            grade_ids_str = ",".join(map(str, my_grade_ids))
+            rows = db.query_all(
+                f"SELECT class_id FROM class WHERE grade_id IN ({grade_ids_str}) AND is_active = 1"
+            )
+            my_grade_class_ids = [row["class_id"] for row in rows]
+
     return {
         "can_all": False,
         "can_own_class": can_own_class,
+        "can_own_grade": can_own_grade,
+        "my_grade_class_ids": my_grade_class_ids,
         "can_teaching_classes": False,
         "teaching_class_ids": teaching_class_ids,
         "can_own": can_own,
         "my_class_id": my_class_id if can_own_class else None,
         "roles": scoped["roles"],
+    }
+
+
+def get_user_data_scope_tabs(
+    db: SQLiteMoralDatabase,
+    user: User,
+    module: str,
+    *,
+    all_permissions: List[str],
+    own_class_permissions: List[str],
+    own_permissions: List[str],
+) -> Dict[str, Any]:
+    """
+    获取用户在指定模块的数据范围选项卡配置。
+
+    用于前端动态渲染选项卡 UI，返回用户可用的数据范围选项。
+
+    Args:
+        db: 数据库连接
+        user: 用户对象
+        module: 模块名称（如 "moment-records", "daily-records"）
+        all_permissions: 全部数据权限列表
+        own_class_permissions: 本班数据权限列表
+        own_permissions: 自己数据权限列表
+
+    Returns:
+        dict: {
+            "tabs": [{"key": "own", "label": "我创建的"}, ...],
+            "default_tab": "own_class",  # 默认选项卡
+        }
+    """
+    api_path = f"/api/moral/{module}"
+    scope = get_record_data_scope(
+        db, user, api_path,
+        all_permissions=all_permissions,
+        own_class_permissions=own_class_permissions,
+        own_permissions=own_permissions,
+    )
+
+    tabs = []
+    if scope.get("can_own"):
+        tabs.append({"key": "own", "label": "我创建的"})
+    if scope.get("can_own_class"):
+        tabs.append({"key": "own_class", "label": "我的班级"})
+    if scope.get("can_own_grade"):
+        tabs.append({"key": "own_grade", "label": "我的年级"})
+    if scope.get("can_all"):
+        tabs.append({"key": "all", "label": "全校记录"})
+
+    # 确定默认选项卡：多选项时默认范围最大的
+    if len(tabs) == 0:
+        default_tab = None
+    elif len(tabs) == 1:
+        default_tab = tabs[0]["key"]
+    else:
+        # 范围优先级：all > own_grade > own_class > own
+        default_tab = tabs[-1]["key"]
+
+    return {
+        "tabs": tabs,
+        "default_tab": default_tab,
     }
 
 
@@ -434,9 +510,22 @@ def _get_configured_data_scope(
 
     can_own_class = "own_class" in scopes
     can_teaching_classes = "teaching_classes" in scopes
+    can_own_grade = "g_leader_grade" in scopes or "grade_students" in scopes
+
+    my_grade_ids = get_teacher_grade_ids(user, db) if can_own_grade else []
+    my_grade_class_ids = []
+    if my_grade_ids:
+        grade_ids_str = ",".join(map(str, my_grade_ids))
+        rows = db.query_all(
+            f"SELECT class_id FROM class WHERE grade_id IN ({grade_ids_str}) AND is_active = 1"
+        )
+        my_grade_class_ids = [row["class_id"] for row in rows]
+
     return {
         "can_all": "all" in scopes,
         "can_own_class": can_own_class,
+        "can_own_grade": can_own_grade,
+        "my_grade_class_ids": my_grade_class_ids,
         "can_teaching_classes": can_teaching_classes,
         "teaching_class_ids": get_teacher_teaching_class_ids(user, db) if can_teaching_classes else [],
         "can_own": bool({"own", "own_created", "self"} & scopes),
@@ -466,6 +555,14 @@ def append_record_scope_condition(
     if scope.get("can_own_class") and scope.get("my_class_id") is not None:
         parts.append(f"{table_alias}.{class_field} = %s")
         params.append(scope["my_class_id"])
+
+    # 年级范围：通过班级 ID 列表过滤
+    my_grade_class_ids = scope.get("my_grade_class_ids") or []
+    if scope.get("can_own_grade") and my_grade_class_ids:
+        placeholders = ", ".join(["%s"] * len(my_grade_class_ids))
+        parts.append(f"{table_alias}.{class_field} IN ({placeholders})")
+        params.extend(my_grade_class_ids)
+
     teaching_class_ids = scope.get("teaching_class_ids") or []
     if scope.get("can_teaching_classes"):
         if teaching_class_ids:
@@ -500,6 +597,10 @@ def record_in_scope(
         and record.get(class_field) == scope.get("my_class_id")
     ):
         return True
+    # 年级范围：判断记录的班级是否在年级班级列表中
+    my_grade_class_ids = scope.get("my_grade_class_ids") or []
+    if scope.get("can_own_grade") and my_grade_class_ids:
+        return record.get(class_field) in my_grade_class_ids
     if scope.get("can_teaching_classes"):
         teaching_class_ids = scope.get("teaching_class_ids") or []
         return not teaching_class_ids or record.get(class_field) in teaching_class_ids
@@ -571,21 +672,27 @@ def target_student_in_scope(
 
     if "all_students" in scopes or "all" in scopes:
         return True
+
+    # 多角色场景：任一条件匹配即允许
+    # 年级主任：检查年级范围
+    if "g_leader_grade" in scopes or "grade_students" in scopes:
+        student_grade_id = student.get("grade_id")
+        my_grade_ids = get_teacher_grade_ids(user, db)
+        if student_grade_id in my_grade_ids:
+            return True
+
+    # 班主任：检查班级范围
     if "own_class" in scopes:
         my_class_id = get_teacher_class_id(user, db)
-        return my_class_id is not None and my_class_id == student.get("class_id")
+        if my_class_id is not None and my_class_id == student.get("class_id"):
+            return True
+
+    # 教师：检查任教班级范围
     if "teaching_classes" in scopes:
         teaching_class_ids = get_teacher_teaching_class_ids(user, db)
-        # 修复：没有任教班级时禁止添加记录，而不是默认全校
-        if not teaching_class_ids:
-            return False
-        return student.get("class_id") in teaching_class_ids
-    # 新增年级主任角色支持
-    if "g_leader_grade" in scopes or "grade_students" in scopes:
-        # 年级主任可以管理本年级学生
-        student_grade_id = student.get("grade_id")
-        my_grade_ids = get_teacher_grade_ids(user, db)  # 获取年级主任管理的年级
-        return student_grade_id in my_grade_ids
+        if teaching_class_ids and student.get("class_id") in teaching_class_ids:
+            return True
+
     return False
 
 
