@@ -54,6 +54,7 @@ from .carryover import router as carryover_router
 from .scheduler import scheduler_router
 from .database_admin import router as database_admin_router
 from .menu_permission import router as menu_permission_router
+from .ai_model_config import router as ai_model_config_router
 
 from fastapi import APIRouter
 from fastapi import Depends
@@ -158,6 +159,7 @@ router.include_router(carryover_router)
 router.include_router(scheduler_router)
 router.include_router(database_admin_router)
 router.include_router(menu_permission_router)
+router.include_router(ai_model_config_router)
 
 __all__ = [
     'router',

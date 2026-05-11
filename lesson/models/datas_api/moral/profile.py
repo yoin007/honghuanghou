@@ -27,6 +27,7 @@ from .base import (
     record_in_scope,
 )
 from models.datas_api.auth import User, get_current_user
+from .ai_model_config import get_current_model
 
 logger = logging.getLogger(__name__)
 
@@ -906,7 +907,7 @@ def generate_ai_profile_output(student: dict, analysis: dict, fallback: dict) ->
             timeout=20,
         )
         completion = client.chat.completions.create(
-            model="kimi-k2.5",
+            model=get_current_model('profile_generate'),
             messages=[
                 {"role": "system", "content": "你是学校德育数据分析助手，擅长把学生真实德育数据转化为有证据、有边界、可行动的学生画像。"},
                 {"role": "user", "content": prompt},

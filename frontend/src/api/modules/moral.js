@@ -987,6 +987,40 @@ export function updateSystemConfig(data) {
   return httpClient.put('/api/moral/admin/config', data)
 }
 
+// =============================================================================
+// 大模型配置 API
+// =============================================================================
+
+/**
+ * 获取所有模块的大模型配置
+ */
+export function getAiModelConfigs() {
+  return httpClient.get('/api/moral/ai-model-config/list')
+}
+
+/**
+ * 获取可用模型列表
+ */
+export function getAvailableModels() {
+  return httpClient.get('/api/moral/ai-model-config/models')
+}
+
+/**
+ * 更新模块模型配置
+ * @param {string} moduleName - 模块名称
+ * @param {object} data - { current_model: 模型名称 }
+ */
+export function updateAiModelConfig(moduleName, data) {
+  return httpClient.put(`/api/moral/ai-model-config/${moduleName}`, data)
+}
+
+/**
+ * 初始化默认配置
+ */
+export function initAiModelConfig() {
+  return httpClient.post('/api/moral/ai-model-config/init')
+}
+
 // 导出所有 API
 export default {
   // 数据范围能力
@@ -1093,6 +1127,12 @@ export default {
   exportLifebookXlsx,
   exportClassLifebooks,
   getOperationLogs,
+
+  // 大模型配置
+  getAiModelConfigs,
+  getAvailableModels,
+  updateAiModelConfig,
+  initAiModelConfig,
   getSystemConfig,
   updateSystemConfig,
 

@@ -485,6 +485,16 @@ const routes = [
     }
   },
   {
+    path: '/moral/config/ai-model',
+    name: 'MoralConfigAiModel',
+    component: () => import('../views/moral/config/AiModelConfig.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '大模型配置',
+      requiresAdmin: true
+    }
+  },
+  {
     path: '/',
     name: 'Root',
     component: () => import('../views/Root.vue'),

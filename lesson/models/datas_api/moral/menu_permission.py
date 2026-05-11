@@ -83,6 +83,7 @@ DEFAULT_MENU_CONFIG = [
     {"key": "moral-api-permission", "label": "API权限", "route": "/moral/config/api-permission", "group": "system", "roles": ["admin"], "is_public": 0, "sort_order": 60},
     {"key": "moral-database", "label": "数据库管理", "route": "/moral/config/database", "group": "system", "roles": ["admin"], "is_public": 0, "sort_order": 70},
     {"key": "moral-menu-permission", "label": "菜单权限", "route": "/moral/config/menu-permission", "group": "system", "roles": ["admin"], "is_public": 0, "sort_order": 80},
+    {"key": "moral-ai-model", "label": "大模型配置", "route": "/moral/config/ai-model", "group": "system", "roles": ["admin"], "is_public": 0, "sort_order": 90},
 ]
 
 

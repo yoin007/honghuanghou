@@ -11,6 +11,7 @@ from typing import Optional, Dict, List
 from openai import OpenAI
 
 from config.config import Config
+from .ai_model_config import get_current_model
 from .consultation_prompts import (
     SYSTEM_PROMPTS,
     FIRST_ANALYSIS_PROMPTS,
@@ -52,7 +53,7 @@ def call_ai_model(
             timeout=90,  # 增加超时时间
         )
         completion = client.chat.completions.create(
-            model="kimi-k2.5",
+            model=get_current_model('ai_diagnosis'),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

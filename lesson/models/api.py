@@ -4,6 +4,7 @@
 
 from openai import OpenAI
 from config.config import Config
+from models.datas_api.moral.ai_model_config import get_current_model
 import datetime
 import os
 import time
@@ -26,7 +27,7 @@ class ZPAI:
         client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
         response = client.chat.completions.create(
-            model="deepseek-chat",
+            model=get_current_model('remind_ai'),
             messages=[
                 {"role": "system", "content": "You are a helpful assistant"},
                 {"role": "user", "content": propmt},
@@ -135,7 +136,7 @@ def bailian_req(question):
             base_url="https://coding.dashscope.aliyuncs.com/v1",
         )
         completion = client.chat.completions.create(
-            model="kimi-k2.5", 
+            model=get_current_model('bailian_general'), 
             messages=[
                 {"role": "system", "content": "你是一个有帮助的助手，需要提供精准、高效且富有洞察力的回应，随时准备协助用户处理各种任务与问题。"},
                 {'role': 'user', 'content': question}
