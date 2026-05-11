@@ -76,6 +76,9 @@
             <el-button type="success" size="small" @click="handleExportXlsx" :loading="exportLoading" style="margin-left: 12px">
               导出 Excel
             </el-button>
+            <el-button type="warning" size="small" @click="handlePrintPdf" style="margin-left: 8px">
+              打印 PDF
+            </el-button>
           </div>
         </div>
       </template>
@@ -249,6 +252,19 @@ const handleExportClass = async () => {
   } finally {
     exportClassLoading.value = false
   }
+}
+
+const handlePrintPdf = () => {
+  if (!selectedStudent.value) return
+
+  // 添加打印样式类
+  document.body.classList.add('print-lifebook')
+
+  // 延迟打印，让样式生效
+  setTimeout(() => {
+    window.print()
+    document.body.classList.remove('print-lifebook')
+  }, 100)
 }
 
 const getTagType = (type) => {
@@ -662,6 +678,40 @@ onMounted(() => {
 
   .back-btn .el-button {
     width: 100%;
+  }
+}
+
+/* 打印样式 */
+@media print {
+  body.print-lifebook .filter-card,
+  body.print-lifebook .student-list-card,
+  body.print-lifebook .back-btn,
+  body.print-lifebook .timeline-filter,
+  body.print-lifebook .el-button {
+    display: none !important;
+  }
+
+  body.print-lifebook .life-book-page {
+    padding: 10px;
+  }
+
+  body.print-lifebook .timeline-card {
+    box-shadow: none;
+    border: 1px solid #ddd;
+  }
+
+  body.print-lifebook .score-summary-card {
+    margin: 10px 0;
+    box-shadow: none;
+  }
+
+  body.print-lifebook .timeline-container {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  body.print-lifebook .timeline-item {
+    break-inside: avoid;
   }
 }
 </style>
