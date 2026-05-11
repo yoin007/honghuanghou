@@ -3,8 +3,8 @@
 德育评价系统定时任务调度模块
 
 使用 APScheduler 实现定时任务：
-- birthday_reminder（每日08:00）：检测今日生日学生，发布班级公告
-- birthday_blessing（每日08:30）：发布班级祝福公告
+- birthday_reminder（每日05:21）：检测今日生日学生，发布班级公告
+- birthday_blessing（每日05:51）：发布班级祝福公告
 - profile_update_check（每周一09:00）：检查需要更新画像的学生
 - semester_evaluation（学期末）：计算学期德育评价
 - task_carryover（学年末）：处理未完成任务结转
@@ -38,7 +38,7 @@ def get_scheduler():
 
 def birthday_reminder_task():
     """
-    每日生日提醒任务（08:00执行）
+    每日生日提醒任务（05:21执行）
 
     流程：
     1. 查询今日生日学生
@@ -132,7 +132,7 @@ def birthday_reminder_task():
 
 def birthday_blessing_task():
     """
-    每日生日祝福任务（08:30执行）
+    每日生日祝福任务（05:51执行）
 
     发布班级祝福公告
     """
@@ -518,19 +518,19 @@ def start_scheduler():
     scheduler = BackgroundScheduler()
 
     # 添加定时任务
-    # 生日提醒（每日08:00）
+    # 生日提醒（每日05:21）
     scheduler.add_job(
         birthday_reminder_task,
-        CronTrigger(hour=8, minute=0),
+        CronTrigger(hour=5, minute=21),
         id='birthday_reminder',
         name='生日提醒任务',
         replace_existing=True
     )
 
-    # 生日祝福（每日08:30）
+    # 生日祝福（每日05:51）
     scheduler.add_job(
         birthday_blessing_task,
-        CronTrigger(hour=8, minute=30),
+        CronTrigger(hour=5, minute=51),
         id='birthday_blessing',
         name='生日祝福任务',
         replace_existing=True
