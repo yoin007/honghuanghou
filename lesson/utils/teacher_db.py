@@ -23,6 +23,7 @@ def _get_sqlite_connection():
 
 logger = logging.getLogger(__name__)
 _AUTH_MIGRATED = False
+_SCHEMA_INITIALIZED = False  # 防止重复 schema 检查
 
 
 def _teacher_id_from_name(name: str) -> str:
@@ -47,7 +48,23 @@ class TeacherDB:
         self._connection.execute("PRAGMA cache_size=-2000")
         self._connection.execute("PRAGMA busy_timeout=30000")  # 30秒忙等待超时
         if self.db_path == MORAL_DB:
-            ensure_teacher_schema(self._connection)
+            # 只执行表创建（CREATE TABLE IF NOT EXISTS 无害），不做 UPDATE
+            self._connection.execute(
+                """CREATE TABLE IF NOT EXISTS teacher (
+                    teacher_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    wxid TEXT,
+                    subject TEXT,
+                    password_hash TEXT,
+                    role TEXT DEFAULT 'teacher',
+                    level INTEGER DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    notice_enabled INTEGER DEFAULT 1,
+                    is_password_changed INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+                )"""
+            )
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
