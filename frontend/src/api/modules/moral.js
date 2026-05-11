@@ -947,6 +947,16 @@ export function getStudentTimeline(studentId, params = {}) {
 }
 
 /**
+ * 导出学生档案 Excel
+ * @param {string} studentId - 学生ID
+ */
+export function exportLifebookXlsx(studentId) {
+  return httpClient.get(`/api/moral/timeline/export/${studentId}/xlsx`, {
+    responseType: 'blob'
+  })
+}
+
+/**
  * 获取操作日志
  */
 export function getOperationLogs(params = {}) {
@@ -1070,6 +1080,7 @@ export default {
   deleteMomentRecord,
   searchTimeline,
   getStudentTimeline,
+  exportLifebookXlsx,
   getOperationLogs,
   getSystemConfig,
   updateSystemConfig,

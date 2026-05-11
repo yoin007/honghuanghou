@@ -345,4 +345,239 @@ async def get_student_timeline(
                 "score_summary": score_summary
             }
         }
+
+
+# =============================================================================
+# 导出功能
+# =============================================================================
+
+import io
+import pandas as pd
+from fastapi.responses import StreamingResponse
+from datetime import datetime as dt
+
+
+def _get_timeline_data(db, student_id: str, user: User):
+    """获取时光轴数据（复用 get_student_timeline 逻辑）"""
+    # 获取学生信息
+    student = db.query_one("""
+        SELECT s.*, c.class_name, c.leader_name, g.grade_name, g.is_archived as grade_archived
+        FROM student s
+        JOIN class c ON s.class_id = c.class_id
+        JOIN grade g ON s.grade_id = g.grade_id
+        WHERE s.student_id = %s
+    """, (student_id,))
+
+    if not student:
+        raise HTTPException(404, f"学生 {student_id} 不存在")
+
+    # 归档学生权限检查
+    if student['status'] != '在校' or student.get('grade_archived'):
+        if not check_moral_permission(user, 'profile_view_all'):
+            raise HTTPException(403, "只能查看在校学生档案")
+
+    # 在校学生权限检查
+    if student['status'] == '在校' and not check_moral_permission(user, 'profile_view_all'):
+        my_class_id = get_teacher_class_id(user, db)
+        if my_class_id is None or my_class_id != student['class_id']:
+            raise HTTPException(403, "只能查看本班学生的档案")
+
+    timeline = []
+
+    # 1. 点滴记录
+    moments = db.query_all("""
+        SELECT mr.record_id, mr.content, mr.record_date, mr.record_type,
+               mr.tags, mr.recorder, 'moment' as source
+        FROM moment_record mr
+        WHERE mr.student_id = %s AND mr.is_private = 1
+        ORDER BY mr.record_date DESC
+    """, (student_id,))
+
+    for m in moments:
+        import json
+        tags = json.loads(m['tags']) if m['tags'] else []
+        timeline.append({
+            "date": m['record_date'],
+            "type": "点滴记录",
+            "title": m['record_type'] or "点滴",
+            "content": m['content'],
+            "score": None,
+            "recorder": m['recorder'],
+            "source": "点滴记录"
+        })
+
+    # 2. 日常表现记录
+    daily_records = db.query_all("""
+        SELECT dr.record_id, de.event_name, de.event_type, dr.score,
+               dr.record_date, dr.remark, dr.recorder, 'daily' as source
+        FROM student_daily_record dr
+        JOIN daily_event_type de ON dr.event_id = de.event_id
+        WHERE dr.student_id = %s AND dr.is_deleted = 0
+        ORDER BY dr.record_date DESC
+    """, (student_id,))
+
+    for d in daily_records:
+        timeline.append({
+            "date": d['record_date'],
+            "type": "日常表现",
+            "title": d['event_name'],
+            "content": d['remark'] or "",
+            "score": d['score'],
+            "recorder": d['recorder'],
+            "source": "日常表现",
+            "event_type": "积极" if d['event_type'] == 1 else "消极"
+        })
+
+    # 3. 校级事件
+    school_records = db.query_all("""
+        SELECT ssr.record_id, se.event_name, se.score, ssr.get_date,
+               ssr.proof, 'school' as source
+        FROM student_school_record ssr
+        JOIN school_event_type se ON ssr.event_id = se.event_id
+        WHERE ssr.student_id = %s AND ssr.is_deleted = 0
+        ORDER BY ssr.get_date DESC
+    """, (student_id,))
+
+    for s in school_records:
+        timeline.append({
+            "date": s['get_date'],
+            "type": "校级事件",
+            "title": s['event_name'],
+            "content": s['proof'] or "",
+            "score": s['score'],
+            "recorder": None,
+            "source": "校级事件"
+        })
+
+    # 4. 处分记录
+    punishments = db.query_all("""
+        SELECT pr.id, pr.punishment_date, pr.level, pr.reason, pr.score_deduct,
+               pr.is_revoked, pr.revoke_date, 'punishment' as source
+        FROM punishment_record pr
+        WHERE pr.student_id = %s AND pr.is_deleted = 0
+        ORDER BY pr.punishment_date DESC
+    """, (student_id,))
+
+    for p in punishments:
+        revoke_info = f"（已撤销：{p['revoke_date']}）" if p['is_revoked'] else ""
+        timeline.append({
+            "date": p['punishment_date'],
+            "type": "处分记录",
+            "title": f"{p['reason']} - {p['level']}{revoke_info}",
+            "content": p['reason'],
+            "score": -abs(p['score_deduct'] or 0),
+            "recorder": None,
+            "source": "处分记录"
+        })
+
+    # 5. 任务完成
+    tasks = db.query_all("""
+        SELECT stf.id, mt.task_name, mt.score, stf.finish_date,
+               stf.current_score, stf.status, 'task' as source
+        FROM student_task_finish stf
+        JOIN grade_moral_task mt ON stf.task_id = mt.task_id
+        WHERE stf.student_id = %s AND stf.status != 2
+        ORDER BY stf.finish_date DESC
+    """, (student_id,))
+
+    for t in tasks:
+        timeline.append({
+            "date": t['finish_date'],
+            "type": "德育任务",
+            "title": t['task_name'],
+            "content": "已完成" if t['status'] == 1 else "未完成",
+            "score": t['current_score'],
+            "recorder": None,
+            "source": "德育任务"
+        })
+
+    # 按日期排序
+    timeline.sort(key=lambda x: x['date'] or '', reverse=True)
+
+    # 统计和分数汇总
+    stats = {
+        "点滴记录": len([x for x in timeline if x['type'] == "点滴记录"]),
+        "日常表现": len([x for x in timeline if x['type'] == "日常表现"]),
+        "校级事件": len([x for x in timeline if x['type'] == "校级事件"]),
+        "处分记录": len([x for x in timeline if x['type'] == "处分记录"]),
+        "德育任务": len([x for x in timeline if x['type'] == "德育任务"]),
+        "总计": len(timeline)
+    }
+
+    score_summary = {
+        "日常加分": sum(x.get('score') or 0 for x in timeline if x['type'] == "日常表现" and x.get('event_type') == "积极"),
+        "日常扣分": sum(abs(x.get('score') or 0) for x in timeline if x['type'] == "日常表现" and x.get('event_type') == "消极"),
+        "校级加分": sum(x.get('score') or 0 for x in timeline if x['type'] == "校级事件" and (x.get('score') or 0) > 0),
+        "校级扣分": sum(abs(x.get('score') or 0) for x in timeline if x['type'] == "校级事件" and (x.get('score') or 0) < 0),
+        "任务得分": sum(x.get('score') or 0 for x in timeline if x['type'] == "德育任务"),
+        "处分扣分": sum(abs(x.get('score') or 0) for x in timeline if x['type'] == "处分记录"),
+        "总分": 0
+    }
+    score_summary["总分"] = (
+        score_summary["日常加分"] + score_summary["校级加分"] + score_summary["任务得分"]
+        - score_summary["日常扣分"] - score_summary["校级扣分"] - score_summary["处分扣分"]
+    )
+
+    return student, timeline, stats, score_summary
+
+
+@router.get("/export/{student_id}/xlsx", summary="导出学生档案 Excel")
+async def export_lifebook_xlsx(
+    student_id: str,
+    user: User = Depends(get_current_user)
+):
+    """导出一生一册为 Excel 多Sheet文件"""
+    with get_moral_db() as db:
+        student, timeline, stats, score_summary = _get_timeline_data(db, student_id, user)
+
+        output = io.BytesIO()
+
+        # Sheet 1: 学生信息
+        student_df = pd.DataFrame([{
+            "学号": student['student_id'],
+            "姓名": student['name'],
+            "班级": student['class_name'],
+            "年级": student['grade_name'],
+            "性别": student['gender'],
+            "生日": student['birthday'],
+            "状态": student['status'],
+            "导出日期": dt.now().strftime('%Y-%m-%d %H:%M'),
+            "导出人": user.name
+        }])
+
+        # Sheet 2: 时光轴明细
+        timeline_df = pd.DataFrame([
+            {
+                "日期": item['date'],
+                "类型": item['type'],
+                "标题": item['title'],
+                "内容": item['content'],
+                "分数": item.get('score'),
+                "记录人": item.get('recorder'),
+                "来源": item['source']
+            }
+            for item in timeline
+        ])
+
+        # Sheet 3: 分数汇总
+        score_df = pd.DataFrame([score_summary])
+
+        # Sheet 4: 分类统计
+        stats_df = pd.DataFrame([stats])
+
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            student_df.to_excel(writer, sheet_name='学生信息', index=False)
+            timeline_df.to_excel(writer, sheet_name='时光轴明细', index=False)
+            score_df.to_excel(writer, sheet_name='分数汇总', index=False)
+            stats_df.to_excel(writer, sheet_name='分类统计', index=False)
+
+        output.seek(0)
+
+        filename = f"一生一册_{student['name']}_{student['class_name']}_{dt.now().strftime('%Y%m%d')}.xlsx"
+
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename.encode('utf-8').decode('latin-1')}"}
+        )
                 

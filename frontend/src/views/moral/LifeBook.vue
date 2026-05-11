@@ -70,6 +70,9 @@
             <el-tag type="warning">校级 {{ stats.school_count }}</el-tag>
             <el-tag type="danger">处分 {{ stats.punishment_count }}</el-tag>
             <el-tag type="info">任务 {{ stats.task_count }}</el-tag>
+            <el-button type="success" size="small" @click="handleExportXlsx" :loading="exportLoading" style="margin-left: 12px">
+              导出 Excel
+            </el-button>
           </div>
         </div>
       </template>
@@ -165,7 +168,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getClasses, searchTimeline, getStudentTimeline } from '@/api/modules/moral'
+import { getClasses, searchTimeline, getStudentTimeline, exportLifebookXlsx } from '@/api/modules/moral'
 
 const classList = ref([])
 const studentList = ref([])
@@ -177,6 +180,7 @@ const showStudentList = ref(true)
 
 const studentLoading = ref(false)
 const timelineLoading = ref(false)
+const exportLoading = ref(false)
 
 const filterForm = reactive({
   class_id: null,
@@ -195,6 +199,28 @@ const studentPagination = reactive({
   pageSize: 20,
   total: 0
 })
+
+const handleExportXlsx = async () => {
+  if (!selectedStudent.value) return
+
+  exportLoading.value = true
+  try {
+    const response = await exportLifebookXlsx(selectedStudent.value.student_id)
+    const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `一生一册_${selectedStudent.value.name}_${selectedStudent.value.class_name}.xlsx`
+    link.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出失败：' + (error.response?.data?.detail || '未知错误'))
+  } finally {
+    exportLoading.value = false
+  }
+}
 
 const getTagType = (type) => {
   const map = {
