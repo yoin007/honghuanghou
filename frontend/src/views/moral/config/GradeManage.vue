@@ -11,6 +11,11 @@
       <el-table :data="gradeList" v-loading="loading" stripe>
         <el-table-column prop="grade_name" label="级号名称" width="150" />
         <el-table-column prop="enrollment_year" label="入学年份" width="120" />
+        <el-table-column label="年级主任" min-width="120">
+          <template #default="{ row }">
+            <span>{{ row.leader_names || '未指定' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="class_count" label="班级数" width="100">
           <template #default="{ row }">
             <el-tag>{{ row.class_count || 0 }}</el-tag>
@@ -22,8 +27,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" />
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
             <el-button link type="primary" @click="handleViewClasses(row)">查看班级</el-button>
             <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
@@ -31,8 +37,8 @@
       </el-table>
     </el-card>
 
-    <!-- 新增对话框 -->
-    <el-dialog v-model="dialogVisible" title="新增级号" width="400px">
+    <!-- 新增/编辑对话框 -->
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="400px">
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
         <el-form-item label="级号名称" prop="grade_name">
           <el-input v-model="form.grade_name" placeholder="如：2026级" />
@@ -46,6 +52,11 @@
             style="width: 100%"
           />
         </el-form-item>
+        <el-form-item label="年级主任">
+          <el-select v-model="form.leader_names" placeholder="选择年级主任（可多选）" clearable filterable multiple collapse-tags collapse-tags-tooltip style="width: 100%">
+            <el-option v-for="teacher in teacherList" :key="teacher.teacher_id" :label="teacher.name" :value="teacher.name" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -57,7 +68,11 @@
     <el-dialog v-model="classDialogVisible" :title="`${currentGrade?.grade_name} - 班级列表`" width="600px">
       <el-table :data="classByGrade" v-loading="classLoading" stripe max-height="400">
         <el-table-column prop="class_name" label="班级名称" />
-        <el-table-column prop="leader_name" label="班主任" width="100" />
+        <el-table-column label="班主任" min-width="100">
+          <template #default="{ row }">
+            <span>{{ row.leader_names || row.leader_name || '未指定' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="student_count" label="学生数" width="80" />
       </el-table>
     </el-dialog>
@@ -65,22 +80,26 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getGrades, createGrade, deleteGrade, getClasses } from '@/api/modules/moral'
+import { getGrades, createGrade, updateGrade, deleteGrade, getClasses, getTeachersForConfig } from '@/api/modules/moral'
 
 const loading = ref(false)
 const gradeList = ref([])
+const teacherList = ref([])
 const dialogVisible = ref(false)
 const formRef = ref(null)
 const form = reactive({
+  grade_id: null,
   grade_name: '',
-  enrollment_year: ''
+  enrollment_year: '',
+  leader_names: []
 })
 const rules = {
   grade_name: [{ required: true, message: '请输入级号名称', trigger: 'blur' }],
   enrollment_year: [{ required: true, message: '请选择入学年份', trigger: 'change' }]
 }
+const dialogTitle = computed(() => form.grade_id ? '编辑级号' : '新增级号')
 
 const classDialogVisible = ref(false)
 const classLoading = ref(false)
@@ -99,11 +118,37 @@ const fetchGrades = async () => {
   }
 }
 
+const fetchTeachers = async () => {
+  try {
+    const res = await getTeachersForConfig()
+    if (res.success) teacherList.value = res.data.items || res.data || []
+  } catch (error) {
+    console.error('获取教师列表失败:', error)
+  }
+}
+
 const handleAdd = () => {
   const currentYear = new Date().getFullYear()
   Object.assign(form, {
+    grade_id: null,
     grade_name: `${currentYear}级`,
-    enrollment_year: String(currentYear)
+    enrollment_year: String(currentYear),
+    leader_names: []
+  })
+  dialogVisible.value = true
+}
+
+const handleEdit = (row) => {
+  // 解析年级主任列表（支持多人）
+  let leaderNames = []
+  if (row.leader_names) {
+    leaderNames = row.leader_names.split(',').map(n => n.trim()).filter(n => n)
+  }
+  Object.assign(form, {
+    grade_id: row.grade_id,
+    grade_name: row.grade_name,
+    enrollment_year: String(row.enrollment_year),
+    leader_names: leaderNames
   })
   dialogVisible.value = true
 }
@@ -111,21 +156,29 @@ const handleAdd = () => {
 const handleSubmit = async () => {
   try {
     await formRef.value.validate()
-    const res = await createGrade({
+    const data = {
       grade_name: form.grade_name,
-      enrollment_year: parseInt(form.enrollment_year)
-    })
+      enrollment_year: parseInt(form.enrollment_year),
+      leader_names: form.leader_names.length > 0 ? form.leader_names.join(',') : null
+    }
+
+    let res
+    if (form.grade_id) {
+      res = await updateGrade(form.grade_id, data)
+    } else {
+      res = await createGrade(data)
+    }
     if (res.success) {
-      ElMessage.success('创建成功')
+      ElMessage.success(form.grade_id ? '更新成功' : '创建成功')
       dialogVisible.value = false
       fetchGrades()
     } else {
-      ElMessage.error(res.message || '创建失败')
+      ElMessage.error(res.message || '操作失败')
     }
   } catch (error) {
-    const msg = error.response?.data?.detail || error.response?.data?.message || error.message || '创建失败'
+    const msg = error.response?.data?.detail || error.response?.data?.message || error.message || '操作失败'
     ElMessage.error(msg)
-    console.error('创建失败:', error)
+    console.error('操作失败:', error)
   }
 }
 
@@ -162,6 +215,7 @@ const handleViewClasses = async (row) => {
 
 onMounted(() => {
   fetchGrades()
+  fetchTeachers()
 })
 </script>
 

@@ -69,7 +69,9 @@ CREATE TABLE IF NOT EXISTS grade (
     grade_name TEXT NOT NULL,
     enrollment_year INTEGER NOT NULL UNIQUE,
     is_archived INTEGER DEFAULT 0,
-    archived_at TEXT
+    archived_at TEXT,
+    leader_ids TEXT DEFAULT '',
+    leader_names TEXT DEFAULT ''
 );
 """,
     # 4. 年级等级配置表
@@ -90,13 +92,15 @@ CREATE TABLE IF NOT EXISTS class (
     class_name TEXT NOT NULL,
     leader_wxid TEXT,
     leader_name TEXT,
+    leader_ids TEXT DEFAULT '',
+    leader_names TEXT DEFAULT '',
     roomid TEXT,
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (grade_id) REFERENCES grade(grade_id),
     UNIQUE (grade_id, class_number)
 );
-""",
+"",
     # 6. 学生表
     "student": """
 CREATE TABLE IF NOT EXISTS student (
@@ -1813,6 +1817,34 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
                     logger.info(f"Migrated auth teacher rows into moral.teacher: {migrated}")
             except Exception as e:
                 logger.warning(f"Skip auth teacher migration: {e}")
+
+    # grade 表新增 leader_ids, leader_names 字段（支持年级主任多人）
+    grade_columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(grade)").fetchall()
+    }
+    grade_additions = {
+        "leader_ids": "TEXT DEFAULT ''",
+        "leader_names": "TEXT DEFAULT ''",
+    }
+    for column, definition in grade_additions.items():
+        if grade_columns and column not in grade_columns:
+            logger.info(f"Adding missing SQLite column: grade.{column}")
+            conn.execute(f"ALTER TABLE grade ADD COLUMN {column} {definition}")
+
+    # class 表新增 leader_ids, leader_names 字段（支持班主任多人）
+    class_columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(class)").fetchall()
+    }
+    class_additions = {
+        "leader_ids": "TEXT DEFAULT ''",
+        "leader_names": "TEXT DEFAULT ''",
+    }
+    for column, definition in class_additions.items():
+        if class_columns and column not in class_columns:
+            logger.info(f"Adding missing SQLite column: class.{column}")
+            conn.execute(f"ALTER TABLE class ADD COLUMN {column} {definition}")
 
     permission_rows = [
         (

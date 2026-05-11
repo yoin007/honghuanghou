@@ -459,8 +459,9 @@ async def get_class_dashboard_summary(
         if not (_is_moral_manager(user) or _is_jiaowu(user)):
             if not has_user_role(user, "cleader"):
                 raise HTTPException(status_code=403, detail="无班级驾驶舱权限")
-            my_class_id = get_teacher_class_id(user, db)
-            if not my_class_id or my_class_id != class_id:
+            # 支持多人班主任：检查用户是否是该班级的班主任
+            from .moral.base import is_class_leader
+            if not is_class_leader(user, class_id, db):
                 raise HTTPException(status_code=403, detail="只能查看自己班级的驾驶舱")
 
         # 班级基础信息
@@ -661,22 +662,37 @@ async def get_grade_dashboard_summary(
     """
     top_n = _normalize_top_n(top_n)
     with get_moral_db() as db:
+        from .moral.base import get_grade_leader_ids, is_grade_leader
+
         # 检查权限
         if not (_is_moral_manager(user) or _is_jiaowu(user) or has_user_role(user, "g_leader")):
             raise HTTPException(status_code=403, detail="无年级驾驶舱权限")
 
         # 确定年级
         if not grade_id:
-            # 默认第一个年级
-            classes = db.query_all("SELECT class_name FROM class WHERE is_active = 1 ORDER BY class_name LIMIT 1")
-            if classes:
-                name = classes[0]["class_name"] or ""
-                if "高一" in name:
-                    grade_id = "高一"
-                elif "高二" in name:
-                    grade_id = "高二"
-                elif "高三" in name:
-                    grade_id = "高三"
+            # 年级主任默认自己管理的年级
+            if has_user_role(user, "g_leader") and not (_is_moral_manager(user) or _is_jiaowu(user)):
+                from .moral.base import get_teacher_grade_ids
+                my_grade_ids = get_teacher_grade_ids(user, db)
+                if my_grade_ids:
+                    # 查询第一个年级的名称
+                    grade_info = db.query_one(
+                        "SELECT grade_name FROM grade WHERE grade_id = %s",
+                        (my_grade_ids[0],)
+                    )
+                    if grade_info:
+                        grade_id = grade_info["grade_name"].replace("年级", "")
+            else:
+                # 默认第一个年级
+                classes = db.query_all("SELECT class_name FROM class WHERE is_active = 1 ORDER BY class_name LIMIT 1")
+                if classes:
+                    name = classes[0]["class_name"] or ""
+                    if "高一" in name:
+                        grade_id = "高一"
+                    elif "高二" in name:
+                        grade_id = "高二"
+                    elif "高三" in name:
+                        grade_id = "高三"
 
         if not grade_id:
             raise HTTPException(status_code=404, detail="年级不存在")
@@ -684,6 +700,18 @@ async def get_grade_dashboard_summary(
         # 年级名称
         grade_names = {"高一": "高一年级", "高二": "高二年级", "高三": "高三年级"}
         grade_name = grade_names.get(grade_id, grade_id)
+
+        # 获取年级ID（用于权限检查）
+        grade_row = db.query_one(
+            "SELECT grade_id FROM grade WHERE grade_name = %s OR grade_name = %s",
+            (grade_name, grade_id + "年级")
+        )
+        grade_id_int = grade_row["grade_id"] if grade_row else None
+
+        # 年级主任权限检查：只能查看自己管理的年级
+        if has_user_role(user, "g_leader") and not (_is_moral_manager(user) or _is_jiaowu(user)):
+            if grade_id_int and not is_grade_leader(user, grade_id_int, db):
+                raise HTTPException(status_code=403, detail="只能查看自己管理的年级驾驶舱")
 
         # 获取年级下所有班级
         grade_filter = f"%{grade_id}%"

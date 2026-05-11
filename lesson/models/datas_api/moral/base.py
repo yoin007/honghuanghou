@@ -640,8 +640,10 @@ def check_class_access(user: User, class_id: int, db: SQLiteMoralDatabase) -> bo
 
 
 def get_teacher_class_id(user: User, db: SQLiteMoralDatabase) -> Optional[int]:
-    """
-    获取班主任管理的班级ID
+    """获取班主任管理的班级ID（向后兼容，返回第一个）。
+
+    改进：支持多人班主任，返回用户作为班主任的第一个班级ID。
+    若需要获取所有班主任班级，请使用 get_teacher_class_ids。
 
     Args:
         user: 用户对象
@@ -650,43 +652,367 @@ def get_teacher_class_id(user: User, db: SQLiteMoralDatabase) -> Optional[int]:
     Returns:
         班级ID，如果不是班主任或未关联班级则返回 None
     """
-    if not user:
-        return None
+    class_ids = get_teacher_class_ids(user, db)
+    return class_ids[0] if class_ids else None
+
+
+def get_class_leader_ids(class_id: int, db: SQLiteMoralDatabase) -> List[str]:
+    """获取班级所有班主任ID列表（支持多人）。
+
+    Args:
+        class_id: 班级ID
+        db: 数据库连接
+
+    Returns:
+        班主任ID列表（如 ['T_张三', 'T_李四']），无班主任时返回空列表
+    """
+    if not class_id:
+        return []
+
+    class_info = db.query_one(
+        "SELECT leader_ids, leader_wxid FROM class WHERE class_id = %s",
+        (class_id,)
+    )
+    if not class_info:
+        return []
+
+    # 优先使用新的 leader_ids 字段（多人支持）
+    leader_ids_str = class_info.get('leader_ids', '')
+    if leader_ids_str:
+        return [lid.strip() for lid in leader_ids_str.split(',') if lid.strip()]
+
+    # 回退兼容：单值 leader_wxid
+    leader_wxid = class_info.get('leader_wxid', '')
+    if leader_wxid:
+        return [leader_wxid]
+
+    return []
+
+
+def get_class_leader_names(class_id: int, db: SQLiteMoralDatabase) -> List[str]:
+    """获取班级所有班主任姓名列表（支持多人）。
+
+    Args:
+        class_id: 班级ID
+        db: 数据库连接
+
+    Returns:
+        班主任姓名列表（如 ['张三', '李四']），无班主任时返回空列表
+    """
+    if not class_id:
+        return []
+
+    class_info = db.query_one(
+        "SELECT leader_names, leader_name FROM class WHERE class_id = %s",
+        (class_id,)
+    )
+    if not class_info:
+        return []
+
+    # 优先使用新的 leader_names 字段（多人支持）
+    leader_names_str = class_info.get('leader_names', '')
+    if leader_names_str:
+        return [name.strip() for name in leader_names_str.split(',') if name.strip()]
+
+    # 回退兼容：单值 leader_name
+    leader_name = class_info.get('leader_name', '')
+    if leader_name:
+        return [leader_name]
+
+    return []
+
+
+def is_class_leader(user: User, class_id: int, db: SQLiteMoralDatabase) -> bool:
+    """检查用户是否是某班级的班主任（支持多人）。
+
+    Args:
+        user: 用户对象
+        class_id: 班级ID
+        db: 数据库连接
+
+    Returns:
+        是否是该班级的班主任
+    """
+    if not user or not class_id:
+        return False
 
     username = user.username if hasattr(user, 'username') else ''
 
-    # 方式1：通过 teacher 表关联（username 是 teacher_id）
-    teacher = db.query_one(
-        "SELECT name FROM teacher WHERE teacher_id = %s",
-        (username,)
-    )
-    if teacher:
-        teacher_name = teacher.get('name', '')
-        # 用教师姓名匹配 class.leader_name
+    # 兼容两种格式：'xxx' 和 'T_xxx'
+    user_candidates = [username]
+    if not username.startswith('T_'):
+        user_candidates.append(f'T_{username}')
+
+    # 获取班级所有班主任ID
+    leader_ids = get_class_leader_ids(class_id, db)
+    for leader_id in leader_ids:
+        if leader_id in user_candidates:
+            return True
+
+    # 也检查班主任姓名匹配（用于 teacher.name）
+    leader_names = get_class_leader_names(class_id, db)
+    teacher_names = []
+    for tid in user_candidates:
+        teacher = db.query_one(
+            "SELECT name FROM teacher WHERE teacher_id = %s",
+            (tid,)
+        )
+        if teacher and teacher.get('name'):
+            teacher_names.append(teacher.get('name'))
+
+    for leader_name in leader_names:
+        if leader_name in teacher_names:
+            return True
+
+    return False
+
+
+def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
+    """获取用户作为班主任的所有班级ID（支持多人班主任）。
+
+    Args:
+        user: 用户对象
+        db: 数据库连接
+
+    Returns:
+        班级ID列表（用户可能是多个班级的班主任）
+    """
+    if not user:
+        return []
+
+    username = user.username if hasattr(user, 'username') else ''
+
+    # 兼容两种格式
+    user_candidates = [username]
+    if not username.startswith('T_'):
+        user_candidates.append(f'T_{username}')
+
+    # 获取教师姓名用于匹配
+    teacher_names = []
+    for tid in user_candidates:
+        teacher = db.query_one(
+            "SELECT name FROM teacher WHERE teacher_id = %s",
+            (tid,)
+        )
+        if teacher and teacher.get('name'):
+            teacher_names.append(teacher.get('name'))
+
+    class_ids = set()
+
+    # 方式1：通过 leader_ids 字段匹配（多人支持）
+    for uid in user_candidates:
+        rows = db.query_all(
+            "SELECT class_id FROM class WHERE leader_ids LIKE %s AND is_active = 1",
+            (f'%{uid}%',)
+        )
+        for row in rows:
+            # 精确匹配：确认 uid 确实在列表中
+            leader_ids_str = row.get('leader_ids', '')
+            leader_ids = [lid.strip() for lid in leader_ids_str.split(',') if lid.strip()]
+            if uid in leader_ids:
+                class_ids.add(row['class_id'])
+
+    # 方式2：通过 leader_names 字段匹配（多人支持）
+    for name in teacher_names:
+        rows = db.query_all(
+            "SELECT class_id FROM class WHERE leader_names LIKE %s AND is_active = 1",
+            (f'%{name}%',)
+        )
+        for row in rows:
+            leader_names_str = row.get('leader_names', '')
+            leader_names = [n.strip() for n in leader_names_str.split(',') if n.strip()]
+            if name in leader_names:
+                class_ids.add(row['class_id'])
+
+    # 方式3：回退兼容单值字段
+    for uid in user_candidates:
         my_class = db.query_one(
-            "SELECT class_id FROM class WHERE leader_name = %s AND is_active = 1",
-            (teacher_name,)
+            "SELECT class_id FROM class WHERE leader_wxid = %s AND is_active = 1",
+            (uid,)
         )
         if my_class:
-            return my_class['class_id']
+            class_ids.add(my_class['class_id'])
 
-    # 方式2：直接用 username 匹配 leader_name（如果 leader_name 存的是 teacher_id）
-    my_class = db.query_one(
-        "SELECT class_id FROM class WHERE leader_name = %s AND is_active = 1",
-        (username,)
+    for name in teacher_names:
+        my_class = db.query_one(
+            "SELECT class_id FROM class WHERE leader_name = %s AND is_active = 1",
+            (name,)
+        )
+        if my_class:
+            class_ids.add(my_class['class_id'])
+
+    return list(class_ids)
+
+
+def get_grade_leader_ids(grade_id: int, db: SQLiteMoralDatabase) -> List[str]:
+    """获取年级所有年级主任ID列表（支持多人）。
+
+    Args:
+        grade_id: 年级ID
+        db: 数据库连接
+
+    Returns:
+        年级主任ID列表（如 ['T_张三', 'T_李四']），无年级主任时返回空列表
+    """
+    if not grade_id:
+        return []
+
+    grade_info = db.query_one(
+        "SELECT leader_ids FROM grade WHERE grade_id = %s",
+        (grade_id,)
     )
-    if my_class:
-        return my_class['class_id']
+    if not grade_info:
+        return []
 
-    # 方式3：通过 leader_wxid 匹配
-    my_class = db.query_one(
-        "SELECT class_id FROM class WHERE leader_wxid = %s AND is_active = 1",
-        (username,)
+    leader_ids_str = grade_info.get('leader_ids', '')
+    if leader_ids_str:
+        return [lid.strip() for lid in leader_ids_str.split(',') if lid.strip()]
+
+    return []
+
+
+def get_grade_leader_names(grade_id: int, db: SQLiteMoralDatabase) -> List[str]:
+    """获取年级所有年级主任姓名列表（支持多人）。
+
+    Args:
+        grade_id: 年级ID
+        db: 数据库连接
+
+    Returns:
+        年级主任姓名列表（如 ['张三', '李四']），无年级主任时返回空列表
+    """
+    if not grade_id:
+        return []
+
+    grade_info = db.query_one(
+        "SELECT leader_names FROM grade WHERE grade_id = %s",
+        (grade_id,)
     )
-    if my_class:
-        return my_class['class_id']
+    if not grade_info:
+        return []
 
-    return None
+    leader_names_str = grade_info.get('leader_names', '')
+    if leader_names_str:
+        return [name.strip() for name in leader_names_str.split(',') if name.strip()]
+
+    return []
+
+
+def is_grade_leader(user: User, grade_id: int, db: SQLiteMoralDatabase) -> bool:
+    """检查用户是否是某年级的年级主任（支持多人）。
+
+    Args:
+        user: 用户对象
+        grade_id: 年级ID
+        db: 数据库连接
+
+    Returns:
+        是否是该年级的年级主任
+    """
+    if not user or not grade_id:
+        return False
+
+    username = user.username if hasattr(user, 'username') else ''
+
+    user_candidates = [username]
+    if not username.startswith('T_'):
+        user_candidates.append(f'T_{username}')
+
+    # 获取年级所有年级主任ID
+    leader_ids = get_grade_leader_ids(grade_id, db)
+    for leader_id in leader_ids:
+        if leader_id in user_candidates:
+            return True
+
+    # 也检查年级主任姓名匹配
+    leader_names = get_grade_leader_names(grade_id, db)
+    teacher_names = []
+    for tid in user_candidates:
+        teacher = db.query_one(
+            "SELECT name FROM teacher WHERE teacher_id = %s",
+            (tid,)
+        )
+        if teacher and teacher.get('name'):
+            teacher_names.append(teacher.get('name'))
+
+    for leader_name in leader_names:
+        if leader_name in teacher_names:
+            return True
+
+    return False
+
+
+def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
+    """获取年级主任管理的年级ID列表。
+
+    改进：支持多人年级主任，通过 grade.leader_ids/leader_names 匹配。
+    无匹配时回退到任教班级推断。
+
+    Args:
+        user: 用户对象
+        db: 数据库连接
+
+    Returns:
+        年级ID列表
+    """
+    if not user:
+        return []
+
+    username = user.username if hasattr(user, 'username') else ''
+
+    user_candidates = [username]
+    if not username.startswith('T_'):
+        user_candidates.append(f'T_{username}')
+
+    # 获取教师姓名
+    teacher_names = []
+    for tid in user_candidates:
+        teacher = db.query_one(
+            "SELECT name FROM teacher WHERE teacher_id = %s",
+            (tid,)
+        )
+        if teacher and teacher.get('name'):
+            teacher_names.append(teacher.get('name'))
+
+    grade_ids = set()
+
+    # 方式1：通过 grade.leader_ids 字段匹配（多人支持）
+    for uid in user_candidates:
+        rows = db.query_all(
+            "SELECT grade_id FROM grade WHERE leader_ids LIKE %s",
+            (f'%{uid}%',)
+        )
+        for row in rows:
+            leader_ids_str = row.get('leader_ids', '')
+            leader_ids = [lid.strip() for lid in leader_ids_str.split(',') if lid.strip()]
+            if uid in leader_ids:
+                grade_ids.add(row['grade_id'])
+
+    # 方式2：通过 grade.leader_names 字段匹配（多人支持）
+    for name in teacher_names:
+        rows = db.query_all(
+            "SELECT grade_id FROM grade WHERE leader_names LIKE %s",
+            (f'%{name}%',)
+        )
+        for row in rows:
+            leader_names_str = row.get('leader_names', '')
+            leader_names = [n.strip() for n in leader_names_str.split(',') if n.strip()]
+            if name in leader_names:
+                grade_ids.add(row['grade_id'])
+
+    # 方式3：回退到任教班级推断
+    if not grade_ids:
+        teaching_class_ids = get_teacher_teaching_class_ids(user, db)
+        if teaching_class_ids:
+            class_ids_str = ','.join(map(str, teaching_class_ids))
+            rows = db.query_all(
+                f"SELECT DISTINCT grade_id FROM class WHERE class_id IN ({class_ids_str}) AND is_active = 1"
+            )
+            for row in rows:
+                if row.get('grade_id'):
+                    grade_ids.add(row['grade_id'])
+
+    return list(grade_ids)
 
 
 def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
@@ -744,35 +1070,6 @@ def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[
         tuple(params)
     )
     return [int(row["class_id"]) for row in rows if row.get("class_id") is not None]
-
-
-def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
-    """获取年级主任管理的年级ID列表。
-
-    基于 teacher_teaching_class 映射推断：任教班级所属的年级。
-    若无任教班级映射则返回空列表。
-
-    Args:
-        user: 用户对象
-        db: 数据库连接
-
-    Returns:
-        年级ID列表
-    """
-    if not user:
-        return []
-
-    # 获取任教班级
-    teaching_class_ids = get_teacher_teaching_class_ids(user, db)
-    if not teaching_class_ids:
-        return []
-
-    # 查询这些班级所属的年级
-    class_ids_str = ','.join(map(str, teaching_class_ids))
-    rows = db.query_all(
-        f"SELECT DISTINCT grade_id FROM class WHERE class_id IN ({class_ids_str}) AND is_active = 1"
-    )
-    return [int(row["grade_id"]) for row in rows if row.get("grade_id") is not None]
 
 
 def require_permission(permission: str):

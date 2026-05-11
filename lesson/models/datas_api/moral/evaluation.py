@@ -86,7 +86,7 @@ async def get_student_evaluation(
 
         # 获取学生信息
         student = db.query_one(
-            """SELECT s.*, c.class_name, g.grade_name, c.leader_name
+            """SELECT s.*, c.class_name, g.grade_name, c.leader_name, c.leader_names
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             JOIN grade g ON s.grade_id = g.grade_id
@@ -95,6 +95,11 @@ async def get_student_evaluation(
         )
         if not student:
             raise HTTPException(404, "学生不存在")
+
+        # 支持多人班主任显示
+        leader_names_str = student.get('leader_names', '')
+        leader_name = student.get('leader_name', '')
+        student['leader_name'] = leader_names_str if leader_names_str else leader_name
 
         if not _student_allowed_by_eval_scope(db, user, student, API_EVAL_STUDENT):
             raise HTTPException(403, "只能查看授权范围内学生")
@@ -207,8 +212,9 @@ async def get_class_evaluation(
     with get_moral_db() as db:
         # 权限检查：按班级评价API配置收敛多角色后的数据范围
         if not _has_scoped_permission(db, user, API_EVAL_CLASS, 'report_view_all'):
-            my_class_id = get_teacher_class_id(user, db)
-            if not _has_scoped_permission(db, user, API_EVAL_CLASS, 'report_view_own_class') or my_class_id != class_id:
+            # 支持多人班主任：检查用户是否是该班级的班主任
+            from .base import is_class_leader
+            if not _has_scoped_permission(db, user, API_EVAL_CLASS, 'report_view_own_class') or not is_class_leader(user, class_id, db):
                 raise HTTPException(403, "权限不足")
 
         if not check_class_access(user, class_id, db):
@@ -350,11 +356,12 @@ async def calculate_evaluation_api(
             params.append(grade_id)
 
         if not can_calculate_all:
-            my_class_id = get_teacher_class_id(user, db)
-            if not my_class_id:
+            # 支持多人班主任：计算所有班主任班级
+            from .base import get_teacher_class_ids
+            my_class_ids = get_teacher_class_ids(user, db)
+            if not my_class_ids:
                 return {"success": True, "message": "成功计算 0 名学生的德育评价"}
-            conditions.append("s.class_id = %s")
-            params.append(my_class_id)
+            conditions.append(f"s.class_id IN ({','.join(map(str, my_class_ids))})")
 
         where_clause = " AND ".join(conditions)
 

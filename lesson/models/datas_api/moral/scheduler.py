@@ -56,7 +56,7 @@ def birthday_reminder_task():
         # 查询今日生日学生，按班级分组
         students = db.query_all(
             """SELECT s.student_id, s.name, s.birthday,
-                   c.class_id, c.class_code, c.class_name, c.leader_wxid, c.leader_name,
+                   c.class_id, c.class_code, c.class_name, c.leader_wxid, c.leader_name, c.leader_ids, c.leader_names,
                    g.grade_name
             FROM student s
             JOIN class c ON s.class_id = c.class_id
@@ -107,7 +107,14 @@ def birthday_reminder_task():
                 title = f"🎂 今日生日提醒"
 
                 try:
-                    author = class_student_list[0]['leader_name'] or "德育系统"
+                    # 支持多人班主任：使用第一个班主任姓名或 leader_name
+                    leader_names_str = class_student_list[0].get('leader_names', '')
+                    leader_name = class_student_list[0].get('leader_name', '')
+                    if leader_names_str:
+                        first_leader = leader_names_str.split(',')[0].strip()
+                        author = first_leader or "德育系统"
+                    else:
+                        author = leader_name or "德育系统"
                     hw.add_announcement(class_code, title, author, content, None)
                     logger.info(f"已发布班级公告：{class_name}，作者：{author}，学生：{student_names}")
                 except Exception as e:
@@ -159,7 +166,7 @@ def birthday_blessing_task():
         # 查询今日生日学生，按班级分组
         students = db.query_all(
             """SELECT s.student_id, s.name, s.birthday,
-                   c.class_id, c.class_code, c.class_name, c.leader_name
+                   c.class_id, c.class_code, c.class_name, c.leader_name, c.leader_ids, c.leader_names
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             WHERE strftime('%m-%d', s.birthday) = %s
@@ -224,7 +231,14 @@ def birthday_blessing_task():
                 title = f"🎉 生日祝福"
 
                 try:
-                    author = class_student_list[0]['leader_name'] or "德育系统"
+                    # 支持多人班主任：使用第一个班主任姓名或 leader_name
+                    leader_names_str = class_student_list[0].get('leader_names', '')
+                    leader_name = class_student_list[0].get('leader_name', '')
+                    if leader_names_str:
+                        first_leader = leader_names_str.split(',')[0].strip()
+                        author = first_leader or "德育系统"
+                    else:
+                        author = leader_name or "德育系统"
                     hw.add_announcement(class_code, title, author, content, None)
                     logger.info(f"已发布班级祝福公告：{class_name}，作者：{author}，学生：{student_names}")
 

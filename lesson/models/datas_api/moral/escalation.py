@@ -370,7 +370,7 @@ def send_escalation_notification(
     # 获取学生信息
     if not student_info:
         student_info = db.query_one(
-            """SELECT s.name, s.roomid, c.leader_wxid, c.leader_name, c.class_name
+            """SELECT s.name, s.roomid, c.leader_wxid, c.leader_name, c.class_name, c.leader_ids, c.leader_names, c.class_id
             FROM student s
             LEFT JOIN class c ON s.class_id = c.class_id
             WHERE s.student_id = %s""",
@@ -385,31 +385,58 @@ def send_escalation_notification(
         recipient = None
 
         if role == 'cleader':
-            # 通知班主任
+            # 通知班主任（支持多人）
+            class_id = student_info.get('class_id')
+            leader_ids_str = student_info.get('leader_ids', '')
+            leader_names_str = student_info.get('leader_names', '')
+            leader_wxid = student_info.get('leader_wxid', '')
             leader_name = student_info.get('leader_name', '')
 
-            # 优先使用 leader_wxid（如果已配置）
-            recipient = student_info.get('leader_wxid')
+            # 收集所有班主任姓名
+            leader_names = []
+            if leader_names_str:
+                leader_names = [n.strip() for n in leader_names_str.split(',') if n.strip()]
+            elif leader_name:
+                leader_names = [leader_name]  # 回退兼容单值
 
-            # 如果 leader_wxid 为空，通过 Lesson 类查询班主任 wxid
-            if not recipient and leader_name:
+            # 收集所有班主任 wxid
+            leader_wxids = []
+            if leader_ids_str:
+                # leader_ids 可能存的是 teacher_id 格式（如 T_张三）
+                leader_ids = [lid.strip() for lid in leader_ids_str.split(',') if lid.strip()]
+                # 通过 teacher 表获取 wxid
+                for lid in leader_ids:
+                    teacher = db.query_one(
+                        "SELECT wxid FROM teacher WHERE teacher_id = %s",
+                        (lid,)
+                    )
+                    if teacher and teacher.get('wxid'):
+                        leader_wxids.append(teacher['wxid'])
+            elif leader_wxid:
+                leader_wxids = [leader_wxid]  # 回退兼容单值
+
+            # 如果 leader_wxids 为空，通过 Lesson 类查询班主任 wxid
+            if not leader_wxids and leader_names:
                 try:
                     l = Lesson()
-                    wxids = l.get_wxids(leader_name, notice=True)
-                    if wxids and wxids[0]:
-                        recipient = wxids[0]
-                        logger.info(f"通过 Lesson 类找到班主任 {leader_name} 的 wxid: {recipient}")
+                    for name in leader_names:
+                        wxids = l.get_wxids(name, notice=True)
+                        if wxids and wxids[0]:
+                            leader_wxids.append(wxids[0])
+                            logger.info(f"通过 Lesson 类找到班主任 {name} 的 wxid: {wxids[0]}")
                 except Exception as e:
                     logger.warning(f"查询班主任 wxid 失败: {e}")
 
-            if recipient:
-                try:
-                    send_text(result.message, recipient, producer="escalation")
-                    logger.info(f"已通知班主任 {leader_name}: {recipient}")
-                except Exception as e:
-                    logger.error(f"发送班主任通知失败: {e}")
+            # 发送消息给所有班主任
+            if leader_wxids:
+                for recipient in leader_wxids:
+                    try:
+                        send_text(result.message, recipient, producer="escalation")
+                        logger.info(f"已通知班主任: {recipient}")
+                    except Exception as e:
+                        logger.error(f"发送班主任通知失败: {e}")
             else:
-                logger.warning(f"班主任 {leader_name} 未配置 wxid，无法发送通知")
+                logger.warning(f"班主任 {leader_names or leader_name} 未配置 wxid，无法发送通知")
 
         elif role == 'xuefa':
             # 通知学发部（从配置获取）

@@ -514,10 +514,17 @@ export function closeConsultation(consultationId, outcome = null) {
 // =============================================================================
 
 /**
- * 获取教师列表
+ * 获取教师列表（监考模块）
  */
 export function getTeachers() {
   return httpClient.get('/api/teachers')
+}
+
+/**
+ * 获取教师列表（德育配置模块，用于选择班主任/年级主任）
+ */
+export function getTeachersForConfig(params = {}) {
+  return httpClient.get('/api/moral/admin/teachers', { params })
 }
 
 // =============================================================================
@@ -764,6 +771,13 @@ export function createGrade(data) {
 }
 
 /**
+ * 更新级号
+ */
+export function updateGrade(gradeId, data) {
+  return httpClient.put(`/api/moral/admin/grades/${gradeId}`, data)
+}
+
+/**
  * 删除级号
  */
 export function deleteGrade(gradeId) {
@@ -1007,10 +1021,12 @@ export default {
 
   // 教师信息
   getTeachers,
+  getTeachersForConfig,
 
   // 系统管理
   getGrades,
   createGrade,
+  updateGrade,
   deleteGrade,
   getClasses,
   createClass,

@@ -137,7 +137,8 @@ class ClassCreate(BaseModel):
     grade_id: int = Field(..., description="级号ID")
     class_number: int = Field(..., description="班号")
     class_name: str = Field(..., description="班级名称")
-    leader_name: Optional[str] = Field(None, description="班主任姓名")
+    leader_name: Optional[str] = Field(None, description="班主任姓名（单值，兼容旧数据）")
+    leader_names: Optional[str] = Field(None, max_length=200, description="班主任姓名列表（多人，逗号分隔）")
     leader_wxid: Optional[str] = Field(None, description="班主任微信ID")
     roomid: Optional[str] = Field(None, description="微信群ID")
 
@@ -148,7 +149,8 @@ class ClassUpdate(BaseModel):
     grade_id: Optional[int] = Field(None, description="级号ID")
     class_number: Optional[int] = Field(None, description="班号")
     class_name: Optional[str] = Field(None, description="班级名称")
-    leader_name: Optional[str] = Field(None, description="班主任姓名")
+    leader_name: Optional[str] = Field(None, description="班主任姓名（单值，兼容旧数据）")
+    leader_names: Optional[str] = Field(None, max_length=200, description="班主任姓名列表（多人，逗号分隔）")
     leader_wxid: Optional[str] = Field(None, description="班主任微信ID")
     roomid: Optional[str] = Field(None, description="微信群ID")
     established: Optional[str] = Field(None, description="成立时间")
@@ -208,6 +210,19 @@ class SemesterCreate(BaseModel):
 # API 路由 - 级号管理
 # =============================================================================
 
+@router.get("/teachers", summary="获取教师列表")
+async def get_teachers_for_config(user: User = Depends(require_permission('grade_manage'))):
+    """获取教师列表用于级号/班级配置（选择年级主任/班主任）"""
+    with get_moral_db() as db:
+        teachers = db.query_all(
+            """SELECT teacher_id, name, subject
+            FROM teacher
+            WHERE is_active = 1 AND COALESCE(identity_type, 'teacher') = 'teacher'
+            ORDER BY name"""
+        )
+        return {"success": True, "data": {"items": teachers, "total": len(teachers)}}
+
+
 @router.get("/grades", summary="获取级号列表")
 async def get_grades(user: User = Depends(get_current_user)):
     """获取级号列表"""
@@ -251,6 +266,76 @@ async def create_grade(
         )
 
         return {"success": True, "message": "级号创建成功", "data": {"grade_id": grade_id}}
+
+
+class GradeUpdate(BaseModel):
+    """级号更新请求"""
+    grade_name: Optional[str] = Field(None, max_length=50)
+    enrollment_year: Optional[int] = Field(None)
+    leader_names: Optional[str] = Field(None, max_length=200)
+
+
+@router.put("/grades/{grade_id}", summary="更新级号")
+async def update_grade(
+    grade_id: int,
+    data: GradeUpdate,
+    request: Request,
+    user: User = Depends(require_permission('grade_manage'))
+):
+    """更新级号信息，包括年级主任（支持多人）"""
+    with get_moral_db() as db:
+        # 检查级号是否存在
+        existing = db.query_one(
+            "SELECT grade_id FROM grade WHERE grade_id = %s",
+            (grade_id,)
+        )
+        if not existing:
+            raise HTTPException(404, "级号不存在")
+
+        # 构建更新字段
+        updates = []
+        params = []
+        if data.grade_name:
+            updates.append("grade_name = %s")
+            params.append(data.grade_name)
+        if data.enrollment_year:
+            updates.append("enrollment_year = %s")
+            params.append(data.enrollment_year)
+        if data.leader_names is not None:
+            updates.append("leader_names = %s")
+            params.append(data.leader_names)
+            # 同时更新 leader_ids（通过教师姓名查找 teacher_id）
+            if data.leader_names:
+                leader_names_list = [n.strip() for n in data.leader_names.split(',') if n.strip()]
+                leader_ids_list = []
+                for name in leader_names_list:
+                    teacher = db.query_one(
+                        "SELECT teacher_id FROM teacher WHERE name = %s",
+                        (name,)
+                    )
+                    if teacher:
+                        leader_ids_list.append(teacher['teacher_id'])
+                updates.append("leader_ids = %s")
+                params.append(','.join(leader_ids_list) if leader_ids_list else '')
+            else:
+                updates.append("leader_ids = %s")
+                params.append('')
+
+        if not updates:
+            return {"success": True, "message": "无更新内容"}
+
+        params.append(grade_id)
+        db.execute(
+            f"UPDATE grade SET {', '.join(updates)} WHERE grade_id = %s",
+            tuple(params)
+        )
+
+        log_operation(
+            db, user.username, user.role, 'UPDATE', 'grade', grade_id,
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {"success": True, "message": "级号更新成功"}
 
 
 @router.delete("/grades/{grade_id}", summary="删除级号")
@@ -562,20 +647,20 @@ async def get_archived_grades(
 async def get_classes(
     grade_id: Optional[int] = Query(None),
     is_active: Optional[int] = Query(None),
-    for_record_input: Optional[int] = Query(None, description="是否用于录入记录场景（1=按权限过滤班级）"),
+    for_record_input: Optional[int] = Query(None, description="是否用于录入记录场景（1=任教+管理班级）"),
+    for_evaluation: Optional[int] = Query(None, description="是否用于德育评价场景（1=只管理班级）"),
     user: User = Depends(get_current_user)
 ):
     """获取班级列表
 
-    for_record_input=1 时，按用户权限过滤班级：
-    - admin/jiaowu/xuefa：所有班级
-    - g_leader：任教班级 + 管理年级的班级
-    - cleader：任教班级 + 管理班级（班主任班级）
-    - teacher：任教班级
+    场景说明：
+    - for_record_input=1：日常事件/点滴记录，班主任看任教+管理班级
+    - for_evaluation=1：德育评价，班主任只看管理班级
+    - admin/jiaowu/xuefa/g_leader：始终看相应范围班级
     """
     from .base import (
         get_teacher_teaching_class_ids,
-        get_teacher_class_id,
+        get_teacher_class_ids,
         get_teacher_grade_ids,
         has_user_role,
         is_admin_user,
@@ -585,8 +670,8 @@ async def get_classes(
         conditions = ["c.is_active = 1"]
         params = []
 
-        # 如果用于录入记录，按权限过滤班级
-        if for_record_input == 1:
+        # 按场景过滤班级
+        if for_record_input == 1 or for_evaluation == 1:
             # admin/jiaowu/xuefa 可以看所有班级
             if is_admin_user(user) or has_user_role(user, 'jiaowu') or has_user_role(user, 'xuefa'):
                 # 不额外过滤
@@ -595,31 +680,28 @@ async def get_classes(
                 # 计算可见班级ID列表
                 visible_class_ids = set()
 
-                # 任教班级（所有角色都有）
-                teaching_ids = get_teacher_teaching_class_ids(user, db)
-                visible_class_ids.update(teaching_ids)
-
-                # 班主任班级
-                if has_user_role(user, 'cleader'):
-                    own_class_id = get_teacher_class_id(user, db)
-                    if own_class_id:
-                        visible_class_ids.add(own_class_id)
-
                 # 年级主任管理的年级班级
                 if has_user_role(user, 'g_leader'):
                     grade_ids = get_teacher_grade_ids(user, db)
                     if grade_ids:
-                        # 获取这些年级的所有班级
                         grade_classes = db.query_all(
                             f"SELECT class_id FROM class WHERE grade_id IN ({','.join(map(str, grade_ids))}) AND is_active = 1"
                         )
                         visible_class_ids.update(c['class_id'] for c in grade_classes)
 
+                # 班主任班级
+                if has_user_role(user, 'cleader'):
+                    own_class_ids = get_teacher_class_ids(user, db)
+                    visible_class_ids.update(own_class_ids)
+
+                # 任教班级（只在 for_record_input 场景添加）
+                if for_record_input == 1:
+                    teaching_ids = get_teacher_teaching_class_ids(user, db)
+                    visible_class_ids.update(teaching_ids)
+
                 if not visible_class_ids:
-                    # 没有任何班级权限，返回空列表
                     return {"success": True, "data": []}
 
-                # 添加班级过滤条件
                 conditions.append(f"c.class_id IN ({','.join(map(str, visible_class_ids))})")
 
         if grade_id:
@@ -661,12 +743,26 @@ async def create_class(
         if existing:
             raise HTTPException(400, f"班级代码 {cls.class_code} 已存在")
 
+        # 处理 leader_names → leader_ids
+        leader_ids = ''
+        if cls.leader_names:
+            leader_names_list = [n.strip() for n in cls.leader_names.split(',') if n.strip()]
+            leader_ids_list = []
+            for name in leader_names_list:
+                teacher = db.query_one(
+                    "SELECT teacher_id FROM teacher WHERE name = %s",
+                    (name,)
+                )
+                if teacher:
+                    leader_ids_list.append(teacher['teacher_id'])
+            leader_ids = ','.join(leader_ids_list) if leader_ids_list else ''
+
         db.execute(
             """INSERT INTO class
-            (class_code, grade_id, class_number, class_name, leader_name, leader_wxid, roomid)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (class_code, grade_id, class_number, class_name, leader_name, leader_names, leader_ids, leader_wxid, roomid)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (cls.class_code, cls.grade_id, cls.class_number, cls.class_name,
-             cls.leader_name, cls.leader_wxid, cls.roomid)
+             cls.leader_name, cls.leader_names or '', leader_ids, cls.leader_wxid, cls.roomid)
         )
 
         class_id = db.lastrowid()
@@ -708,6 +804,25 @@ async def update_class(
         if cls.leader_name is not None:
             updates.append("leader_name = %s")
             params.append(cls.leader_name)
+        if cls.leader_names is not None:
+            updates.append("leader_names = %s")
+            params.append(cls.leader_names)
+            # 同时更新 leader_ids（通过教师姓名查找 teacher_id）
+            if cls.leader_names:
+                leader_names_list = [n.strip() for n in cls.leader_names.split(',') if n.strip()]
+                leader_ids_list = []
+                for name in leader_names_list:
+                    teacher = db.query_one(
+                        "SELECT teacher_id FROM teacher WHERE name = %s",
+                        (name,)
+                    )
+                    if teacher:
+                        leader_ids_list.append(teacher['teacher_id'])
+                updates.append("leader_ids = %s")
+                params.append(','.join(leader_ids_list) if leader_ids_list else '')
+            else:
+                updates.append("leader_ids = %s")
+                params.append('')
         if cls.leader_wxid is not None:
             updates.append("leader_wxid = %s")
             params.append(cls.leader_wxid)

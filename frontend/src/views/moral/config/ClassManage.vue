@@ -17,9 +17,9 @@
       <el-table :data="classList" v-loading="loading" stripe>
         <el-table-column prop="class_name" label="班级名称" width="150" />
         <el-table-column prop="grade_name" label="所属级号" width="120" />
-        <el-table-column prop="leader_name" label="班主任" width="100">
+        <el-table-column label="班主任" min-width="120">
           <template #default="{ row }">
-            <span>{{ row.leader_name || '未指定' }}</span>
+            <span>{{ row.leader_names || row.leader_name || '未指定' }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="student_count" label="学生数" width="80">
@@ -59,7 +59,7 @@
           <el-input v-model="form.class_name" placeholder="如：1班、2班" maxlength="20" />
         </el-form-item>
         <el-form-item label="班主任">
-          <el-select v-model="form.leader_name" placeholder="选择班主任" clearable filterable style="width: 100%">
+          <el-select v-model="form.leader_names" placeholder="选择班主任（可多选）" clearable filterable multiple collapse-tags collapse-tags-tooltip style="width: 100%">
             <el-option v-for="teacher in teacherList" :key="teacher.teacher_id" :label="teacher.name" :value="teacher.name" />
           </el-select>
         </el-form-item>
@@ -103,7 +103,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getGrades, getClasses, createClass, updateClass, deleteClass, getStudents, getTeachers } from '@/api/modules/moral'
+import { getGrades, getClasses, createClass, updateClass, deleteClass, getStudents, getTeachersForConfig } from '@/api/modules/moral'
 
 const loading = ref(false)
 const classList = ref([])
@@ -119,7 +119,7 @@ const form = reactive({
   class_code: '',
   class_number: 1,
   class_name: '',
-  leader_name: '',
+  leader_names: [],
   established: '',
   motto: '',
   location: ''
@@ -148,13 +148,14 @@ const fetchGrades = async () => {
 
 const fetchTeachers = async () => {
   try {
-    const res = await getTeachers()
-    // API返回可能是 axios response 对象或直接的 data
-    const teachers = res.data?.teachers || res.teachers || []
-    teacherList.value = teachers.map(t => ({
-      teacher_id: t.username,
-      name: t.username
-    }))
+    const res = await getTeachersForConfig()
+    if (res.success) {
+      teacherList.value = res.data.items || res.data || []
+    }
+  } catch (error) {
+    console.error('获取教师列表失败:', error)
+  }
+}
   } catch (error) {
     console.error('获取教师列表失败:', error)
   }
@@ -184,7 +185,7 @@ const handleAdd = () => {
     class_code: `${year}-${classCount}`,
     class_number: classCount,
     class_name: `${classCount}班`,
-    leader_name: '',
+    leader_names: [],
     established: `${year}-09-01`,
     motto: '',
     location: ''
@@ -203,13 +204,20 @@ const handleGradeChange = (gradeId) => {
 }
 
 const handleEdit = (row) => {
+  // 解析班主任列表（支持多人）
+  let leaderNames = []
+  if (row.leader_names) {
+    leaderNames = row.leader_names.split(',').map(n => n.trim()).filter(n => n)
+  } else if (row.leader_name) {
+    leaderNames = [row.leader_name]
+  }
   Object.assign(form, {
     class_id: row.class_id,
     grade_id: row.grade_id,
     class_code: row.class_code,
     class_number: row.class_number,
     class_name: row.class_name,
-    leader_name: row.leader_name || '',
+    leader_names: leaderNames,
     established: row.established || '',
     motto: row.motto || '',
     location: row.location || ''
@@ -225,7 +233,7 @@ const handleSubmit = async () => {
       grade_id: form.grade_id,
       class_number: form.class_number,
       class_name: form.class_name,
-      leader_name: form.leader_name || null,
+      leader_names: form.leader_names.length > 0 ? form.leader_names.join(',') : null,
       established: form.established || null,
       motto: form.motto || null,
       location: form.location || null

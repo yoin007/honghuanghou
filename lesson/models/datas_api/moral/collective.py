@@ -76,8 +76,9 @@ def ensure_collective_class_access(user: User, db, class_id: int, api_path: str 
     if check_moral_permission_for_roles(scoped_roles, 'report_view_all'):
         return
 
-    my_class_id = get_teacher_class_id(user, db)
-    if my_class_id is None or my_class_id != class_id:
+    # 支持多人班主任：检查用户是否是该班级的班主任
+    from .base import is_class_leader
+    if not is_class_leader(user, class_id, db):
         raise HTTPException(403, "只能访问本班集体事件")
 
 
@@ -115,11 +116,12 @@ async def get_collective_events(
 
         scoped_roles = get_api_scoped_user_roles(db, user, API_COLLECTIVE_LIST)
         if not check_moral_permission_for_roles(scoped_roles, 'report_view_all') and not is_admin_user(user):
-            my_class_id = get_teacher_class_id(user, db)
-            if my_class_id is None:
+            # 支持多人班主任：获取所有班主任班级
+            from .base import get_teacher_class_ids
+            my_class_ids = get_teacher_class_ids(user, db)
+            if not my_class_ids:
                 raise HTTPException(403, "权限不足")
-            conditions.append("ce.class_id = %s")
-            params.append(my_class_id)
+            conditions.append(f"ce.class_id IN ({','.join(map(str, my_class_ids))})")
 
         if event_type:
             conditions.append("ce.event_type = %s")

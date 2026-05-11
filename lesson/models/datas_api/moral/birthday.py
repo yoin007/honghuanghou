@@ -91,7 +91,7 @@ async def get_upcoming_birthdays(
         where_clause = " AND ".join(conditions)
 
         query = f"""
-            SELECT s.student_id, s.name, s.birthday, c.class_name, c.leader_name,
+            SELECT s.student_id, s.name, s.birthday, c.class_name, c.leader_name, c.leader_names,
                    strftime('%m-%d', s.birthday) as birthday_md
             FROM student s
             JOIN class c ON s.class_id = c.class_id
@@ -120,12 +120,17 @@ async def get_upcoming_birthdays(
 
             days_until = (next_birthday - today).days
 
+            # 支持多人班主任：优先使用 leader_names，否则回退 leader_name
+            leader_names_str = student.get('leader_names', '')
+            leader_name = student.get('leader_name', '')
+            display_leader = leader_names_str if leader_names_str else leader_name
+
             result.append({
                 'student_id': student['student_id'],
                 'name': student['name'],
                 'birthday': student['birthday'],
                 'class_name': student['class_name'],
-                'leader_name': student['leader_name'],
+                'leader_name': display_leader,
                 'next_birthday': str(next_birthday),
                 'days_until': days_until
             })
@@ -163,7 +168,7 @@ async def get_today_birthdays(
         where_clause = " AND ".join(conditions)
 
         query = f"""
-            SELECT s.student_id, s.name, s.birthday, c.class_name, c.leader_name
+            SELECT s.student_id, s.name, s.birthday, c.class_name, c.leader_name, c.leader_names
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             WHERE {where_clause}
@@ -172,5 +177,11 @@ async def get_today_birthdays(
         """
         params.extend([today.month, today.day])
         students = db.query_all(query, tuple(params))
+
+        # 支持多人班主任显示
+        for student in students:
+            leader_names_str = student.get('leader_names', '')
+            leader_name = student.get('leader_name', '')
+            student['leader_name'] = leader_names_str if leader_names_str else leader_name
 
         return {"success": True, "data": students}

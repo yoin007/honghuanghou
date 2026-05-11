@@ -170,17 +170,15 @@ async def get_student_score_trend(
         # 权限判断
         if not _is_moral_manager(user):
             if has_user_role(user, 'cleader'):
-                my_class_id = get_teacher_class_id(user, db)
-                if my_class_id != class_id:
+                # 支持多人班主任：检查用户是否是该班级的班主任
+                from models.datas_api.moral.base import is_class_leader
+                if not is_class_leader(user, class_id, db):
                     raise HTTPException(status_code=403, detail="只能查看本班学生")
             elif has_user_role(user, 'g_leader'):
-                # 年级主任：检查学生是否在自己年级
-                my_classes = db.query_all(
-                    "SELECT class_id FROM class WHERE grade_id = (SELECT grade_id FROM class WHERE class_id = %s)",
-                    (class_id,)
-                )
-                my_class_ids = [c['class_id'] for c in my_classes]
-                if class_id not in my_class_ids:
+                # 年级主任：检查学生是否在自己管理的年级
+                from models.datas_api.moral.base import is_grade_leader
+                grade_id = student.get('grade_id')
+                if grade_id and not is_grade_leader(user, grade_id, db):
                     raise HTTPException(status_code=403, detail="只能查看本年级学生")
             else:
                 raise HTTPException(status_code=403, detail="无查看权限")
@@ -269,8 +267,9 @@ async def get_class_score_trend(
         # 权限检查
         if not (_is_moral_manager(user) or _is_jiaowu(user)):
             if has_user_role(user, 'cleader'):
-                my_class_id = get_teacher_class_id(user, db)
-                if my_class_id != class_id:
+                # 支持多人班主任：检查用户是否是该班级的班主任
+                from models.datas_api.moral.base import is_class_leader
+                if not is_class_leader(user, class_id, db):
                     raise HTTPException(status_code=403, detail="只能查看本班数据")
             else:
                 raise HTTPException(status_code=403, detail="无查看权限")

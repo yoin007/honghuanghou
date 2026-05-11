@@ -88,6 +88,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"权限修复初始化失败（非致命）: {e}")
 
+    # 启动时执行数据库迁移（添加 leader_ids/leader_names 字段）
+    try:
+        from scripts.create_moral_tables import ensure_sqlite_schema
+        from models.datas_api.moral.base import get_moral_db
+        with get_moral_db() as db:
+            ensure_sqlite_schema(db.connection)
+        log.info("数据库迁移完成（leader_ids/leader_names）")
+    except Exception as e:
+        log.warning(f"数据库迁移失败（非致命）: {e}")
+
     # 启动时启动队列消费任务
     tasks = [
         asyncio.create_task(task_start()),  # 删除多余的逗号
