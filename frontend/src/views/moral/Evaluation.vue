@@ -92,7 +92,7 @@
           <el-descriptions-item label="学号">{{ selectedStudent.student_id }}</el-descriptions-item>
           <el-descriptions-item label="姓名">{{ selectedStudent.student_name }}</el-descriptions-item>
           <el-descriptions-item label="班级">{{ selectedStudent.class_name }}</el-descriptions-item>
-          <el-descriptions-item label="总分">{{ selectedStudent.total_score?.toFixed(1) }}</el-descriptions-item>
+          <el-descriptions-item label="总分">{{ calculatedTotalScore.toFixed(1) }}</el-descriptions-item>
           <el-descriptions-item label="等级">{{ selectedStudent.level }}</el-descriptions-item>
           <el-descriptions-item label="学期">{{ currentSemesterName }}</el-descriptions-item>
         </el-descriptions>
@@ -239,16 +239,20 @@ const currentSemesterName = computed(() => {
   return semesterList.value.find(s => s.semester_id === filterForm.semester_id)?.semester_name || '-'
 })
 const scoreBreakdown = computed(() => [
-  { key: 'base', label: '基础分', value: detailData.value.base_score || 0, signed: false },
+  { key: 'base', label: '基础分', value: detailData.value.base_score || 80, signed: false },
   { key: 'daily', label: '日常', value: detailData.value.daily_score || 0, signed: true },
   { key: 'school', label: '校级', value: detailData.value.school_score || 0, signed: true },
   { key: 'task', label: '任务', value: detailData.value.task_score || 0, signed: true },
   { key: 'collective', label: '集体', value: detailData.value.collective_score || 0, signed: true },
   { key: 'punishment', label: '处分', value: -(detailData.value.punishment_score || 0), signed: true }
 ])
+const calculatedTotalScore = computed(() => {
+  const e = detailData.value
+  return (e.base_score || 80) + (e.daily_score || 0) + (e.school_score || 0) + (e.task_score || 0) + (e.collective_score || 0) - (e.punishment_score || 0)
+})
 const scoreFormula = computed(() => {
   const e = detailData.value
-  return `计算：${formatScore(e.base_score || 0)} ${formatScore(e.daily_score || 0, true)} ${formatScore(e.school_score || 0, true)} ${formatScore(e.task_score || 0, true)} ${formatScore(e.collective_score || 0, true)} ${formatScore(-(e.punishment_score || 0), true)} = ${formatScore(e.total_score || selectedStudent.value?.total_score || 0)}`
+  return `计算：${formatScore(e.base_score || 80)} ${formatScore(e.daily_score || 0, true)} ${formatScore(e.school_score || 0, true)} ${formatScore(e.task_score || 0, true)} ${formatScore(e.collective_score || 0, true)} ${formatScore(-(e.punishment_score || 0), true)} = ${formatScore(calculatedTotalScore.value)}`
 })
 
 // 方法
