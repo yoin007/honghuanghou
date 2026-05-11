@@ -544,7 +544,7 @@ async def export_lifebook_xlsx(
             "生日": student['birthday'],
             "状态": student['status'],
             "导出日期": dt.now().strftime('%Y-%m-%d %H:%M'),
-            "导出人": user.name
+            "导出人": user.username
         }])
 
         # Sheet 2: 时光轴明细
@@ -630,7 +630,7 @@ async def export_class_lifebooks(
                         "姓名": student['name'],
                         "班级": student['class_name'],
                         "导出日期": dt.now().strftime('%Y-%m-%d'),
-                        "导出人": user.name
+                        "导出人": user.username
                     }])
 
                     timeline_df = pd.DataFrame([
