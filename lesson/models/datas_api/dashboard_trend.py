@@ -56,6 +56,128 @@ def _format_period_label(period: str, unit: str) -> str:
         return f'{year}年第{int(week)}周'
 
 
+def _merge_class_moral_trend(
+    daily_data, school_data, task_data, collective_data, punishment_data,
+    base_score, unit, student_count
+):
+    """合并班级德育总分各组成部分的平均变化趋势（累计）。
+
+    计算逻辑：每周期总得分 / 班级学生数 = 班级平均得分变化
+
+    Args:
+        daily_data: 日常记录总得分趋势
+        school_data: 校级事件总得分趋势
+        task_data: 任务完成总得分趋势
+        collective_data: 集体活动总得分趋势
+        punishment_data: 处分扣分总得分趋势
+        base_score: 基础分
+        unit: 聚合单位
+        student_count: 班级学生数
+
+    Returns:
+        班级平均德育总分累计趋势数据
+    """
+    # 合并所有周期
+    all_periods = set()
+    maps = {
+        'daily': {},
+        'school': {},
+        'task': {},
+        'collective': {},
+        'punishment': {},
+    }
+
+    for row in daily_data:
+        period = row.get('period', '')
+        all_periods.add(period)
+        # 总得分 / 学生数 = 班级平均得分变化
+        maps['daily'][period] = (row.get('total_score', 0) or 0) / student_count
+
+    for row in school_data:
+        period = row.get('period', '')
+        all_periods.add(period)
+        maps['school'][period] = (row.get('total_score', 0) or 0) / student_count
+
+    for row in task_data:
+        period = row.get('period', '')
+        all_periods.add(period)
+        maps['task'][period] = (row.get('total_score', 0) or 0) / student_count
+
+    for row in collective_data:
+        period = row.get('period', '')
+        all_periods.add(period)
+        maps['collective'][period] = (row.get('total_score', 0) or 0) / student_count
+
+    for row in punishment_data:
+        period = row.get('period', '')
+        all_periods.add(period)
+        maps['punishment'][period] = (row.get('total_score', 0) or 0) / student_count
+
+    # 按周期排序
+    sorted_periods = sorted(all_periods)
+
+    # 构建累计结果
+    periods = []
+    labels = []
+    daily_cumulative = []
+    school_cumulative = []
+    task_cumulative = []
+    collective_cumulative = []
+    punishment_cumulative = []
+    total_cumulative = []
+
+    # 累计平均分
+    daily_sum = 0
+    school_sum = 0
+    task_sum = 0
+    collective_sum = 0
+    punishment_sum = 0
+
+    for period in sorted_periods:
+        if period:
+            periods.append(period)
+            labels.append(_format_period_label(period, unit))
+
+            # 累计各分项平均分
+            daily_sum += maps['daily'].get(period, 0)
+            school_sum += maps['school'].get(period, 0)
+            task_sum += maps['task'].get(period, 0)
+            collective_sum += maps['collective'].get(period, 0)
+            punishment_sum += maps['punishment'].get(period, 0)
+
+            # 记录累计平均分
+            daily_cumulative.append(round(daily_sum, 2))
+            school_cumulative.append(round(school_sum, 2))
+            task_cumulative.append(round(task_sum, 2))
+            collective_cumulative.append(round(collective_sum, 2))
+            punishment_cumulative.append(round(punishment_sum, 2))
+
+            # 计算累计班级平均德育总分
+            total_score = base_score + daily_sum + school_sum + task_sum + collective_sum - punishment_sum
+            total_cumulative.append(round(total_score, 1))
+
+    # 如果没有数据，返回基础分作为学期起点（而不是空结构）
+    if not periods:
+        # 德育分从基础分开始，显示起点让用户知道班级分数状态
+        return {
+            "periods": ["baseline"],
+            "labels": ["学期起点"],
+            "task_scores": [0],
+            "record_scores": [0],
+            "total_scores": [base_score],  # 基础分作为起点
+            "has_changes": False,  # 标记无变化记录
+        }
+
+    return {
+        "periods": periods,
+        "labels": labels,
+        "task_scores": task_cumulative,
+        "record_scores": daily_cumulative,  # 日常记录 = record_scores（保持前端兼容）
+        "total_scores": total_cumulative,
+        "has_changes": True,  # 标记有变化记录
+    }
+
+
 def _build_empty_trend_response(unit: str) -> Dict:
     """构建空趋势响应。
 
@@ -232,17 +354,19 @@ def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data
             total_score = base_score + daily_sum + school_sum + task_sum + collective_sum - punishment_sum
             total_cumulative.append(round(total_score, 1))
 
-    # 如果没有数据，返回空结构
+    # 如果没有数据，返回基础分作为学期起点（而不是空结构）
     if not periods:
+        # 德育分从基础分开始，显示起点让用户知道学生分数状态
         return {
-            "periods": [],
-            "labels": [],
-            "daily_scores": [],
-            "school_scores": [],
-            "task_scores": [],
-            "collective_scores": [],
-            "punishment_scores": [],
-            "total_scores": [],
+            "periods": ["baseline"],
+            "labels": ["学期起点"],
+            "daily_scores": [0],
+            "school_scores": [0],
+            "task_scores": [0],
+            "collective_scores": [0],
+            "punishment_scores": [0],
+            "total_scores": [base_score],  # 基础分作为起点
+            "has_changes": False,  # 标记无变化记录
         }
 
     return {
@@ -254,6 +378,7 @@ def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data
         "collective_scores": collective_cumulative,
         "punishment_scores": punishment_cumulative,
         "total_scores": total_cumulative,
+        "has_changes": True,  # 标记有变化记录
     }
 
 
@@ -377,8 +502,13 @@ async def get_student_score_trend(
             (student_id, start_date, end_date)
         )
 
+        # 从配置表读取基础分（与评价模块保持一致）
+        base_score_config = db.query_value(
+            "SELECT config_value FROM moral_config WHERE config_key = 'evaluation_base_score'"
+        )
+        base_score = float(base_score_config or 80)
+
         # 合并所有数据，计算累计德育总分
-        base_score = 60  # 基础分固定60分
         trend_data = _merge_moral_score_trend(
             daily_data or [], school_data or [], task_data or [],
             collective_data or [], punishment_data or [],
@@ -406,6 +536,14 @@ async def get_class_score_trend(
     user: User = Depends(get_current_user),
 ):
     """班级平均得分趋势图数据。
+
+    实时聚合班级所有学生的德育总分变化，包含：
+    - 基础分
+    - 日常记录得分
+    - 校级事件得分
+    - 任务完成得分
+    - 集体活动得分
+    - 处分扣分
 
     Args:
         class_id: 班级ID
@@ -453,10 +591,45 @@ async def get_class_score_trend(
         end_date = semester.get('end_date')
         period_format = _get_period_format(unit)
 
-        # 班级任务得分平均趋势
+        # 从配置表读取基础分
+        base_score_config = db.query_value(
+            "SELECT config_value FROM moral_config WHERE config_key = 'evaluation_base_score'"
+        )
+        base_score = float(base_score_config or 80)
+
+        # 班级学生数
+        student_count = db.query_value(
+            "SELECT COUNT(*) FROM student WHERE class_id = ?",
+            (class_id,)
+        ) or 1
+
+        # 实时聚合班级各分项总得分趋势（后续除以学生数得到平均）
+        # 1. 日常记录总得分趋势
+        daily_data = db.query_all(
+            f"""SELECT strftime('{period_format}', record_date) as period,
+                       SUM(score) as total_score
+                FROM student_daily_record
+                WHERE class_id = ? AND is_deleted = 0
+                AND record_date >= ? AND record_date <= ?
+                GROUP BY period ORDER BY period""",
+            (class_id, start_date, end_date)
+        )
+
+        # 2. 校级事件总得分趋势
+        school_data = db.query_all(
+            f"""SELECT strftime('{period_format}', get_date) as period,
+                       SUM(score) as total_score
+                FROM student_school_record
+                WHERE class_id = ? AND is_deleted = 0
+                AND get_date >= ? AND get_date <= ?
+                GROUP BY period ORDER BY period""",
+            (class_id, start_date, end_date)
+        )
+
+        # 3. 任务完成总得分趋势
         task_data = db.query_all(
             f"""SELECT strftime('{period_format}', stf.finish_date) as period,
-                       AVG(stf.current_score) as avg_score
+                       SUM(stf.current_score) as total_score
                 FROM student_task_finish stf
                 JOIN student s ON stf.student_id = s.student_id
                 WHERE s.class_id = ? AND stf.status = 1
@@ -465,20 +638,35 @@ async def get_class_score_trend(
             (class_id, start_date, end_date)
         )
 
-        # 班级加减分平均趋势
-        record_data = db.query_all(
-            f"""SELECT strftime('{period_format}', ssr.get_date) as period,
-                       AVG(ssr.score) as avg_score
-                FROM student_school_record ssr
-                JOIN student s ON ssr.student_id = s.student_id
-                WHERE s.class_id = ? AND ssr.is_deleted = 0
-                AND ssr.get_date >= ? AND ssr.get_date <= ?
+        # 4. 集体活动总得分趋势
+        collective_data = db.query_all(
+            f"""SELECT strftime('{period_format}', ce.event_date) as period,
+                       SUM(ced.score_assigned) as total_score
+                FROM collective_event_distribution ced
+                JOIN collective_event ce ON ced.event_id = ce.event_id
+                WHERE ced.class_id = ? AND ced.is_participant = 1
+                AND ce.event_date >= ? AND ce.event_date <= ?
                 GROUP BY period ORDER BY period""",
             (class_id, start_date, end_date)
         )
 
-        # 合并数据（班级用平均值）
-        trend_data = _merge_trend_data(task_data or [], record_data or [], unit)
+        # 5. 处分扣分总得分趋势
+        punishment_data = db.query_all(
+            f"""SELECT strftime('{period_format}', punishment_date) as period,
+                       SUM(ABS(score_deduct)) as total_score
+                FROM punishment_record
+                WHERE class_id = ? AND is_revoked = 0
+                AND punishment_date >= ? AND punishment_date <= ?
+                GROUP BY period ORDER BY period""",
+            (class_id, start_date, end_date)
+        )
+
+        # 合并数据，计算班级平均德育总分变化（累计）
+        trend_data = _merge_class_moral_trend(
+            daily_data or [], school_data or [], task_data or [],
+            collective_data or [], punishment_data or [],
+            base_score, unit, student_count
+        )
 
     return {
         "success": True,
@@ -487,6 +675,7 @@ async def get_class_score_trend(
             "class_name": class_info.get('class_name'),
             "unit": unit,
             "semester_id": semester.get('semester_id') if semester else None,
+            "student_count": student_count,
             "trend": trend_data,
             "updated_at": _now_text(),
         },

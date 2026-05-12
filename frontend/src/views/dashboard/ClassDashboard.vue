@@ -67,7 +67,11 @@
       <div class="trend-header">
         <h3>学生个人得分趋势</h3>
         <div class="trend-controls">
-          <el-select v-model="selectedStudentId" placeholder="选择学生" clearable size="small" @change="onStudentChange" style="width: 180px">
+          <el-radio-group v-model="studentTrendUnit" size="small" @change="onStudentTrendUnitChange">
+            <el-radio-button label="week">按周</el-radio-button>
+            <el-radio-button label="month">按月</el-radio-button>
+          </el-radio-group>
+          <el-select v-model="selectedStudentId" placeholder="选择学生" clearable size="small" @change="onStudentChange" style="width: 180px; margin-left: 12px">
             <el-option v-for="s in studentList" :key="s.student_id" :label="s.name" :value="s.student_id" />
           </el-select>
         </div>
@@ -156,6 +160,7 @@ const selectedClassId = ref(null)
 const studentList = ref([])
 const selectedStudentId = ref(null)
 const trendUnit = ref('week')
+const studentTrendUnit = ref('week')
 const classTrendData = ref({ periods: [], labels: [], task_scores: [], record_scores: [], total_scores: [] })
 const studentTrendData = ref({ periods: [], labels: [], daily_scores: [], school_scores: [], task_scores: [], collective_scores: [], punishment_scores: [], total_scores: [] })
 const trendLoading = ref(false)
@@ -198,15 +203,26 @@ const scoreBandOption = computed(() => basePieOption({
 const classTrendOption = computed(() => {
   const data = classTrendData.value
   if (!data.periods?.length) return null
+
+  // 无变化记录时显示基础分 + 提示
+  const hasChanges = data.has_changes !== false
+  const subtitleText = hasChanges ? '' : `班级德育平均分保持在基础分 ${data.total_scores?.[0] || 80} 分`
+
   return {
+    title: {
+      text: subtitleText,
+      left: 'center',
+      top: 0,
+      textStyle: { color: '#94a3b8', fontSize: 12, fontWeight: 'normal' }
+    },
     tooltip: { trigger: 'axis' },
-    legend: { data: ['任务得分', '加减分', '总分'], top: 10 },
+    legend: { data: ['任务得分', '加减分', '总分'], top: subtitleText ? 28 : 10 },
     xAxis: { type: 'category', data: data.labels },
-    yAxis: { type: 'value', name: '平均得分' },
+    yAxis: { type: 'value', name: '平均得分', min: 0, max: 100 },
     series: [
       { name: '任务得分', type: 'line', data: data.task_scores, smooth: true, itemStyle: { color: '#34d399' } },
       { name: '加减分', type: 'line', data: data.record_scores, smooth: true, itemStyle: { color: '#fbbf24' } },
-      { name: '总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#38bdf8' } }
+      { name: '总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#38bdf8' }, lineStyle: { width: 3 } }
     ]
   }
 })
@@ -214,11 +230,22 @@ const classTrendOption = computed(() => {
 const studentTrendOption = computed(() => {
   const data = studentTrendData.value
   if (!data.periods?.length) return null
+
+  // 无变化记录时显示基础分 + 提示
+  const hasChanges = data.has_changes !== false
+  const subtitleText = hasChanges ? '' : `学生德育总分保持在基础分 ${data.total_scores?.[0] || 80} 分`
+
   return {
+    title: {
+      text: subtitleText,
+      left: 'center',
+      top: 0,
+      textStyle: { color: '#94a3b8', fontSize: 12, fontWeight: 'normal' }
+    },
     tooltip: { trigger: 'axis' },
-    legend: { data: ['德育总分', '日常记录', '校级事件', '任务完成', '集体活动', '处分扣分'], top: 10 },
+    legend: { data: ['德育总分', '日常记录', '校级事件', '任务完成', '集体活动', '处分扣分'], top: subtitleText ? 28 : 10 },
     xAxis: { type: 'category', data: data.labels },
-    yAxis: { type: 'value', name: '累计得分', min: 0 },
+    yAxis: { type: 'value', name: '累计得分', min: 0, max: 100 },
     series: [
       { name: '德育总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#38bdf8' }, lineStyle: { width: 3 } },
       { name: '日常记录', type: 'line', data: data.daily_scores, smooth: true, itemStyle: { color: '#34d399' } },
@@ -268,7 +295,7 @@ const fetchStudentTrend = async () => {
   }
   trendLoading.value = true
   try {
-    const res = await getStudentScoreTrend(selectedStudentId.value, { unit: trendUnit.value })
+    const res = await getStudentScoreTrend(selectedStudentId.value, { unit: studentTrendUnit.value })
     if (res.success) {
       studentTrendData.value = res.data.trend
     }
@@ -281,6 +308,9 @@ const fetchStudentTrend = async () => {
 
 const onTrendUnitChange = () => {
   fetchClassTrend()
+}
+
+const onStudentTrendUnitChange = () => {
   fetchStudentTrend()
 }
 
