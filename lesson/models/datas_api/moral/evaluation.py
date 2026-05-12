@@ -691,7 +691,7 @@ def get_recent_evaluation_records(db, student_id: str, semester_id: int) -> dict
         """SELECT punishment_date as date, level as title, reason, ABS(score_deduct) as score,
         is_revoked
         FROM punishment_record
-        WHERE student_id = ? AND semester_id = ?
+        WHERE student_id = ? AND semester_id = ? AND is_revoked = 0
         ORDER BY punishment_date DESC, created_at DESC
         LIMIT 5""",
         (student_id, semester_id)
