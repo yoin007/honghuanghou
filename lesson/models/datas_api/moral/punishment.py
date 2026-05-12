@@ -38,6 +38,7 @@ API_PUNISHMENT_LIST = "/api/moral/punishments"
 API_PUNISHMENT_CREATE = "/api/moral/punishments/create"
 API_PUNISHMENT_UPDATE = "/api/moral/punishments/update"
 API_PUNISHMENT_REVOKE = "/api/moral/punishments/revoke"
+API_PUNISHMENT_REVIEW = "/api/moral/punishments/review"
 
 
 def _ensure_xuefa_or_admin(user: User) -> None:
@@ -296,7 +297,6 @@ async def update_punishment(
 ):
     """更新处分记录"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
         action_scope = _punishment_action_scope(db, user, API_PUNISHMENT_UPDATE)
         if not action_scope.get("can_all") and not action_scope.get("can_own"):
             raise HTTPException(403, "权限不足：需要处分记录权限")
@@ -358,7 +358,6 @@ async def revoke_punishment(
     }
 
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
         action_scope = _punishment_action_scope(db, user, API_PUNISHMENT_REVOKE)
         if not action_scope.get("can_all") and not action_scope.get("can_own"):
             raise HTTPException(403, "权限不足：需要处分撤销权限")
@@ -413,7 +412,7 @@ async def revoke_punishment(
 @router.get("/{record_id}/review-info", summary="获取处分复核信息")
 async def get_punishment_review_info(
     record_id: int,
-    user: User = Depends(require_permission('punishment_manage'))
+    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_REVIEW))
 ):
     """
     获取处分复核所需信息
@@ -539,7 +538,7 @@ async def review_punishment(
     record_id: int,
     review_data: PunishmentReview,
     request: Request,
-    user: User = Depends(require_permission('punishment_manage'))
+    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_REVIEW))
 ):
     """
     复核处分（撤销或通过）

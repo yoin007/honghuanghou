@@ -11,11 +11,13 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from .base import get_moral_db, require_permission
+from .base import get_moral_db, require_permission, require_configured_api_permission
 from models.datas_api.auth import User, get_current_user
 
 router = APIRouter(prefix="/ai-model-config", tags=["大模型配置"])
 logger = logging.getLogger(__name__)
+
+API_AI_CONFIG = "/api/moral/ai-model-config"
 
 
 # =============================================================================
@@ -69,7 +71,7 @@ class ModelConfigResponse(BaseModel):
 
 @router.get("/list", summary="获取所有配置")
 async def get_all_configs(
-    user: User = Depends(require_permission('system_config'))
+    user: User = Depends(require_configured_api_permission(API_AI_CONFIG))
 ):
     """获取所有模块的大模型配置"""
     with get_moral_db() as db:
@@ -81,7 +83,7 @@ async def get_all_configs(
 
 @router.get("/models", summary="获取可用模型列表")
 async def get_available_models(
-    user: User = Depends(require_permission('system_config'))
+    user: User = Depends(require_configured_api_permission(API_AI_CONFIG))
 ):
     """获取所有可用的大模型列表"""
     return {"success": True, "data": AVAILABLE_MODELS}
@@ -91,7 +93,7 @@ async def get_available_models(
 async def update_model_config(
     module_name: str,
     update: ModelConfigUpdate,
-    user: User = Depends(require_permission('system_config'))
+    user: User = Depends(require_configured_api_permission(API_AI_CONFIG))
 ):
     """更新指定模块的大模型配置"""
     # 验证模型名称是否在可用列表中
@@ -125,7 +127,7 @@ async def update_model_config(
 
 @router.post("/init", summary="初始化默认配置")
 async def init_default_configs(
-    user: User = Depends(require_permission('system_config'))
+    user: User = Depends(require_configured_api_permission(API_AI_CONFIG))
 ):
     """初始化默认的大模型配置（如果表为空）"""
     with get_moral_db() as db:

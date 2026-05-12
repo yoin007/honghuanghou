@@ -610,7 +610,7 @@ scheduler_router = APIRouter(prefix="/scheduler", tags=["定时任务"])
 
 @scheduler_router.get("/status", summary="获取调度器状态")
 async def api_get_scheduler_status(
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/scheduler", "GET", allow_missing=False))
 ):
     """获取定时任务调度器状态"""
     status = get_scheduler_status()
@@ -619,7 +619,7 @@ async def api_get_scheduler_status(
 
 @scheduler_router.post("/start", summary="启动调度器")
 async def api_start_scheduler(
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/scheduler", "GET", allow_missing=False))
 ):
     """启动定时任务调度器"""
     try:
@@ -631,7 +631,7 @@ async def api_start_scheduler(
 
 @scheduler_router.post("/stop", summary="停止调度器")
 async def api_stop_scheduler(
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/scheduler", "GET", allow_missing=False))
 ):
     """停止定时任务调度器"""
     try:
@@ -643,7 +643,7 @@ async def api_stop_scheduler(
 
 @scheduler_router.post("/trigger/birthday-reminder", summary="手动触发生日提醒")
 async def api_trigger_birthday_reminder(
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/scheduler", "GET", allow_missing=False))
 ):
     """手动触发生日提醒任务"""
     try:
@@ -655,7 +655,7 @@ async def api_trigger_birthday_reminder(
 
 @scheduler_router.post("/trigger/warning-check", summary="手动触发预警检查")
 async def api_trigger_warning_check(
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/scheduler", "GET", allow_missing=False))
 ):
     """手动触发预警检查任务"""
     try:
@@ -667,7 +667,7 @@ async def api_trigger_warning_check(
 
 @scheduler_router.post("/trigger/semester-evaluation", summary="手动触发学期评价计算")
 async def api_trigger_semester_evaluation(
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/scheduler", "GET", allow_missing=False))
 ):
     """手动触发学期末德育评价计算"""
     try:
@@ -679,7 +679,7 @@ async def api_trigger_semester_evaluation(
 
 @scheduler_router.post("/trigger/task-carryover", summary="手动触发任务结转")
 async def api_trigger_task_carryover(
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/scheduler", "GET", allow_missing=False))
 ):
     """手动触发学年末任务结转"""
     try:

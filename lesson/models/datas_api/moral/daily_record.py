@@ -16,6 +16,7 @@ GMT8 = timezone(timedelta(hours=8))
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from .api_permission import require_configured_api_permission
 from .base import (
     get_moral_db,
     check_moral_permission,
@@ -26,8 +27,7 @@ from .base import (
     BaseResponse,
     PaginationParams,
     PaginatedResponse,
-    require_permission,
-    check_moral_permission_for_roles,
+        check_moral_permission_for_roles,
     get_api_scoped_user_roles,
     get_record_data_scope,
     append_record_scope_condition,
@@ -760,7 +760,7 @@ async def get_student_daily_statistics(
 async def create_daily_event_type(
     event_type: DailyEventTypeCreate,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/daily-records/types", "GET", allow_missing=False))
 ):
     """
     创建日常事件类型
@@ -801,7 +801,7 @@ async def update_daily_event_type(
     type_id: int,
     update_data: DailyEventTypeUpdate,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/daily-records/types", "GET", allow_missing=False))
 ):
     """
     更新日常事件类型
@@ -876,7 +876,7 @@ async def update_daily_event_type(
 async def delete_daily_event_type(
     type_id: int,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/daily-records/types", "GET", allow_missing=False))
 ):
     """
     删除日常事件类型（软删除，设为禁用状态）
@@ -936,7 +936,7 @@ class DailyEventImportItem(BaseModel):
 async def batch_import_daily_event_types(
     items: List[DailyEventImportItem],
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/daily-records/types", "GET", allow_missing=False))
 ):
     """
     批量导入日常事件类型

@@ -13,12 +13,12 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from .api_permission import require_configured_api_permission
 from .base import (
     get_moral_db,
     get_current_semester,
     log_operation,
-    require_permission,
-)
+    )
 from .escalation import (
     get_student_escalation_history,
     get_student_event_count_in_window,
@@ -65,7 +65,7 @@ class EscalationRuleUpdate(BaseModel):
 @router.get("", summary="获取累进规则列表")
 async def get_escalation_rules(
     event_id: Optional[int] = Query(None, description="事件ID"),
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
 ):
     """获取累进规则列表"""
     with get_moral_db() as db:
@@ -103,7 +103,7 @@ async def get_escalation_rules(
 async def create_escalation_rule(
     rule_data: EscalationRuleCreate,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
 ):
     """创建累进规则"""
     with get_moral_db() as db:
@@ -154,7 +154,7 @@ async def update_escalation_rule(
     rule_id: int,
     update_data: EscalationRuleUpdate,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
 ):
     """更新累进规则"""
     with get_moral_db() as db:
@@ -202,7 +202,7 @@ async def update_escalation_rule(
 async def delete_escalation_rule(
     rule_id: int,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
 ):
     """删除累进规则"""
     with get_moral_db() as db:
@@ -313,7 +313,7 @@ async def get_student_all_progress(
 
 @router.get("/events", summary="获取可配置累进规则的消极事件列表")
 async def get_configurable_events(
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
 ):
     """获取可配置累进规则的消极事件列表"""
     with get_moral_db() as db:

@@ -10,6 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 
+from .api_permission import require_configured_api_permission
 from .base import (
     get_moral_db,
     get_current_school_year,
@@ -327,7 +328,7 @@ class CarryoverRequest(BaseModel):
 async def api_execute_carryover(
     request: CarryoverRequest,
     req: Request,
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/carryover", "GET", allow_missing=False))
 ):
     """
     手动执行任务结转
@@ -364,7 +365,7 @@ async def api_execute_carryover(
 @router.get("/preview", summary="预览结转情况")
 async def api_preview_carryover(
     year_id: int,
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/carryover", "GET", allow_missing=False))
 ):
     """
     预览某学年待结转任务情况
@@ -517,7 +518,7 @@ async def api_get_carryover_logs(
 
 @router.get("/config", summary="获取结转配置")
 async def api_get_carryover_config(
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/carryover", "GET", allow_missing=False))
 ):
     """
     获取结转配置参数
@@ -544,7 +545,7 @@ class CarryoverConfigUpdate(BaseModel):
 async def api_update_carryover_config(
     config: CarryoverConfigUpdate,
     req: Request,
-    user: User = Depends(require_permission('semester_manage'))
+    user: User = Depends(require_configured_api_permission("/api/moral/carryover", "GET", allow_missing=False))
 ):
     """
     更新结转配置参数

@@ -40,6 +40,7 @@ API_SCHOOL_LIST = "/api/moral/school-records"
 API_SCHOOL_CREATE = "/api/moral/school-records/create"
 API_SCHOOL_UPDATE = "/api/moral/school-records/update"
 API_SCHOOL_DELETE = "/api/moral/school-records/delete"
+API_SCHOOL_EVENT_TYPES = "/api/moral/school-records/types"
 
 
 def _ensure_xuefa_or_admin(user: User) -> None:
@@ -453,7 +454,7 @@ async def delete_school_record(
 async def create_school_event_type(
     event_type: SchoolEventTypeCreate,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES))
 ):
     """
     创建校级事件类型
@@ -494,7 +495,7 @@ async def update_school_event_type(
     type_id: int,
     update_data: SchoolEventTypeUpdate,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES))
 ):
     """
     更新校级事件类型
@@ -571,7 +572,7 @@ async def update_school_event_type(
 async def delete_school_event_type(
     type_id: int,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES))
 ):
     """
     删除校级事件类型（软删除，设为禁用状态）
@@ -629,7 +630,7 @@ class SchoolEventImportItem(BaseModel):
 async def batch_import_school_event_types(
     items: List[SchoolEventImportItem],
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES))
 ):
     """
     批量导入校级事件类型
