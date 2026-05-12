@@ -9,12 +9,13 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
 from models.datas_api.moral.base import (
     get_moral_db,
     get_teacher_class_id,
     has_user_role,
 )
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.datas_api.dashboard_common import (
     is_moral_manager as _is_moral_manager,
     is_jiaowu as _is_jiaowu,
@@ -22,6 +23,11 @@ from models.datas_api.dashboard_common import (
 )
 
 router = APIRouter(prefix="/dashboard", tags=["数据驾驶舱趋势图"])
+
+API_DASHBOARD_STUDENT_TREND = "/api/dashboard/score-trend/student/{student_id}"
+API_DASHBOARD_CLASS_TREND = "/api/dashboard/score-trend/class/{class_id}"
+API_DASHBOARD_GRADE_TREND = "/api/dashboard/score-trend/grade/{grade_id}"
+API_DASHBOARD_TEACHER_RECORD_TREND = "/api/dashboard/teacher-record-trend"
 
 
 def _get_period_format(unit: str) -> str:
@@ -387,7 +393,7 @@ async def get_student_score_trend(
     student_id: str,
     unit: str = Query('week', description="聚合单位：week 或 month"),
     semester_id: Optional[int] = Query(None, description="学期ID，默认当前学期"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_STUDENT_TREND, "GET", allow_missing=False)),
 ):
     """学生个人得分趋势图数据。
 
@@ -416,21 +422,22 @@ async def get_student_score_trend(
 
         class_id = student.get('class_id')
 
-        # 权限判断
+        # 权限判断：检查所有角色，只要有一个角色满足条件即可
         if not _is_moral_manager(user):
+            has_permission = False
+            # 班主任检查
             if has_user_role(user, 'cleader'):
-                # 支持多人班主任：检查用户是否是该班级的班主任
                 from models.datas_api.moral.base import is_class_leader
-                if not is_class_leader(user, class_id, db):
-                    raise HTTPException(status_code=403, detail="只能查看本班学生")
-            elif has_user_role(user, 'g_leader'):
-                # 年级主任：检查学生是否在自己管理的年级
+                if is_class_leader(user, class_id, db):
+                    has_permission = True
+            # 年级主任检查
+            if not has_permission and has_user_role(user, 'g_leader'):
                 from models.datas_api.moral.base import is_grade_leader
                 grade_id = student.get('grade_id')
-                if grade_id and not is_grade_leader(user, grade_id, db):
-                    raise HTTPException(status_code=403, detail="只能查看本年级学生")
-            else:
-                raise HTTPException(status_code=403, detail="无查看权限")
+                if grade_id and is_grade_leader(user, grade_id, db):
+                    has_permission = True
+            if not has_permission:
+                raise HTTPException(status_code=403, detail="只能查看授权范围内的学生")
 
         # 获取学期信息
         if not semester_id:
@@ -533,7 +540,7 @@ async def get_class_score_trend(
     class_id: int,
     unit: str = Query('week', description="聚合单位：week 或 month"),
     semester_id: Optional[int] = Query(None, description="学期ID，默认当前学期"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_CLASS_TREND, "GET", allow_missing=False)),
 ):
     """班级平均得分趋势图数据。
 
@@ -563,15 +570,23 @@ async def get_class_score_trend(
         if not class_info:
             raise HTTPException(status_code=404, detail="班级不存在")
 
-        # 权限检查
+        # 权限检查：检查所有角色，任一满足即可
         if not (_is_moral_manager(user) or _is_jiaowu(user)):
+            has_permission = False
+            # 班主任检查
             if has_user_role(user, 'cleader'):
-                # 支持多人班主任：检查用户是否是该班级的班主任
                 from models.datas_api.moral.base import is_class_leader
-                if not is_class_leader(user, class_id, db):
-                    raise HTTPException(status_code=403, detail="只能查看本班数据")
-            else:
-                raise HTTPException(status_code=403, detail="无查看权限")
+                if is_class_leader(user, class_id, db):
+                    has_permission = True
+            # 年级主任检查
+            if not has_permission and has_user_role(user, 'g_leader'):
+                from models.datas_api.moral.base import get_teacher_grade_ids
+                my_grade_ids = get_teacher_grade_ids(user, db)
+                class_grade_id = db.query_value("SELECT grade_id FROM class WHERE class_id = ?", (class_id,))
+                if class_grade_id and class_grade_id in my_grade_ids:
+                    has_permission = True
+            if not has_permission:
+                raise HTTPException(status_code=403, detail="只能查看授权范围内的班级")
 
         # 获取学期信息
         if not semester_id:
@@ -687,7 +702,7 @@ async def get_grade_score_trend(
     grade_id: str,
     unit: str = Query('week', description="聚合单位：week 或 month"),
     semester_id: Optional[int] = Query(None, description="学期ID，默认当前学期"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_GRADE_TREND, "GET", allow_missing=False)),
 ):
     """年级平均得分趋势图数据。
 
@@ -805,7 +820,7 @@ async def get_teacher_record_trend(
     teacher_name: Optional[str] = Query(None, description="教师姓名，默认当前教师"),
     unit: str = Query('week', description="聚合单位：week 或 month"),
     semester_id: Optional[int] = Query(None, description="学期ID，默认当前学期"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_TEACHER_RECORD_TREND, "GET", allow_missing=False)),
 ):
     """教师德育记录数量趋势图数据。
 
@@ -823,10 +838,9 @@ async def get_teacher_record_trend(
         教师德育记录趋势数据
     """
     with get_moral_db() as db:
-        # 权限判断
+        # 权限判断：管理员/年级主任可查看其他教师
         if teacher_name and teacher_name != user.username:
-            # 查看其他教师需要德育管理员权限
-            if not _is_moral_manager(user):
+            if not (_is_moral_manager(user) or has_user_role(user, 'g_leader')):
                 raise HTTPException(status_code=403, detail="只能查看自己的记录")
             target_teacher = teacher_name
         else:
