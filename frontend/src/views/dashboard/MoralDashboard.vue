@@ -17,6 +17,12 @@
 
     <DashboardMetricGrid :cards="summary.cards" :accents="accents" @click="go" />
 
+    <DashboardInsights
+      :insights="insights"
+      eyebrow="MORAL INSIGHTS"
+      title="德育运行态势"
+    />
+
     <section class="chart-grid">
       <DashboardChart
         title="德育分数段分布"
@@ -89,12 +95,6 @@
       eyebrow="ATTENDANCE RISK"
       title="当前请假学生"
       empty-text="当前可见范围内无请假学生，出勤正常。"
-    />
-
-    <DashboardInsights
-      :insights="insights"
-      eyebrow="MORAL INSIGHTS"
-      title="德育运行态势"
     />
   </div>
 </template>
