@@ -8,13 +8,15 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from models.datas_api.auth import User, get_current_user, is_admin_user
+from models.datas_api.auth import User, is_admin_user
 from models.datas_api.moral.base import (
     check_moral_permission,
     get_moral_db,
     get_teacher_class_id,
     has_user_role,
+    get_record_data_scope,
 )
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.datas_api.dashboard_common import (
     current_week_range as _current_week_range,
     date_range as _date_range,
@@ -88,6 +90,16 @@ from models.lesson.lesson import Lesson
 
 router = APIRouter(prefix="/dashboard", tags=["数据驾驶舱"])
 
+API_DASHBOARD_OVERVIEW = "/api/dashboard/overview"
+API_DASHBOARD_MORAL_SUMMARY = "/api/dashboard/moral/summary"
+API_DASHBOARD_TEACHING_SUMMARY = "/api/dashboard/teaching/summary"
+API_DASHBOARD_CLASS_SUMMARY = "/api/dashboard/class/summary"
+API_DASHBOARD_GRADE_LIST = "/api/dashboard/grade/list"
+API_DASHBOARD_GRADE_SUMMARY = "/api/dashboard/grade/summary"
+API_DASHBOARD_TEACHER_WORKBENCH = "/api/dashboard/teacher/workbench"
+API_DASHBOARD_INVIGILATION_SUMMARY = "/api/dashboard/invigilation/summary"
+API_DASHBOARD_SYSTEM_SUMMARY = "/api/dashboard/system/summary"
+
 
 class _ClosingSQLiteConnection:
     """Delegate sqlite connection access and close after with blocks."""
@@ -113,7 +125,7 @@ class _ClosingSQLiteConnection:
 
 
 @router.get("/overview", summary="当前用户数据驾驶舱总览")
-async def get_dashboard_overview(user: User = Depends(get_current_user)):
+async def get_dashboard_overview(user: User = Depends(require_configured_api_permission(API_DASHBOARD_OVERVIEW, "GET", allow_missing=False))):
     cards = _base_overview_cards(user)
     modules = [
         {"title": "德育驾驶舱", "route": "/dashboard/moral", "visible": _is_moral_manager(user) or has_user_role(user, "cleader")},
@@ -139,49 +151,45 @@ async def get_dashboard_overview(user: User = Depends(get_current_user)):
 @router.get("/moral/summary", summary="德育驾驶舱总览")
 async def get_moral_dashboard_summary(
     top_n: int = Query(5, ge=1, le=50),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_MORAL_SUMMARY, "GET", allow_missing=False)),
 ):
     """德育驾驶舱：德育分分布、日常记录、低分学生关注、请假出勤风险。
-    Batch47: 增加请假与出勤风险数据展示。
 
-    权限范围：
+    权限范围：配置驱动
     - 班主任：本班学生 + 本班对比
     - 年级主任：本年级学生 + 本年级班级对比
     - 学发/教务/管理员：全校学生 + 全校班级对比
     """
-    if not (_is_moral_manager(user) or has_user_role(user, "cleader") or has_user_role(user, "g_leader")):
-        raise HTTPException(status_code=403, detail="无德育驾驶舱权限")
     top_n = _normalize_top_n(top_n)
 
-    # Determine class/grade filter
-    class_filter = None
-    grade_filter = None
     with get_moral_db() as db:
-        # 班主任：本班范围
-        if not _is_moral_manager(user) and has_user_role(user, "cleader") and not has_user_role(user, "g_leader"):
-            my_class_id = get_teacher_class_id(user, db)
-            if my_class_id:
-                class_info = db.query_one("SELECT class_name FROM class WHERE class_id = ?", (my_class_id,))
-                if class_info:
-                    class_filter = class_info["class_name"]
+        # 配置驱动的数据范围
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_MORAL_SUMMARY,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
 
-        # 年级主任：本年级范围
-        elif has_user_role(user, "g_leader") and not _is_moral_manager(user):
-            from .moral.base import get_teacher_grade_ids
-            my_grade_ids = get_teacher_grade_ids(user, db)
-            if my_grade_ids:
-                grade_filter = my_grade_ids[0]  # 取第一个年级
+        # 构建数据过滤条件
+        class_filter = None
+        grade_filter = None
+        if not scope.get('can_all'):
+            if scope.get('my_class_ids'):
+                class_filter = scope['my_class_ids'][0]
+            elif scope.get('my_grade_class_ids'):
+                grade_filter = scope.get('my_grade_ids', [])
 
-    with get_moral_db() as db:
+        # 学生过滤条件
         conditions = ["s.status = '在校'"]
         params = []
         if class_filter:
-            my_class_id = get_teacher_class_id(user, db)
-            if not my_class_id:
-                conditions.append("1 = 0")
-            else:
-                conditions.append("s.class_id = ?")
-                params.append(my_class_id)
+            conditions.append("s.class_id = ?")
+            params.append(class_filter)
+        elif grade_filter:
+            grade_class_ids = scope.get('my_grade_class_ids', [])
+            if grade_class_ids:
+                conditions.append(f"s.class_id IN ({','.join(map(str, grade_class_ids))})")
 
         where_clause = " AND ".join(conditions)
         student_count = _safe_count(db, f"SELECT COUNT(*) FROM student s WHERE {where_clause}", tuple(params))
@@ -318,16 +326,14 @@ async def get_teaching_dashboard_summary(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     top_n: int = Query(5, ge=1, le=50),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_TEACHING_SUMMARY, "GET", allow_missing=False)),
 ):
     """教务驾驶舱：文件上传流转、课表覆盖、教师课时、教学运行态势。
 
     Batch46: 增强文件深度指标、教学运行 insights。
     注意：教务驾驶舱不展示请假学生数据（tables 不含 leave_students）。
+    权限：入口已由 require_configured_api_permission 检查。
     """
-    if not _is_jiaowu(user):
-        raise HTTPException(status_code=403, detail="无教务驾驶舱权限")
-
     week_range = _current_week_range()
     if not isinstance(start_date, date):
         start_date = None
@@ -492,26 +498,32 @@ def _get_inout_db():
 async def get_class_dashboard_summary(
     class_id: Optional[int] = Query(None, description="班级ID，班主任默认本班"),
     top_n: int = Query(5, ge=1, le=50),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_CLASS_SUMMARY, "GET", allow_missing=False)),
 ):
     """班级驾驶舱：班级基础、学习活动、德育表现、出勤事务、生日关怀。
     Batch47: 增强请假学生名单展示、出勤 insights。
+    权限：配置驱动数据范围。
     """
     top_n = _normalize_top_n(top_n)
     with get_moral_db() as db:
+        # 配置驱动的数据范围
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_CLASS_SUMMARY,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
+
         class_id_resolved_from_owner = False
         if not isinstance(class_id, int):
             class_id = None
 
         # 确定查询班级
         if not class_id:
-            if has_user_role(user, "cleader") and not _is_moral_manager(user):
-                class_id = get_teacher_class_id(user, db)
-                if not class_id:
-                    raise HTTPException(status_code=403, detail="未找到班主任班级")
+            if scope.get('my_class_ids'):
+                class_id = scope['my_class_ids'][0]
                 class_id_resolved_from_owner = True
-            elif _is_moral_manager(user) or _is_jiaowu(user):
-                # 教务/管理员默认第一个班级
+            elif scope.get('can_all'):
                 first_class = db.query_one("SELECT class_id FROM class WHERE is_active = 1 ORDER BY class_id LIMIT 1")
                 class_id = first_class["class_id"] if first_class else None
             else:
@@ -520,15 +532,11 @@ async def get_class_dashboard_summary(
         if not class_id:
             raise HTTPException(status_code=404, detail="班级不存在")
 
-        if not (_is_moral_manager(user) or _is_jiaowu(user)):
-            if not has_user_role(user, "cleader"):
-                raise HTTPException(status_code=403, detail="无班级驾驶舱权限")
-            # 默认班级已经由“当前班主任 -> 自己班级”解析；显式指定班级时再做越权校验。
-            if not class_id_resolved_from_owner:
-                from .moral.base import is_class_leader
-                own_class_id = get_teacher_class_id(user, db)
-                if own_class_id != class_id and not is_class_leader(user, class_id, db):
-                    raise HTTPException(status_code=403, detail="只能查看自己班级的驾驶舱")
+        # 检查班级是否在允许范围内
+        if not scope.get('can_all'):
+            allowed_class_ids = scope.get('my_class_ids', []) + scope.get('my_grade_class_ids', [])
+            if class_id not in allowed_class_ids:
+                raise HTTPException(status_code=403, detail="只能查看授权范围内的班级")
 
         # 班级基础信息
         class_info = db.query_one("SELECT * FROM class WHERE class_id = ? AND is_active = 1", (class_id,))
@@ -670,15 +678,20 @@ async def get_class_dashboard_summary(
 
 
 @router.get("/grade/list", summary="获取年级列表")
-async def get_grade_list(user: User = Depends(get_current_user)):
+async def get_grade_list(user: User = Depends(require_configured_api_permission(API_DASHBOARD_GRADE_LIST, "GET", allow_missing=False))):
     """获取年级列表，用于年级驾驶舱切换。
 
     年级主任只能看到自己管理的年级；其他管理员能看到全部年级。
+    权限：配置驱动数据范围。
     """
     with get_moral_db() as db:
-        # 检查权限：admin/jiaowu/xuefa/g_leader
-        if not (_is_moral_manager(user) or _is_jiaowu(user) or has_user_role(user, "g_leader")):
-            raise HTTPException(status_code=403, detail="无年级驾驶舱权限")
+        # 配置驱动的数据范围
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_GRADE_LIST,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
 
         # 从 grade 表获取年级列表
         grades = db.query_all(
@@ -689,24 +702,21 @@ async def get_grade_list(user: User = Depends(get_current_user)):
         grade_list = []
         for g in grades:
             grade_name = g["grade_name"] or ""
-            # 获取该年级下的班级数
             class_count = db.query_value(
                 "SELECT COUNT(*) FROM class WHERE is_active = 1 AND grade_id = ?",
                 (g["grade_id"],)
             ) or 0
             grade_list.append({
-                "grade_id": g["grade_id"],  # 直接使用数据库 ID，前端统一用数字
-                "grade_id_int": g["grade_id"],  # 保持一致
+                "grade_id": g["grade_id"],
+                "grade_id_int": g["grade_id"],
                 "grade_name": grade_name,
                 "class_count": class_count
             })
 
-        # 年级主任权限：只返回自己管理的年级
-        if has_user_role(user, "g_leader") and not (_is_moral_manager(user) or _is_jiaowu(user)):
-            from .moral.base import get_teacher_grade_ids
-            my_grade_ids = get_teacher_grade_ids(user, db)
-            if my_grade_ids:
-                grade_list = [g for g in grade_list if g["grade_id_int"] in my_grade_ids]
+        # 数据范围过滤：年级主任只能看自己管理的年级
+        if not scope.get('can_all'):
+            my_grade_ids = scope.get('my_grade_ids', [])
+            grade_list = [g for g in grade_list if g['grade_id'] in my_grade_ids]
 
         return {"success": True, "data": grade_list}
 
@@ -715,30 +725,29 @@ async def get_grade_list(user: User = Depends(get_current_user)):
 async def get_grade_dashboard_summary(
     grade_id: Optional[str] = Query(None, description="年级ID（数据库ID或名称）"),
     top_n: int = Query(10, ge=1, le=50),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_GRADE_SUMMARY, "GET", allow_missing=False)),
 ):
     """年级驾驶舱：年级整体数据、班级对比、德育表现、出勤事务。
-
-    权限：admin/jiaowu/xuefa/g_leader
+    权限：配置驱动数据范围。
     """
     top_n = _normalize_top_n(top_n)
     with get_moral_db() as db:
-        from .moral.base import get_grade_leader_ids, is_grade_leader
-
-        # 检查权限
-        if not (_is_moral_manager(user) or _is_jiaowu(user) or has_user_role(user, "g_leader")):
-            raise HTTPException(status_code=403, detail="无年级驾驶舱权限")
+        # 配置驱动的数据范围
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_GRADE_SUMMARY,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
 
         # 确定年级（优先使用数据库 ID）
         grade_id_int = None
         if grade_id:
-            # 尝试解析为数字（数据库 ID）
             try:
                 grade_id_int = int(grade_id)
             except ValueError:
                 grade_id_int = None
 
-            # 如果不是数字，尝试从名称查找
             if not grade_id_int:
                 grade_names = {"高一": "高一年级", "高二": "高二年级", "高三": "高三年级"}
                 grade_name = grade_names.get(grade_id, grade_id)
@@ -749,14 +758,9 @@ async def get_grade_dashboard_summary(
                 if grade_row:
                     grade_id_int = grade_row["grade_id"]
         else:
-            # 年级主任默认自己管理的年级
-            if has_user_role(user, "g_leader") and not (_is_moral_manager(user) or _is_jiaowu(user)):
-                from .moral.base import get_teacher_grade_ids
-                my_grade_ids = get_teacher_grade_ids(user, db)
-                if my_grade_ids:
-                    grade_id_int = my_grade_ids[0]
-            else:
-                # 默认第一个年级
+            if scope.get('my_grade_ids'):
+                grade_id_int = scope['my_grade_ids'][0]
+            elif scope.get('can_all'):
                 first_grade = db.query_one("SELECT grade_id FROM grade ORDER BY grade_id LIMIT 1")
                 if first_grade:
                     grade_id_int = first_grade["grade_id"]
@@ -764,19 +768,18 @@ async def get_grade_dashboard_summary(
         if not grade_id_int:
             raise HTTPException(status_code=404, detail="年级不存在")
 
-        # 获取年级信息
+        # 检查年级是否在允许范围内
+        if not scope.get('can_all'):
+            my_grade_ids = scope.get('my_grade_ids', [])
+            if grade_id_int not in my_grade_ids:
+                raise HTTPException(status_code=403, detail="只能查看授权范围内的年级")
         grade_row = db.query_one(
             "SELECT grade_id, grade_name FROM grade WHERE grade_id = ?",
             (grade_id_int,)
         )
         grade_name = grade_row["grade_name"] if grade_row else "未知年级"
 
-        # 年级主任权限检查：只能查看自己管理的年级
-        if has_user_role(user, "g_leader") and not (_is_moral_manager(user) or _is_jiaowu(user)):
-            if not is_grade_leader(user, grade_id_int, db):
-                raise HTTPException(status_code=403, detail="只能查看自己管理的年级驾驶舱")
-
-        # 获取年级下所有班级（通过 grade_id 关联）
+        # 获取年级下所有班级
         if grade_id_int:
             classes = db.query_all(
                 "SELECT class_id, class_name FROM class WHERE is_active = 1 AND grade_id = ?",
@@ -863,29 +866,16 @@ async def get_grade_dashboard_summary(
         today = date.today()
         birthday_month = _filter_birthday_this_month(students, today.month)
 
-    # 请假学生（从请假数据库）
-    leave_students = []
-    try:
-        with _get_inout_db() as inout_db:
-            cursor = inout_db.cursor()
-            cursor.execute(
-                "SELECT student_id, student_name, class_name, leave_type, start_date, end_date FROM leave_records WHERE status = '生效' AND class_name LIKE ?",
-                (grade_filter,)
-            )
-            rows = cursor.fetchall()
-            leave_students = [
-                {
-                    "student_id": r[0],
-                    "name": r[1],
-                    "class_name": r[2],
-                    "leave_type": r[3],
-                    "start_date": r[4],
-                    "end_date": r[5]
-                }
-                for r in rows
-            ]
-    except Exception:
-        pass
+        # 请假学生（使用请假查询函数）
+        leave_students = []
+        try:
+            # 获取年级下所有班级名称
+            class_names = [c["class_name"] for c in classes]
+            for class_name in class_names:
+                class_leave_records = _query_active_leave_records(class_filter=class_name, limit=100)
+                leave_students.extend(class_leave_records)
+        except Exception as e:
+            logger.warning(f"年级请假查询失败: {e}")
 
     # 组装卡片
     cards = [
@@ -924,9 +914,11 @@ async def get_grade_dashboard_summary(
                 "class_comparison": class_comparison,
                 "score_band": score_band,
             },
-            "low_students": low_students,
-            "leave_students": leave_students,
-            "birthday_month": _format_birthday_list(birthday_month),
+            "tables": {
+                "low_students": low_students,
+                "leave_students": leave_students[:20],
+                "birthday_month": _format_birthday_list(birthday_month),
+            },
             "insights": insights,
             "updated_at": _now_text(),
         },
@@ -937,10 +929,21 @@ async def get_grade_dashboard_summary(
 async def get_teacher_workbench(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
-    user: User = Depends(get_current_user),
+    teacher_name: Optional[str] = Query(None, description="教师姓名（管理员/年级主任可查看其他教师）"),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_TEACHER_WORKBENCH, "GET", allow_missing=False)),
 ):
-    """教师工作台：今日事项、发布内容、德育参与、监考任务"""
-    teacher_name = user.username
+    """教师工作台：今日事项、发布内容、德育参与、监考任务
+
+    管理员/年级主任可通过 teacher_name 参数查看其他教师的工作台数据。
+    """
+    # 权限判断：管理员/年级主任可查看其他教师，普通教师只能查看自己
+    if teacher_name and teacher_name != user.username:
+        if not (_is_moral_manager(user) or has_user_role(user, 'g_leader')):
+            raise HTTPException(status_code=403, detail="只能查看自己的工作台")
+        target_teacher = teacher_name
+    else:
+        target_teacher = user.username
+
     today_str = date.today().isoformat()
     today = date.today()
     if not isinstance(start_date, date):
@@ -957,23 +960,23 @@ async def get_teacher_workbench(
 
     # 今日课程（从课表）
     lesson = Lesson()
-    today_lessons = _get_teacher_today_lessons(teacher_name, lesson)
+    today_lessons = _get_teacher_today_lessons(target_teacher, lesson)
 
     # 发布统计（作业、公告）
-    publication_stats = _get_teacher_publication_stats(teacher_name, _get_homework_db)
+    publication_stats = _get_teacher_publication_stats(target_teacher, _get_homework_db)
 
     # 德育参与（自己创建的日常记录、点滴记录）
-    moral_stats = _get_teacher_moral_stats(teacher_name, get_moral_db, _safe_count)
+    moral_stats = _get_teacher_moral_stats(target_teacher, get_moral_db, _safe_count)
 
     # 监考任务（近期监考安排）
-    invigilation_tasks = _get_teacher_invigilation_tasks(teacher_name, today_str, _get_invigilation_db)
+    invigilation_tasks = _get_teacher_invigilation_tasks(target_teacher, today_str, _get_invigilation_db)
 
     # 课时统计
-    lesson_workload = _teacher_lesson_counts_from_files(start_date, end_date, teacher_name=teacher_name)
+    lesson_workload = _teacher_lesson_counts_from_files(start_date, end_date, teacher_name=target_teacher)
 
     # 组装返回数据
     return _build_teacher_workbench_response(
-        teacher_name=teacher_name,
+        teacher_name=target_teacher,
         today_lessons=today_lessons,
         publication_stats=publication_stats,
         moral_stats=moral_stats,
@@ -999,11 +1002,11 @@ def _get_invigilation_db():
 @router.get("/invigilation/summary", summary="监考驾驶舱总览")
 async def get_invigilation_dashboard_summary(
     top_n: int = Query(5, ge=1, le=50),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_INVIGILATION_SUMMARY, "GET", allow_missing=False)),
 ):
-    """监考驾驶舱：考试项目状态、安排完整度、通知状态、教师负载、预警列表"""
-    if not _is_jiaowu(user):
-        raise HTTPException(status_code=403, detail="无监考驾驶舱权限")
+    """监考驾驶舱：考试项目状态、安排完整度、通知状态、教师负载、预警列表
+    权限：入口已由 require_configured_api_permission 检查。
+    """
     top_n = _normalize_top_n(top_n)
 
     today_str = date.today().isoformat()
@@ -1073,11 +1076,10 @@ def _get_db_stats(db_path: str) -> Dict[str, object]:
 
 
 @router.get("/system/summary", summary="系统运维驾驶舱总览")
-async def get_system_dashboard_summary(user: User = Depends(get_current_user)):
-    """系统运维驾驶舱：服务状态、数据库统计、用户权限、操作审计"""
-    if not is_admin_user(user):
-        raise HTTPException(status_code=403, detail="无系统运维驾驶舱权限")
-
+async def get_system_dashboard_summary(user: User = Depends(require_configured_api_permission(API_DASHBOARD_SYSTEM_SUMMARY, "GET", allow_missing=False))):
+    """系统运维驾驶舱：服务状态、数据库统计、用户权限、操作审计
+    权限：入口已由 require_configured_api_permission 检查。
+    """
     # 1. 数据库统计
     db_dir = os.path.join(os.path.dirname(__file__), "..", "..", "databases")
     db_files = []
@@ -1142,7 +1144,7 @@ async def get_system_dashboard_summary(user: User = Depends(get_current_user)):
                        WHERE is_active = 1
                          AND (
                            (policy_mode = 'any_role' AND allowed_roles LIKE '%teacher%')
-                           OR (policy_mode = 'any_role' AND allowed_roles LIKE '%student%')
+                           OR (policy_mode = 'any_role' AND allowed_roles LIKE '?tudent%')
                            OR (policy_mode = 'any_role' AND allowed_roles LIKE '%parent%')
                          )"""
                 )
