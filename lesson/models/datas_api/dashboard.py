@@ -243,11 +243,23 @@ async def get_moral_dashboard_summary(
         query_params = tuple(params)
         # 班级得分对比：根据角色过滤班级范围
         class_score_rank_data = _class_score_rank_all(db, class_filter, grade_filter, top_n)
+
+        # 教师德育记录分布（Top10）
+        teacher_record_distribution = db.query_all(
+            """SELECT recorder as name, COUNT(*) as value
+            FROM student_daily_record
+            WHERE is_deleted = 0 AND recorder IS NOT NULL AND recorder != ''
+            GROUP BY recorder
+            ORDER BY value DESC
+            LIMIT 10"""
+        )
+
         charts = {
             "score_distribution": _score_distribution(db, where_clause, query_params),
             "daily_event_mix": _daily_event_mix(db, where_clause, query_params),
             "daily_record_trend": _daily_record_trend(db, where_clause, query_params),
             "class_score_rank": class_score_rank_data,
+            "teacher_record_distribution": teacher_record_distribution or [],
         }
 
     # Batch47: 请假与出勤风险数据

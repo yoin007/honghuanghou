@@ -61,6 +61,13 @@
         :empty="isEmpty(summary.charts?.leave_by_class)"
         emptyText="当前无请假数据"
       />
+      <DashboardChart
+        title="教师德育记录分布 Top10"
+        eyebrow="TEACHER RECORDS"
+        :option="teacherRecordOption"
+        :empty="isEmpty(summary.charts?.teacher_record_distribution)"
+        emptyText="当前无教师德育记录数据"
+      />
     </section>
 
     <DashboardPanelSection class="risk-panel" variant="danger" eyebrow="ATTENTION LIST" :title="`低分学生 Top${effectiveTopN}`">
@@ -234,14 +241,28 @@ const classRankOption = computed(() => {
 })
 
 const leaveByClassOption = computed(() => {
-  const rows = [...(summary.value.charts?.leave_by_class || [])].reverse()
+  const rows = [...(summary.value.charts?.leave_by_class || [])]
+  return baseVerticalBarOption({
+    xAxisData: rows.map(item => item.name),
+    seriesData: rows.map(item => item.value),
+    grid: { left: 48, right: 24, top: 32, bottom: 48 },
+    barWidth: 20,
+    borderRadius: [8, 8, 0, 0],
+    color: ['#fb7185'],
+    xAxisLabelRotate: 30
+  })
+})
+
+// 教师德育记录分布图表
+const teacherRecordOption = computed(() => {
+  const rows = [...(summary.value.charts?.teacher_record_distribution || [])].sort((a, b) => b.value - a.value).slice(0, 10)
   return baseHorizontalBarOption({
     yAxisData: rows.map(item => item.name),
     seriesData: rows.map(item => item.value),
     grid: { left: 88, right: 24, top: 22, bottom: 28 },
     barWidth: 16,
     borderRadius: [0, 8, 8, 0],
-    color: ['#fb7185']
+    color: ['#22d3ee']
   })
 })
 
