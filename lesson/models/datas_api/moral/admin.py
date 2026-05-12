@@ -12,8 +12,8 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
+from .api_permission import require_configured_api_permission
 from .base import (
-    require_configured_api_permission,
     get_moral_db,
     require_permission,
     require_role_level,

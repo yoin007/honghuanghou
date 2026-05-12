@@ -602,6 +602,7 @@ def get_scheduler_status():
 # =============================================================================
 
 from fastapi import APIRouter, Depends
+from .api_permission import require_configured_api_permission
 from .base import require_permission
 from models.datas_api.auth import User
 

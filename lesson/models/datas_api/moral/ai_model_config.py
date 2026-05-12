@@ -11,7 +11,8 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from .base import get_moral_db, require_permission, require_configured_api_permission
+from .api_permission import require_configured_api_permission
+from .base import get_moral_db, require_permission
 from models.datas_api.auth import User, get_current_user
 
 router = APIRouter(prefix="/ai-model-config", tags=["大模型配置"])
