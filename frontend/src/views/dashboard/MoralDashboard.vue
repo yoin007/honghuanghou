@@ -62,7 +62,7 @@
         emptyText="当前无请假数据"
       />
       <DashboardChart
-        title="教师德育记录分布"
+        :title="`教师德育记录分布 Top${effectiveTopN}`"
         eyebrow="TEACHER RECORDS"
         :option="teacherRecordOption"
         :empty="isEmpty(summary.charts?.teacher_record_distribution)"
