@@ -244,14 +244,14 @@ async def get_moral_dashboard_summary(
         # 班级得分对比：根据角色过滤班级范围
         class_score_rank_data = _class_score_rank_all(db, class_filter, grade_filter, top_n)
 
-        # 教师德育记录分布（Top10）
+        # 教师德育记录分布（使用topN参数）
         teacher_record_distribution = db.query_all(
-            """SELECT recorder as name, COUNT(*) as value
+            f"""SELECT recorder as name, COUNT(*) as value
             FROM student_daily_record
             WHERE is_deleted = 0 AND recorder IS NOT NULL AND recorder != ''
             GROUP BY recorder
             ORDER BY value DESC
-            LIMIT 10"""
+            LIMIT {top_n}"""
         )
 
         charts = {

@@ -62,7 +62,7 @@
         emptyText="当前无请假数据"
       />
       <DashboardChart
-        title="教师德育记录分布 Top10"
+        title="教师德育记录分布"
         eyebrow="TEACHER RECORDS"
         :option="teacherRecordOption"
         :empty="isEmpty(summary.charts?.teacher_record_distribution)"
@@ -266,9 +266,9 @@ const leaveByClassOption = computed(() => {
   }
 })
 
-// 教师德育记录分布图表
+// 教师德育记录分布图表（使用topN参数）
 const teacherRecordOption = computed(() => {
-  const rows = [...(summary.value.charts?.teacher_record_distribution || [])].sort((a, b) => b.value - a.value).slice(0, 10)
+  const rows = [...(summary.value.charts?.teacher_record_distribution || [])].sort((a, b) => b.value - a.value)
   return baseHorizontalBarOption({
     yAxisData: rows.map(item => item.name),
     seriesData: rows.map(item => item.value),
