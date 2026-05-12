@@ -242,15 +242,28 @@ const classRankOption = computed(() => {
 
 const leaveByClassOption = computed(() => {
   const rows = [...(summary.value.charts?.leave_by_class || [])]
-  return baseVerticalBarOption({
-    xAxisData: rows.map(item => item.name),
-    seriesData: rows.map(item => item.value),
+  return {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
     grid: { left: 48, right: 24, top: 32, bottom: 48 },
-    barWidth: 20,
-    borderRadius: [8, 8, 0, 0],
-    color: ['#fb7185'],
-    xAxisLabelRotate: 30
-  })
+    xAxis: {
+      type: 'category',
+      data: rows.map(item => item.name),
+      axisLabel: { color: '#94a3b8', rotate: 30, fontSize: 11 },
+      axisLine: { lineStyle: { color: '#334155' } }
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#64748b' },
+      splitLine: { lineStyle: { color: 'rgba(148,163,184,0.3)' } }
+    },
+    series: [{
+      type: 'bar',
+      data: rows.map(item => item.value),
+      barWidth: 20,
+      itemStyle: { borderRadius: [8, 8, 0, 0], color: '#fb7185' }
+    }]
+  }
 })
 
 // 教师德育记录分布图表
