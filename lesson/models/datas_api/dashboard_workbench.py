@@ -114,12 +114,12 @@ def get_teacher_moral_stats(teacher_name: str, moral_db, safe_count) -> Dict[str
     with moral_db() as db:
         daily_created = safe_count(
             db,
-            "SELECT COUNT(*) FROM student_daily_record WHERE recorder = %s AND is_deleted = 0",
+            "SELECT COUNT(*) FROM student_daily_record WHERE recorder = ? AND is_deleted = 0",
             (teacher_name,)
         )
         moment_created = safe_count(
             db,
-            "SELECT COUNT(*) FROM student_moment_record WHERE recorder = %s AND is_deleted = 0",
+            "SELECT COUNT(*) FROM student_moment_record WHERE recorder = ? AND is_deleted = 0",
             (teacher_name,)
         )
 
