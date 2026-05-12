@@ -266,7 +266,12 @@
       "Bash(pkill -f \"python.*main.py\")",
       "Bash(xargs -r kill -9)",
       "Bash(cat /Users/yoin/bdsync/program/honghuanghou/frontend/.env*)",
-      "Bash(kill -9 50615 77749)"
+      "Bash(kill -9 50615 77749)",
+      "Bash(git restore:*)",
+      "Skill(update-config)",
+      "Bash(kill 42985)",
+      "Bash(find:*)",
+      "Bash(sed:*)"
     ]
   }
 }

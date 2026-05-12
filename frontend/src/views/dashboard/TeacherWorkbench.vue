@@ -5,9 +5,14 @@
   <div v-else class="command-dashboard teacher-theme">
     <DashboardHero
       kicker="Teacher Workbench"
-      title="教师工作台"
+      :title="selectedTeacherName ? `${selectedTeacherName}的工作台` : '教师工作台'"
       description="聚合今日课程、发布内容、德育参与和监考任务，一目了然掌握个人工作状态。"
     >
+      <div v-if="_isManager" class="filter-console">
+        <el-select v-model="selectedTeacherName" placeholder="选择教师" clearable filterable @change="onTeacherChange">
+          <el-option v-for="t in teacherList" :key="t.username" :label="t.username" :value="t.username" />
+        </el-select>
+      </div>
       <DashboardTimeChip :value="summary.updated_at" />
     </DashboardHero>
 
@@ -66,7 +71,7 @@
       <div class="trend-header">
         <div class="trend-title">
           <span class="kicker">MORAL RECORDS TREND</span>
-          <h2>我的德育记录趋势</h2>
+          <h2>{{ selectedTeacherName ? `${selectedTeacherName}的德育记录趋势` : '我的德育记录趋势' }}</h2>
         </div>
         <div class="trend-controls">
           <el-radio-group v-model="trendUnit" size="small" @change="onTrendUnitChange">
@@ -91,7 +96,7 @@
       <div class="workload-header">
         <div class="workload-title">
           <span class="kicker">PERSONAL WORKLOAD</span>
-          <h2>我的区间课时</h2>
+          <h2>{{ selectedTeacherName ? `${selectedTeacherName}的区间课时` : '我的区间课时' }}</h2>
         </div>
         <div class="workload-filter">
           <el-date-picker v-model="filters.start_date" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" />
@@ -169,9 +174,12 @@ import DashboardTimeChip from '@/components/dashboard/DashboardTimeChip.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
 import DashboardChart from '@/components/dashboard/DashboardChart.vue'
 import { getTeacherWorkbench, getTeacherRecordTrend } from '@/api/modules/dashboard'
+import { teacherApi } from '@/api/modules/teacher'
+import { useAuthStore } from '@/stores/auth'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const today = new Date()
 const weekStart = new Date(today)
 weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7))
@@ -192,10 +200,40 @@ const summary = ref({ cards: [], tables: {}, workload: {}, range: {} })
 const trendUnit = ref('week')
 const teacherTrendData = ref({ periods: [], labels: [], daily_count: [], moment_count: [], total_count: [] })
 const trendLoading = ref(false)
+const teacherList = ref([])
+const selectedTeacherName = ref(null)
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#38bdf8', '#fbbf24', '#67e8f9', '#fb7185', '#a78bfa']
 
 const go = (route) => route && router.push(route)
+
+// 管理员/年级主任可切换教师
+const _isManager = computed(() => {
+  return authStore.isAdmin || authStore.isXuefa || authStore.isJiaowu || authStore.roles?.includes('g_leader')
+})
+
+// 教师选择变化
+const onTeacherChange = (newTeacher) => {
+  if (newTeacher) {
+    selectedTeacherName.value = newTeacher
+  } else {
+    selectedTeacherName.value = null
+  }
+  fetchSummary()
+  fetchTeacherTrend()
+}
+
+// 获取教师列表
+const fetchTeacherList = async () => {
+  if (!_isManager.value) return
+  try {
+    const res = await teacherApi.getTeachers()
+    // 后端返回格式：{ teachers: [...], total: N }
+    teacherList.value = res.teachers || res.data?.teachers || []
+  } catch (e) {
+    console.error('获取教师列表失败:', e)
+  }
+}
 
 const todayLessons = computed(() => summary.value.tables?.today_lessons || [])
 const invigilationTasks = computed(() => summary.value.tables?.invigilation_tasks || [])
@@ -235,7 +273,11 @@ const teacherTrendOption = computed(() => {
 const fetchTeacherTrend = async () => {
   trendLoading.value = true
   try {
-    const res = await getTeacherRecordTrend({ unit: trendUnit.value })
+    const params = { unit: trendUnit.value }
+    if (selectedTeacherName.value) {
+      params.teacher_name = selectedTeacherName.value
+    }
+    const res = await getTeacherRecordTrend(params)
     if (res.success) {
       teacherTrendData.value = res.data.trend
     }
@@ -250,12 +292,19 @@ const onTrendUnitChange = () => {
   fetchTeacherTrend()
 }
 
-const fetchSummary = () => execute(
-  () => getTeacherWorkbench(filters),
-  data => { summary.value = data }
-)
+const fetchSummary = () => {
+  const params = { ...filters }
+  if (selectedTeacherName.value) {
+    params.teacher_name = selectedTeacherName.value
+  }
+  execute(
+    () => getTeacherWorkbench(params),
+    data => { summary.value = data }
+  )
+}
 
 onMounted(() => {
+  fetchTeacherList()
   fetchSummary()
   fetchTeacherTrend()
 })
@@ -269,6 +318,20 @@ onMounted(() => {
     linear-gradient(135deg, rgba(8, 16, 32, 0.98), rgba(12, 22, 42, 0.96)),
     radial-gradient(circle at 10% 8%, rgba(56, 189, 248, 0.2), transparent 30%),
     radial-gradient(circle at 90% 14%, rgba(251, 191, 36, 0.14), transparent 28%);
+}
+
+.filter-console {
+  min-width: 200px;
+  margin-right: 16px;
+}
+
+.filter-console :deep(.el-input__wrapper) {
+  background: rgba(15, 23, 42, 0.74);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.filter-console :deep(.el-input__inner) {
+  color: #e2e8f0;
 }
 
 .kicker {

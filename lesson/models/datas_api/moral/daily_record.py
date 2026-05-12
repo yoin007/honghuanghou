@@ -183,7 +183,7 @@ async def get_daily_records(
     event_type: Optional[int] = Query(None, description="事件类型"),
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
-    scope: Optional[str] = Query(None, description="数据范围: own(我创建的), own_class(我的班级), own_grade(我的年级), all(全校)"),
+    scope: Optional[str] = Query(None, description="数据范围: own(我创建的), managed_classes(管理班级), managed_grades(管理年级), all(全校)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
     user: User = Depends(get_current_user)
@@ -193,8 +193,8 @@ async def get_daily_records(
 
     权限说明：
     - teacher: 只能查看自己创建的记录 (scope=own)
-    - cleader: 可以查看自己创建的和本班记录 (scope=own/own_class)
-    - g_leader: 可以查看自己创建的和本年级记录 (scope=own/own_grade)
+    - cleader: 可以查看自己创建的和管理班级记录 (scope=own/managed_classes)
+    - g_leader: 可以查看自己创建的和管理年级记录 (scope=own/managed_grades)
     - admin/jiaowu/xuefa: 可以查看全部记录 (scope=all)
 
     scope参数用于主动切换数据范围，后端会校验越权。
@@ -246,9 +246,9 @@ async def get_daily_records(
             scope_allowed = False
             if scope == "own" and view_scope.get("can_own"):
                 scope_allowed = True
-            elif scope == "own_class" and view_scope.get("can_own_class"):
+            elif scope in ("own_class", "managed_classes") and view_scope.get("can_own_class"):
                 scope_allowed = True
-            elif scope == "own_grade" and view_scope.get("can_own_grade"):
+            elif scope in ("own_grade", "managed_grades") and view_scope.get("can_own_grade"):
                 scope_allowed = True
             elif scope == "all" and view_scope.get("can_all"):
                 scope_allowed = True
@@ -263,13 +263,21 @@ async def get_daily_records(
             if scope == "own":
                 scope_conditions.append("dr.recorder = ?")
                 scope_params.append(user.username)
-            elif scope == "own_class" and view_scope.get("my_class_id"):
-                scope_conditions.append("dr.class_id = ?")
-                scope_params.append(view_scope["my_class_id"])
-            elif scope == "own_grade":
+            elif scope in ("own_class", "managed_classes"):
+                my_class_ids = view_scope.get("my_class_ids") or []
+                if my_class_ids:
+                    placeholders = ", ".join(["?"] * len(my_class_ids))
+                    scope_conditions.append(f"dr.class_id IN ({placeholders})")
+                    scope_params.extend(my_class_ids)
+                elif view_scope.get("my_class_id"):
+                    scope_conditions.append("dr.class_id = ?")
+                    scope_params.append(view_scope["my_class_id"])
+                else:
+                    scope_conditions.append("1 = 0")
+            elif scope in ("own_grade", "managed_grades"):
                 my_grade_class_ids = view_scope.get("my_grade_class_ids") or []
                 if my_grade_class_ids:
-                    placeholders = ", ".join(["%s"] * len(my_grade_class_ids))
+                    placeholders = ", ".join(["?"] * len(my_grade_class_ids))
                     scope_conditions.append(f"dr.class_id IN ({placeholders})")
                     scope_params.extend(my_grade_class_ids)
                 else:
@@ -317,7 +325,7 @@ async def get_daily_records(
             LEFT JOIN teacher t ON dr.recorder = t.name
             WHERE {where_clause}
             ORDER BY dr.record_date DESC, dr.created_at DESC
-            LIMIT %s OFFSET ?
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))

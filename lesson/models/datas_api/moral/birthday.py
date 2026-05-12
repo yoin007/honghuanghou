@@ -15,16 +15,29 @@ from pydantic import BaseModel, Field
 
 from .base import (
     get_moral_db,
-    check_moral_permission,
-    get_teacher_class_id,
+    get_record_data_scope,
+    append_record_scope_condition,
     log_operation,
-    require_permission,
 )
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/birthdays", tags=["生日查看"])
+
+API_BIRTHDAY_UPCOMING = "/api/moral/birthdays/upcoming"
+API_BIRTHDAY_TODAY = "/api/moral/birthdays/today"
+
+
+def _birthday_scope(db, user: User, api_path: str) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['birthday_reminder'],
+        own_class_permissions=['birthday_reminder'],
+        own_permissions=[],
+    )
 
 
 # =============================================================================
@@ -74,18 +87,16 @@ async def get_upcoming_birthdays(
         conditions = ["s.birthday IS NOT NULL", "s.status = '在校'"]
         params = []
 
-        # 权限过滤
-        my_class_id = get_teacher_class_id(user, db)
-        has_full_permission = check_moral_permission(user, 'birthday_reminder')
-
-        if not has_full_permission:
-            if my_class_id:
-                conditions.append("s.class_id = %s")
-                params.append(my_class_id)
-            else:
-                return {"success": True, "data": []}
-        elif class_id:
-            conditions.append("s.class_id = %s")
+        view_scope = _birthday_scope(db, user, API_BIRTHDAY_UPCOMING)
+        append_record_scope_condition(
+            conditions,
+            params,
+            view_scope,
+            table_alias="s",
+            username=user.username,
+        )
+        if class_id:
+            conditions.append("s.class_id = ?")
             params.append(class_id)
 
         where_clause = " AND ".join(conditions)
@@ -97,10 +108,10 @@ async def get_upcoming_birthdays(
             JOIN class c ON s.class_id = c.class_id
             WHERE {where_clause}
             AND (
-                strftime('%m-%d', s.birthday) BETWEEN strftime('%m-%d', %s)
-                AND strftime('%m-%d', %s)
+                strftime('%m-%d', s.birthday) BETWEEN strftime('%m-%d', ?)
+                AND strftime('%m-%d', ?)
                 OR strftime('%m-%d', s.birthday) BETWEEN '01-01'
-                AND strftime('%m-%d', %s)
+                AND strftime('%m-%d', ?)
             )
             ORDER BY strftime('%m-%d', s.birthday)
         """
@@ -157,13 +168,14 @@ async def get_today_birthdays(
         conditions = ["s.birthday IS NOT NULL", "s.status = '在校'"]
         params = []
 
-        my_class_id = get_teacher_class_id(user, db)
-        if not check_moral_permission(user, 'birthday_reminder'):
-            if my_class_id:
-                conditions.append("s.class_id = %s")
-                params.append(my_class_id)
-            else:
-                return {"success": True, "data": []}
+        view_scope = _birthday_scope(db, user, API_BIRTHDAY_TODAY)
+        append_record_scope_condition(
+            conditions,
+            params,
+            view_scope,
+            table_alias="s",
+            username=user.username,
+        )
 
         where_clause = " AND ".join(conditions)
 
@@ -172,8 +184,8 @@ async def get_today_birthdays(
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             WHERE {where_clause}
-            AND CAST(strftime('%m', s.birthday) AS INTEGER) = %s
-            AND CAST(strftime('%d', s.birthday) AS INTEGER) = %s
+            AND CAST(strftime('%m', s.birthday) AS INTEGER) = ?
+            AND CAST(strftime('%d', s.birthday) AS INTEGER) = ?
         """
         params.extend([today.month, today.day])
         students = db.query_all(query, tuple(params))

@@ -61,7 +61,7 @@ def birthday_reminder_task():
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             JOIN grade g ON s.grade_id = g.grade_id
-            WHERE strftime('%m-%d', s.birthday) = %s
+            WHERE strftime('%m-%d', s.birthday) = ?
             AND s.status = '在校'
             AND s.is_active = 1""",
             (today,)
@@ -125,7 +125,7 @@ def birthday_reminder_task():
             db.execute(
                 """INSERT INTO birthday_reminder
                 (student_id, reminder_date, reminder_type, message, is_sent, recipient_type)
-                VALUES (%s, %s, 'birthday', %s, 1, 'class')""",
+                VALUES (?, ?, 'birthday', ?, 1, 'class')""",
                 (student['student_id'], date.today(), f"班级公告：{class_name}")
             )
 
@@ -169,7 +169,7 @@ def birthday_blessing_task():
                    c.class_id, c.class_code, c.class_name, c.leader_name, c.leader_ids, c.leader_names
             FROM student s
             JOIN class c ON s.class_id = c.class_id
-            WHERE strftime('%m-%d', s.birthday) = %s
+            WHERE strftime('%m-%d', s.birthday) = ?
             AND s.status = '在校'
             AND s.is_active = 1""",
             (today,)
@@ -247,7 +247,7 @@ def birthday_blessing_task():
                         db.execute(
                             """INSERT INTO birthday_reminder
                             (student_id, reminder_date, reminder_type, message, is_sent, sent_at, recipient_type)
-                            VALUES (%s, %s, 'blessing', %s, 1, datetime('now','localtime'), 'class')""",
+                            VALUES (?, ?, 'blessing', ?, 1, datetime('now','localtime'), 'class')""",
                             (student['student_id'], date.today(), f"班级祝福公告：{class_name}")
                         )
                 except Exception as e:
@@ -297,12 +297,12 @@ def profile_update_check_task():
             """SELECT s.student_id, s.name, COUNT(*) as new_record_count
             FROM student s
             JOIN student_daily_record dr ON s.student_id = dr.student_id
-            WHERE dr.semester_id = %s
-            AND dr.record_date >= %s
+            WHERE dr.semester_id = ?
+            AND dr.record_date >= ?
             AND dr.is_deleted = 0
             AND s.status = '在校'
             GROUP BY s.student_id
-            HAVING COUNT(*) >= %s""",
+            HAVING COUNT(*) >= ?""",
             (semester_id, week_start, min_records)
         )
 
@@ -357,7 +357,7 @@ def warning_check_task():
                         FROM moral_evaluation me
                         JOIN student s ON me.student_id = s.student_id
                         JOIN class c ON s.class_id = c.class_id
-                        WHERE me.semester_id = %s AND me.total_score < %s""",
+                        WHERE me.semester_id = ? AND me.total_score < ?""",
                         (semester_id, trigger_value)
                     )
 
@@ -365,8 +365,8 @@ def warning_check_task():
                         # 检查是否已有预警记录
                         existing = db.query_one(
                             """SELECT id FROM warning_log
-                            WHERE student_id = %s AND semester_id = %s
-                            AND rule_id = %s AND DATE(created_at) = %s""",
+                            WHERE student_id = ? AND semester_id = ?
+                            AND rule_id = ? AND DATE(created_at) = ?""",
                             (student['student_id'], semester_id, config['id'], date.today())
                         )
 
@@ -384,7 +384,7 @@ def warning_check_task():
                             db.execute(
                                 """INSERT INTO warning_log
                                 (student_id, rule_id, semester_id, warning_level, message)
-                                VALUES (%s, %s, %s, 'warning', %s)""",
+                                VALUES (?, ?, ?, 'warning', ?)""",
                                 (student['student_id'], config['id'], semester_id, message)
                             )
 
@@ -399,20 +399,20 @@ def warning_check_task():
                     JOIN student s ON dr.student_id = s.student_id
                     JOIN class c ON s.class_id = c.class_id
                     JOIN daily_event_type det ON dr.event_id = det.event_id
-                    WHERE dr.semester_id = %s
+                    WHERE dr.semester_id = ?
                     AND det.event_type = 2  -- 消极事件
                     AND dr.is_deleted = 0
                     AND s.status = '在校'
                     GROUP BY dr.student_id
-                    HAVING COUNT(*) >= %s""",
+                    HAVING COUNT(*) >= ?""",
                     (semester_id, trigger_value)
                 )
 
                 for student in high_negative_students:
                     existing = db.query_one(
                         """SELECT id FROM warning_log
-                        WHERE student_id = %s AND semester_id = %s
-                        AND rule_id = %s AND DATE(created_at) = %s""",
+                        WHERE student_id = ? AND semester_id = ?
+                        AND rule_id = ? AND DATE(created_at) = ?""",
                         (student['student_id'], semester_id, config['id'], date.today())
                     )
 
@@ -430,7 +430,7 @@ def warning_check_task():
                         db.execute(
                             """INSERT INTO warning_log
                             (student_id, rule_id, semester_id, warning_level, message)
-                            VALUES (%s, %s, %s, 'warning', %s)""",
+                            VALUES (?, ?, ?, 'warning', ?)""",
                             (student['student_id'], config['id'], semester_id, message)
                         )
 

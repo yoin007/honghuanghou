@@ -7,7 +7,6 @@
 """
 
 import os
-import sqlite3
 import logging
 import hashlib
 from datetime import datetime
@@ -18,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from models.datas_api.auth import User, get_current_user
 from models.datas_api.moral.base import log_operation, get_moral_db
+from models.datas_api.repositories.sqlite_base import get_sqlite_connection
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +152,26 @@ class ClearTableRequest(BaseModel):
 
 # ==================== 工具函数 ====================
 
+def _resolve_database_path(db_name: str) -> str:
+    """解析数据库路径，并阻止路径穿越。"""
+    normalized_name = os.path.basename(db_name or "")
+    if normalized_name != db_name or not normalized_name.endswith(".db"):
+        raise HTTPException(400, "数据库名称不合法")
+
+    db_path = os.path.abspath(os.path.join(DATABASES_DIR, normalized_name))
+    databases_root = os.path.abspath(DATABASES_DIR)
+    if os.path.dirname(db_path) != databases_root:
+        raise HTTPException(400, "数据库名称不合法")
+    return db_path
+
+
+def _ensure_clearable_table(db_name: str, table_name: str) -> None:
+    """仅允许清空显式登记的业务表。"""
+    allowed_tables = {name for name, _ in CLEARABLE_TABLES.get(db_name, [])}
+    if table_name not in allowed_tables:
+        raise HTTPException(400, f"表 {table_name} 不在可清空白名单中")
+
+
 def is_admin_user(user: User) -> bool:
     """检查是否是管理员"""
     return user.role in ["admin", "jiaowu"]
@@ -159,12 +179,13 @@ def is_admin_user(user: User) -> bool:
 
 def get_table_count(db_path: str) -> int:
     """获取数据库中的表数量"""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
+    conn = get_sqlite_connection(db_path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+        return cursor.fetchone()[0]
+    finally:
+        conn.close()
 
 
 def generate_confirmation_token(db_name: str, table_name: str, username: str) -> str:
@@ -223,17 +244,18 @@ async def get_database_tables(db_name: str, user: User = Depends(get_current_use
     if not is_admin_user(user):
         raise HTTPException(403, "只有管理员可以访问")
 
-    db_path = os.path.join(DATABASES_DIR, db_name)
+    db_path = _resolve_database_path(db_name)
 
     if not os.path.exists(db_path):
         raise HTTPException(404, f"数据库 {db_name} 不存在")
 
     tables = []
     protected_list = PROTECTED_TABLES.get(db_name, [])
+    clearable_list = {name for name, _ in CLEARABLE_TABLES.get(db_name, [])}
     display_map = TABLE_DISPLAY_NAMES.get(db_name, {})
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = get_sqlite_connection(db_path)
         cursor = conn.cursor()
 
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -250,7 +272,7 @@ async def get_database_tables(db_name: str, user: User = Depends(get_current_use
             # 获取中文名
             display_name = display_map.get(table_name, None)
 
-            # 判断是否受保护
+            # 判断是否受保护、是否允许由管理页清空
             protected = table_name in protected_list
 
             tables.append({
@@ -258,7 +280,7 @@ async def get_database_tables(db_name: str, user: User = Depends(get_current_use
                 "display_name": display_name,
                 "row_count": row_count,
                 "protected": protected,
-                "clearable": not protected
+                "clearable": table_name in clearable_list and not protected
             })
 
         conn.close()
@@ -285,10 +307,11 @@ async def generate_clear_token(db_name: str, table_name: str, user: User = Depen
     if not is_admin_user(user):
         raise HTTPException(403, "只有管理员可以访问")
 
-    # 检查是否受保护
+    # 检查是否受保护，并要求命中可清空白名单
     protected_list = PROTECTED_TABLES.get(db_name, [])
     if table_name in protected_list:
         raise HTTPException(400, f"表 {table_name} 受保护，不可清空")
+    _ensure_clearable_table(db_name, table_name)
 
     token = generate_confirmation_token(db_name, table_name, user.username)
 
@@ -311,19 +334,20 @@ async def clear_table(
     protected_list = PROTECTED_TABLES.get(db_name, [])
     if table_name in protected_list:
         raise HTTPException(400, f"表 {table_name} 受保护，不可清空")
+    _ensure_clearable_table(db_name, table_name)
 
     # 验证确认令牌
     expected_token = generate_confirmation_token(db_name, table_name, user.username)
     if request.confirmation_token != expected_token:
         raise HTTPException(400, "确认令牌无效，请重新确认")
 
-    db_path = os.path.join(DATABASES_DIR, db_name)
+    db_path = _resolve_database_path(db_name)
 
     if not os.path.exists(db_path):
         raise HTTPException(404, f"数据库 {db_name} 不存在")
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = get_sqlite_connection(db_path)
         cursor = conn.cursor()
 
         # 获取清空前记录数
@@ -392,7 +416,7 @@ async def check_database_integrity(user: User = Depends(get_current_user)):
             continue
 
         try:
-            conn = sqlite3.connect(db_path)
+            conn = get_sqlite_connection(db_path)
             cursor = conn.cursor()
 
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")

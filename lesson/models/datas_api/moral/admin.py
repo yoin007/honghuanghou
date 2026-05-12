@@ -1119,7 +1119,7 @@ async def get_students(
             JOIN grade g ON s.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY s.student_id
-            LIMIT %s OFFSET ?
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         students = db.query_all(data_query, tuple(params))
@@ -1552,7 +1552,7 @@ async def get_operation_logs(
             SELECT * FROM moral_operation_log
             WHERE {where_clause}
             ORDER BY created_at DESC
-            LIMIT %s OFFSET ?
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         logs = db.query_all(data_query, tuple(params))

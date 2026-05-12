@@ -82,6 +82,16 @@
               </div>
             </template>
           </el-table-column>
+          <el-table-column label="数据范围" min-width="180">
+            <template #default="{ row }">
+              <span class="scope-summary">{{ formatScopeSummary(row.data_scope_rules, dataScopeLabelMap) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="目标范围" min-width="180">
+            <template #default="{ row }">
+              <span class="scope-summary">{{ formatScopeSummary(row.target_scope_rules, targetScopeLabelMap) }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="状态" width="80">
             <template #default="{ row }">
               <el-tag :type="row.is_active ? 'success' : 'danger'">
@@ -136,26 +146,38 @@
           <el-checkbox v-model="form.inherit_from_module" :true-label="1" :false-label="0">继承模块权限</el-checkbox>
           <el-checkbox v-model="form.enforce_backend" :true-label="1" :false-label="0">参与后端鉴权</el-checkbox>
         </el-form-item>
+        <el-form-item label="快捷配置">
+          <el-button @click="applyScopePreset">套用常用矩阵</el-button>
+          <div class="scope-help">按 API 动作自动填入推荐范围：查看=自己创建/管理班级/管理年级/全校，新增=任教班级/管理范围/全校，编辑删除=自己创建/全校。</div>
+        </el-form-item>
         <el-form-item label="数据范围">
-          <el-input
-            v-model="form.data_scope_rules_text"
-            type="textarea"
-            :rows="5"
-            placeholder='{"teacher":["own_created"],"cleader":["own_created","own_class"],"xuefa":["all"]}'
-          />
+          <div class="scope-editor">
+            <div v-for="role in scopeRoleOptions" :key="`data-${role.value}`" class="scope-row">
+              <span class="scope-role">{{ role.label }}</span>
+              <el-checkbox-group v-model="dataScopeEditor[role.value]">
+                <el-checkbox v-for="item in dataScopeOptions" :key="item.value" :label="item.value">
+                  {{ item.label }}
+                </el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
           <div class="scope-help">
-            控制查询、编辑、删除时能操作哪些已有数据。可选值：all=全部，own_created=自己创建，own_class=自己班级，teaching_classes=任教班级，g_leader_grade=年级主任管理的年级。例：班主任查看自己创建+本班，填 {"cleader":["own_created","own_class"]}；年级主任查看本年级，填 {"g_leader":["g_leader_grade"]}。
+            控制查询、编辑、删除时能操作哪些已有记录。查看接口可给班主任勾选“自己创建 + 管理班级”，编辑/删除接口通常只勾选“自己创建”；学发、教发和管理员勾选“全校”。
           </div>
         </el-form-item>
         <el-form-item label="目标范围">
-          <el-input
-            v-model="form.target_scope_rules_text"
-            type="textarea"
-            :rows="3"
-            placeholder='{"teacher":["all_students"],"cleader":["all_students"]}'
-          />
+          <div class="scope-editor">
+            <div v-for="role in scopeRoleOptions" :key="`target-${role.value}`" class="scope-row">
+              <span class="scope-role">{{ role.label }}</span>
+              <el-checkbox-group v-model="targetScopeEditor[role.value]">
+                <el-checkbox v-for="item in targetScopeOptions" :key="item.value" :label="item.value">
+                  {{ item.label }}
+                </el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
           <div class="scope-help">
-            控制新增、录入时能选择哪些学生。可选值：all_students=全校学生，own_class=自己班级，teaching_classes=任教班级，g_leader_grade=年级主任管理的年级。若填 {"teacher":["teaching_classes"]}，有维护任教班级时按任教班级限制；未维护任教班级时默认全校。
+            控制新增、录入时能选择哪些学生。日常表现建议：教师=任教班级，班主任=任教班级+管理班级，年级主任=任教班级+管理年级，学发/教发/管理员=全校学生。
           </div>
         </el-form-item>
         <template v-if="!form.inherit_from_module && !form.is_public">
@@ -279,6 +301,26 @@ const roleOptions = [
   { value: 'parent', label: '家长' }
 ]
 
+const scopeRoleOptions = roleOptions.filter(role => !['student', 'parent'].includes(role.value))
+
+const dataScopeOptions = [
+  { value: 'own_created', label: '自己创建' },
+  { value: 'teaching_classes', label: '任教班级' },
+  { value: 'managed_classes', label: '管理班级' },
+  { value: 'managed_grades', label: '管理年级' },
+  { value: 'all', label: '全校' }
+]
+
+const targetScopeOptions = [
+  { value: 'teaching_classes', label: '任教班级' },
+  { value: 'managed_classes', label: '管理班级' },
+  { value: 'managed_grades', label: '管理年级' },
+  { value: 'all_students', label: '全校学生' }
+]
+
+const dataScopeLabelMap = Object.fromEntries(dataScopeOptions.map(item => [item.value, item.label]))
+const targetScopeLabelMap = Object.fromEntries(targetScopeOptions.map(item => [item.value, item.label]))
+
 const policyOptions = [
   { value: 'role_and_level', label: '角色和等级同时满足' },
   { value: 'role_or_level', label: '角色或等级满足即可' },
@@ -304,8 +346,6 @@ const form = reactive({
   inherit_from_module: 0,
   is_public: 0,
   enforce_backend: 1,
-  data_scope_rules_text: '',
-  target_scope_rules_text: '',
   description: '',
   is_active: 1
 })
@@ -321,6 +361,13 @@ const moduleForm = reactive({
   description: '',
   is_active: 1
 })
+
+const createEmptyScopeEditor = () => Object.fromEntries(
+  scopeRoleOptions.map(role => [role.value, []])
+)
+
+const dataScopeEditor = reactive(createEmptyScopeEditor())
+const targetScopeEditor = reactive(createEmptyScopeEditor())
 
 const rules = {
   api_path: [{ required: true, message: '请输入API路径', trigger: 'blur' }],
@@ -338,31 +385,88 @@ const formatRoles = (roles = []) => {
   return roles.map(role => roleNames[role] || role).join('、')
 }
 
+const formatScopeSummary = (rules = {}, labelMap = {}) => {
+  if (!rules || Object.keys(rules).length === 0) return '未配置'
+  return scopeRoleOptions
+    .filter(role => Array.isArray(rules[role.value]) && rules[role.value].length)
+    .map(role => `${role.label}:${rules[role.value].map(scope => labelMap[scope] || scope).join('/')}`)
+    .join('；') || '未配置'
+}
+
 const getPolicyName = (policy) => policy === 'public' ? '公开' : (policyNames[policy] || policy)
 const getMatchName = (matchType) => matchNames[matchType] || '精确'
 
-const stringifyRules = (rules) => {
-  if (!rules || Object.keys(rules).length === 0) return ''
-  return JSON.stringify(rules, null, 2)
+const normalizeScopeRules = (rules = {}) => {
+  const aliases = {
+    own_class: 'managed_classes',
+    g_leader_grade: 'managed_grades',
+    grade_students: 'managed_grades',
+    all_students: 'all_students'
+  }
+  return Object.fromEntries(
+    scopeRoleOptions.map((role) => {
+      const scopes = Array.isArray(rules?.[role.value]) ? rules[role.value] : []
+      return [role.value, [...new Set(scopes.map(scope => aliases[scope] || scope))]]
+    })
+  )
 }
 
-const parseRulesText = (text, label) => {
-  if (!text || !text.trim()) return {}
-  try {
-    const parsed = JSON.parse(text)
-    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-      throw new Error(`${label}必须是对象`)
-    }
-    Object.entries(parsed).forEach(([role, scopes]) => {
-      if (!Array.isArray(scopes)) {
-        throw new Error(`${role} 的范围必须是数组`)
-      }
-    })
-    return parsed
-  } catch (error) {
-    ElMessage.error(`${label}JSON格式错误：${error.message}`)
-    throw error
+const loadScopeEditors = (dataRules = {}, targetRules = {}) => {
+  Object.assign(dataScopeEditor, normalizeScopeRules(dataRules))
+  Object.assign(targetScopeEditor, normalizeScopeRules(targetRules))
+}
+
+const dumpScopeEditor = (editor) => {
+  const rules = {}
+  for (const role of scopeRoleOptions) {
+    const scopes = editor[role.value] || []
+    if (scopes.length) rules[role.value] = scopes
   }
+  return rules
+}
+
+const inferScopeAction = () => {
+  const path = form.api_path || ''
+  const method = form.http_method || '*'
+  if (path.includes('/create') || method === 'POST') return 'create'
+  if (path.includes('/delete') || method === 'DELETE') return 'delete'
+  if (path.includes('/update') || method === 'PUT') return 'update'
+  if (path.includes('/revoke') || path.includes('/close')) return 'update'
+  return 'view'
+}
+
+const applyScopePreset = () => {
+  const action = inferScopeAction()
+  const viewRules = {
+    admin: ['all'],
+    jiaowu: ['all'],
+    xuefa: ['all'],
+    g_leader: ['own_created', 'managed_grades'],
+    cleader: ['own_created', 'managed_classes'],
+    teacher: ['own_created']
+  }
+  const actionRules = {
+    admin: ['all'],
+    jiaowu: ['all'],
+    xuefa: ['all'],
+    g_leader: ['own_created'],
+    cleader: ['own_created'],
+    teacher: ['own_created']
+  }
+  const targetRules = {
+    admin: ['all_students'],
+    jiaowu: ['all_students'],
+    xuefa: ['all_students'],
+    g_leader: ['teaching_classes', 'managed_grades'],
+    cleader: ['teaching_classes', 'managed_classes'],
+    teacher: ['teaching_classes']
+  }
+
+  if (action === 'create') {
+    loadScopeEditors({}, targetRules)
+    return
+  }
+  loadScopeEditors(action === 'view' ? viewRules : actionRules, {})
 }
 
 const fetchPermissions = async () => {
@@ -433,33 +537,36 @@ const handleSyncLegacy = async () => {
 }
 
 const handleSyncScopeRules = async () => {
+  let force = 0
   try {
-    const { value } = await ElMessageBox.confirm(
-      '将代码中的默认数据范围规则同步到数据库。\n\n选择"补齐"只更新空配置，选择"强制"会覆盖所有配置。',
+    await ElMessageBox.confirm(
+      '将代码中的默认数据范围规则同步到数据库。\n\n点击“强制覆盖”会覆盖所有已有范围配置；点击“仅补齐”只更新空配置。',
       '同步范围规则',
       {
         type: 'warning',
         confirmButtonText: '强制覆盖',
-        cancelButtonText: '取消',
+        cancelButtonText: '仅补齐',
         distinguishCancelAndClose: true,
       }
-    ).catch((action) => {
-      if (action === 'cancel') {
-        // 用户点击了取消按钮，执行补齐模式
-        return { value: '补齐' }
-      }
-      throw action
-    })
+    )
+    force = 1
+  } catch (action) {
+    if (action === 'cancel') {
+      force = 0
+    } else {
+      return
+    }
+  }
 
-    const force = value === '强制覆盖' ? 1 : 0
+  try {
     scopeLoading.value = true
     const res = await syncDefaultScopeRules(force)
     if (res.success) {
-      ElMessage.success(res.message)
+      ElMessage.success(`${force ? '强制覆盖' : '仅补齐'}：${res.message}`)
       refreshAll()
     }
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') console.error('同步范围规则失败:', error)
+    console.error('同步范围规则失败:', error)
   } finally {
     scopeLoading.value = false
   }
@@ -480,11 +587,10 @@ const resetApiForm = () => {
     inherit_from_module: selectedModuleId.value ? 1 : 0,
     is_public: 0,
     enforce_backend: 1,
-    data_scope_rules_text: '',
-    target_scope_rules_text: '',
     description: '',
     is_active: 1
   })
+  loadScopeEditors({}, {})
 }
 
 const handleAdd = () => {
@@ -509,11 +615,10 @@ const handleEdit = (row) => {
     inherit_from_module: row.inherit_from_module || 0,
     is_public: row.is_public || 0,
     enforce_backend: row.enforce_backend ?? 1,
-    data_scope_rules_text: stringifyRules(row.data_scope_rules),
-    target_scope_rules_text: stringifyRules(row.target_scope_rules),
     description: row.description || '',
     is_active: row.is_active
   })
+  loadScopeEditors(row.data_scope_rules, row.target_scope_rules)
   apiDialogVisible.value = true
 }
 
@@ -543,8 +648,8 @@ const apiPayload = () => ({
   inherit_from_module: form.inherit_from_module,
   is_public: form.is_public,
   enforce_backend: form.enforce_backend,
-  data_scope_rules: parseRulesText(form.data_scope_rules_text, '数据范围'),
-  target_scope_rules: parseRulesText(form.target_scope_rules_text, '目标范围'),
+  data_scope_rules: dumpScopeEditor(dataScopeEditor),
+  target_scope_rules: dumpScopeEditor(targetScopeEditor),
   description: form.description,
   is_active: form.is_active
 })
@@ -730,6 +835,41 @@ onMounted(refreshAll)
   color: var(--el-text-color-secondary);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.scope-editor {
+  width: 100%;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.scope-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.scope-row:last-child {
+  border-bottom: 0;
+}
+
+.scope-role {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.scope-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .policy-cell {

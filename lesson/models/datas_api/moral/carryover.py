@@ -76,12 +76,12 @@ def save_carryover_config(db, carryover_factor: float, max_carryover_times: int)
 
     if existing:
         db.execute(
-            "UPDATE moral_config SET config_value = %s WHERE config_key = 'carryover_config'",
+            "UPDATE moral_config SET config_value = ? WHERE config_key = 'carryover_config'",
             (config_value,)
         )
     else:
         db.execute(
-            "INSERT INTO moral_config (config_key, config_value) VALUES ('carryover_config', %s)",
+            "INSERT INTO moral_config (config_key, config_value) VALUES ('carryover_config', ?)",
             (config_value,)
         )
 
@@ -129,7 +129,7 @@ def execute_task_carryover(db, from_year_id: int, to_year_id: int) -> Dict[str, 
         JOIN grade_moral_task t ON stf.task_id = t.task_id
         JOIN student s ON stf.student_id = s.student_id
         JOIN class c ON s.class_id = c.class_id
-        WHERE stf.year_id = %s
+        WHERE stf.year_id = ?
         AND stf.status = 0  -- 未完成
         AND t.can_carryover = 1  -- 允许结转
         AND t.is_active = 1
@@ -150,7 +150,7 @@ def execute_task_carryover(db, from_year_id: int, to_year_id: int) -> Dict[str, 
                 # 任务作废
                 db.execute(
                     """UPDATE student_task_finish SET status = 2 -- 已作废
-                    WHERE id = %s""",
+                    WHERE id = ?""",
                     (task['id'],)
                 )
 
@@ -176,11 +176,11 @@ def execute_task_carryover(db, from_year_id: int, to_year_id: int) -> Dict[str, 
             # 更新任务状态
             db.execute(
                 """UPDATE student_task_finish SET
-                year_id = %s,
+                year_id = ?,
                 is_carried_over = 1,
-                carryover_count = %s,
-                current_score = %s
-                WHERE id = %s""",
+                carryover_count = ?,
+                current_score = ?
+                WHERE id = ?""",
                 (to_year_id, new_carryover_count, float(new_score), task['id'])
             )
 
@@ -189,7 +189,7 @@ def execute_task_carryover(db, from_year_id: int, to_year_id: int) -> Dict[str, 
                 """INSERT INTO task_carryover_log
                 (student_id, original_task_id, from_year_id, to_year_id,
                  carryover_index, score_before, score_after)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (task['student_id'], task['original_task_id'] or task['task_id'],
                  from_year_id, to_year_id, new_carryover_count,
                  float(current_score), float(new_score))
@@ -237,7 +237,7 @@ def get_next_school_year(db, current_year_id: int) -> Optional[Dict]:
         Dict: 下一个学年信息，若无则返回None
     """
     current_year = db.query_one(
-        "SELECT year_id, year_name FROM school_year WHERE year_id = %s",
+        "SELECT year_id, year_name FROM school_year WHERE year_id = ?",
         (current_year_id,)
     )
 
@@ -254,7 +254,7 @@ def get_next_school_year(db, current_year_id: int) -> Optional[Dict]:
     next_year_name = f"{start_year + 1}-{start_year + 2}学年"
 
     next_year = db.query_one(
-        "SELECT year_id, year_name FROM school_year WHERE year_name = %s",
+        "SELECT year_id, year_name FROM school_year WHERE year_name = ?",
         (next_year_name,)
     )
 
@@ -276,11 +276,11 @@ def manual_carryover_trigger(from_year_id: int, to_year_id: int, operator: str =
     with get_moral_db() as db:
         # 验证学年有效性
         from_year = db.query_one(
-            "SELECT * FROM school_year WHERE year_id = %s",
+            "SELECT * FROM school_year WHERE year_id = ?",
             (from_year_id,)
         )
         to_year = db.query_one(
-            "SELECT * FROM school_year WHERE year_id = %s",
+            "SELECT * FROM school_year WHERE year_id = ?",
             (to_year_id,)
         )
 
@@ -403,7 +403,7 @@ async def api_preview_carryover(
             JOIN grade_moral_task t ON stf.task_id = t.task_id
             JOIN student s ON stf.student_id = s.student_id
             JOIN class c ON s.class_id = c.class_id
-            WHERE stf.year_id = %s
+            WHERE stf.year_id = ?
             AND stf.status = 0
             AND t.can_carryover = 1
             AND t.is_active = 1
@@ -475,11 +475,11 @@ async def api_get_carryover_logs(
         params = []
 
         if student_id:
-            conditions.append("tcl.student_id = %s")
+            conditions.append("tcl.student_id = ?")
             params.append(student_id)
 
         if year_id:
-            conditions.append("tcl.from_year_id = %s OR tcl.to_year_id = %s")
+            conditions.append("tcl.from_year_id = ? OR tcl.to_year_id = ?")
             params.extend([year_id, year_id])
 
         where_clause = " AND ".join(conditions)
@@ -499,7 +499,7 @@ async def api_get_carryover_logs(
             JOIN school_year sy_to ON tcl.to_year_id = sy_to.year_id
             WHERE {where_clause}
             ORDER BY tcl.created_at DESC
-            LIMIT %s OFFSET %s
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         logs = db.query_all(data_query, tuple(params) if params else None)

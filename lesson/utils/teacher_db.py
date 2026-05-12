@@ -43,10 +43,11 @@ class TeacherDB:
         self._connection = _get_sqlite_connection()(self.db_path)
         self._connection.row_factory = sqlite3.Row
         # 启用 WAL 模式和优化设置（与 sqlite_moral_db.py 保持一致）
-        self._connection.execute("PRAGMA journal_mode=WAL")
-        self._connection.execute("PRAGMA synchronous=NORMAL")
-        self._connection.execute("PRAGMA cache_size=-2000")
-        self._connection.execute("PRAGMA busy_timeout=30000")  # 30秒忙等待超时
+        if hasattr(self._connection, "execute"):
+            self._connection.execute("PRAGMA journal_mode=WAL")
+            self._connection.execute("PRAGMA synchronous=NORMAL")
+            self._connection.execute("PRAGMA cache_size=-2000")
+            self._connection.execute("PRAGMA busy_timeout=30000")  # 30秒忙等待超时
         if self.db_path == MORAL_DB:
             # 只执行表创建（CREATE TABLE IF NOT EXISTS 无害），不做 UPDATE
             self._connection.execute(

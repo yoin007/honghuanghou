@@ -103,7 +103,7 @@ def check_and_trigger_escalation(
     # 1. 查询累进规则
     rule = db.query_one(
         """SELECT * FROM violation_escalation_rule
-        WHERE event_id = %s""",
+        WHERE event_id = ?""",
         (event_id,)
     )
 
@@ -130,9 +130,9 @@ def check_and_trigger_escalation(
     count_result = db.query_one(
         """SELECT COUNT(*) as total_count
         FROM student_daily_record
-        WHERE student_id = %s AND event_id = %s
-        AND strftime('%Y-%m-%d', record_date) >= %s
-        AND strftime('%Y-%m-%d', record_date) <= %s
+        WHERE student_id = ? AND event_id = ?
+        AND strftime('%Y-%m-%d', record_date) >= ?
+        AND strftime('%Y-%m-%d', record_date) <= ?
         AND is_deleted = 0""",
         (student_id, event_id, window_start.strftime('%Y-%m-%d'), record_date_only.strftime('%Y-%m-%d'))
     )
@@ -149,9 +149,9 @@ def check_and_trigger_escalation(
     existing_warnings = db.query_all(
         """SELECT wl.message, wl.warning_level
         FROM warning_log wl
-        WHERE wl.student_id = %s
+        WHERE wl.student_id = ?
         AND wl.warning_level LIKE 'escalation_%'
-        AND wl.semester_id = %s
+        AND wl.semester_id = ?
         ORDER BY wl.created_at DESC""",
         (student_id, semester_id)
     )
@@ -200,14 +200,14 @@ def check_and_trigger_escalation(
         """SELECT s.name, s.roomid, c.leader_wxid, c.leader_name, c.class_name
         FROM student s
         LEFT JOIN class c ON s.class_id = c.class_id
-        WHERE s.student_id = %s""",
+        WHERE s.student_id = ?""",
         (student_id,)
     )
 
     student_name = student_info.get('name', student_id) if student_info else student_id
 
     event_info = db.query_one(
-        "SELECT event_name FROM daily_event_type WHERE event_id = %s",
+        "SELECT event_name FROM daily_event_type WHERE event_id = ?",
         (event_id,)
     )
     event_name = event_info['event_name'] if event_info else f"事件{event_id}"
@@ -225,7 +225,7 @@ def check_and_trigger_escalation(
     # 7. 记录预警日志
     warning_config = db.query_one(
         """SELECT id FROM warning_config
-        WHERE trigger_type = %s""",
+        WHERE trigger_type = ?""",
         (f'escalation_{result.action}',)
     )
 
@@ -233,7 +233,7 @@ def check_and_trigger_escalation(
         db.execute(
             """INSERT INTO warning_log
             (student_id, rule_id, semester_id, warning_level, message)
-            VALUES (%s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?)""",
             (student_id, warning_config['id'], semester_id, f'escalation_{result.action}', result.message)
         )
         result.warning_log_id = db.lastrowid()
@@ -242,7 +242,7 @@ def check_and_trigger_escalation(
         db.execute(
             """INSERT INTO warning_log
             (student_id, rule_id, semester_id, warning_level, message)
-            VALUES (%s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?)""",
             (student_id, rule['rule_id'], semester_id, f'escalation_{result.action}', result.message)
         )
         result.warning_log_id = db.lastrowid()
@@ -302,7 +302,7 @@ def create_escalation_punishment(
     student_info = db.query_one(
         """SELECT s.class_id, s.grade_id
         FROM student s
-        WHERE s.student_id = %s""",
+        WHERE s.student_id = ?""",
         (student_id,)
     )
 
@@ -321,7 +321,7 @@ def create_escalation_punishment(
         """INSERT INTO punishment_record
         (student_id, event_id, semester_id, punishment_date, class_id, grade_id,
          score_deduct, level, reason, recorder, is_revoked, source_record_ids)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s)""",
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
         (
             student_id,
             event_id,
@@ -373,7 +373,7 @@ def send_escalation_notification(
             """SELECT s.name, s.roomid, c.leader_wxid, c.leader_name, c.class_name, c.leader_ids, c.leader_names, c.class_id
             FROM student s
             LEFT JOIN class c ON s.class_id = c.class_id
-            WHERE s.student_id = %s""",
+            WHERE s.student_id = ?""",
             (student_id,)
         )
 
@@ -407,7 +407,7 @@ def send_escalation_notification(
                 # 通过 teacher 表获取 wxid
                 for lid in leader_ids:
                     teacher = db.query_one(
-                        "SELECT wxid FROM teacher WHERE teacher_id = %s",
+                        "SELECT wxid FROM teacher WHERE teacher_id = ?",
                         (lid,)
                     )
                     if teacher and teacher.get('wxid'):
@@ -472,9 +472,9 @@ def get_student_escalation_history(
         """SELECT wl.*, wc.rule_name, wc.trigger_type
         FROM warning_log wl
         LEFT JOIN warning_config wc ON wl.rule_id = wc.id
-        WHERE wl.student_id = %s
+        WHERE wl.student_id = ?
         AND wl.warning_level LIKE 'escalation_%'
-        AND wl.semester_id = %s
+        AND wl.semester_id = ?
         ORDER BY wl.created_at DESC""",
         (student_id, semester_id)
     )
@@ -507,9 +507,9 @@ def get_student_event_count_in_window(
     result = db.query_one(
         """SELECT COUNT(*) as count
         FROM student_daily_record
-        WHERE student_id = %s AND event_id = %s
-        AND strftime('%Y-%m-%d', record_date) >= %s
-        AND strftime('%Y-%m-%d', record_date) <= %s
+        WHERE student_id = ? AND event_id = ?
+        AND strftime('%Y-%m-%d', record_date) >= ?
+        AND strftime('%Y-%m-%d', record_date) <= ?
         AND is_deleted = 0""",
         (student_id, event_id, window_start.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
     )
@@ -538,7 +538,7 @@ def get_next_threshold_info(
     # 查询累进规则
     rule = db.query_one(
         """SELECT * FROM violation_escalation_rule
-        WHERE event_id = %s""",
+        WHERE event_id = ?""",
         (event_id,)
     )
 

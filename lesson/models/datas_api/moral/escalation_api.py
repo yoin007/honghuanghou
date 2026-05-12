@@ -73,7 +73,7 @@ async def get_escalation_rules(
         params = []
 
         if event_id:
-            conditions.append("ver.event_id = %s")
+            conditions.append("ver.event_id = ?")
             params.append(event_id)
 
         query = f"""
@@ -109,7 +109,7 @@ async def create_escalation_rule(
     with get_moral_db() as db:
         # 检查事件是否存在且为消极类型
         event = db.query_one(
-            "SELECT * FROM daily_event_type WHERE event_id = %s",
+            "SELECT * FROM daily_event_type WHERE event_id = ?",
             (rule_data.event_id,)
         )
         if not event:
@@ -119,7 +119,7 @@ async def create_escalation_rule(
 
         # 检查是否已存在规则
         existing = db.query_one(
-            "SELECT rule_id FROM violation_escalation_rule WHERE event_id = %s",
+            "SELECT rule_id FROM violation_escalation_rule WHERE event_id = ?",
             (rule_data.event_id,)
         )
         if existing:
@@ -134,7 +134,7 @@ async def create_escalation_rule(
         db.execute(
             """INSERT INTO violation_escalation_rule
             (event_id, time_window_days, escalation_rules)
-            VALUES (%s, %s, %s)""",
+            VALUES (?, ?, ?)""",
             (rule_data.event_id, rule_data.time_window_days, json.dumps(rules_json))
         )
 
@@ -159,7 +159,7 @@ async def update_escalation_rule(
     """更新累进规则"""
     with get_moral_db() as db:
         old_rule = db.query_one(
-            "SELECT * FROM violation_escalation_rule WHERE rule_id = %s",
+            "SELECT * FROM violation_escalation_rule WHERE rule_id = ?",
             (rule_id,)
         )
         if not old_rule:
@@ -169,7 +169,7 @@ async def update_escalation_rule(
         params = []
 
         if update_data.time_window_days is not None:
-            updates.append("time_window_days = %s")
+            updates.append("time_window_days = ?")
             params.append(update_data.time_window_days)
 
         if update_data.rules is not None:
@@ -177,7 +177,7 @@ async def update_escalation_rule(
                 "rules": [r.dict() for r in update_data.rules],
                 "reset_on_action": False
             }
-            updates.append("escalation_rules = %s")
+            updates.append("escalation_rules = ?")
             params.append(json.dumps(rules_json))
 
         if not updates:
@@ -185,7 +185,7 @@ async def update_escalation_rule(
 
         params.append(rule_id)
         db.execute(
-            f"UPDATE violation_escalation_rule SET {', '.join(updates)} WHERE rule_id = %s",
+            f"UPDATE violation_escalation_rule SET {', '.join(updates)} WHERE rule_id = ?",
             tuple(params)
         )
 
@@ -207,14 +207,14 @@ async def delete_escalation_rule(
     """删除累进规则"""
     with get_moral_db() as db:
         old_rule = db.query_one(
-            "SELECT * FROM violation_escalation_rule WHERE rule_id = %s",
+            "SELECT * FROM violation_escalation_rule WHERE rule_id = ?",
             (rule_id,)
         )
         if not old_rule:
             raise HTTPException(404, "规则不存在")
 
         db.execute(
-            "DELETE FROM violation_escalation_rule WHERE rule_id = %s",
+            "DELETE FROM violation_escalation_rule WHERE rule_id = ?",
             (rule_id,)
         )
 

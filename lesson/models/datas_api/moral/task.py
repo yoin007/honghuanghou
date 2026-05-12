@@ -20,13 +20,47 @@ from .base import (
     log_operation,
     require_permission,
     check_moral_permission,
-    get_teacher_class_id,
+    check_moral_permission_for_roles,
+    get_api_scoped_user_roles,
+    get_record_data_scope,
+    append_record_scope_condition,
+    record_action_flags,
+    target_student_in_scope,
+    has_user_role,
 )
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["德育任务"])
+
+API_TASK_FINISH = "/api/moral/tasks/finish"
+
+
+def _ensure_xuefa_or_admin(user: User) -> None:
+    if not (has_user_role(user, "admin") or has_user_role(user, "xuefa")):
+        raise HTTPException(403, "德育任务记录仅学发和管理员可访问")
+
+
+def _has_scoped_any_permission(db, user: User, api_path: str, permissions: List[str]) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return any(check_moral_permission_for_roles(scoped_roles, permission) for permission in permissions)
+
+
+TASK_FINISH_ALL_PERMISSIONS = ['moral_record_manage', 'report_view_all']
+TASK_FINISH_OWN_CLASS_PERMISSIONS = ['moral_record_own_class', 'report_view_own_class']
+TASK_FINISH_OWN_PERMISSIONS = ['moral_record_input', 'moral_record_view_own']
+
+
+def _task_finish_scope(db, user: User, api_path: str = API_TASK_FINISH) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=TASK_FINISH_ALL_PERMISSIONS,
+        own_class_permissions=TASK_FINISH_OWN_CLASS_PERMISSIONS,
+        own_permissions=TASK_FINISH_OWN_PERMISSIONS,
+    )
 
 
 # =============================================================================
@@ -236,6 +270,7 @@ async def get_task_finish_records(
 ):
     """获取任务完成记录列表"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
         conditions = ["1=1"]
         params = []
 
@@ -251,6 +286,15 @@ async def get_task_finish_records(
             conditions.append("stf.status = ?")
             params.append(status)
 
+        view_scope = _task_finish_scope(db, user)
+        append_record_scope_condition(
+            conditions,
+            params,
+            view_scope,
+            table_alias="s",
+            username=user.username,
+        )
+
         where_clause = " AND ".join(conditions)
 
         count_query = f"""
@@ -262,8 +306,8 @@ async def get_task_finish_records(
 
         offset = (page - 1) * page_size
         data_query = f"""
-            SELECT stf.*, s.name as student_name, t.task_name, t.score as original_score,
-                   c.class_name, g.grade_name
+            SELECT stf.*, s.name as student_name, s.class_id, s.grade_id,
+                   t.task_name, t.score as original_score, c.class_name, g.grade_name
             FROM student_task_finish stf
             JOIN student s ON stf.student_id = s.student_id
             JOIN grade_moral_task t ON stf.task_id = t.task_id
@@ -271,10 +315,17 @@ async def get_task_finish_records(
             JOIN grade g ON s.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY stf.created_at DESC
-            LIMIT %s OFFSET ?
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))
+        action_scope = _task_finish_scope(db, user)
+        for record_item in records:
+            record_item.update(record_action_flags(
+                record_item,
+                action_scope,
+                username=user.username,
+            ))
 
         return {
             "success": True,
@@ -295,9 +346,8 @@ async def finish_task(
 ):
     """记录任务完成"""
     with get_moral_db() as db:
-        can_manage_all = check_moral_permission(user, 'moral_record_manage')
-        can_manage_own_class = check_moral_permission(user, 'moral_record_own_class')
-        if not can_manage_all and not can_manage_own_class:
+        _ensure_xuefa_or_admin(user)
+        if not _has_scoped_any_permission(db, user, API_TASK_FINISH, ['moral_record_manage', 'moral_record_input']):
             raise HTTPException(403, "权限不足：需要德育任务完成记录权限")
 
         current_year = get_current_school_year(db)
@@ -322,10 +372,8 @@ async def finish_task(
         if not student:
             raise HTTPException(404, "学生不存在或不在校")
 
-        if not can_manage_all:
-            my_class_id = get_teacher_class_id(user, db)
-            if my_class_id is None or my_class_id != student['class_id']:
-                raise HTTPException(403, "只能记录本班学生任务完成情况")
+        if not target_student_in_scope(db, user, API_TASK_FINISH, student):
+            raise HTTPException(403, "不能给授权范围外的学生记录任务完成情况")
 
         # 检查是否已有记录
         existing = db.query_one(
@@ -342,9 +390,9 @@ async def finish_task(
             finish_date = record.finish_date or date.today()
             db.execute(
                 """UPDATE student_task_finish SET
-                status = 1, finish_date = ?, finish_year_id = ?, proof = ?
+                status = 1, finish_date = ?, finish_year_id = ?, proof = ?, recorder = ?
                 WHERE id = ?""",
-                (finish_date, year_id, record.remark, existing['id'])
+                (finish_date, year_id, record.remark, user.username, existing['id'])
             )
 
             log_operation(
@@ -357,9 +405,9 @@ async def finish_task(
             finish_date = record.finish_date or date.today()
             db.execute(
                 """INSERT INTO student_task_finish
-                (student_id, task_id, year_id, status, finish_date, finish_year_id, proof, current_score)
-                VALUES (?, ?, ?, 1, ?, ?, ?, ?)""",
-                (record.student_id, record.task_id, year_id, finish_date, year_id, record.remark, task['score'])
+                (student_id, task_id, year_id, status, finish_date, finish_year_id, proof, current_score, recorder)
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                (record.student_id, record.task_id, year_id, finish_date, year_id, record.remark, task['score'], user.username)
             )
             finish_id = db.lastrowid()
 
@@ -396,7 +444,7 @@ class BatchFinishRequest(BaseModel):
 async def batch_finish_task(
     request: BatchFinishRequest,
     req: Request,
-    user: User = Depends(require_permission('moral_record_manage'))
+    user: User = Depends(get_current_user)
 ):
     """
     批量标记任务完成
@@ -410,6 +458,10 @@ async def batch_finish_task(
     只更新 status=0（未完成）的记录，已完成的不会重复更新
     """
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
+        if not _has_scoped_any_permission(db, user, API_TASK_FINISH, ['moral_record_manage', 'moral_record_input']):
+            raise HTTPException(403, "权限不足：需要德育任务完成记录权限")
+
         current_year = get_current_school_year(db)
         if not current_year:
             raise HTTPException(400, "当前学年未配置")
@@ -435,19 +487,28 @@ async def batch_finish_task(
             )
         elif request.student_ids:
             # 指定学生：查询这些学生中未完成的
+            placeholders = ",".join(["?"] * len(request.student_ids))
             unfinished = db.query_all(
-                """SELECT stf.id, stf.student_id, s.class_id, s.grade_id
+                f"""SELECT stf.id, stf.student_id, s.class_id, s.grade_id
                    FROM student_task_finish stf
                    JOIN student s ON stf.student_id = s.student_id
                    WHERE stf.task_id = ? AND stf.status = 0
-                   AND stf.student_id IN (?)""",
-                (request.task_id, ','.join(request.student_ids))
+                   AND stf.student_id IN ({placeholders})""",
+                tuple([request.task_id] + request.student_ids)
             )
         else:
             raise HTTPException(400, "请指定 class_id 或 student_ids")
 
         if not unfinished:
             return {"success": True, "message": "没有待完成的学生", "data": {"updated_count": 0}}
+
+        unauthorized = [
+            record["student_id"]
+            for record in unfinished
+            if not target_student_in_scope(db, user, API_TASK_FINISH, record)
+        ]
+        if unauthorized:
+            raise HTTPException(403, f"包含授权范围外学生，无法批量标记：{', '.join(unauthorized[:10])}")
 
         # 批量更新
         finish_date = request.finish_date or date.today()
@@ -456,9 +517,9 @@ async def batch_finish_task(
         for record in unfinished:
             db.execute(
                 """UPDATE student_task_finish SET
-                status = 1, finish_date = ?, finish_year_id = ?, proof = ?
+                status = 1, finish_date = ?, finish_year_id = ?, proof = ?, recorder = ?
                 WHERE id = ?""",
-                (finish_date, year_id, request.remark, record['id'])
+                (finish_date, year_id, request.remark, user.username, record['id'])
             )
             updated_count += 1
 

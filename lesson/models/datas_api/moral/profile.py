@@ -80,7 +80,7 @@ def _generate_student_profile_payload(student_id: str, use_ai: bool = True) -> d
             FROM student s
             LEFT JOIN class c ON s.class_id = c.class_id
             LEFT JOIN grade g ON s.grade_id = g.grade_id
-            WHERE s.student_id = %s""",
+            WHERE s.student_id = ?""",
             (student_id,)
         )
         if not student:
@@ -105,7 +105,7 @@ def _generate_student_profile_payload(student_id: str, use_ai: bool = True) -> d
         suggestions = profile_output['suggestions']
 
         current_version = db.query_value(
-            "SELECT MAX(profile_version) FROM student_profile WHERE student_id = %s",
+            "SELECT MAX(profile_version) FROM student_profile WHERE student_id = ?",
             (student_id,)
         ) or 0
         new_version = current_version + 1
@@ -115,7 +115,7 @@ def _generate_student_profile_payload(student_id: str, use_ai: bool = True) -> d
             (student_id, profile_version, profile_summary, profile_tags, strength_tags,
              improvement_tags, risk_level, moral_score, attitude_score, social_score,
              growth_score, suggestions, data_source_summary)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 student_id,
                 new_version,
@@ -150,7 +150,7 @@ def _generate_student_profile_payload(student_id: str, use_ai: bool = True) -> d
         db.execute(
             """INSERT INTO student_profile_history
             (student_id, profile_version, profile_data)
-            VALUES (%s, %s, %s)""",
+            VALUES (?, ?, ?)""",
             (student_id, new_version, json.dumps(profile_data, ensure_ascii=False, cls=DecimalEncoder))
         )
 
@@ -192,7 +192,7 @@ def _run_profile_generation_job(job_id: str, student_id: str) -> None:
             "finished_at": time.time(),
         })
     except Exception as exc:
-        logger.exception("学生画像异步生成失败: %s", exc)
+        logger.exception("学生画像异步生成失败: ?", exc)
         job.update({
             "status": "failed",
             "message": str(exc) or "画像生成失败",
@@ -250,7 +250,7 @@ async def get_student_profile(
             """SELECT s.*, c.class_name, c.leader_name
             FROM student s
             JOIN class c ON s.class_id = c.class_id
-            WHERE s.student_id = %s""",
+            WHERE s.student_id = ?""",
             (student_id,)
         )
         if not student:
@@ -262,7 +262,7 @@ async def get_student_profile(
         # 获取最新画像
         profile = db.query_one(
             """SELECT * FROM student_profile
-            WHERE student_id = %s
+            WHERE student_id = ?
             ORDER BY profile_version DESC LIMIT 1""",
             (student_id,)
         )
@@ -272,7 +272,7 @@ async def get_student_profile(
             """SELECT id, profile_version, created_at,
             JSON_EXTRACT(profile_data, '$.profile_summary') as summary
             FROM student_profile_history
-            WHERE student_id = %s
+            WHERE student_id = ?
             ORDER BY profile_version DESC
             LIMIT 10""",
             (student_id,)
@@ -316,7 +316,7 @@ async def generate_student_profile(
             FROM student s
             LEFT JOIN class c ON s.class_id = c.class_id
             LEFT JOIN grade g ON s.grade_id = g.grade_id
-            WHERE s.student_id = %s""",
+            WHERE s.student_id = ?""",
             (student_id,)
         )
         if not student:
@@ -349,7 +349,7 @@ async def generate_student_profile_async(
             FROM student s
             LEFT JOIN class c ON s.class_id = c.class_id
             LEFT JOIN grade g ON s.grade_id = g.grade_id
-            WHERE s.student_id = %s""",
+            WHERE s.student_id = ?""",
             (student_id,)
         )
         if not student:
@@ -413,7 +413,7 @@ def generate_single_profile_internal(db, student_id: str, semester_id: int) -> d
         FROM student s
         LEFT JOIN class c ON s.class_id = c.class_id
         LEFT JOIN grade g ON s.grade_id = g.grade_id
-        WHERE s.student_id = %s""",
+        WHERE s.student_id = ?""",
         (student_id,)
     )
     if not student:
@@ -439,7 +439,7 @@ def generate_single_profile_internal(db, student_id: str, semester_id: int) -> d
 
     # 获取当前版本号
     current_version = db.query_value(
-        "SELECT MAX(profile_version) FROM student_profile WHERE student_id = %s",
+        "SELECT MAX(profile_version) FROM student_profile WHERE student_id = ?",
         (student_id,)
     ) or 0
 
@@ -451,7 +451,7 @@ def generate_single_profile_internal(db, student_id: str, semester_id: int) -> d
         (student_id, profile_version, profile_summary, profile_tags, strength_tags,
          improvement_tags, risk_level, moral_score, attitude_score, social_score,
          growth_score, suggestions, data_source_summary)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             student_id,
             new_version,
@@ -488,7 +488,7 @@ def generate_single_profile_internal(db, student_id: str, semester_id: int) -> d
     db.execute(
         """INSERT INTO student_profile_history
         (student_id, profile_version, profile_data)
-        VALUES (%s, %s, %s)""",
+        VALUES (?, ?, ?)""",
         (student_id, new_version, json.dumps(profile_data, ensure_ascii=False, cls=DecimalEncoder))
     )
 
@@ -534,11 +534,11 @@ async def batch_generate_profiles(
         params = []
 
         if class_id:
-            conditions.append("class_id = %s")
+            conditions.append("class_id = ?")
             params.append(class_id)
 
         if grade_id:
-            conditions.append("grade_id = %s")
+            conditions.append("grade_id = ?")
             params.append(grade_id)
 
         if not can_generate_all:
@@ -549,7 +549,7 @@ async def batch_generate_profiles(
                     "message": "没有找到需要生成画像的学生",
                     "data": {"success_count": 0, "error_count": 0, "errors": []}
                 }
-            conditions.append("class_id = %s")
+            conditions.append("class_id = ?")
             params.append(my_class_id)
 
         students = db.query_all(
@@ -681,7 +681,7 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         """SELECT de.event_type, COUNT(*) as count, SUM(dr.score) as total_score
         FROM student_daily_record dr
         JOIN daily_event_type de ON dr.event_id = de.event_id
-        WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+        WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
         GROUP BY de.event_type""",
         (student_id, semester_id)
     )
@@ -690,7 +690,7 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         """SELECT dr.record_date, det.event_name, det.event_type, dr.score, dr.remark
         FROM student_daily_record dr
         JOIN daily_event_type det ON dr.event_id = det.event_id
-        WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+        WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
         ORDER BY dr.record_date DESC, dr.created_at DESC
         LIMIT 8""",
         (student_id, semester_id)
@@ -701,7 +701,7 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         """SELECT se.event_type, COUNT(*) as count, SUM(sr.score) as total_score
         FROM student_school_record sr
         JOIN school_event_type se ON sr.event_id = se.event_id
-        WHERE sr.student_id = %s AND sr.semester_id = %s AND sr.is_deleted = 0
+        WHERE sr.student_id = ? AND sr.semester_id = ? AND sr.is_deleted = 0
         GROUP BY se.event_type""",
         (student_id, semester_id)
     )
@@ -710,7 +710,7 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         """SELECT sr.get_date as record_date, setype.event_name, setype.event_type, sr.score, sr.proof
         FROM student_school_record sr
         JOIN school_event_type setype ON sr.event_id = setype.event_id
-        WHERE sr.student_id = %s AND sr.semester_id = %s AND sr.is_deleted = 0
+        WHERE sr.student_id = ? AND sr.semester_id = ? AND sr.is_deleted = 0
         ORDER BY sr.get_date DESC, sr.created_at DESC
         LIMIT 8""",
         (student_id, semester_id)
@@ -723,9 +723,9 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         SUM(CASE WHEN stf.status = 1 THEN 1 ELSE 0 END) as finished,
         SUM(CASE WHEN stf.status = 1 THEN stf.current_score ELSE 0 END) as score
         FROM student_task_finish stf
-        JOIN semester sem ON sem.semester_id = %s
+        JOIN semester sem ON sem.semester_id = ?
         JOIN school_year sy ON sem.year_id = sy.year_id
-        WHERE stf.student_id = %s AND stf.year_id = sy.year_id""",
+        WHERE stf.student_id = ? AND stf.year_id = sy.year_id""",
         (semester_id, student_id)
     )
     analysis['task_stats'] = task_stats or {'total': 0, 'finished': 0, 'score': 0}
@@ -733,9 +733,9 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         """SELECT gmt.task_name, gmt.deadline_type, stf.status, stf.current_score, stf.finish_date
         FROM student_task_finish stf
         JOIN grade_moral_task gmt ON stf.task_id = gmt.task_id
-        JOIN semester sem ON sem.semester_id = %s
+        JOIN semester sem ON sem.semester_id = ?
         JOIN school_year sy ON sem.year_id = sy.year_id
-        WHERE stf.student_id = %s AND stf.year_id = sy.year_id
+        WHERE stf.student_id = ? AND stf.year_id = sy.year_id
         ORDER BY COALESCE(stf.finish_date, stf.created_at) DESC
         LIMIT 8""",
         (semester_id, student_id)
@@ -746,7 +746,7 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         """SELECT COUNT(*) as collective_count, COALESCE(SUM(d.score_assigned), 0) as score
         FROM collective_event_distribution d
         JOIN collective_event e ON d.event_id = e.event_id
-        WHERE d.student_id = %s AND e.semester_id = %s AND d.is_participant = 1""",
+        WHERE d.student_id = ? AND e.semester_id = ? AND d.is_participant = 1""",
         (student_id, semester_id)
     )
     analysis['collective_stats'] = collective_stats or {'collective_count': 0, 'score': 0}
@@ -754,7 +754,7 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         """SELECT e.event_date, e.event_name, e.event_type, d.score_assigned, d.remark
         FROM collective_event_distribution d
         JOIN collective_event e ON d.event_id = e.event_id
-        WHERE d.student_id = %s AND e.semester_id = %s AND d.is_participant = 1
+        WHERE d.student_id = ? AND e.semester_id = ? AND d.is_participant = 1
         ORDER BY e.event_date DESC
         LIMIT 8""",
         (student_id, semester_id)
@@ -764,14 +764,14 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         """SELECT COUNT(*) as count, COALESCE(SUM(ABS(score_deduct)), 0) as total_deduct,
         SUM(CASE WHEN is_revoked = 1 THEN 1 ELSE 0 END) as revoked_count
         FROM punishment_record
-        WHERE student_id = %s AND semester_id = %s""",
+        WHERE student_id = ? AND semester_id = ?""",
         (student_id, semester_id)
     )
     analysis['punishment_stats'] = punishment_stats or {'count': 0, 'total_deduct': 0, 'revoked_count': 0}
     analysis['punishment_recent'] = db.query_all(
         """SELECT punishment_date, level, reason, ABS(score_deduct) as score_deduct, is_revoked
         FROM punishment_record
-        WHERE student_id = %s AND semester_id = %s
+        WHERE student_id = ? AND semester_id = ?
         ORDER BY punishment_date DESC, created_at DESC
         LIMIT 5""",
         (student_id, semester_id)
@@ -781,7 +781,7 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
         """SELECT det.event_name, det.event_type, COUNT(*) as count, COALESCE(SUM(dr.score), 0) as total_score
         FROM student_daily_record dr
         JOIN daily_event_type det ON dr.event_id = det.event_id
-        WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+        WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
         GROUP BY det.event_id
         ORDER BY count DESC, ABS(total_score) DESC
         LIMIT 8""",
@@ -791,13 +791,13 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
     analysis['moment_stats'] = db.query_one(
         """SELECT COUNT(*) as count
         FROM moment_record
-        WHERE student_id = %s AND semester_id = %s""",
+        WHERE student_id = ? AND semester_id = ?""",
         (student_id, semester_id)
     ) or {'count': 0}
     analysis['moment_recent'] = db.query_all(
         """SELECT record_date, record_type, content, tags
         FROM moment_record
-        WHERE student_id = %s AND semester_id = %s
+        WHERE student_id = ? AND semester_id = ?
         ORDER BY record_date DESC, created_at DESC
         LIMIT 8""",
         (student_id, semester_id)
@@ -806,7 +806,7 @@ def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
     evaluation = db.query_one(
         """SELECT total_score, level
         FROM moral_evaluation
-        WHERE student_id = %s AND semester_id = %s""",
+        WHERE student_id = ? AND semester_id = ?""",
         (student_id, semester_id)
     )
     analysis['evaluation'] = evaluation or {'total_score': None, 'level': None}

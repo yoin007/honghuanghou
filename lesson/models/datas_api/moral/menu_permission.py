@@ -53,13 +53,14 @@ DEFAULT_MENU_CONFIG = [
     {"key": "invigilation", "label": "监考安排", "route": "/invigilation", "group": "jiaowu", "roles": ["jiaowu", "admin"], "is_public": 0, "sort_order": 40},
     # 德育菜单
     {"key": "moral-daily", "label": "日常表现", "route": "/moral/daily-record", "group": "moral", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 10},
-    {"key": "moral-school", "label": "校级事件", "route": "/moral/school-event", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 20},
-    {"key": "moral-task", "label": "德育任务", "route": "/moral/task", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 30},
-    {"key": "moral-punishment", "label": "处分管理", "route": "/moral/punishment", "group": "moral", "roles": ["xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 40},
-    {"key": "moral-collective", "label": "集体事件", "route": "/moral/collective", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 50},
+    {"key": "moral-school", "label": "校级事件", "route": "/moral/school-event", "group": "moral", "roles": ["xuefa", "admin"], "is_public": 0, "sort_order": 20},
+    {"key": "moral-task", "label": "德育任务", "route": "/moral/task", "group": "moral", "roles": ["xuefa", "admin"], "is_public": 0, "sort_order": 30},
+    {"key": "moral-punishment", "label": "处分管理", "route": "/moral/punishment", "group": "moral", "roles": ["xuefa", "admin"], "is_public": 0, "sort_order": 40},
+    {"key": "moral-collective", "label": "集体事件", "route": "/moral/collective", "group": "moral", "roles": ["xuefa", "admin"], "is_public": 0, "sort_order": 50},
     {"key": "moral-evaluation", "label": "评价查询", "route": "/moral/evaluation", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 60},
     {"key": "moral-moment", "label": "点滴记录", "route": "/moral/moment", "group": "moral", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 70},
     {"key": "moral-lifebook", "label": "一生一册", "route": "/moral/lifebook", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 80},
+    {"key": "moral-semester-evaluation", "label": "学期末评价", "route": "/moral/semester-evaluation", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "admin"], "is_public": 0, "sort_order": 85},
     {"key": "moral-profile", "label": "学生画像", "route": "/moral/profile", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 90},
     {"key": "moral-consultation", "label": "AI诊疗", "route": "/moral/consultation", "group": "moral", "roles": ["cleader", "g_leader", "xuefa", "admin"], "is_public": 0, "sort_order": 95},
     {"key": "moral-birthday", "label": "生日提醒", "route": "/moral/birthday", "group": "moral", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 100},
@@ -145,6 +146,12 @@ def ensure_menu_table_exists(db):
     conn = db._connection
     conn.execute("CREATE INDEX IF NOT EXISTS idx_menu_permission_key ON menu_permission_config(menu_key)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_menu_permission_group ON menu_permission_config(menu_group)")
+    restricted_moral_menus = ["moral-school", "moral-task", "moral-punishment", "moral-collective"]
+    for menu_key in restricted_moral_menus:
+        db.execute(
+            "UPDATE menu_permission_config SET allowed_roles = ? WHERE menu_key = ?",
+            (json.dumps(["xuefa", "admin"], ensure_ascii=False), menu_key),
+        )
 
 
 # ==================== API 路由 ====================

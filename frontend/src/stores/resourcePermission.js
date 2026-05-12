@@ -49,10 +49,10 @@ const STATIC_RESOURCE_CONFIG = {
 
     moral: [
       { key: 'moral-daily', label: '日常表现', route: '/moral/daily-record', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 10 },
-      { key: 'moral-school', label: '校级事件', route: '/moral/school-event', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 20 },
-      { key: 'moral-task', label: '德育任务', route: '/moral/task', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 30 },
-      { key: 'moral-punishment', label: '处分管理', route: '/moral/punishment', roles: ['xuefa', 'jiaowu', 'admin'], sort_order: 40 },
-      { key: 'moral-collective', label: '集体事件', route: '/moral/collective', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 50 },
+      { key: 'moral-school', label: '校级事件', route: '/moral/school-event', roles: ['xuefa', 'admin'], sort_order: 20 },
+      { key: 'moral-task', label: '德育任务', route: '/moral/task', roles: ['xuefa', 'admin'], sort_order: 30 },
+      { key: 'moral-punishment', label: '处分管理', route: '/moral/punishment', roles: ['xuefa', 'admin'], sort_order: 40 },
+      { key: 'moral-collective', label: '集体事件', route: '/moral/collective', roles: ['xuefa', 'admin'], sort_order: 50 },
       { key: 'moral-evaluation', label: '评价查询', route: '/moral/evaluation', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 60 },
       { key: 'moral-moment', label: '点滴记录', route: '/moral/moment', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 70 },
       { key: 'moral-lifebook', label: '一生一册', route: '/moral/lifebook', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 80 },
@@ -193,7 +193,6 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
       if (res.success && res.data && res.data.length > 0) {
         dynamicMenuConfig.value = res.data
         configLoaded.value = true
-        console.log('[MenuPermission] Loaded dynamic menu config:', res.data.length, 'items')
         return true
       }
       // 没有动态配置，使用静态配置

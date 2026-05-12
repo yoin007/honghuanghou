@@ -19,12 +19,62 @@ from .base import (
     get_student_class_snapshot,
     log_operation,
     require_permission,
+    check_moral_permission_for_roles,
+    get_api_scoped_user_roles,
+    get_record_data_scope,
+    append_record_scope_condition,
+    record_in_scope,
+    record_action_flags,
+    target_student_in_scope,
+    has_user_role,
 )
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/punishments", tags=["处分管理"])
+
+API_PUNISHMENT_LIST = "/api/moral/punishments"
+API_PUNISHMENT_CREATE = "/api/moral/punishments/create"
+API_PUNISHMENT_UPDATE = "/api/moral/punishments/update"
+API_PUNISHMENT_REVOKE = "/api/moral/punishments/revoke"
+
+
+def _ensure_xuefa_or_admin(user: User) -> None:
+    if not (has_user_role(user, "admin") or has_user_role(user, "xuefa")):
+        raise HTTPException(403, "处分管理仅学发和管理员可访问")
+
+
+def _has_scoped_any_permission(db, user: User, api_path: str, permissions: List[str]) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return any(check_moral_permission_for_roles(scoped_roles, permission) for permission in permissions)
+
+
+PUNISHMENT_ALL_PERMISSIONS = ['punishment_manage', 'report_view_all']
+PUNISHMENT_OWN_CLASS_PERMISSIONS = ['moral_record_own_class', 'report_view_own_class']
+PUNISHMENT_OWN_PERMISSIONS = ['moral_record_input', 'moral_record_view_own']
+
+
+def _punishment_view_scope(db, user: User, api_path: str = API_PUNISHMENT_LIST) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=PUNISHMENT_ALL_PERMISSIONS,
+        own_class_permissions=PUNISHMENT_OWN_CLASS_PERMISSIONS,
+        own_permissions=PUNISHMENT_OWN_PERMISSIONS,
+    )
+
+
+def _punishment_action_scope(db, user: User, api_path: str) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['punishment_manage'],
+        own_class_permissions=[],
+        own_permissions=['moral_record_input', 'moral_record_view_own'],
+    )
 
 
 # =============================================================================
@@ -66,16 +116,10 @@ async def get_punishments(
     """
     获取处分记录列表
 
-    权限说明：
-    - admin/xuefa/jiaowu: 可查看所有
-    - cleader: 只能查看本班
+    权限范围由 API 权限配置中的 data_scope_rules 控制。
     """
     with get_moral_db() as db:
-        # 权限检查
-        if not check_moral_permission(user, 'punishment_manage') and \
-           not check_moral_permission(user, 'report_view_all'):
-            raise HTTPException(403, "权限不足")
-
+        _ensure_xuefa_or_admin(user)
         if not semester_id:
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
@@ -84,24 +128,33 @@ async def get_punishments(
         params = []
 
         if student_id:
-            conditions.append("p.student_id = %s")
+            conditions.append("p.student_id = ?")
             params.append(student_id)
 
         if class_id:
-            conditions.append("p.class_id = %s")
+            conditions.append("p.class_id = ?")
             params.append(class_id)
 
         if grade_id:
-            conditions.append("p.grade_id = %s")
+            conditions.append("p.grade_id = ?")
             params.append(grade_id)
 
         if semester_id:
-            conditions.append("p.semester_id = %s")
+            conditions.append("p.semester_id = ?")
             params.append(semester_id)
 
         if is_revoked is not None:
-            conditions.append("p.is_revoked = %s")
+            conditions.append("p.is_revoked = ?")
             params.append(is_revoked)
+
+        view_scope = _punishment_view_scope(db, user)
+        append_record_scope_condition(
+            conditions,
+            params,
+            view_scope,
+            table_alias="p",
+            username=user.username,
+        )
 
         where_clause = " AND ".join(conditions)
 
@@ -115,7 +168,7 @@ async def get_punishments(
             SELECT p.id as record_id, p.student_id, p.punishment_date, p.score_deduct,
                    p.level as punishment_level, p.reason as punishment_reason,
                    p.is_revoked, p.revoke_date, p.revoke_reason, p.revoke_type, p.revoke_category,
-                   p.review_status,
+                   p.review_status, p.recorder,
                    COALESCE(de.event_name, se.event_name, '累进扣分') as punishment_type,
                    s.name as student_name, c.class_name, g.grade_name
             FROM punishment_record p
@@ -126,10 +179,21 @@ async def get_punishments(
             JOIN grade g ON p.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY p.punishment_date DESC
-            LIMIT %s OFFSET %s
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))
+        update_scope = _punishment_action_scope(db, user, API_PUNISHMENT_UPDATE)
+        revoke_scope = _punishment_action_scope(db, user, API_PUNISHMENT_REVOKE)
+        for record_item in records:
+            flags = record_action_flags(
+                record_item,
+                update_scope,
+                revoke_scope,
+                username=user.username,
+            )
+            record_item["can_edit"] = flags["can_edit"]
+            record_item["can_revoke"] = flags["can_delete"]
 
         return {
             "success": True,
@@ -146,10 +210,14 @@ async def get_punishments(
 async def create_punishment(
     punishment: PunishmentCreate,
     request: Request,
-    user: User = Depends(require_permission('punishment_manage'))
+    user: User = Depends(get_current_user)
 ):
     """创建处分记录"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
+        if not _has_scoped_any_permission(db, user, API_PUNISHMENT_CREATE, ['punishment_manage', 'moral_record_input']):
+            raise HTTPException(403, "权限不足：需要处分录入权限")
+
         current_semester = get_current_semester(db)
         if not current_semester:
             raise HTTPException(400, "当前学期未配置")
@@ -160,10 +228,12 @@ async def create_punishment(
         student_info = get_student_class_snapshot(db, punishment.student_id)
         if not student_info:
             raise HTTPException(404, f"学生 {punishment.student_id} 不存在或不在校")
+        if not target_student_in_scope(db, user, API_PUNISHMENT_CREATE, student_info):
+            raise HTTPException(403, "不能给授权范围外的学生创建处分记录")
 
         # 根据处分类型名称查找或创建事件类型
         event = db.query_one(
-            "SELECT * FROM school_event_type WHERE event_name = %s AND event_type = 2",
+            "SELECT * FROM school_event_type WHERE event_name = ? AND event_type = 2",
             (punishment.punishment_type,)
         )
         if not event:
@@ -172,7 +242,7 @@ async def create_punishment(
             score = abs(punishment.score_deduct) if punishment.score_deduct else level_score_map.get(punishment.punishment_level, 10)
             db.execute(
                 """INSERT INTO school_event_type (event_name, event_type, score, is_active)
-                VALUES (%s, 2, %s, 1)""",
+                VALUES (?, 2, ?, 1)""",
                 (punishment.punishment_type, score)
             )
             event_id = db.lastrowid()
@@ -192,7 +262,7 @@ async def create_punishment(
             """INSERT INTO punishment_record
             (student_id, event_id, semester_id, punishment_date, class_id, grade_id,
              score_deduct, level, reason, recorder)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 punishment.student_id,
                 event_id,
@@ -224,16 +294,23 @@ async def update_punishment(
     record_id: int,
     punishment: PunishmentCreate,
     request: Request,
-    user: User = Depends(require_permission('punishment_manage'))
+    user: User = Depends(get_current_user)
 ):
     """更新处分记录"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
+        action_scope = _punishment_action_scope(db, user, API_PUNISHMENT_UPDATE)
+        if not action_scope.get("can_all") and not action_scope.get("can_own"):
+            raise HTTPException(403, "权限不足：需要处分记录权限")
+
         old_record = db.query_one(
-            "SELECT * FROM punishment_record WHERE id = %s",
+            "SELECT * FROM punishment_record WHERE id = ?",
             (record_id,)
         )
         if not old_record:
             raise HTTPException(404, "记录不存在")
+        if not record_in_scope(old_record, action_scope, username=user.username):
+            raise HTTPException(403, "只能编辑授权范围内的处分记录")
 
         # 处分等级文本
         level_map = {1: '一级', 2: '二级', 3: '三级', 4: '四级'}
@@ -243,8 +320,8 @@ async def update_punishment(
 
         db.execute(
             """UPDATE punishment_record SET
-            punishment_date = %s, level = %s, reason = %s, score_deduct = %s
-            WHERE id = %s""",
+            punishment_date = ?, level = ?, reason = ?, score_deduct = ?
+            WHERE id = ?""",
             (punishment.punishment_date, level_text, punishment.punishment_reason,
              score_deduct, record_id)
         )
@@ -263,7 +340,7 @@ async def revoke_punishment(
     record_id: int,
     revoke_data: PunishmentRevoke,
     request: Request,
-    user: User = Depends(require_permission('punishment_manage'))
+    user: User = Depends(get_current_user)
 ):
     """
     撤销处分
@@ -283,12 +360,19 @@ async def revoke_punishment(
     }
 
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
+        action_scope = _punishment_action_scope(db, user, API_PUNISHMENT_REVOKE)
+        if not action_scope.get("can_all") and not action_scope.get("can_own"):
+            raise HTTPException(403, "权限不足：需要处分撤销权限")
+
         old_record = db.query_one(
-            "SELECT * FROM punishment_record WHERE id = %s",
+            "SELECT * FROM punishment_record WHERE id = ?",
             (record_id,)
         )
         if not old_record:
             raise HTTPException(404, "记录不存在")
+        if not record_in_scope(old_record, action_scope, username=user.username):
+            raise HTTPException(403, "只能撤销授权范围内的处分记录")
 
         if old_record['is_revoked'] == 1:
             raise HTTPException(400, "该处分已撤销")
@@ -298,9 +382,9 @@ async def revoke_punishment(
 
         db.execute(
             """UPDATE punishment_record SET
-            is_revoked = 1, revoke_date = %s, revoke_by = %s, revoke_reason = %s,
-            revoke_type = %s, revoke_category = %s
-            WHERE id = %s""",
+            is_revoked = 1, revoke_date = ?, revoke_by = ?, revoke_reason = ?,
+            revoke_type = ?, revoke_category = ?
+            WHERE id = ?""",
             (date.today(), user.username, revoke_data.revoke_reason,
              revoke_type, revoke_category, record_id)
         )
@@ -345,7 +429,7 @@ async def get_punishment_review_info(
         punishment = db.query_one(
             """SELECT id, student_id, event_id, semester_id, source_record_ids, reason,
                    score_deduct, level, punishment_date, review_status
-            FROM punishment_record WHERE id = %s""",
+            FROM punishment_record WHERE id = ?""",
             (record_id,)
         )
 
@@ -362,7 +446,7 @@ async def get_punishment_review_info(
         source_records = []
         for sid in source_ids:
             record = db.query_one(
-                """SELECT record_id, record_date, is_deleted FROM student_daily_record WHERE record_id = %s""",
+                """SELECT record_id, record_date, is_deleted FROM student_daily_record WHERE record_id = ?""",
                 (sid,)
             )
             if record:
@@ -375,7 +459,7 @@ async def get_punishment_review_info(
 
         # 获取累进规则阈值和时间窗口
         rule = db.query_one(
-            """SELECT escalation_rules, time_window_days FROM violation_escalation_rule WHERE event_id = %s""",
+            """SELECT escalation_rules, time_window_days FROM violation_escalation_rule WHERE event_id = ?""",
             (punishment['event_id'],)
         )
 
@@ -403,9 +487,9 @@ async def get_punishment_review_info(
 
         valid_count = db.query_value(
             """SELECT COUNT(*) FROM student_daily_record
-            WHERE student_id = %s AND event_id = %s
-            AND strftime('%Y-%m-%d', record_date) >= %s
-            AND strftime('%Y-%m-%d', record_date) <= %s
+            WHERE student_id = ? AND event_id = ?
+            AND strftime('%Y-%m-%d', record_date) >= ?
+            AND strftime('%Y-%m-%d', record_date) <= ?
             AND is_deleted = 0""",
             (punishment['student_id'], punishment['event_id'],
              window_start.strftime('%Y-%m-%d'), base_date.strftime('%Y-%m-%d'))
@@ -413,14 +497,14 @@ async def get_punishment_review_info(
 
         # 学生信息
         student = db.query_one(
-            "SELECT name FROM student WHERE student_id = %s",
+            "SELECT name FROM student WHERE student_id = ?",
             (punishment['student_id'],)
         )
         student_name = student['name'] if student else punishment['student_id']
 
         # 事件信息
         event = db.query_one(
-            "SELECT event_name FROM daily_event_type WHERE event_id = %s",
+            "SELECT event_name FROM daily_event_type WHERE event_id = ?",
             (punishment['event_id'],)
         )
         event_name = event['event_name'] if event else "未知事件"
@@ -469,7 +553,7 @@ async def review_punishment(
 
     with get_moral_db() as db:
         punishment = db.query_one(
-            "SELECT * FROM punishment_record WHERE id = %s",
+            "SELECT * FROM punishment_record WHERE id = ?",
             (record_id,)
         )
 
@@ -483,10 +567,10 @@ async def review_punishment(
             # 撤销处分（源记录错误，归还分数）
             db.execute(
                 """UPDATE punishment_record SET
-                is_revoked = 1, revoke_date = %s, revoke_by = %s, revoke_reason = %s,
+                is_revoked = 1, revoke_date = ?, revoke_by = ?, revoke_reason = ?,
                 revoke_type = 1, revoke_category = '源记录错误撤销',
-                review_status = 2, review_by = %s, review_time = datetime('now','localtime')
-                WHERE id = %s""",
+                review_status = 2, review_by = ?, review_time = datetime('now','localtime')
+                WHERE id = ?""",
                 (date.today(), user.username, review_data.reason or "复核撤销-源记录错误",
                  user.username, record_id)
             )
@@ -507,8 +591,8 @@ async def review_punishment(
             # 复核通过
             db.execute(
                 """UPDATE punishment_record SET
-                review_status = 2, review_by = %s, review_time = datetime('now','localtime')
-                WHERE id = %s""",
+                review_status = 2, review_by = ?, review_time = datetime('now','localtime')
+                WHERE id = ?""",
                 (user.username, record_id)
             )
 

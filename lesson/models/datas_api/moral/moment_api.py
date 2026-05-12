@@ -145,15 +145,15 @@ async def get_moment_records(
             scope_params = []
 
             if scope == "own":
-                scope_conditions.append("mr.recorder = %s")
+                scope_conditions.append("mr.recorder = ?")
                 scope_params.append(user.username)
             elif scope == "own_class" and view_scope.get("my_class_id"):
-                scope_conditions.append("mr.class_id = %s")
+                scope_conditions.append("mr.class_id = ?")
                 scope_params.append(view_scope["my_class_id"])
             elif scope == "own_grade":
                 my_grade_class_ids = view_scope.get("my_grade_class_ids") or []
                 if my_grade_class_ids:
-                    placeholders = ", ".join(["%s"] * len(my_grade_class_ids))
+                    placeholders = ", ".join(["?"] * len(my_grade_class_ids))
                     scope_conditions.append(f"mr.class_id IN ({placeholders})")
                     scope_params.extend(my_grade_class_ids)
                 else:
@@ -176,19 +176,19 @@ async def get_moment_records(
             )
 
         if student_id:
-            conditions.append("mr.student_id = %s")
+            conditions.append("mr.student_id = ?")
             params.append(student_id)
 
         if start_date:
-            conditions.append("mr.record_date >= %s")
+            conditions.append("mr.record_date >= ?")
             params.append(start_date)
 
         if end_date:
-            conditions.append("mr.record_date <= %s")
+            conditions.append("mr.record_date <= ?")
             params.append(end_date)
 
         if record_type:
-            conditions.append("mr.record_type = %s")
+            conditions.append("mr.record_type = ?")
             params.append(record_type)
 
         where_clause = " AND ".join(conditions)
@@ -209,7 +209,7 @@ async def get_moment_records(
             LEFT JOIN teacher t ON mr.recorder = t.name
             WHERE {where_clause}
             ORDER BY mr.record_date DESC, mr.created_at DESC
-            LIMIT %s OFFSET %s
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))
@@ -280,7 +280,7 @@ async def create_moment_record(
         db.execute("""
             INSERT INTO moment_record
             (student_id, class_id, grade_id, recorder, record_type, content, record_date, tags, semester_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             record.student_id,
             student_info['class_id'],
@@ -323,7 +323,7 @@ async def update_moment_record(
 
         # 查询记录
         record = db.query_one(
-            "SELECT * FROM moment_record WHERE record_id = %s",
+            "SELECT * FROM moment_record WHERE record_id = ?",
             (record_id,)
         )
         if not record:
@@ -337,20 +337,20 @@ async def update_moment_record(
         params = []
 
         if update_data.content is not None:
-            updates.append("content = %s")
+            updates.append("content = ?")
             params.append(update_data.content)
 
         if update_data.record_date is not None:
-            updates.append("record_date = %s")
+            updates.append("record_date = ?")
             params.append(update_data.record_date)
 
         if update_data.record_type is not None:
-            updates.append("record_type = %s")
+            updates.append("record_type = ?")
             params.append(update_data.record_type)
 
         if update_data.tags is not None:
             import json
-            updates.append("tags = %s")
+            updates.append("tags = ?")
             params.append(json.dumps(update_data.tags))
 
         if not updates:
@@ -359,7 +359,7 @@ async def update_moment_record(
         updates.append("updated_at = datetime('now', 'localtime')")
         params.append(record_id)
 
-        sql = f"UPDATE moment_record SET {', '.join(updates)} WHERE record_id = %s"
+        sql = f"UPDATE moment_record SET {', '.join(updates)} WHERE record_id = ?"
         db.execute(sql, tuple(params))
 
         log_operation(
@@ -389,7 +389,7 @@ async def delete_moment_record(
 
         # 查询记录
         record = db.query_one(
-            "SELECT * FROM moment_record WHERE record_id = %s",
+            "SELECT * FROM moment_record WHERE record_id = ?",
             (record_id,)
         )
         if not record:
@@ -398,7 +398,7 @@ async def delete_moment_record(
         if not record_in_scope(record, action_scope, username=user.username):
             raise HTTPException(403, "只能删除自己创建的记录")
 
-        db.execute("DELETE FROM moment_record WHERE record_id = %s", (record_id,))
+        db.execute("DELETE FROM moment_record WHERE record_id = ?", (record_id,))
 
         log_operation(
             db, user.username, user.role, 'DELETE', 'moment_record', record_id,

@@ -17,17 +17,66 @@ from pydantic import BaseModel, Field
 
 from .base import (
     get_moral_db,
-    check_moral_permission,
     get_current_semester,
     get_student_class_snapshot,
     log_operation,
     require_permission,
+    check_moral_permission_for_roles,
+    get_api_scoped_user_roles,
+    get_record_data_scope,
+    append_record_scope_condition,
+    record_in_scope,
+    record_action_flags,
+    target_student_in_scope,
+    has_user_role,
 )
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/school-records", tags=["校级事件"])
+
+API_SCHOOL_LIST = "/api/moral/school-records"
+API_SCHOOL_CREATE = "/api/moral/school-records/create"
+API_SCHOOL_UPDATE = "/api/moral/school-records/update"
+API_SCHOOL_DELETE = "/api/moral/school-records/delete"
+
+
+def _ensure_xuefa_or_admin(user: User) -> None:
+    if not (has_user_role(user, "admin") or has_user_role(user, "xuefa")):
+        raise HTTPException(403, "校级事件仅学发和管理员可访问")
+
+
+def _has_scoped_any_permission(db, user: User, api_path: str, permissions: List[str]) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return any(check_moral_permission_for_roles(scoped_roles, permission) for permission in permissions)
+
+
+SCHOOL_ALL_PERMISSIONS = ['report_view_all', 'moral_record_manage']
+SCHOOL_OWN_CLASS_PERMISSIONS = ['moral_record_own_class', 'report_view_own_class']
+SCHOOL_OWN_PERMISSIONS = ['moral_record_input', 'moral_record_view_own']
+
+
+def _school_view_scope(db, user: User, api_path: str = API_SCHOOL_LIST) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=SCHOOL_ALL_PERMISSIONS,
+        own_class_permissions=SCHOOL_OWN_CLASS_PERMISSIONS,
+        own_permissions=SCHOOL_OWN_PERMISSIONS,
+    )
+
+
+def _school_action_scope(db, user: User, api_path: str) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['moral_record_manage'],
+        own_class_permissions=[],
+        own_permissions=['moral_record_input', 'moral_record_view_own'],
+    )
 
 
 # =============================================================================
@@ -125,6 +174,7 @@ async def get_school_records(
 ):
     """获取校级事件记录列表"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
         if not semester_id:
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
@@ -152,6 +202,15 @@ async def get_school_records(
             conditions.append("se.event_type = ?")
             params.append(event_type)
 
+        view_scope = _school_view_scope(db, user)
+        append_record_scope_condition(
+            conditions,
+            params,
+            view_scope,
+            table_alias="sr",
+            username=user.username,
+        )
+
         where_clause = " AND ".join(conditions)
 
         # 查询总数
@@ -168,7 +227,7 @@ async def get_school_records(
         data_query = f"""
             SELECT sr.record_id, sr.student_id, sr.event_id, sr.semester_id,
                    sr.get_date as event_date, sr.score, sr.proof as evidence,
-                   sr.proof as description,
+                   sr.proof as description, sr.recorder,
                    s.name as student_name, se.event_name, se.event_type, se.event_level,
                    c.class_name, g.grade_name
             FROM student_school_record sr
@@ -182,6 +241,15 @@ async def get_school_records(
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))
+        edit_scope = _school_action_scope(db, user, API_SCHOOL_UPDATE)
+        delete_scope = _school_action_scope(db, user, API_SCHOOL_DELETE)
+        for record_item in records:
+            record_item.update(record_action_flags(
+                record_item,
+                edit_scope,
+                delete_scope,
+                username=user.username,
+            ))
 
         return {
             "success": True,
@@ -199,10 +267,14 @@ async def get_school_records(
 async def create_school_record(
     record: SchoolRecordCreate,
     request: Request,
-    user: User = Depends(require_permission('moral_record_manage'))
+    user: User = Depends(get_current_user)
 ):
     """创建校级事件记录"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
+        if not _has_scoped_any_permission(db, user, API_SCHOOL_CREATE, ['moral_record_manage', 'moral_record_input']):
+            raise HTTPException(403, "权限不足：需要校级事件录入权限")
+
         # 获取当前东八区日期
         current_date_gmt8 = datetime.now(GMT8).date()
 
@@ -222,6 +294,8 @@ async def create_school_record(
         student_info = get_student_class_snapshot(db, record.student_id)
         if not student_info:
             raise HTTPException(404, f"学生 {record.student_id} 不存在或不在校")
+        if not target_student_in_scope(db, user, API_SCHOOL_CREATE, student_info):
+            raise HTTPException(403, "不能给授权范围外的学生录入校级事件")
 
         # 获取事件类型
         event = db.query_one(
@@ -248,8 +322,8 @@ async def create_school_record(
         # 插入记录（使用 event_date 映射到 get_date）
         db.execute(
             """INSERT INTO student_school_record
-            (student_id, event_id, semester_id, get_date, class_id, grade_id, score, proof)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (student_id, event_id, semester_id, get_date, class_id, grade_id, score, proof, recorder)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record.student_id,
                 record.event_id,
@@ -258,7 +332,8 @@ async def create_school_record(
                 student_info['class_id'],
                 student_info['grade_id'],
                 event['score'],
-                proof or None
+                proof or None,
+                user.username,
             )
         )
 
@@ -279,16 +354,23 @@ async def update_school_record(
     record_id: int,
     update_data: SchoolRecordUpdate,
     request: Request,
-    user: User = Depends(require_permission('moral_record_manage'))
+    user: User = Depends(get_current_user)
 ):
     """更新校级事件记录"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
+        action_scope = _school_action_scope(db, user, API_SCHOOL_UPDATE)
+        if not action_scope.get("can_all") and not action_scope.get("can_own"):
+            raise HTTPException(403, "权限不足：需要校级事件记录权限")
+
         old_record = db.query_one(
             "SELECT * FROM student_school_record WHERE record_id = ?",
             (record_id,)
         )
         if not old_record:
             raise HTTPException(404, "记录不存在")
+        if not record_in_scope(old_record, action_scope, username=user.username):
+            raise HTTPException(403, "只能编辑授权范围内的校级事件记录")
 
         updates = []
         params = []
@@ -331,16 +413,23 @@ async def update_school_record(
 async def delete_school_record(
     record_id: int,
     request: Request,
-    user: User = Depends(require_permission('moral_record_manage'))
+    user: User = Depends(get_current_user)
 ):
     """删除校级事件记录（软删除）"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
+        action_scope = _school_action_scope(db, user, API_SCHOOL_DELETE)
+        if not action_scope.get("can_all") and not action_scope.get("can_own"):
+            raise HTTPException(403, "权限不足：需要校级事件记录权限")
+
         old_record = db.query_one(
             "SELECT * FROM student_school_record WHERE record_id = ?",
             (record_id,)
         )
         if not old_record:
             raise HTTPException(404, "记录不存在")
+        if not record_in_scope(old_record, action_scope, username=user.username):
+            raise HTTPException(403, "只能删除授权范围内的校级事件记录")
 
         db.execute(
             "UPDATE student_school_record SET is_deleted = 1 WHERE record_id = ?",

@@ -1426,7 +1426,7 @@ async def export_workload_report(
             SELECT teacher_name,
                    COUNT(*) as slot_count,
                    SUM(
-                     (strftime('%s', end_time) - strftime('%s', start_time)) / 60
+                     (strftime('?', end_time) - strftime('?', start_time)) / 60
                    ) as duration_minutes
             FROM invigilation_slot
             WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
@@ -1447,7 +1447,7 @@ async def export_workload_report(
             SELECT teacher_name, grade_name,
                    COUNT(*) as slot_count,
                    SUM(
-                     (strftime('%s', end_time) - strftime('%s', start_time)) / 60
+                     (strftime('?', end_time) - strftime('?', start_time)) / 60
                    ) as duration_minutes
             FROM invigilation_slot
             WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''

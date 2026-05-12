@@ -6,9 +6,9 @@
 """
 
 import os
-import sqlite3
 import logging
 from typing import Dict, List, Tuple
+from models.datas_api.repositories.sqlite_base import get_sqlite_connection
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def check_database_integrity_on_startup() -> Dict:
             continue
 
         try:
-            conn = sqlite3.connect(db_path)
+            conn = get_sqlite_connection(db_path)
             cursor = conn.cursor()
 
             # 获取现有表名
@@ -170,7 +170,7 @@ def get_all_table_columns(db_path: str, table_name: str) -> List[str]:
     Returns:
         List[str]: 字段名列表
     """
-    conn = sqlite3.connect(db_path)
+    conn = get_sqlite_connection(db_path)
     cursor = conn.cursor()
     cursor.execute(f"PRAGMA table_info({table_name})")
     columns = [row[1] for row in cursor.fetchall()]

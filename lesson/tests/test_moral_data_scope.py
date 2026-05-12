@@ -294,7 +294,7 @@ def test_record_scope_sql_and_row_action_flags_are_consistent():
     params = []
     append_record_scope_condition(conditions, params, scope, table_alias="mr", username=user.username)
 
-    assert conditions[-1] == "(mr.recorder = %s OR mr.class_id = %s)"
+    assert conditions[-1] == "(mr.recorder = ? OR mr.class_id IN (?))"
     assert params == ["cleader1", 101]
 
     edit_scope = {
@@ -334,12 +334,49 @@ def test_configured_scope_rules_override_permission_defaults():
     assert not record_in_scope({"recorder": "other", "class_id": 101}, scope, username="cleader1")
 
 
+def test_managed_classes_scope_alias_matches_class_leader_records():
+    api_path = "/api/moral/daily-records"
+    db = FakeScopeDB(
+        api_roles={api_path: ["cleader"]},
+        class_id=101,
+        data_scope_rules={api_path: {"cleader": ["own_created", "managed_classes"]}},
+    )
+    user = User(username="cleader1", role="cleader")
+
+    scope = get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=[],
+        own_class_permissions=[],
+        own_permissions=[],
+    )
+
+    assert scope["can_own"] is True
+    assert scope["can_own_class"] is True
+    assert record_in_scope({"recorder": "other", "class_id": 101}, scope, username="cleader1")
+    assert not record_in_scope({"recorder": "other", "class_id": 102}, scope, username="cleader1")
+
+
 def test_target_scope_rules_can_limit_record_input_to_own_class():
     api_path = "/api/moral/daily-records/create"
     db = FakeScopeDB(
         api_roles={api_path: ["cleader"]},
         class_id=101,
         target_scope_rules={api_path: {"cleader": ["own_class"]}},
+    )
+    user = User(username="cleader1", role="cleader")
+
+    assert target_student_in_scope(db, user, api_path, {"student_id": "S1", "class_id": 101})
+    assert not target_student_in_scope(db, user, api_path, {"student_id": "S2", "class_id": 102})
+
+
+def test_target_scope_rules_can_limit_record_input_to_managed_classes():
+    api_path = "/api/moral/daily-records/create"
+    db = FakeScopeDB(
+        api_roles={api_path: ["cleader"]},
+        class_id=101,
+        target_scope_rules={api_path: {"cleader": ["managed_classes"]}},
     )
     user = User(username="cleader1", role="cleader")
 

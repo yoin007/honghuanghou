@@ -97,7 +97,7 @@ def get_wechat_identity(request: Request) -> Optional[Dict[str, Any]]:
 
         with get_moral_db() as db:
             teacher = db.query_one(
-                "SELECT teacher_id, name, level, model, role FROM teacher WHERE wxid = %s AND is_active = 1",
+                "SELECT teacher_id, name, level, model, role FROM teacher WHERE wxid = ? AND is_active = 1",
                 (wxid,)
             )
 
@@ -212,7 +212,10 @@ def require_jwt_or_wechat():
         # 优先尝试JWT
         try:
             from .auth import get_current_user_optional
-            user = await get_current_user_optional(request)
+            authorization = request.headers.get("Authorization", "")
+            scheme, _, token = authorization.partition(" ")
+            bearer_token = token if scheme.lower() == "bearer" and token else None
+            user = await get_current_user_optional(bearer_token)
             if user:
                 return {"identity_type": "jwt", "user": user}
         except Exception:

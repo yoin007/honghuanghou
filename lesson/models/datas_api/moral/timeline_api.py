@@ -14,13 +14,36 @@ from datetime import date
 from .base import (
     get_moral_db,
     get_current_user,
-    check_moral_permission,
-    get_teacher_class_id,
+    get_record_data_scope,
+    append_record_scope_condition,
+    record_in_scope,
 )
 from models.datas_api.auth import User
 
 router = APIRouter(prefix="/timeline", tags=["一生一册"])
 logger = logging.getLogger(__name__)
+
+API_TIMELINE = "/api/moral/timeline"
+API_TIMELINE_SEARCH = "/api/moral/timeline/search"
+
+
+def _timeline_scope(db, user: User, api_path: str = API_TIMELINE) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['profile_view_all'],
+        own_class_permissions=['profile_view_own_class'],
+        own_permissions=[],
+    )
+
+
+def _ensure_timeline_student_access(db, user: User, student: dict, api_path: str = API_TIMELINE) -> None:
+    scope = _timeline_scope(db, user, api_path)
+    if (student['status'] != '在校' or student.get('grade_archived')) and not scope.get("can_all"):
+        raise HTTPException(403, "只能查看在校学生档案，已归档学生需管理员权限")
+    if not record_in_scope(student, scope, username=user.username):
+        raise HTTPException(403, "只能查看授权范围内学生的一生一册")
 
 
 @router.get("/search", summary="搜索学生（用于一生一册筛选）")
@@ -53,14 +76,14 @@ async def search_students_for_timeline(
             # 包含所有状态，但优先显示在校
             pass
 
-        # 权限过滤
-        if not check_moral_permission(user, 'profile_view_all'):
-            my_class_id = get_teacher_class_id(user, db)
-            if my_class_id:
-                conditions.append("s.class_id = ?")
-                params.append(my_class_id)
-            else:
-                return {"success": True, "data": {"items": [], "total": 0}}
+        search_scope = _timeline_scope(db, user, API_TIMELINE_SEARCH)
+        append_record_scope_condition(
+            conditions,
+            params,
+            search_scope,
+            table_alias="s",
+            username=user.username,
+        )
 
         if class_id:
             conditions.append("s.class_id = ?")
@@ -86,7 +109,7 @@ async def search_students_for_timeline(
             JOIN grade g ON s.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY s.status = '在校' DESC, c.class_name, s.student_id
-            LIMIT %s OFFSET ?
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         students = db.query_all(data_query, tuple(params))
@@ -107,7 +130,7 @@ async def get_student_timeline(
     student_id: str,
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
-    event_types: Optional[str] = Query(None, description="事件类型筛选：moment,daily,school,punishment,task"),
+    event_types: Optional[str] = Query(None, description="事件类型筛选：moment,daily,school,punishment,task,collective"),
     include_archived: int = Query(0, description="1=允许查询已归档学生"),
     user: User = Depends(get_current_user)
 ):
@@ -135,16 +158,7 @@ async def get_student_timeline(
         if not student:
             raise HTTPException(404, f"学生 {student_id} 不存在")
 
-        # 归档学生权限检查：只有管理员/教发部可查看
-        if student['status'] != '在校' or student.get('grade_archived'):
-            if not check_moral_permission(user, 'profile_view_all'):
-                raise HTTPException(403, "只能查看在校学生档案，已归档学生需管理员权限")
-
-        # 在校学生权限检查：班主任只能看本班
-        if student['status'] == '在校' and not check_moral_permission(user, 'profile_view_all'):
-            my_class_id = get_teacher_class_id(user, db)
-            if my_class_id is None or my_class_id != student['class_id']:
-                raise HTTPException(403, "只能查看本班学生的档案")
+        _ensure_timeline_student_access(db, user, student, API_TIMELINE)
 
         # 解析筛选类型
         type_filter = event_types.split(',') if event_types else None
@@ -158,8 +172,8 @@ async def get_student_timeline(
                        mr.tags, mr.recorder, 'moment' as source
                 FROM moment_record mr
                 WHERE mr.student_id = ? AND mr.is_private = 1
-                  AND (%s IS NULL OR mr.record_date >= ?)
-                  AND (%s IS NULL OR mr.record_date <= ?)
+                  AND (? IS NULL OR mr.record_date >= ?)
+                  AND (? IS NULL OR mr.record_date <= ?)
                 ORDER BY mr.record_date DESC
             """, (student_id, start_date, start_date, end_date, end_date) if start_date or end_date else (student_id, None, None, None, None))
 
@@ -186,8 +200,8 @@ async def get_student_timeline(
                 FROM student_daily_record dr
                 JOIN daily_event_type de ON dr.event_id = de.event_id
                 WHERE dr.student_id = ? AND dr.is_deleted = 0
-                  AND (%s IS NULL OR dr.record_date >= ?)
-                  AND (%s IS NULL OR dr.record_date <= ?)
+                  AND (? IS NULL OR dr.record_date >= ?)
+                  AND (? IS NULL OR dr.record_date <= ?)
                 ORDER BY dr.record_date DESC
             """, (student_id, start_date, start_date, end_date, end_date) if start_date or end_date else (student_id, None, None, None, None))
 
@@ -211,8 +225,8 @@ async def get_student_timeline(
                 FROM student_school_record ssr
                 JOIN school_event_type se ON ssr.event_id = se.event_id
                 WHERE ssr.student_id = ? AND ssr.is_deleted = 0
-                  AND (%s IS NULL OR ssr.get_date >= ?)
-                  AND (%s IS NULL OR ssr.get_date <= ?)
+                  AND (? IS NULL OR ssr.get_date >= ?)
+                  AND (? IS NULL OR ssr.get_date <= ?)
                 ORDER BY ssr.get_date DESC
             """, (student_id, start_date, start_date, end_date, end_date) if start_date or end_date else (student_id, None, None, None, None))
 
@@ -271,6 +285,31 @@ async def get_student_timeline(
                     "source": "德育任务"
                 })
 
+        # 6. 集体事件
+        if not type_filter or 'collective' in type_filter:
+            collective_records = db.query_all("""
+                SELECT ced.id, ced.score_assigned, ced.is_participant, ced.remark,
+                       ce.event_name, ce.event_type, ce.event_date, 'collective' as source
+                FROM collective_event_distribution ced
+                JOIN collective_event ce ON ced.event_id = ce.event_id
+                WHERE ced.student_id = ?
+                  AND (? IS NULL OR ce.event_date >= ?)
+                  AND (? IS NULL OR ce.event_date <= ?)
+                ORDER BY ce.event_date DESC
+            """, (student_id, start_date, start_date, end_date, end_date) if start_date or end_date else (student_id, None, None, None, None))
+
+            for c in collective_records:
+                timeline.append({
+                    "date": c['event_date'],
+                    "type": "collective",
+                    "title": c['event_name'],
+                    "content": c['remark'] or ("参与" if c['is_participant'] == 1 else "未参与"),
+                    "score": c['score_assigned'] if c['is_participant'] == 1 else 0,
+                    "recorder": None,
+                    "source": "集体事件",
+                    "event_type": c['event_type']
+                })
+
         # 按日期排序
         timeline.sort(key=lambda x: x['date'] or '', reverse=True)
 
@@ -281,6 +320,7 @@ async def get_student_timeline(
             "school_count": len([x for x in timeline if x['type'] == 'school']),
             "punishment_count": len([x for x in timeline if x['type'] == 'punishment']),
             "task_count": len([x for x in timeline if x['type'] == 'task']),
+            "collective_count": len([x for x in timeline if x['type'] == 'collective']),
             "total": len(timeline)
         }
 
@@ -291,6 +331,7 @@ async def get_student_timeline(
             "school_positive": 0,     # 校级事件加分
             "school_negative": 0,     # 校级事件扣分
             "task_total": 0,          # 任务完成总分
+            "collective_total": 0,    # 集体事件总分
             "punishment_deduct": 0,   # 处分扣分（按级别）
             "total_score": 0          # 总计
         }
@@ -311,6 +352,8 @@ async def get_student_timeline(
                     score_summary['school_negative'] += abs(score)
             elif item['type'] == 'task':
                 score_summary['task_total'] += item.get('score') or 0
+            elif item['type'] == 'collective':
+                score_summary['collective_total'] += item.get('score') or 0
             elif item['type'] == 'punishment':
                 # 处分扣分按级别计算
                 level = item.get('title', '').split(' - ')[-1] if ' - ' in item.get('title', '') else ''
@@ -323,7 +366,8 @@ async def get_student_timeline(
         score_summary['total_score'] = (
             score_summary['daily_positive'] +
             score_summary['school_positive'] +
-            score_summary['task_total'] -
+            score_summary['task_total'] +
+            score_summary['collective_total'] -
             score_summary['daily_negative'] -
             score_summary['school_negative'] -
             score_summary['punishment_deduct']
@@ -373,16 +417,7 @@ def _get_timeline_data(db, student_id: str, user: User):
     if not student:
         raise HTTPException(404, f"学生 {student_id} 不存在")
 
-    # 归档学生权限检查
-    if student['status'] != '在校' or student.get('grade_archived'):
-        if not check_moral_permission(user, 'profile_view_all'):
-            raise HTTPException(403, "只能查看在校学生档案")
-
-    # 在校学生权限检查
-    if student['status'] == '在校' and not check_moral_permission(user, 'profile_view_all'):
-        my_class_id = get_teacher_class_id(user, db)
-        if my_class_id is None or my_class_id != student['class_id']:
-            raise HTTPException(403, "只能查看本班学生的档案")
+    _ensure_timeline_student_access(db, user, student, API_TIMELINE)
 
     timeline = []
 
@@ -493,6 +528,28 @@ def _get_timeline_data(db, student_id: str, user: User):
             "source": "德育任务"
         })
 
+    # 6. 集体事件
+    collective_records = db.query_all("""
+        SELECT ced.id, ced.score_assigned, ced.is_participant, ced.remark,
+               ce.event_name, ce.event_type, ce.event_date, 'collective' as source
+        FROM collective_event_distribution ced
+        JOIN collective_event ce ON ced.event_id = ce.event_id
+        WHERE ced.student_id = ?
+        ORDER BY ce.event_date DESC
+    """, (student_id,))
+
+    for c in collective_records:
+        timeline.append({
+            "date": c['event_date'],
+            "type": "集体事件",
+            "title": c['event_name'],
+            "content": c['remark'] or ("参与" if c['is_participant'] == 1 else "未参与"),
+            "score": c['score_assigned'] if c['is_participant'] == 1 else 0,
+            "recorder": None,
+            "source": "集体事件",
+            "event_type": c['event_type']
+        })
+
     # 按日期排序
     timeline.sort(key=lambda x: x['date'] or '', reverse=True)
 
@@ -503,6 +560,7 @@ def _get_timeline_data(db, student_id: str, user: User):
         "校级事件": len([x for x in timeline if x['type'] == "校级事件"]),
         "处分记录": len([x for x in timeline if x['type'] == "处分记录"]),
         "德育任务": len([x for x in timeline if x['type'] == "德育任务"]),
+        "集体事件": len([x for x in timeline if x['type'] == "集体事件"]),
         "总计": len(timeline)
     }
 
@@ -512,11 +570,12 @@ def _get_timeline_data(db, student_id: str, user: User):
         "校级加分": sum(x.get('score') or 0 for x in timeline if x['type'] == "校级事件" and (x.get('score') or 0) > 0),
         "校级扣分": sum(abs(x.get('score') or 0) for x in timeline if x['type'] == "校级事件" and (x.get('score') or 0) < 0),
         "任务得分": sum(x.get('score') or 0 for x in timeline if x['type'] == "德育任务"),
+        "集体得分": sum(x.get('score') or 0 for x in timeline if x['type'] == "集体事件"),
         "处分扣分": sum(abs(x.get('score') or 0) for x in timeline if x['type'] == "处分记录"),
         "总分": 0
     }
     score_summary["总分"] = (
-        score_summary["日常加分"] + score_summary["校级加分"] + score_summary["任务得分"]
+        score_summary["日常加分"] + score_summary["校级加分"] + score_summary["任务得分"] + score_summary["集体得分"]
         - score_summary["日常扣分"] - score_summary["校级扣分"] - score_summary["处分扣分"]
     )
 
@@ -593,16 +652,15 @@ async def export_class_lifebooks(
     import zipfile
 
     with get_moral_db() as db:
-        # 权限检查
-        if not check_moral_permission(user, 'profile_view_all'):
-            my_class_id = get_teacher_class_id(user, db)
-            if my_class_id is None or my_class_id != class_id:
-                raise HTTPException(403, "只能导出本班学生的档案")
+        scope = _timeline_scope(db, user, API_TIMELINE)
+        if not record_in_scope({"class_id": class_id, "status": "在校"}, scope, username=user.username):
+            raise HTTPException(403, "只能导出授权范围内班级的学生档案")
 
         # 获取班级学生
         students = db.query_all("""
-            SELECT s.student_id, s.name, s.class_name
+            SELECT s.student_id, s.name, c.class_name
             FROM student s
+            JOIN class c ON s.class_id = c.class_id
             WHERE s.class_id = ? AND s.status = '在校'
             ORDER BY s.student_id
         """, (class_id,))

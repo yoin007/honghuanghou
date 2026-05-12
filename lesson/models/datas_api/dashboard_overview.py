@@ -42,7 +42,7 @@ def build_overview_cards(user: User) -> List[Dict[str, object]]:
             if not is_moral_manager(user) and has_user_role(user, "cleader"):
                 my_class_id = get_teacher_class_id(user, db)
                 if my_class_id:
-                    conditions.append("dr.class_id = %s")
+                    conditions.append("dr.class_id = ?")
                     params.append(my_class_id)
                 else:
                     conditions.append("1 = 0")

@@ -15,6 +15,7 @@ from models.datas_api.auth import User, get_current_user
 from models.datas_api.legacy_common import check_api_permission
 from models.datas_api.legacy_students import StudentInfoRequest, get_stu_dict
 from models.lesson.lesson import Lesson
+from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def _user_has_admin_role(user):
 
 def _ensure_leave_permission(user):
     """确保用户有请假操作权限"""
-    if not _user_has_any_role(user, ["cleader", "xuefa", "admin"]) and not _user_has_admin_role(user):
+    if not _user_has_any_role(user, ["cleader", "g_leader", "xuefa", "admin"]) and not _user_has_admin_role(user):
         raise HTTPException(status_code=403, detail="无权限操作请假记录")
 
 
@@ -96,6 +97,41 @@ def _resolve_class_row(class_template, class_code: str):
     if class_rows.empty:
         return None
     return class_rows.iloc[0]
+
+
+def _get_gleader_class_names(user):
+    """获取年级主任管理的年级下所有班级名称"""
+    with SQLiteMoralDatabase() as db:
+        # 获取年级主任管理的年级ID
+        username = user.username if hasattr(user, 'username') else ''
+        user_candidates = [username]
+        if not username.startswith('T_'):
+            user_candidates.append(f'T_{username}')
+
+        grade_ids = set()
+
+        # 方式1：通过 grade.leader_ids 字段匹配
+        for uid in user_candidates:
+            rows = db.query_all(
+                "SELECT grade_id, leader_ids FROM grade WHERE leader_ids LIKE ?",
+                (f'%{uid}%',)
+            )
+            for row in rows:
+                leader_ids_str = row.get('leader_ids', '')
+                leader_ids = [lid.strip() for lid in leader_ids_str.split(',') if lid.strip()]
+                if uid in leader_ids:
+                    grade_ids.add(row['grade_id'])
+
+        if not grade_ids:
+            return []
+
+        # 方式2：获取这些年级下的所有班级名称
+        placeholders = ','.join(['?'] * len(grade_ids))
+        classes = db.query_all(
+            f"SELECT class_name FROM class WHERE grade_id IN ({placeholders}) AND is_active = 1",
+            tuple(grade_ids)
+        )
+        return [c['class_name'] for c in classes if c.get('class_name')]
 
 
 # ============================================================
@@ -276,16 +312,41 @@ async def get_leave_records(
             class_names = class_template["class_name"].astype(str).tolist()
             class_rows = class_template
     else:
-        class_rows = _get_cleader_class_rows(current_user.username)
-        if class_rows is None or class_rows.empty:
-            return {"total": 0, "page": page, "page_size": page_size, "records": []}
-        if class_code:
-            class_row = _resolve_class_row(class_rows, class_code)
-            if class_row is None:
-                raise HTTPException(status_code=403, detail="无权查看该班级")
-            class_names = [str(class_row.get("class_name", class_code))]
+        # 区分班主任和年级主任
+        if _user_has_role(current_user, "g_leader"):
+            # 年级主任查看本年级班级
+            grade_class_names = _get_gleader_class_names(current_user)
+            if not grade_class_names:
+                return {"total": 0, "page": page, "page_size": page_size, "records": []}
+            class_template = l.get_cache_data("class_template")
+            if class_template is None or class_template.empty:
+                class_names = grade_class_names
+                class_rows = None
+            else:
+                class_rows = class_template[class_template["class_name"].astype(str).isin(grade_class_names)]
+                class_names = class_rows["class_name"].astype(str).tolist() if not class_rows.empty else grade_class_names
+
+            if class_code:
+                # 验证 class_code 是否在年级主任管理的班级内
+                class_row = _resolve_class_row(class_rows if class_rows is not None else class_template, class_code)
+                if class_row is None:
+                    raise HTTPException(status_code=404, detail="班级不存在")
+                class_name_from_row = str(class_row.get("class_name", class_code))
+                if class_name_from_row not in grade_class_names:
+                    raise HTTPException(status_code=403, detail="无权查看该班级")
+                class_names = [class_name_from_row]
         else:
-            class_names = class_rows["class_name"].astype(str).tolist()
+            # 班主任查看本班
+            class_rows = _get_cleader_class_rows(current_user.username)
+            if class_rows is None or class_rows.empty:
+                return {"total": 0, "page": page, "page_size": page_size, "records": []}
+            if class_code:
+                class_row = _resolve_class_row(class_rows, class_code)
+                if class_row is None:
+                    raise HTTPException(status_code=403, detail="无权查看该班级")
+                class_names = [str(class_row.get("class_name", class_code))]
+            else:
+                class_names = class_rows["class_name"].astype(str).tolist()
     students_df = l.get_cache_data("students")
     if students_df is None or students_df.empty:
         return {"total": 0, "page": page, "page_size": page_size, "records": []}
@@ -296,7 +357,7 @@ async def get_leave_records(
     if not sids:
         return {"total": 0, "page": page, "page_size": page_size, "records": []}
     class_code_map = {}
-    if "class_name" in class_rows.columns and "class_code" in class_rows.columns:
+    if class_rows is not None and "class_name" in class_rows.columns and "class_code" in class_rows.columns:
         class_code_map = dict(
             zip(
                 class_rows["class_name"].astype(str).tolist(),
@@ -337,10 +398,21 @@ async def consume_leave_record(
     l = Lesson()
     manage_all = _can_manage_all_classes(current_user)
     class_rows = None
+    grade_class_names = []
+    is_g_leader = _user_has_role(current_user, "g_leader")
+
     if not manage_all:
-        class_rows = _get_cleader_class_rows(current_user.username)
-        if class_rows is None or class_rows.empty:
-            raise HTTPException(status_code=403, detail="无权操作")
+        if is_g_leader:
+            # 年级主任获取管理的班级
+            grade_class_names = _get_gleader_class_names(current_user)
+            if not grade_class_names:
+                raise HTTPException(status_code=403, detail="无权操作")
+        else:
+            # 班主任获取管理的班级
+            class_rows = _get_cleader_class_rows(current_user.username)
+            if class_rows is None or class_rows.empty:
+                raise HTTPException(status_code=403, detail="无权操作")
+
     with InOut() as i:
         i.__cursor__.execute("SELECT * FROM inout WHERE id = ?", (record_id,))
         row = i.__cursor__.fetchone()
@@ -349,6 +421,7 @@ async def consume_leave_record(
         columns = i.inout_columns()
         record = dict(zip(columns, row))
         sid = str(record.get("sid", ""))
+
     students_df = l.get_cache_data("students")
     if students_df is None or students_df.empty:
         raise HTTPException(status_code=404, detail="学生不存在")
@@ -358,9 +431,17 @@ async def consume_leave_record(
     if student_row.empty:
         raise HTTPException(status_code=404, detail="学生不存在")
     class_name = str(student_row.iloc[0].get("cname", ""))
+
     if not manage_all:
-        if class_name not in class_rows["class_name"].astype(str).tolist():
-            raise HTTPException(status_code=403, detail="无权操作该记录")
+        if is_g_leader:
+            # 年级主任检查班级是否属于自己管理的年级
+            if class_name not in grade_class_names:
+                raise HTTPException(status_code=403, detail="无权操作该记录")
+        else:
+            # 班主任检查班级是否属于自己管理的班级
+            if class_name not in class_rows["class_name"].astype(str).tolist():
+                raise HTTPException(status_code=403, detail="无权操作该记录")
+
     with InOut() as i:
         i.in_inout(record_id, consumer=current_user.username)
     return {"status": "已销假"}

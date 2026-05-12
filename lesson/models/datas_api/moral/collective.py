@@ -17,9 +17,9 @@ from .base import (
     get_moral_db,
     get_current_semester,
     log_operation,
-    check_moral_permission_for_roles,
-    get_teacher_class_id,
-    get_api_scoped_user_roles,
+    get_record_data_scope,
+    append_record_scope_condition,
+    record_in_scope,
     has_user_role,
 )
 from .api_permission import require_configured_api_permission
@@ -35,6 +35,11 @@ API_COLLECTIVE_CREATE = "/api/moral/collective-events/create"
 API_COLLECTIVE_UPDATE = "/api/moral/collective-events/update"
 API_COLLECTIVE_DELETE = "/api/moral/collective-events/delete"
 API_COLLECTIVE_DISTRIBUTION_UPDATE = "/api/moral/collective-events/distributions/update"
+
+
+def _ensure_xuefa_or_admin(user: User) -> None:
+    if not (has_user_role(user, "admin") or has_user_role(user, "xuefa")):
+        raise HTTPException(403, "集体事件仅学发和管理员可访问")
 
 
 # =============================================================================
@@ -72,14 +77,18 @@ def ensure_collective_class_access(user: User, db, class_id: int, api_path: str 
     if is_admin_user(user):
         return
 
-    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
-    if check_moral_permission_for_roles(scoped_roles, 'report_view_all'):
+    scope = get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['report_view_all', 'moral_record_manage'],
+        own_class_permissions=['moral_record_own_class', 'report_view_own_class'],
+        own_permissions=[],
+    )
+    if record_in_scope({"class_id": class_id}, scope, username=user.username):
         return
 
-    # 支持多人班主任：检查用户是否是该班级的班主任
-    from .base import is_class_leader
-    if not is_class_leader(user, class_id, db):
-        raise HTTPException(403, "只能访问本班集体事件")
+    raise HTTPException(403, "只能访问授权班级范围内的集体事件")
 
 
 # =============================================================================
@@ -103,6 +112,7 @@ async def get_collective_events(
     - cleader: 只能查看本班
     """
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
         if not semester_id:
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
@@ -114,14 +124,21 @@ async def get_collective_events(
             conditions.append("ce.class_id = ?")
             params.append(class_id)
 
-        scoped_roles = get_api_scoped_user_roles(db, user, API_COLLECTIVE_LIST)
-        if not check_moral_permission_for_roles(scoped_roles, 'report_view_all') and not is_admin_user(user):
-            # 支持多人班主任：获取所有班主任班级
-            from .base import get_teacher_class_ids
-            my_class_ids = get_teacher_class_ids(user, db)
-            if not my_class_ids:
-                raise HTTPException(403, "权限不足")
-            conditions.append(f"ce.class_id IN ({','.join(map(str, my_class_ids))})")
+        view_scope = get_record_data_scope(
+            db,
+            user,
+            API_COLLECTIVE_LIST,
+            all_permissions=['report_view_all', 'moral_record_manage'],
+            own_class_permissions=['moral_record_own_class', 'report_view_own_class'],
+            own_permissions=[],
+        )
+        append_record_scope_condition(
+            conditions,
+            params,
+            view_scope,
+            table_alias="ce",
+            username=user.username,
+        )
 
         if event_type:
             conditions.append("ce.event_type = ?")
@@ -145,7 +162,7 @@ async def get_collective_events(
             JOIN grade g ON c.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY ce.event_date DESC
-            LIMIT %s OFFSET ?
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         events = db.query_all(data_query, tuple(params))
@@ -176,6 +193,7 @@ async def create_collective_event(
     3. 自动为每个学生分配分数
     """
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
         current_semester = get_current_semester(db)
         if not current_semester:
             raise HTTPException(400, "当前学期未配置")
@@ -259,6 +277,7 @@ async def get_collective_event(
 ):
     """获取集体事件详情，包含分配列表"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
         event = db.query_one(
             """SELECT ce.*, c.class_name, g.grade_name
             FROM collective_event ce
@@ -297,6 +316,7 @@ async def update_collective_event(
 ):
     """更新集体事件基本信息"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
         old_event = db.query_one(
             "SELECT * FROM collective_event WHERE event_id = ?",
             (event_id,)
@@ -379,6 +399,7 @@ async def delete_collective_event(
 ):
     """删除集体事件及其分配记录"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
         event = db.query_one(
             "SELECT * FROM collective_event WHERE event_id = ?",
             (event_id,)
@@ -438,6 +459,7 @@ async def get_distributions(
 ):
     """获取集体事件的学生分配列表"""
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
         event = db.query_one(
             "SELECT class_id FROM collective_event WHERE event_id = ?",
             (event_id,)
@@ -475,6 +497,7 @@ async def update_distribution(
     用例：学生未参与集体活动，标记不加分
     """
     with get_moral_db() as db:
+        _ensure_xuefa_or_admin(user)
         distribution = db.query_one(
             """SELECT ced.*, ce.score as original_score
             FROM collective_event_distribution ced

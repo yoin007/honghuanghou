@@ -15,10 +15,11 @@ from pydantic import BaseModel, Field
 
 from .base import (
     get_moral_db,
-    check_moral_permission,
-    check_class_access,
-    require_permission,
-    get_teacher_class_id,
+    check_moral_permission_for_roles,
+    get_api_scoped_user_roles,
+    get_record_data_scope,
+    record_in_scope,
+    target_student_in_scope,
 )
 from models.datas_api.auth import User, get_current_user
 
@@ -34,6 +35,84 @@ from .consultation_ai import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/consultations", tags=["AI诊疗"])
+
+API_CONSULTATION_LIST = "/api/moral/consultations"
+API_CONSULTATION_CREATE = "/api/moral/consultations/create"
+API_CONSULTATION_UPDATE = "/api/moral/consultations/update"
+API_CONSULTATION_CLOSE = "/api/moral/consultations/close"
+
+
+def _has_consultation_permission(db, user: User, api_path: str) -> bool:
+    scoped_roles = get_api_scoped_user_roles(db, user, api_path)
+    return any(
+        check_moral_permission_for_roles(scoped_roles, permission)
+        for permission in ['ai_consultation', 'ai_consultation_own_class']
+    )
+
+
+def _consultation_scope(db, user: User, api_path: str = API_CONSULTATION_LIST) -> dict:
+    return get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=['ai_consultation'],
+        own_class_permissions=['ai_consultation_own_class'],
+        own_permissions=['ai_consultation_own_class'],
+    )
+
+
+def _append_consultation_scope_condition(conditions: List[str], params: List, scope: dict, username: str) -> None:
+    if scope.get("can_all"):
+        return
+
+    parts = []
+    if scope.get("can_own"):
+        parts.append("ac.creator = ?")
+        params.append(username)
+
+    my_class_ids = scope.get("my_class_ids") or []
+    if scope.get("can_own_class") and my_class_ids:
+        placeholders = ", ".join(["?"] * len(my_class_ids))
+        parts.append(f"s.class_id IN ({placeholders})")
+        params.extend(my_class_ids)
+    elif scope.get("can_own_class") and scope.get("my_class_id") is not None:
+        parts.append("s.class_id = ?")
+        params.append(scope["my_class_id"])
+
+    my_grade_class_ids = scope.get("my_grade_class_ids") or []
+    if scope.get("can_own_grade") and my_grade_class_ids:
+        placeholders = ", ".join(["?"] * len(my_grade_class_ids))
+        parts.append(f"s.class_id IN ({placeholders})")
+        params.extend(my_grade_class_ids)
+
+    teaching_class_ids = scope.get("teaching_class_ids") or []
+    if scope.get("can_teaching_classes"):
+        if teaching_class_ids:
+            placeholders = ", ".join(["?"] * len(teaching_class_ids))
+            parts.append(f"s.class_id IN ({placeholders})")
+            params.extend(teaching_class_ids)
+        else:
+            return
+
+    conditions.append("(" + " OR ".join(parts) + ")" if parts else "1 = 0")
+
+
+def _ensure_consultation_in_scope(db, user: User, consultation_id: int, api_path: str) -> dict:
+    consultation = db.query_one(
+        """SELECT ac.*, s.class_id, s.grade_id, s.name as student_name, s.gender, c.class_name
+        FROM ai_consultation ac
+        JOIN student s ON ac.student_id = s.student_id
+        JOIN class c ON s.class_id = c.class_id
+        WHERE ac.id = ?""",
+        (consultation_id,)
+    )
+    if not consultation:
+        raise HTTPException(404, "诊疗会话不存在")
+
+    scope = _consultation_scope(db, user, api_path)
+    if not record_in_scope(consultation, scope, username=user.username, recorder_field="creator"):
+        raise HTTPException(403, "只能访问授权范围内的诊疗会话")
+    return consultation
 
 
 # =============================================================================
@@ -86,35 +165,37 @@ async def get_consultations(
 
     权限说明：
     - cleader: 查看本班学生
+    - g_leader: 查看本年级学生
     - xuefa/jiaowu/admin: 查看所有
     """
     with get_moral_db() as db:
-        if not check_moral_permission(user, 'ai_consultation') and \
-           not check_moral_permission(user, 'ai_consultation_own_class'):
+        if not _has_consultation_permission(db, user, API_CONSULTATION_LIST):
             raise HTTPException(403, "权限不足")
 
         conditions = ["1=1"]
         params = []
+        view_scope = _consultation_scope(db, user, API_CONSULTATION_LIST)
+        _append_consultation_scope_condition(conditions, params, view_scope, user.username)
 
         if student_id:
-            conditions.append("ac.student_id = %s")
+            conditions.append("ac.student_id = ?")
             params.append(student_id)
 
         if status:
-            conditions.append("ac.status = %s")
+            conditions.append("ac.status = ?")
             params.append(status)
 
         if consultation_type:
-            conditions.append("ac.consultation_type = %s")
+            conditions.append("ac.consultation_type = ?")
             params.append(consultation_type)
 
         if priority:
-            conditions.append("ac.priority = %s")
+            conditions.append("ac.priority = ?")
             params.append(priority)
 
         where_clause = " AND ".join(conditions)
 
-        count_query = f"SELECT COUNT(*) FROM ai_consultation ac WHERE {where_clause}"
+        count_query = f"SELECT COUNT(*) FROM ai_consultation ac JOIN student s ON ac.student_id = s.student_id WHERE {where_clause}"
         total = db.query_value(count_query, tuple(params))
 
         offset = (page - 1) * page_size
@@ -125,7 +206,7 @@ async def get_consultations(
             JOIN class c ON s.class_id = c.class_id
             WHERE {where_clause}
             ORDER BY ac.created_at DESC
-            LIMIT %s OFFSET %s
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         consultations = db.query_all(data_query, tuple(params))
@@ -146,32 +227,31 @@ async def create_consultation(
     consultation: ConsultationCreate,
     request: Request,
     background_tasks: BackgroundTasks,
-    user: User = Depends(require_permission('ai_consultation_own_class'))
+    user: User = Depends(get_current_user)
 ):
     """创建诊疗会话 - 异步处理 AI 分析"""
     with get_moral_db() as db:
+        if not _has_consultation_permission(db, user, API_CONSULTATION_CREATE):
+            raise HTTPException(403, "权限不足")
+
         # 获取学生信息
         student = db.query_one(
             """SELECT s.*, c.leader_name, c.class_name FROM student s
             JOIN class c ON s.class_id = c.class_id
-            WHERE s.student_id = %s""",
+            WHERE s.student_id = ?""",
             (consultation.student_id,)
         )
         if not student:
             raise HTTPException(404, "学生不存在")
 
-        # 权限检查：班主任只能处理本班
-        if user.role == 'cleader':
-            my_class_id = get_teacher_class_id(user, db)
-            if my_class_id is None or my_class_id != student['class_id']:
-                if not check_moral_permission(user, 'ai_consultation'):
-                    raise HTTPException(403, "只能处理本班学生")
+        if not target_student_in_scope(db, user, API_CONSULTATION_CREATE, student):
+            raise HTTPException(403, "不能给授权范围外的学生创建诊疗会话")
 
         # 创建会话（初始状态为 pending）
         db.execute(
             """INSERT INTO ai_consultation
             (student_id, consultation_type, title, description, priority, creator)
-            VALUES (%s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?)""",
             (consultation.student_id, consultation.consultation_type,
              consultation.title, consultation.description,
              consultation.priority, user.username)
@@ -230,8 +310,8 @@ def run_ai_analysis_background(
         with get_moral_db() as db:
             db.execute(
                 """UPDATE ai_consultation SET
-                ai_analysis = %s, ai_suggestions = %s, ai_risk_assessment = %s
-                WHERE id = %s""",
+                ai_analysis = ?, ai_suggestions = ?, ai_risk_assessment = ?
+                WHERE id = ?""",
                 (ai_result['analysis'],
                  json.dumps(ai_result['suggestions'], ensure_ascii=False),
                  ai_result['risk_assessment'],
@@ -243,7 +323,7 @@ def run_ai_analysis_background(
                 db.execute(
                     """INSERT INTO ai_consultation_message
                     (consultation_id, message_type, content, sender)
-                    VALUES (%s, 'system', '⚠️ 本次分析检测到高风险信号，请立即查看并采取行动。', '系统')""",
+                    VALUES (?, 'system', '⚠️ 本次分析检测到高风险信号，请立即查看并采取行动。', '系统')""",
                     (consultation_id,)
                 )
 
@@ -256,7 +336,7 @@ def run_ai_analysis_background(
                 """UPDATE ai_consultation SET
                 ai_analysis = 'AI 分析失败，请稍后手动请求分析。',
                 ai_risk_assessment = 'unknown'
-                WHERE id = %s""",
+                WHERE id = ?""",
                 (consultation_id,)
             )
 
@@ -268,23 +348,14 @@ async def get_consultation(
 ):
     """获取诊疗会话详情"""
     with get_moral_db() as db:
-        consultation = db.query_one(
-            """SELECT ac.*, s.name as student_name, s.gender, c.class_name
-            FROM ai_consultation ac
-            JOIN student s ON ac.student_id = s.student_id
-            JOIN class c ON s.class_id = c.class_id
-            WHERE ac.id = %s""",
-            (consultation_id,)
-        )
-        if not consultation:
-            raise HTTPException(404, "诊疗会话不存在")
+        consultation = _ensure_consultation_in_scope(db, user, consultation_id, API_CONSULTATION_LIST)
 
         # 获取消息列表
         messages = db.query_all(
             """SELECT id, consultation_id, message_type as sender_type,
                       content, sender, created_at
             FROM ai_consultation_message
-            WHERE consultation_id = %s
+            WHERE consultation_id = ?
             ORDER BY created_at ASC""",
             (consultation_id,)
         )
@@ -303,53 +374,50 @@ async def update_consultation(
     consultation_id: int,
     update_data: ConsultationUpdate,
     request: Request,
-    user: User = Depends(require_permission('ai_consultation_own_class'))
+    user: User = Depends(get_current_user)
 ):
     """更新诊疗会话"""
     with get_moral_db() as db:
-        consultation = db.query_one(
-            "SELECT * FROM ai_consultation WHERE id = %s",
-            (consultation_id,)
-        )
-        if not consultation:
-            raise HTTPException(404, "诊疗会话不存在")
+        if not _has_consultation_permission(db, user, API_CONSULTATION_UPDATE):
+            raise HTTPException(403, "权限不足")
+        _ensure_consultation_in_scope(db, user, consultation_id, API_CONSULTATION_UPDATE)
 
         updates = []
         params = []
 
         if update_data.title is not None:
-            updates.append("title = %s")
+            updates.append("title = ?")
             params.append(update_data.title)
 
         if update_data.description is not None:
-            updates.append("description = %s")
+            updates.append("description = ?")
             params.append(update_data.description)
 
         if update_data.status is not None:
-            updates.append("status = %s")
+            updates.append("status = ?")
             params.append(update_data.status)
 
             if update_data.status == 'closed':
                 updates.append("closed_at = datetime('now','localtime')")
 
         if update_data.priority is not None:
-            updates.append("priority = %s")
+            updates.append("priority = ?")
             params.append(update_data.priority)
 
         if update_data.assignee is not None:
-            updates.append("assignee = %s")
+            updates.append("assignee = ?")
             params.append(update_data.assignee)
 
         if update_data.solution is not None:
-            updates.append("solution = %s")
+            updates.append("solution = ?")
             params.append(update_data.solution)
 
         if update_data.outcome is not None:
-            updates.append("outcome = %s")
+            updates.append("outcome = ?")
             params.append(update_data.outcome)
 
         if update_data.follow_up_date is not None:
-            updates.append("follow_up_date = %s")
+            updates.append("follow_up_date = ?")
             params.append(update_data.follow_up_date)
 
         if not updates:
@@ -357,7 +425,7 @@ async def update_consultation(
 
         params.append(consultation_id)
         db.execute(
-            f"UPDATE ai_consultation SET {', '.join(updates)} WHERE id = %s",
+            f"UPDATE ai_consultation SET {', '.join(updates)} WHERE id = ?",
             tuple(params)
         )
 
@@ -374,17 +442,14 @@ async def add_consultation_message(
 ):
     """添加诊疗消息 - 异步生成 AI 回复"""
     with get_moral_db() as db:
-        consultation = db.query_one(
-            "SELECT * FROM ai_consultation WHERE id = %s",
-            (consultation_id,)
-        )
-        if not consultation:
-            raise HTTPException(404, "诊疗会话不存在")
+        if not _has_consultation_permission(db, user, API_CONSULTATION_UPDATE):
+            raise HTTPException(403, "权限不足")
+        consultation = _ensure_consultation_in_scope(db, user, consultation_id, API_CONSULTATION_UPDATE)
 
         # 获取历史消息（用于 AI 分析上下文）
         history_messages = db.query_all(
             """SELECT * FROM ai_consultation_message
-            WHERE consultation_id = %s
+            WHERE consultation_id = ?
             ORDER BY created_at ASC""",
             (consultation_id,)
         )
@@ -393,7 +458,7 @@ async def add_consultation_message(
         db.execute(
             """INSERT INTO ai_consultation_message
             (consultation_id, message_type, content, sender)
-            VALUES (%s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?)""",
             (consultation_id, message.message_type or 'user', message.content, user.username)
         )
 
@@ -467,13 +532,13 @@ def generate_ai_reply_background(
             db.execute(
                 """INSERT INTO ai_consultation_message
                 (consultation_id, message_type, content, sender)
-                VALUES (%s, 'ai', %s, 'AI助手')""",
+                VALUES (?, 'ai', ?, 'AI助手')""",
                 (consultation_id, ai_reply)
             )
 
             # 更新 ai_analysis 字段（最新分析）
             db.execute(
-                """UPDATE ai_consultation SET ai_analysis = %s WHERE id = %s""",
+                """UPDATE ai_consultation SET ai_analysis = ? WHERE id = ?""",
                 (ai_reply[:2000], consultation_id)
             )
 
@@ -485,7 +550,7 @@ def generate_ai_reply_background(
             db.execute(
                 """INSERT INTO ai_consultation_message
                 (consultation_id, message_type, content, sender)
-                VALUES (%s, 'ai', 'AI分析暂时不可用，请稍后重试。', 'AI助手')""",
+                VALUES (?, 'ai', 'AI分析暂时不可用，请稍后重试。', 'AI助手')""",
                 (consultation_id,)
             )
 
@@ -495,24 +560,21 @@ async def close_consultation(
     consultation_id: int,
     outcome: Optional[str] = Query(None, description="处理结果"),
     request: Request = None,
-    user: User = Depends(require_permission('ai_consultation_own_class'))
+    user: User = Depends(get_current_user)
 ):
     """关闭诊疗会话"""
     with get_moral_db() as db:
-        consultation = db.query_one(
-            "SELECT * FROM ai_consultation WHERE id = %s",
-            (consultation_id,)
-        )
-        if not consultation:
-            raise HTTPException(404, "诊疗会话不存在")
+        if not _has_consultation_permission(db, user, API_CONSULTATION_CLOSE):
+            raise HTTPException(403, "权限不足")
+        consultation = _ensure_consultation_in_scope(db, user, consultation_id, API_CONSULTATION_CLOSE)
 
         if consultation['status'] == 'closed':
             raise HTTPException(400, "会话已关闭")
 
         db.execute(
             """UPDATE ai_consultation SET
-            status = 'closed', closed_at = datetime('now','localtime'), outcome = %s
-            WHERE id = %s""",
+            status = 'closed', closed_at = datetime('now','localtime'), outcome = ?
+            WHERE id = ?""",
             (outcome, consultation_id)
         )
 

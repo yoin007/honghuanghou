@@ -79,16 +79,25 @@
     </section>
 
     <section class="info-panel">
-      <DashboardPanelSection eyebrow="LOW SCORE ALERT" title="低分学生">
+      <!-- 低分学生 -->
+      <DashboardPanelSection eyebrow="LOW SCORE ALERT" title="低分学生" variant="danger">
         <div v-if="lowStudents.length" class="risk-list">
-          <div v-for="s in lowStudents" :key="s.student_id" class="risk-row">
-            <span>{{ s.name }} ({{ s.class_name }})</span>
-            <b>{{ s.total_score }} 分</b>
+          <div v-for="(s, idx) in lowStudents" :key="s.student_id" class="risk-card">
+            <div class="risk-rank">{{ idx + 1 }}</div>
+            <div class="risk-info">
+              <strong>{{ s.name }}</strong>
+              <span class="risk-class">{{ s.class_name }}</span>
+            </div>
+            <div class="risk-score" :class="scoreClass(s.total_score)">
+              <b>{{ s.total_score }}</b>
+              <small>分</small>
+            </div>
           </div>
         </div>
-        <DashboardEmptyStrip v-else text="本年级暂无低分学生。" />
+        <DashboardEmptyStrip v-else text="本年级暂无低分学生，德育表现良好。" />
       </DashboardPanelSection>
 
+      <!-- 当前请假 -->
       <DashboardPanelSection variant="attendance">
         <DashboardLeaveList
           :students="leaveStudents"
@@ -99,11 +108,18 @@
         />
       </DashboardPanelSection>
 
-      <DashboardPanelSection eyebrow="BIRTHDAY CARE" title="本月生日">
+      <!-- 本月生日 -->
+      <DashboardPanelSection eyebrow="BIRTHDAY CARE" title="本月生日" variant="success">
         <div v-if="birthdayMonth.length" class="birthday-list">
-          <div v-for="s in birthdayMonth" :key="s.name" class="birthday-item">
-            <span>{{ s.name }} ({{ s.class_name }})</span>
-            <small>{{ s.birthday }}</small>
+          <div v-for="s in birthdayMonth" :key="s.name" class="birthday-card">
+            <div class="birthday-icon">🎂</div>
+            <div class="birthday-info">
+              <strong>{{ s.name }}</strong>
+              <span class="birthday-class">{{ s.class_name }}</span>
+            </div>
+            <div class="birthday-date">
+              <small>{{ formatBirthday(s.birthday) }}</small>
+            </div>
           </div>
         </div>
         <DashboardEmptyStrip v-else text="本月暂无学生生日。" />
@@ -163,6 +179,24 @@ const insights = computed(() => summary.value.insights || [])
 const _isManager = computed(() => {
   return authStore.isAdmin || authStore.isJiaowu || authStore.isXuefa || authStore.isGleader
 })
+
+// 分数颜色类
+function scoreClass(score) {
+  if (score < 30) return 'critical'
+  if (score < 50) return 'severe'
+  return 'warning'
+}
+
+// 生日格式化
+function formatBirthday(birthday) {
+  if (!birthday) return ''
+  // 只显示月日
+  const parts = birthday.split('-')
+  if (parts.length >= 3) {
+    return `${parseInt(parts[1])}月${parseInt(parts[2])}日`
+  }
+  return birthday
+}
 
 const classComparisonOption = computed(() => {
   const data = summary.value.charts?.class_comparison || []
@@ -343,73 +377,226 @@ onMounted(() => {
   --accent: #E6A23C;
   --accent-light: #FAECD8;
   --accent-bg: linear-gradient(135deg, #E6A23C 0%, #F5D442 100%);
+  --dashboard-info-columns-desktop: repeat(3, minmax(0, 1fr));
+}
+
+.command-dashboard {
+  background:
+    linear-gradient(135deg, rgba(8, 16, 32, 0.98), rgba(12, 22, 42, 0.96)),
+    radial-gradient(circle at 10% 8%, rgba(230, 162, 60, 0.22), transparent 30%),
+    radial-gradient(circle at 90% 14%, rgba(103, 194, 58, 0.16), transparent 28%);
 }
 
 .filter-console {
-  margin-top: 16px;
+  min-width: 160px;
+  margin-top: 12px;
 }
 
+.filter-console :deep(.el-input__wrapper) {
+  background: rgba(15, 23, 42, 0.74);
+  border-color: rgba(230, 162, 60, 0.32);
+}
+
+.filter-console :deep(.el-input__inner) {
+  color: #e2e8f0;
+}
+
+.info-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin-top: 28px;
+}
+
+/* ===== 低分学生卡片 ===== */
 .risk-list {
+  display: grid;
+  gap: 12px;
+}
+
+.risk-card {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.risk-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--accent-light);
-  border-radius: 4px;
-}
-
-.birthday-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.birthday-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 10px;
-  background: #f5f7fa;
-  border-radius: 4px;
-}
-
-.birthday-list.highlight .birthday-item {
-  background: var(--accent-light);
-}
-
-.trend-section {
-  margin-top: 20px;
-  padding: 16px;
-  border: 1px solid rgba(230, 162, 60, 0.2);
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(239, 68, 68, 0.24);
   border-radius: 8px;
-  background: rgba(250, 236, 216, 0.12);
+  background: rgba(127, 29, 29, 0.18);
+  transition: all 0.2s ease;
+}
+
+.risk-card:hover {
+  border-color: rgba(239, 68, 68, 0.36);
+  background: rgba(127, 29, 29, 0.24);
+}
+
+.risk-rank {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.28);
+  color: #fecdd3;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.risk-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.risk-info strong {
+  display: block;
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.risk-class {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.risk-score {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+
+.risk-score.critical {
+  background: rgba(239, 68, 68, 0.28);
+}
+
+.risk-score.critical b {
+  color: #fca5a5;
+}
+
+.risk-score.severe {
+  background: rgba(249, 115, 22, 0.22);
+}
+
+.risk-score.severe b {
+  color: #fdba74;
+}
+
+.risk-score.warning {
+  background: rgba(251, 191, 36, 0.18);
+}
+
+.risk-score.warning b {
+  color: #fde68a;
+}
+
+.risk-score b {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.risk-score small {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+/* ===== 本月生日卡片 ===== */
+.birthday-list {
+  display: grid;
+  gap: 10px;
+}
+
+.birthday-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  border-radius: 8px;
+  background: rgba(6, 78, 59, 0.18);
+  transition: all 0.2s ease;
+}
+
+.birthday-card:hover {
+  border-color: rgba(34, 197, 94, 0.36);
+  background: rgba(6, 78, 59, 0.24);
+}
+
+.birthday-icon {
+  font-size: 24px;
+}
+
+.birthday-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.birthday-info strong {
+  display: block;
+  color: #bbf7d0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.birthday-class {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.birthday-date {
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.birthday-date small {
+  color: #86efac;
+  font-size: 13px;
+}
+
+/* ===== 趋势区块 ===== */
+.trend-section {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid rgba(230, 162, 60, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(12, 26, 48, 0.94), rgba(7, 15, 30, 0.9)),
+    radial-gradient(circle at 8% 10%, rgba(230, 162, 60, 0.18), transparent 42%);
 }
 
 .trend-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .trend-header h3 {
-  color: #E6A23C;
-  font-size: 14px;
+  color: #f8fafc;
+  font-size: 16px;
   font-weight: 600;
 }
 
 .trend-controls :deep(.el-radio-button__inner) {
-  background: rgba(250, 236, 216, 0.74);
-  border-color: rgba(230, 162, 60, 0.3);
+  background: rgba(15, 23, 42, 0.74);
+  border-color: rgba(230, 162, 60, 0.32);
+  color: #e2e8f0;
 }
 
 .trend-controls :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
   background: #E6A23C;
   border-color: #E6A23C;
   color: #fff;
+}
+
+.trend-controls :deep(.el-input__wrapper) {
+  background: rgba(15, 23, 42, 0.74);
+  border-color: rgba(230, 162, 60, 0.32);
+}
+
+.trend-controls :deep(.el-input__inner) {
+  color: #e2e8f0;
 }
 </style>

@@ -40,6 +40,9 @@ AVAILABLE_MODELS = {
     "MiniMax": [
         {"name": "MiniMax-M2.5", "capabilities": ["文本生成", "深度思考"]},
     ],
+    "DeepSeek": [
+        {"name": "deepseek-chat", "capabilities": ["文本生成"]},
+    ],
 }
 
 
@@ -135,7 +138,8 @@ async def init_default_configs(
             ('ai_diagnosis', 'AI诊疗', 'kimi-k2.5', '学生德育问题的AI诊断分析'),
             ('profile_generate', '学生画像生成', 'kimi-k2.5', '生成学生德育画像'),
             ('remind_ai', '定时提醒', 'deepseek-chat', '定时提醒文本AI处理'),
-            ('bailian_general', '百炼通用', 'kimi-k2.5', '百炼平台通用AI调用')
+            ('bailian_general', '百炼通用', 'kimi-k2.5', '百炼平台通用AI调用'),
+            ('semester_evaluation', '学期末评价生成', 'kimi-k2.5', '学期末德育评价总结生成'),
         ]
         for cfg in configs:
             db.execute(
@@ -143,7 +147,7 @@ async def init_default_configs(
                 (cfg[0], cfg[1], cfg[2], cfg[3], now)
             )
 
-        return {"success": True, "message": "已初始化4条默认配置"}
+        return {"success": True, "message": "已初始化5条默认配置"}
 
 
 # =============================================================================

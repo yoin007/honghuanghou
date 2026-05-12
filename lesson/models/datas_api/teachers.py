@@ -290,7 +290,7 @@ async def get_teacher_teaching_classes(
     with SQLiteMoralDatabase() as db:
         _ensure_teaching_class_table(db)
         teacher = db.query_one(
-            "SELECT teacher_id, name, subject FROM teacher WHERE teacher_id = %s OR name = %s",
+            "SELECT teacher_id, name, subject FROM teacher WHERE teacher_id = ? OR name = ?",
             (teacher_id, teacher_id),
         )
         real_teacher_id = teacher.get("teacher_id") if teacher else teacher_id
@@ -300,7 +300,7 @@ async def get_teacher_teaching_classes(
                FROM teacher_teaching_class ttc
                LEFT JOIN class c ON ttc.class_id = c.class_id
                LEFT JOIN grade g ON c.grade_id = g.grade_id
-               WHERE ttc.teacher_id = %s AND ttc.is_active = 1
+               WHERE ttc.teacher_id = ? AND ttc.is_active = 1
                ORDER BY g.enrollment_year DESC, c.class_number""",
             (real_teacher_id,),
         )
@@ -326,7 +326,7 @@ async def update_teacher_teaching_classes(
     with SQLiteMoralDatabase() as db:
         _ensure_teaching_class_table(db)
         teacher = db.query_one(
-            "SELECT teacher_id, name, subject FROM teacher WHERE teacher_id = %s OR name = %s",
+            "SELECT teacher_id, name, subject FROM teacher WHERE teacher_id = ? OR name = ?",
             (teacher_id, teacher_id),
         )
         teacher_name = teacher.get("name") if teacher else teacher_id
@@ -334,7 +334,7 @@ async def update_teacher_teaching_classes(
 
         class_ids = [item.class_id for item in payload.classes]
         if class_ids:
-            placeholders = ", ".join(["%s"] * len(class_ids))
+            placeholders = ", ".join(["?"] * len(class_ids))
             existing_count = db.query_value(
                 f"SELECT COUNT(*) FROM class WHERE class_id IN ({placeholders})",
                 tuple(class_ids),
@@ -342,7 +342,7 @@ async def update_teacher_teaching_classes(
             if int(existing_count or 0) != len(set(class_ids)):
                 raise HTTPException(status_code=400, detail="存在无效班级")
 
-        db.execute("DELETE FROM teacher_teaching_class WHERE teacher_id = %s", (real_teacher_id,))
+        db.execute("DELETE FROM teacher_teaching_class WHERE teacher_id = ?", (real_teacher_id,))
         seen = set()
         for item in payload.classes:
             subject = item.subject or (teacher.get("subject") if teacher else None)
@@ -353,7 +353,7 @@ async def update_teacher_teaching_classes(
             db.execute(
                 """INSERT INTO teacher_teaching_class
                    (teacher_id, teacher_name, class_id, subject, is_active)
-                   VALUES (%s, %s, %s, %s, 1)""",
+                   VALUES (?, ?, ?, ?, 1)""",
                 (real_teacher_id, teacher_name, item.class_id, subject),
             )
 
@@ -497,8 +497,8 @@ async def init_all_teaching_classes(
                 continue
 
             # 先删除该教师的现有任教班级记录（覆盖），兼容清理旧版本用教师姓名写入 teacher_id 的记录。
-            db.execute("DELETE FROM teacher_teaching_class WHERE teacher_id = %s", (teacher_id,))
-            db.execute("DELETE FROM teacher_teaching_class WHERE teacher_id = %s OR teacher_name = %s", (teacher_name, teacher_name))
+            db.execute("DELETE FROM teacher_teaching_class WHERE teacher_id = ?", (teacher_id,))
+            db.execute("DELETE FROM teacher_teaching_class WHERE teacher_id = ? OR teacher_name = ?", (teacher_name, teacher_name))
 
             # 插入新的任教班级记录
             for class_id, subject in class_subject_pairs:
@@ -506,7 +506,7 @@ async def init_all_teaching_classes(
                     db.execute(
                         """INSERT INTO teacher_teaching_class
                            (teacher_id, teacher_name, class_id, subject, is_active)
-                           VALUES (%s, %s, %s, %s, 1)""",
+                           VALUES (?, ?, ?, ?, 1)""",
                         (teacher_id, teacher_name, class_id, subject),
                     )
                 except Exception as e:
