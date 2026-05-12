@@ -14,6 +14,7 @@ from models.datas_api.moral.base import (
     get_moral_db,
     get_teacher_class_id,
     has_user_role,
+    get_record_data_scope,
 )
 from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.datas_api.dashboard_common import (
@@ -421,22 +422,19 @@ async def get_student_score_trend(
             raise HTTPException(status_code=404, detail="学生不存在")
 
         class_id = student.get('class_id')
+        grade_id = student.get('grade_id')
 
-        # 权限判断：检查所有角色，只要有一个角色满足条件即可
-        if not _is_moral_manager(user):
-            has_permission = False
-            # 班主任检查
-            if has_user_role(user, 'cleader'):
-                from models.datas_api.moral.base import is_class_leader
-                if is_class_leader(user, class_id, db):
-                    has_permission = True
-            # 年级主任检查
-            if not has_permission and has_user_role(user, 'g_leader'):
-                from models.datas_api.moral.base import is_grade_leader
-                grade_id = student.get('grade_id')
-                if grade_id and is_grade_leader(user, grade_id, db):
-                    has_permission = True
-            if not has_permission:
+        # 权限检查：配置驱动数据范围
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_STUDENT_TREND,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
+
+        if not scope.get('can_all'):
+            allowed_class_ids = scope.get('my_class_ids', []) + scope.get('my_grade_class_ids', [])
+            if class_id not in allowed_class_ids:
                 raise HTTPException(status_code=403, detail="只能查看授权范围内的学生")
 
         # 获取学期信息
@@ -570,22 +568,17 @@ async def get_class_score_trend(
         if not class_info:
             raise HTTPException(status_code=404, detail="班级不存在")
 
-        # 权限检查：检查所有角色，任一满足即可
-        if not (_is_moral_manager(user) or _is_jiaowu(user)):
-            has_permission = False
-            # 班主任检查
-            if has_user_role(user, 'cleader'):
-                from models.datas_api.moral.base import is_class_leader
-                if is_class_leader(user, class_id, db):
-                    has_permission = True
-            # 年级主任检查
-            if not has_permission and has_user_role(user, 'g_leader'):
-                from models.datas_api.moral.base import get_teacher_grade_ids
-                my_grade_ids = get_teacher_grade_ids(user, db)
-                class_grade_id = db.query_value("SELECT grade_id FROM class WHERE class_id = ?", (class_id,))
-                if class_grade_id and class_grade_id in my_grade_ids:
-                    has_permission = True
-            if not has_permission:
+        # 权限检查：配置驱动数据范围
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_CLASS_TREND,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
+
+        if not scope.get('can_all'):
+            allowed_class_ids = scope.get('my_class_ids', []) + scope.get('my_grade_class_ids', [])
+            if class_id not in allowed_class_ids:
                 raise HTTPException(status_code=403, detail="只能查看授权范围内的班级")
 
         # 获取学期信息
@@ -716,25 +709,32 @@ async def get_grade_score_trend(
         年级平均得分趋势数据
     """
     with get_moral_db() as db:
-        # 权限检查：年级主任、教务、德育管理员
-        if not (_is_moral_manager(user) or _is_jiaowu(user) or has_user_role(user, 'g_leader')):
-            raise HTTPException(status_code=403, detail="无年级驾驶舱权限")
-
         # 年级名称映射
         grade_names = {"高一": "高一年级", "高二": "高二年级", "高三": "高三年级"}
         grade_name = grade_names.get(grade_id, grade_id)
 
-        # 获取年级ID（优先从 grade 表）
+        # 获取年级ID
         grade_row = db.query_one(
             "SELECT grade_id, grade_name FROM grade WHERE grade_name = ? OR grade_name = ? OR grade_id = ?",
             (grade_name, grade_id + "年级", grade_id)
         )
         grade_id_int = grade_row["grade_id"] if grade_row else None
 
-        if has_user_role(user, 'g_leader') and not (_is_moral_manager(user) or _is_jiaowu(user)):
-            from models.datas_api.moral.base import is_grade_leader
-            if not grade_id_int or not is_grade_leader(user, grade_id_int, db):
-                raise HTTPException(status_code=403, detail="只能查看自己管理的年级趋势")
+        if not grade_id_int:
+            raise HTTPException(status_code=404, detail="年级不存在")
+
+        # 权限检查：配置驱动数据范围
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_GRADE_TREND,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
+
+        if not scope.get('can_all'):
+            my_grade_ids = scope.get('my_grade_ids', [])
+            if grade_id_int not in my_grade_ids:
+                raise HTTPException(status_code=403, detail="只能查看授权范围内的年级")
 
         # 获取年级下所有班级（通过 grade_id 关联）
         if grade_id_int:

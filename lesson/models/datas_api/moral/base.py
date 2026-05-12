@@ -210,7 +210,7 @@ def get_user_role_level(user: User) -> int:
     try:
         with get_moral_db() as db:
             teacher_row = db.query_one(
-                "SELECT level FROM teacher WHERE name = %s AND is_active = 1",
+                "SELECT level FROM teacher WHERE name = ? AND is_active = 1",
                 (user.username,)
             )
             if teacher_row:
@@ -313,7 +313,7 @@ def get_api_scoped_user_roles(db: SQLiteMoralDatabase, user: User, api_path: str
                   m.allowed_roles AS module_allowed_roles
            FROM api_permission_config c
            LEFT JOIN api_permission_module m ON c.module_id = m.id
-           WHERE c.api_path = %s AND c.is_active = 1
+           WHERE c.api_path = ? AND c.is_active = 1
            LIMIT 1""",
         (api_path,)
     )
@@ -384,6 +384,7 @@ def get_record_data_scope(
         }
 
     my_class_id = get_teacher_class_id(user, db)
+    my_class_ids = get_teacher_class_ids(user, db)
     teaching_class_ids = get_teacher_teaching_class_ids(user, db)
     can_own_class = bool(my_class_id) and scoped["has_any"](own_class_permissions)
     can_own = scoped["has_any"](own_permissions) or can_own_class
@@ -409,6 +410,7 @@ def get_record_data_scope(
         "teaching_class_ids": teaching_class_ids,
         "can_own": can_own,
         "my_class_id": my_class_id if can_own_class else None,
+        "my_class_ids": my_class_ids if can_own_class else [],
         "roles": scoped["roles"],
     }
 
@@ -481,13 +483,9 @@ def _get_configured_data_scope(
     roles: List[str],
 ) -> Optional[Dict[str, Any]]:
     """读取 API 权限配置中的角色数据范围规则。"""
-    config = db.query_one(
-        """SELECT data_scope_rules
-           FROM api_permission_config
-           WHERE api_path = %s AND is_active = 1
-           LIMIT 1""",
-        (api_path,)
-    )
+    from models.datas_api.moral.api_permission import _get_matching_config
+
+    config = _get_matching_config(db, api_path, "GET")
     if not config:
         return None
 
@@ -508,9 +506,9 @@ def _get_configured_data_scope(
         if isinstance(role_scopes, list):
             scopes.update(str(scope) for scope in role_scopes)
 
-    can_own_class = "own_class" in scopes
+    can_own_class = "own_class" in scopes or "managed_classes" in scopes
     can_teaching_classes = "teaching_classes" in scopes
-    can_own_grade = "g_leader_grade" in scopes or "grade_students" in scopes
+    can_own_grade = "g_leader_grade" in scopes or "grade_students" in scopes or "managed_grades" in scopes
 
     my_grade_ids = get_teacher_grade_ids(user, db) if can_own_grade else []
     my_grade_class_ids = []
@@ -524,7 +522,9 @@ def _get_configured_data_scope(
     return {
         "can_all": "all" in scopes,
         "can_own_class": can_own_class,
+        "my_class_ids": get_teacher_class_ids(user, db) if can_own_class else [],
         "can_own_grade": can_own_grade,
+        "my_grade_ids": my_grade_ids,
         "my_grade_class_ids": my_grade_class_ids,
         "can_teaching_classes": can_teaching_classes,
         "teaching_class_ids": get_teacher_teaching_class_ids(user, db) if can_teaching_classes else [],
@@ -550,23 +550,28 @@ def append_record_scope_condition(
 
     parts = []
     if scope.get("can_own"):
-        parts.append(f"{table_alias}.{recorder_field} = %s")
+        parts.append(f"{table_alias}.{recorder_field} = ?")
         params.append(username)
-    if scope.get("can_own_class") and scope.get("my_class_id") is not None:
-        parts.append(f"{table_alias}.{class_field} = %s")
+    my_class_ids = scope.get("my_class_ids") or []
+    if scope.get("can_own_class") and my_class_ids:
+        placeholders = ", ".join(["?"] * len(my_class_ids))
+        parts.append(f"{table_alias}.{class_field} IN ({placeholders})")
+        params.extend(my_class_ids)
+    elif scope.get("can_own_class") and scope.get("my_class_id") is not None:
+        parts.append(f"{table_alias}.{class_field} = ?")
         params.append(scope["my_class_id"])
 
     # 年级范围：通过班级 ID 列表过滤
     my_grade_class_ids = scope.get("my_grade_class_ids") or []
     if scope.get("can_own_grade") and my_grade_class_ids:
-        placeholders = ", ".join(["%s"] * len(my_grade_class_ids))
+        placeholders = ", ".join(["?"] * len(my_grade_class_ids))
         parts.append(f"{table_alias}.{class_field} IN ({placeholders})")
         params.extend(my_grade_class_ids)
 
     teaching_class_ids = scope.get("teaching_class_ids") or []
     if scope.get("can_teaching_classes"):
         if teaching_class_ids:
-            placeholders = ", ".join(["%s"] * len(teaching_class_ids))
+            placeholders = ", ".join(["?"] * len(teaching_class_ids))
             parts.append(f"{table_alias}.{class_field} IN ({placeholders})")
             params.extend(teaching_class_ids)
         else:
@@ -597,6 +602,9 @@ def record_in_scope(
         and record.get(class_field) == scope.get("my_class_id")
     ):
         return True
+    my_class_ids = scope.get("my_class_ids") or []
+    if scope.get("can_own_class") and my_class_ids:
+        return record.get(class_field) in my_class_ids
     # 年级范围：判断记录的班级是否在年级班级列表中
     my_grade_class_ids = scope.get("my_grade_class_ids") or []
     if scope.get("can_own_grade") and my_grade_class_ids:
@@ -650,7 +658,7 @@ def target_student_in_scope(
     config = db.query_one(
         """SELECT target_scope_rules
            FROM api_permission_config
-           WHERE api_path = %s AND is_active = 1
+           WHERE api_path = ? AND is_active = 1
            LIMIT 1""",
         (api_path,)
     )
@@ -675,21 +683,23 @@ def target_student_in_scope(
 
     # 多角色场景：任一条件匹配即允许
     # 年级主任：检查年级范围
-    if "g_leader_grade" in scopes or "grade_students" in scopes:
+    if "g_leader_grade" in scopes or "grade_students" in scopes or "managed_grades" in scopes:
         student_grade_id = student.get("grade_id")
         my_grade_ids = get_teacher_grade_ids(user, db)
         if student_grade_id in my_grade_ids:
             return True
 
     # 班主任：检查班级范围
-    if "own_class" in scopes:
-        my_class_id = get_teacher_class_id(user, db)
-        if my_class_id is not None and my_class_id == student.get("class_id"):
+    if "own_class" in scopes or "managed_classes" in scopes:
+        my_class_ids = get_teacher_class_ids(user, db)
+        if my_class_ids and student.get("class_id") in my_class_ids:
             return True
 
     # 教师：检查任教班级范围
     if "teaching_classes" in scopes:
         teaching_class_ids = get_teacher_teaching_class_ids(user, db)
+        if not teaching_class_ids:
+            return True
         if teaching_class_ids and student.get("class_id") in teaching_class_ids:
             return True
 
@@ -718,7 +728,7 @@ def check_class_access(user: User, class_id: int, db: SQLiteMoralDatabase) -> bo
     # 班主任只能访问自己的班级
     if check_moral_permission(user, 'report_view_own_class'):
         class_info = db.query_one(
-            "SELECT leader_wxid, leader_name FROM class WHERE class_id = %s",
+            "SELECT leader_wxid, leader_name FROM class WHERE class_id = ?",
             (class_id,)
         )
         if class_info:
@@ -732,7 +742,7 @@ def check_class_access(user: User, class_id: int, db: SQLiteMoralDatabase) -> bo
             # 方式2：通过 teacher 表关联（username 是 teacher_id，leader_name 是姓名）
             # 获取当前登录教师的姓名，与 leader_name 比较
             teacher = db.query_one(
-                "SELECT name FROM teacher WHERE teacher_id = %s",
+                "SELECT name FROM teacher WHERE teacher_id = ?",
                 (username,)
             )
             if teacher and teacher.get('name') == leader_name:
@@ -777,7 +787,7 @@ def get_class_leader_ids(class_id: int, db: SQLiteMoralDatabase) -> List[str]:
         return []
 
     class_info = db.query_one(
-        "SELECT leader_ids, leader_wxid FROM class WHERE class_id = %s",
+        "SELECT leader_ids, leader_wxid FROM class WHERE class_id = ?",
         (class_id,)
     )
     if not class_info:
@@ -810,7 +820,7 @@ def get_class_leader_names(class_id: int, db: SQLiteMoralDatabase) -> List[str]:
         return []
 
     class_info = db.query_one(
-        "SELECT leader_names, leader_name FROM class WHERE class_id = %s",
+        "SELECT leader_names, leader_name FROM class WHERE class_id = ?",
         (class_id,)
     )
     if not class_info:
@@ -861,7 +871,7 @@ def is_class_leader(user: User, class_id: int, db: SQLiteMoralDatabase) -> bool:
     teacher_names = []
     for tid in user_candidates:
         teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = %s",
+            "SELECT name FROM teacher WHERE teacher_id = ?",
             (tid,)
         )
         if teacher and teacher.get('name'):
@@ -898,7 +908,7 @@ def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     teacher_names = []
     for tid in user_candidates:
         teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = %s",
+            "SELECT name FROM teacher WHERE teacher_id = ?",
             (tid,)
         )
         if teacher and teacher.get('name'):
@@ -909,7 +919,7 @@ def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     # 方式1：通过 leader_ids 字段匹配（多人支持）
     for uid in user_candidates:
         rows = db.query_all(
-            "SELECT class_id FROM class WHERE leader_ids LIKE %s AND is_active = 1",
+            "SELECT class_id FROM class WHERE leader_ids LIKE ? AND is_active = 1",
             (f'%{uid}%',)
         )
         for row in rows:
@@ -922,7 +932,7 @@ def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     # 方式2：通过 leader_names 字段匹配（多人支持）
     for name in teacher_names:
         rows = db.query_all(
-            "SELECT class_id FROM class WHERE leader_names LIKE %s AND is_active = 1",
+            "SELECT class_id FROM class WHERE leader_names LIKE ? AND is_active = 1",
             (f'%{name}%',)
         )
         for row in rows:
@@ -934,7 +944,7 @@ def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     # 方式3：回退兼容单值字段
     for uid in user_candidates:
         my_class = db.query_one(
-            "SELECT class_id FROM class WHERE leader_wxid = %s AND is_active = 1",
+            "SELECT class_id FROM class WHERE leader_wxid = ? AND is_active = 1",
             (uid,)
         )
         if my_class:
@@ -942,7 +952,7 @@ def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
 
     for name in teacher_names:
         my_class = db.query_one(
-            "SELECT class_id FROM class WHERE leader_name = %s AND is_active = 1",
+            "SELECT class_id FROM class WHERE leader_name = ? AND is_active = 1",
             (name,)
         )
         if my_class:
@@ -965,7 +975,7 @@ def get_grade_leader_ids(grade_id: int, db: SQLiteMoralDatabase) -> List[str]:
         return []
 
     grade_info = db.query_one(
-        "SELECT leader_ids FROM grade WHERE grade_id = %s",
+        "SELECT leader_ids FROM grade WHERE grade_id = ?",
         (grade_id,)
     )
     if not grade_info:
@@ -992,7 +1002,7 @@ def get_grade_leader_names(grade_id: int, db: SQLiteMoralDatabase) -> List[str]:
         return []
 
     grade_info = db.query_one(
-        "SELECT leader_names FROM grade WHERE grade_id = %s",
+        "SELECT leader_names FROM grade WHERE grade_id = ?",
         (grade_id,)
     )
     if not grade_info:
@@ -1036,7 +1046,7 @@ def is_grade_leader(user: User, grade_id: int, db: SQLiteMoralDatabase) -> bool:
     teacher_names = []
     for tid in user_candidates:
         teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = %s",
+            "SELECT name FROM teacher WHERE teacher_id = ?",
             (tid,)
         )
         if teacher and teacher.get('name'):
@@ -1075,7 +1085,7 @@ def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     teacher_names = []
     for tid in user_candidates:
         teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = %s",
+            "SELECT name FROM teacher WHERE teacher_id = ?",
             (tid,)
         )
         if teacher and teacher.get('name'):
@@ -1086,7 +1096,7 @@ def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     # 方式1：通过 grade.leader_ids 字段匹配（多人支持）
     for uid in user_candidates:
         rows = db.query_all(
-            "SELECT grade_id FROM grade WHERE leader_ids LIKE %s",
+            "SELECT grade_id FROM grade WHERE leader_ids LIKE ?",
             (f'%{uid}%',)
         )
         for row in rows:
@@ -1098,7 +1108,7 @@ def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     # 方式2：通过 grade.leader_names 字段匹配（多人支持）
     for name in teacher_names:
         rows = db.query_all(
-            "SELECT grade_id FROM grade WHERE leader_names LIKE %s",
+            "SELECT grade_id FROM grade WHERE leader_names LIKE ?",
             (f'%{name}%',)
         )
         for row in rows:
@@ -1155,7 +1165,7 @@ def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[
     teacher_names = []
     for tid in teacher_id_candidates:
         teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = %s",
+            "SELECT name FROM teacher WHERE teacher_id = ?",
             (tid,)
         )
         if teacher and teacher.get('name'):
@@ -1163,12 +1173,12 @@ def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[
 
     # 构建查询条件
     conditions = ["is_active = 1"]
-    teacher_id_match = " OR ".join([f"teacher_id = %s" for _ in teacher_id_candidates])
+    teacher_id_match = " OR ".join([f"teacher_id = ?" for _ in teacher_id_candidates])
     conditions.append(f"({teacher_id_match})")
     params = teacher_id_candidates
 
     if teacher_names:
-        teacher_name_match = " OR ".join([f"teacher_name = %s" for _ in teacher_names])
+        teacher_name_match = " OR ".join([f"teacher_name = ?" for _ in teacher_names])
         conditions[-1] = conditions[-1][:-1] + f" OR {teacher_name_match})"
         params.extend(teacher_names)
 
@@ -1269,7 +1279,7 @@ def get_next_school_year(db: SQLiteMoralDatabase, current_year_id: int) -> Optio
         下一个学年信息，如果不存在则返回None
     """
     return db.query_one(
-        "SELECT * FROM school_year WHERE year_id = %s LIMIT 1",
+        "SELECT * FROM school_year WHERE year_id = ? LIMIT 1",
         (current_year_id + 1,)
     )
 
@@ -1310,18 +1320,18 @@ def get_or_create_current_semester(db: SQLiteMoralDatabase) -> Dict[str, Any]:
     year_name = f"{current_year}-{current_year + 1}学年"
 
     year = db.query_one(
-        "SELECT * FROM school_year WHERE year_name = %s",
+        "SELECT * FROM school_year WHERE year_name = ?",
         (year_name,)
     )
 
     if not year:
         db.execute(
             """INSERT INTO school_year (year_name, start_date, end_date, is_current)
-            VALUES (%s, %s, %s, 1)""",
+            VALUES (?, ?, ?, 1)""",
             (year_name, date(current_year, 9, 1), date(current_year + 1, 7, 15))
         )
         year = db.query_one(
-            "SELECT * FROM school_year WHERE year_name = %s",
+            "SELECT * FROM school_year WHERE year_name = ?",
             (year_name,)
         )
 
@@ -1331,7 +1341,7 @@ def get_or_create_current_semester(db: SQLiteMoralDatabase) -> Dict[str, Any]:
     semester_name = f"{current_year}-{current_year + 1}上"
     db.execute(
         """INSERT INTO semester (semester_name, year_id, start_date, end_date, status)
-        VALUES (%s, %s, %s, %s, 1)""",
+        VALUES (?, ?, ?, ?, 1)""",
         (semester_name, year_id, date(current_year, 9, 1), date(current_year + 1, 1, 20))
     )
 
@@ -1404,7 +1414,7 @@ def get_student_class_snapshot(db: SQLiteMoralDatabase, student_id: str) -> Opti
     """
     return db.query_one(
         """SELECT class_id, grade_id FROM student
-        WHERE student_id = %s AND status = '在校'""",
+        WHERE student_id = ? AND status = '在校'""",
         (student_id,)
     )
 
@@ -1444,7 +1454,7 @@ def log_operation(
         db.execute(
             """INSERT INTO moral_operation_log
             (operator, operator_role, operation, table_name, record_id, semester_id, old_data, new_data, reason, ip_address)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 operator,
                 operator_role,
