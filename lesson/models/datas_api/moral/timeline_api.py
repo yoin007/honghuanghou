@@ -57,17 +57,17 @@ async def search_students_for_timeline(
         if not check_moral_permission(user, 'profile_view_all'):
             my_class_id = get_teacher_class_id(user, db)
             if my_class_id:
-                conditions.append("s.class_id = %s")
+                conditions.append("s.class_id = ?")
                 params.append(my_class_id)
             else:
                 return {"success": True, "data": {"items": [], "total": 0}}
 
         if class_id:
-            conditions.append("s.class_id = %s")
+            conditions.append("s.class_id = ?")
             params.append(class_id)
 
         if student_name:
-            conditions.append("s.name LIKE %s")
+            conditions.append("s.name LIKE ?")
             params.append(f"%{student_name}%")
 
         where_clause = " AND ".join(conditions)
@@ -86,7 +86,7 @@ async def search_students_for_timeline(
             JOIN grade g ON s.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY s.status = '在校' DESC, c.class_name, s.student_id
-            LIMIT %s OFFSET %s
+            LIMIT %s OFFSET ?
         """
         params.extend([page_size, offset])
         students = db.query_all(data_query, tuple(params))
@@ -129,7 +129,7 @@ async def get_student_timeline(
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             JOIN grade g ON s.grade_id = g.grade_id
-            WHERE s.student_id = %s
+            WHERE s.student_id = ?
         """, (student_id,))
 
         if not student:
@@ -157,9 +157,9 @@ async def get_student_timeline(
                 SELECT mr.record_id, mr.content, mr.record_date, mr.record_type,
                        mr.tags, mr.recorder, 'moment' as source
                 FROM moment_record mr
-                WHERE mr.student_id = %s AND mr.is_private = 1
-                  AND (%s IS NULL OR mr.record_date >= %s)
-                  AND (%s IS NULL OR mr.record_date <= %s)
+                WHERE mr.student_id = ? AND mr.is_private = 1
+                  AND (%s IS NULL OR mr.record_date >= ?)
+                  AND (%s IS NULL OR mr.record_date <= ?)
                 ORDER BY mr.record_date DESC
             """, (student_id, start_date, start_date, end_date, end_date) if start_date or end_date else (student_id, None, None, None, None))
 
@@ -185,9 +185,9 @@ async def get_student_timeline(
                        dr.record_date, dr.remark, dr.recorder, 'daily' as source
                 FROM student_daily_record dr
                 JOIN daily_event_type de ON dr.event_id = de.event_id
-                WHERE dr.student_id = %s AND dr.is_deleted = 0
-                  AND (%s IS NULL OR dr.record_date >= %s)
-                  AND (%s IS NULL OR dr.record_date <= %s)
+                WHERE dr.student_id = ? AND dr.is_deleted = 0
+                  AND (%s IS NULL OR dr.record_date >= ?)
+                  AND (%s IS NULL OR dr.record_date <= ?)
                 ORDER BY dr.record_date DESC
             """, (student_id, start_date, start_date, end_date, end_date) if start_date or end_date else (student_id, None, None, None, None))
 
@@ -210,9 +210,9 @@ async def get_student_timeline(
                        ssr.proof, 'school' as source
                 FROM student_school_record ssr
                 JOIN school_event_type se ON ssr.event_id = se.event_id
-                WHERE ssr.student_id = %s AND ssr.is_deleted = 0
-                  AND (%s IS NULL OR ssr.get_date >= %s)
-                  AND (%s IS NULL OR ssr.get_date <= %s)
+                WHERE ssr.student_id = ? AND ssr.is_deleted = 0
+                  AND (%s IS NULL OR ssr.get_date >= ?)
+                  AND (%s IS NULL OR ssr.get_date <= ?)
                 ORDER BY ssr.get_date DESC
             """, (student_id, start_date, start_date, end_date, end_date) if start_date or end_date else (student_id, None, None, None, None))
 
@@ -233,7 +233,7 @@ async def get_student_timeline(
                 SELECT pr.id, pr.level, pr.reason, pr.punishment_date,
                        pr.revoke_date, 'punishment' as source
                 FROM punishment_record pr
-                WHERE pr.student_id = %s AND pr.is_revoked = 0
+                WHERE pr.student_id = ? AND pr.is_revoked = 0
                 ORDER BY pr.punishment_date DESC
             """, (student_id,))
 
@@ -256,7 +256,7 @@ async def get_student_timeline(
                        stf.current_score, 'task' as source
                 FROM student_task_finish stf
                 JOIN grade_moral_task mt ON stf.task_id = mt.task_id
-                WHERE stf.student_id = %s AND stf.status = 1
+                WHERE stf.student_id = ? AND stf.status = 1
                 ORDER BY stf.finish_date DESC
             """, (student_id,))
 
@@ -367,7 +367,7 @@ def _get_timeline_data(db, student_id: str, user: User):
         FROM student s
         JOIN class c ON s.class_id = c.class_id
         JOIN grade g ON s.grade_id = g.grade_id
-        WHERE s.student_id = %s
+        WHERE s.student_id = ?
     """, (student_id,))
 
     if not student:
@@ -391,7 +391,7 @@ def _get_timeline_data(db, student_id: str, user: User):
         SELECT mr.record_id, mr.content, mr.record_date, mr.record_type,
                mr.tags, mr.recorder, 'moment' as source
         FROM moment_record mr
-        WHERE mr.student_id = %s AND mr.is_private = 1
+        WHERE mr.student_id = ? AND mr.is_private = 1
         ORDER BY mr.record_date DESC
     """, (student_id,))
 
@@ -414,7 +414,7 @@ def _get_timeline_data(db, student_id: str, user: User):
                dr.record_date, dr.remark, dr.recorder, 'daily' as source
         FROM student_daily_record dr
         JOIN daily_event_type de ON dr.event_id = de.event_id
-        WHERE dr.student_id = %s AND dr.is_deleted = 0
+        WHERE dr.student_id = ? AND dr.is_deleted = 0
         ORDER BY dr.record_date DESC
     """, (student_id,))
 
@@ -436,7 +436,7 @@ def _get_timeline_data(db, student_id: str, user: User):
                ssr.proof, 'school' as source
         FROM student_school_record ssr
         JOIN school_event_type se ON ssr.event_id = se.event_id
-        WHERE ssr.student_id = %s AND ssr.is_deleted = 0
+        WHERE ssr.student_id = ? AND ssr.is_deleted = 0
         ORDER BY ssr.get_date DESC
     """, (student_id,))
 
@@ -456,7 +456,7 @@ def _get_timeline_data(db, student_id: str, user: User):
         SELECT pr.id, pr.punishment_date, pr.level, pr.reason, pr.score_deduct,
                pr.is_revoked, pr.revoke_date, 'punishment' as source
         FROM punishment_record pr
-        WHERE pr.student_id = %s
+        WHERE pr.student_id = ?
         ORDER BY pr.punishment_date DESC
     """, (student_id,))
 
@@ -478,7 +478,7 @@ def _get_timeline_data(db, student_id: str, user: User):
                stf.current_score, stf.status, 'task' as source
         FROM student_task_finish stf
         JOIN grade_moral_task mt ON stf.task_id = mt.task_id
-        WHERE stf.student_id = %s AND stf.status != 2
+        WHERE stf.student_id = ? AND stf.status != 2
         ORDER BY stf.finish_date DESC
     """, (student_id,))
 
@@ -603,7 +603,7 @@ async def export_class_lifebooks(
         students = db.query_all("""
             SELECT s.student_id, s.name, s.class_name
             FROM student s
-            WHERE s.class_id = %s AND s.status = '在校'
+            WHERE s.class_id = ? AND s.status = '在校'
             ORDER BY s.student_id
         """, (class_id,))
 
@@ -611,7 +611,7 @@ async def export_class_lifebooks(
             raise HTTPException(404, "班级无在校学生")
 
         # 获取班级名称
-        class_info = db.query_one("SELECT class_name FROM class WHERE class_id = %s", (class_id,))
+        class_info = db.query_one("SELECT class_name FROM class WHERE class_id = ?", (class_id,))
         class_name = class_info['class_name'] if class_info else f"class_{class_id}"
 
         # 批量生成 Excel

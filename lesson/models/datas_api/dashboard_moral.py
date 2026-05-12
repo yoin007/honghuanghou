@@ -89,7 +89,7 @@ def daily_record_trend(db, where_clause: str, params: tuple) -> List[Dict[str, o
         f"""SELECT dr.record_date, COUNT(*) AS count
             FROM student_daily_record dr
             JOIN student s ON dr.student_id = s.student_id
-            WHERE dr.is_deleted = 0 AND dr.record_date >= %s AND {where_clause}
+            WHERE dr.is_deleted = 0 AND dr.record_date >= ? AND {where_clause}
             GROUP BY dr.record_date
             ORDER BY dr.record_date ASC""",
         (start.isoformat(), *params),
@@ -144,10 +144,10 @@ def class_score_rank_all(db, class_filter: str = None, grade_filter: int = None,
     params = []
 
     if class_filter:
-        conditions.append("c.class_name = %s")
+        conditions.append("c.class_name = ?")
         params.append(class_filter)
     elif grade_filter:
-        conditions.append("c.grade_id = %s")
+        conditions.append("c.grade_id = ?")
         params.append(grade_filter)
 
     where_clause = " AND ".join(conditions)

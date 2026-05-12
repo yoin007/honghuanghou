@@ -73,11 +73,11 @@ async def get_moral_tasks(
         params = []
 
         if grade_id:
-            query += " AND t.grade_id = %s"
+            query += " AND t.grade_id = ?"
             params.append(grade_id)
 
         if is_active is not None:
-            query += " AND t.is_active = %s"
+            query += " AND t.is_active = ?"
             params.append(is_active)
 
         query += " ORDER BY g.enrollment_year DESC, t.score DESC"
@@ -115,7 +115,7 @@ async def create_moral_task(
             """INSERT INTO grade_moral_task
             (grade_id, task_name, task_desc, score, task_type, start_date, end_date,
              deadline_type, can_carryover, is_required)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (task.grade_id, task.task_name, task.description, task.score, task.task_type or 1,
              task.start_date, task.end_date, deadline_type, task.can_carryover or 1, 1)
         )
@@ -125,7 +125,7 @@ async def create_moral_task(
         # 查询该年级所有在校学生
         students = db.query_all(
             """SELECT student_id, class_id FROM student
-               WHERE grade_id = %s AND status = '在校'""",
+               WHERE grade_id = ? AND status = '在校'""",
             (task.grade_id,)
         )
 
@@ -137,7 +137,7 @@ async def create_moral_task(
                     """INSERT INTO student_task_finish
                     (student_id, task_id, year_id, status, current_score,
                      carryover_count, is_carried_over)
-                    VALUES (%s, %s, %s, 0, %s, 0, 0)""",
+                    VALUES (?, ?, ?, 0, ?, 0, 0)""",
                     (student['student_id'], task_id, year_id, task.score)
                 )
                 initialized_count += 1
@@ -171,7 +171,7 @@ async def update_moral_task(
     """更新德育任务"""
     with get_moral_db() as db:
         old_task = db.query_one(
-            "SELECT * FROM grade_moral_task WHERE task_id = %s",
+            "SELECT * FROM grade_moral_task WHERE task_id = ?",
             (task_id,)
         )
         if not old_task:
@@ -184,9 +184,9 @@ async def update_moral_task(
 
         db.execute(
             """UPDATE grade_moral_task SET
-            grade_id = %s, task_name = %s, task_desc = %s, score = %s, task_type = %s,
-            start_date = %s, end_date = %s, deadline_type = %s, can_carryover = %s
-            WHERE task_id = %s""",
+            grade_id = ?, task_name = ?, task_desc = ?, score = ?, task_type = ?,
+            start_date = ?, end_date = ?, deadline_type = ?, can_carryover = ?
+            WHERE task_id = ?""",
             (task.grade_id, task.task_name, task.description, task.score, task.task_type or old_task['task_type'] or 1,
              task.start_date, task.end_date, deadline_type, task.can_carryover or old_task['can_carryover'],
              task_id)
@@ -209,7 +209,7 @@ async def delete_moral_task(
     """删除德育任务（软删除）"""
     with get_moral_db() as db:
         db.execute(
-            "UPDATE grade_moral_task SET is_active = 0 WHERE task_id = %s",
+            "UPDATE grade_moral_task SET is_active = 0 WHERE task_id = ?",
             (task_id,)
         )
 
@@ -240,15 +240,15 @@ async def get_task_finish_records(
         params = []
 
         if student_id:
-            conditions.append("stf.student_id = %s")
+            conditions.append("stf.student_id = ?")
             params.append(student_id)
 
         if grade_id:
-            conditions.append("t.grade_id = %s")
+            conditions.append("t.grade_id = ?")
             params.append(grade_id)
 
         if status is not None:
-            conditions.append("stf.status = %s")
+            conditions.append("stf.status = ?")
             params.append(status)
 
         where_clause = " AND ".join(conditions)
@@ -271,7 +271,7 @@ async def get_task_finish_records(
             JOIN grade g ON s.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY stf.created_at DESC
-            LIMIT %s OFFSET %s
+            LIMIT %s OFFSET ?
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))
@@ -308,7 +308,7 @@ async def finish_task(
 
         # 获取任务信息
         task = db.query_one(
-            "SELECT * FROM grade_moral_task WHERE task_id = %s AND is_active = 1",
+            "SELECT * FROM grade_moral_task WHERE task_id = ? AND is_active = 1",
             (record.task_id,)
         )
         if not task:
@@ -316,7 +316,7 @@ async def finish_task(
 
         # 检查学生是否存在
         student = db.query_one(
-            "SELECT * FROM student WHERE student_id = %s AND status = '在校'",
+            "SELECT * FROM student WHERE student_id = ? AND status = '在校'",
             (record.student_id,)
         )
         if not student:
@@ -330,7 +330,7 @@ async def finish_task(
         # 检查是否已有记录
         existing = db.query_one(
             """SELECT * FROM student_task_finish
-            WHERE student_id = %s AND task_id = %s AND year_id = %s""",
+            WHERE student_id = ? AND task_id = ? AND year_id = ?""",
             (record.student_id, record.task_id, year_id)
         )
 
@@ -342,8 +342,8 @@ async def finish_task(
             finish_date = record.finish_date or date.today()
             db.execute(
                 """UPDATE student_task_finish SET
-                status = 1, finish_date = %s, finish_year_id = %s, proof = %s
-                WHERE id = %s""",
+                status = 1, finish_date = ?, finish_year_id = ?, proof = ?
+                WHERE id = ?""",
                 (finish_date, year_id, record.remark, existing['id'])
             )
 
@@ -358,7 +358,7 @@ async def finish_task(
             db.execute(
                 """INSERT INTO student_task_finish
                 (student_id, task_id, year_id, status, finish_date, finish_year_id, proof, current_score)
-                VALUES (%s, %s, %s, 1, %s, %s, %s, %s)""",
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?)""",
                 (record.student_id, record.task_id, year_id, finish_date, year_id, record.remark, task['score'])
             )
             finish_id = db.lastrowid()
@@ -417,7 +417,7 @@ async def batch_finish_task(
 
         # 获取任务信息
         task = db.query_one(
-            "SELECT * FROM grade_moral_task WHERE task_id = %s AND is_active = 1",
+            "SELECT * FROM grade_moral_task WHERE task_id = ? AND is_active = 1",
             (request.task_id,)
         )
         if not task:
@@ -430,7 +430,7 @@ async def batch_finish_task(
                 """SELECT stf.id, stf.student_id, s.class_id, s.grade_id
                    FROM student_task_finish stf
                    JOIN student s ON stf.student_id = s.student_id
-                   WHERE stf.task_id = %s AND stf.status = 0 AND s.class_id = %s""",
+                   WHERE stf.task_id = ? AND stf.status = 0 AND s.class_id = ?""",
                 (request.task_id, request.class_id)
             )
         elif request.student_ids:
@@ -439,8 +439,8 @@ async def batch_finish_task(
                 """SELECT stf.id, stf.student_id, s.class_id, s.grade_id
                    FROM student_task_finish stf
                    JOIN student s ON stf.student_id = s.student_id
-                   WHERE stf.task_id = %s AND stf.status = 0
-                   AND stf.student_id IN (%s)""",
+                   WHERE stf.task_id = ? AND stf.status = 0
+                   AND stf.student_id IN (?)""",
                 (request.task_id, ','.join(request.student_ids))
             )
         else:
@@ -456,8 +456,8 @@ async def batch_finish_task(
         for record in unfinished:
             db.execute(
                 """UPDATE student_task_finish SET
-                status = 1, finish_date = %s, finish_year_id = %s, proof = %s
-                WHERE id = %s""",
+                status = 1, finish_date = ?, finish_year_id = ?, proof = ?
+                WHERE id = ?""",
                 (finish_date, year_id, request.remark, record['id'])
             )
             updated_count += 1
@@ -544,7 +544,7 @@ async def batch_import_moral_tasks(
                 # 检查是否已存在相同任务
                 existing = db.query_one(
                     """SELECT task_id FROM grade_moral_task
-                    WHERE grade_id = %s AND task_name = %s AND is_active = 1""",
+                    WHERE grade_id = ? AND task_name = ? AND is_active = 1""",
                     (grade_id, item.task_name)
                 )
                 if existing:
@@ -554,7 +554,7 @@ async def batch_import_moral_tasks(
                 db.execute(
                     """INSERT INTO grade_moral_task
                     (grade_id, task_name, task_desc, score, deadline_type, is_required, is_active)
-                    VALUES (%s, %s, %s, %s, %s, %s, 1)""",
+                    VALUES (?, ?, ?, ?, ?, ?, 1)""",
                     (grade_id, item.task_name, item.task_desc or "", item.score, deadline_type, is_required)
                 )
                 success_count += 1

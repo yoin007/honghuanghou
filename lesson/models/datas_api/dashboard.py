@@ -161,7 +161,7 @@ async def get_moral_dashboard_summary(
         if not _is_moral_manager(user) and has_user_role(user, "cleader") and not has_user_role(user, "g_leader"):
             my_class_id = get_teacher_class_id(user, db)
             if my_class_id:
-                class_info = db.query_one("SELECT class_name FROM class WHERE class_id = %s", (my_class_id,))
+                class_info = db.query_one("SELECT class_name FROM class WHERE class_id = ?", (my_class_id,))
                 if class_info:
                     class_filter = class_info["class_name"]
 
@@ -180,7 +180,7 @@ async def get_moral_dashboard_summary(
             if not my_class_id:
                 conditions.append("1 = 0")
             else:
-                conditions.append("s.class_id = %s")
+                conditions.append("s.class_id = ?")
                 params.append(my_class_id)
 
         where_clause = " AND ".join(conditions)
@@ -454,6 +454,7 @@ async def get_class_dashboard_summary(
     """
     top_n = _normalize_top_n(top_n)
     with get_moral_db() as db:
+        class_id_resolved_from_owner = False
         if not isinstance(class_id, int):
             class_id = None
 
@@ -463,6 +464,7 @@ async def get_class_dashboard_summary(
                 class_id = get_teacher_class_id(user, db)
                 if not class_id:
                     raise HTTPException(status_code=403, detail="未找到班主任班级")
+                class_id_resolved_from_owner = True
             elif _is_moral_manager(user) or _is_jiaowu(user):
                 # 教务/管理员默认第一个班级
                 first_class = db.query_one("SELECT class_id FROM class WHERE is_active = 1 ORDER BY class_id LIMIT 1")
@@ -476,13 +478,15 @@ async def get_class_dashboard_summary(
         if not (_is_moral_manager(user) or _is_jiaowu(user)):
             if not has_user_role(user, "cleader"):
                 raise HTTPException(status_code=403, detail="无班级驾驶舱权限")
-            # 支持多人班主任：检查用户是否是该班级的班主任
-            from .moral.base import is_class_leader
-            if not is_class_leader(user, class_id, db):
-                raise HTTPException(status_code=403, detail="只能查看自己班级的驾驶舱")
+            # 默认班级已经由“当前班主任 -> 自己班级”解析；显式指定班级时再做越权校验。
+            if not class_id_resolved_from_owner:
+                from .moral.base import is_class_leader
+                own_class_id = get_teacher_class_id(user, db)
+                if own_class_id != class_id and not is_class_leader(user, class_id, db):
+                    raise HTTPException(status_code=403, detail="只能查看自己班级的驾驶舱")
 
         # 班级基础信息
-        class_info = db.query_one("SELECT * FROM class WHERE class_id = %s AND is_active = 1", (class_id,))
+        class_info = db.query_one("SELECT * FROM class WHERE class_id = ? AND is_active = 1", (class_id,))
         if not class_info:
             raise HTTPException(status_code=404, detail="班级不存在")
 
@@ -490,7 +494,7 @@ async def get_class_dashboard_summary(
 
         # 学生统计
         students = db.query_all(
-            "SELECT student_id, name, gender, birthday FROM student WHERE class_id = %s AND status = '在校'",
+            "SELECT student_id, name, gender, birthday FROM student WHERE class_id = ? AND status = '在校'",
             (class_id,)
         )
 
@@ -503,7 +507,7 @@ async def get_class_dashboard_summary(
                 COUNT(*) AS evaluated_count,
                 SUM(CASE WHEN total_score < 60 THEN 1 ELSE 0 END) AS low_count,
                 SUM(CASE WHEN total_score >= 60 THEN 1 ELSE 0 END) AS pass_count
-            FROM moral_evaluation WHERE class_id = %s""",
+            FROM moral_evaluation WHERE class_id = ?""",
             (class_id,)
         )
         class_stats = _compute_class_stats(students, eval_stats)
@@ -519,8 +523,8 @@ async def get_class_dashboard_summary(
             """SELECT s.student_id, s.name, me.total_score
             FROM moral_evaluation me
             JOIN student s ON me.student_id = s.student_id
-            WHERE me.class_id = %s AND me.total_score < 60
-            ORDER BY me.total_score ASC LIMIT %s""",
+            WHERE me.class_id = ? AND me.total_score < 60
+            ORDER BY me.total_score ASC LIMIT ?""",
             (class_id, top_n)
         )
 
@@ -642,7 +646,7 @@ async def get_grade_list(user: User = Depends(get_current_user)):
             grade_name = g["grade_name"] or ""
             # 获取该年级下的班级数
             class_count = db.query_value(
-                "SELECT COUNT(*) FROM class WHERE is_active = 1 AND grade_id = %s",
+                "SELECT COUNT(*) FROM class WHERE is_active = 1 AND grade_id = ?",
                 (g["grade_id"],)
             ) or 0
             grade_list.append({
@@ -694,7 +698,7 @@ async def get_grade_dashboard_summary(
                 grade_names = {"高一": "高一年级", "高二": "高二年级", "高三": "高三年级"}
                 grade_name = grade_names.get(grade_id, grade_id)
                 grade_row = db.query_one(
-                    "SELECT grade_id, grade_name FROM grade WHERE grade_name = %s OR grade_name = %s",
+                    "SELECT grade_id, grade_name FROM grade WHERE grade_name = ? OR grade_name = ?",
                     (grade_name, grade_id + "年级" if not grade_id.endswith("级") else grade_id)
                 )
                 if grade_row:
@@ -717,7 +721,7 @@ async def get_grade_dashboard_summary(
 
         # 获取年级信息
         grade_row = db.query_one(
-            "SELECT grade_id, grade_name FROM grade WHERE grade_id = %s",
+            "SELECT grade_id, grade_name FROM grade WHERE grade_id = ?",
             (grade_id_int,)
         )
         grade_name = grade_row["grade_name"] if grade_row else "未知年级"
@@ -730,14 +734,14 @@ async def get_grade_dashboard_summary(
         # 获取年级下所有班级（通过 grade_id 关联）
         if grade_id_int:
             classes = db.query_all(
-                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND grade_id = %s",
+                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND grade_id = ?",
                 (grade_id_int,)
             )
         else:
             # 兜底：用班级名匹配
             grade_filter = f"%{grade_id}%"
             classes = db.query_all(
-                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND class_name LIKE %s",
+                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND class_name LIKE ?",
                 (grade_filter,)
             )
         class_ids = [c["class_id"] for c in classes]

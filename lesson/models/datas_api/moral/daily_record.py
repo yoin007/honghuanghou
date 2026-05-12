@@ -160,11 +160,11 @@ async def get_daily_event_types(
         params = []
 
         if event_type is not None:
-            query += " AND event_type = %s"
+            query += " AND event_type = ?"
             params.append(event_type)
 
         if is_active is not None:
-            query += " AND is_active = %s"
+            query += " AND is_active = ?"
             params.append(is_active)
 
         query += " ORDER BY event_type, score DESC"
@@ -210,31 +210,31 @@ async def get_daily_records(
         params = []
 
         if student_id:
-            conditions.append("dr.student_id = %s")
+            conditions.append("dr.student_id = ?")
             params.append(student_id)
 
         if class_id:
-            conditions.append("dr.class_id = %s")
+            conditions.append("dr.class_id = ?")
             params.append(class_id)
 
         if grade_id:
-            conditions.append("dr.grade_id = %s")
+            conditions.append("dr.grade_id = ?")
             params.append(grade_id)
 
         if semester_id:
-            conditions.append("dr.semester_id = %s")
+            conditions.append("dr.semester_id = ?")
             params.append(semester_id)
 
         if event_type is not None:
-            conditions.append("de.event_type = %s")
+            conditions.append("de.event_type = ?")
             params.append(event_type)
 
         if start_date:
-            conditions.append("dr.record_date >= %s")
+            conditions.append("dr.record_date >= ?")
             params.append(start_date)
 
         if end_date:
-            conditions.append("dr.record_date <= %s")
+            conditions.append("dr.record_date <= ?")
             params.append(end_date)
 
         # 权限过滤：API 控制入口，数据范围控制能查看哪些记录。
@@ -261,10 +261,10 @@ async def get_daily_records(
             scope_params = []
 
             if scope == "own":
-                scope_conditions.append("dr.recorder = %s")
+                scope_conditions.append("dr.recorder = ?")
                 scope_params.append(user.username)
             elif scope == "own_class" and view_scope.get("my_class_id"):
-                scope_conditions.append("dr.class_id = %s")
+                scope_conditions.append("dr.class_id = ?")
                 scope_params.append(view_scope["my_class_id"])
             elif scope == "own_grade":
                 my_grade_class_ids = view_scope.get("my_grade_class_ids") or []
@@ -317,7 +317,7 @@ async def get_daily_records(
             LEFT JOIN teacher t ON dr.recorder = t.name
             WHERE {where_clause}
             ORDER BY dr.record_date DESC, dr.created_at DESC
-            LIMIT %s OFFSET %s
+            LIMIT %s OFFSET ?
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))
@@ -387,7 +387,7 @@ async def create_daily_record(
 
         # 获取事件类型
         event = db.query_one(
-            "SELECT * FROM daily_event_type WHERE event_id = %s AND is_active = 1",
+            "SELECT * FROM daily_event_type WHERE event_id = ? AND is_active = 1",
             (record.event_id,)
         )
         if not event:
@@ -397,7 +397,7 @@ async def create_daily_record(
         db.execute(
             """INSERT INTO student_daily_record
             (student_id, event_id, semester_id, record_date, class_id, grade_id, score, remark, recorder)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record.student_id,
                 record.event_id,
@@ -510,7 +510,7 @@ async def batch_create_daily_records(
 
                 # 获取事件类型
                 event = db.query_one(
-                    "SELECT * FROM daily_event_type WHERE event_id = %s AND is_active = 1",
+                    "SELECT * FROM daily_event_type WHERE event_id = ? AND is_active = 1",
                     (record.event_id,)
                 )
                 if not event:
@@ -521,7 +521,7 @@ async def batch_create_daily_records(
                 db.execute(
                     """INSERT INTO student_daily_record
                     (student_id, event_id, semester_id, record_date, class_id, grade_id, score, remark, recorder)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         record.student_id,
                         record.event_id,
@@ -593,7 +593,7 @@ async def update_daily_record(
 
         # 获取原记录
         old_record = db.query_one(
-            "SELECT * FROM student_daily_record WHERE record_id = %s",
+            "SELECT * FROM student_daily_record WHERE record_id = ?",
             (record_id,)
         )
         if not old_record:
@@ -607,11 +607,11 @@ async def update_daily_record(
         params = []
 
         if update_data.remark is not None:
-            updates.append("remark = %s")
+            updates.append("remark = ?")
             params.append(update_data.remark)
 
         if update_data.is_deleted is not None:
-            updates.append("is_deleted = %s")
+            updates.append("is_deleted = ?")
             params.append(update_data.is_deleted)
 
         if not updates:
@@ -619,7 +619,7 @@ async def update_daily_record(
 
         params.append(record_id)
         db.execute(
-            f"UPDATE student_daily_record SET {', '.join(updates)} WHERE record_id = %s",
+            f"UPDATE student_daily_record SET {', '.join(updates)} WHERE record_id = ?",
             tuple(params)
         )
 
@@ -657,7 +657,7 @@ async def delete_daily_record(
 
         # 获取原记录
         old_record = db.query_one(
-            "SELECT * FROM student_daily_record WHERE record_id = %s",
+            "SELECT * FROM student_daily_record WHERE record_id = ?",
             (record_id,)
         )
 
@@ -669,7 +669,7 @@ async def delete_daily_record(
 
         # 软删除
         db.execute(
-            "UPDATE student_daily_record SET is_deleted = 1 WHERE record_id = %s",
+            "UPDATE student_daily_record SET is_deleted = 1 WHERE record_id = ?",
             (record_id,)
         )
 
@@ -708,7 +708,7 @@ async def get_student_daily_statistics(
             """SELECT COUNT(*) as count, SUM(score) as total_score
             FROM student_daily_record dr
             JOIN daily_event_type de ON dr.event_id = de.event_id
-            WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+            WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
             AND de.event_type = 1""",
             (student_id, semester_id)
         )
@@ -718,7 +718,7 @@ async def get_student_daily_statistics(
             """SELECT COUNT(*) as count, SUM(ABS(score)) as total_score
             FROM student_daily_record dr
             JOIN daily_event_type de ON dr.event_id = de.event_id
-            WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+            WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
             AND de.event_type = 2""",
             (student_id, semester_id)
         )
@@ -728,7 +728,7 @@ async def get_student_daily_statistics(
             """SELECT de.event_name, de.event_type, COUNT(*) as count, SUM(dr.score) as total_score
             FROM student_daily_record dr
             JOIN daily_event_type de ON dr.event_id = de.event_id
-            WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+            WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
             GROUP BY de.event_id
             ORDER BY count DESC""",
             (student_id, semester_id)
@@ -762,7 +762,7 @@ async def create_daily_event_type(
     with get_moral_db() as db:
         # 检查是否已存在同名事件
         existing = db.query_one(
-            "SELECT event_id FROM daily_event_type WHERE event_name = %s",
+            "SELECT event_id FROM daily_event_type WHERE event_name = ?",
             (event_type.event_name,)
         )
         if existing:
@@ -773,7 +773,7 @@ async def create_daily_event_type(
 
         db.execute(
             """INSERT INTO daily_event_type (event_name, event_type, score, description, is_active)
-            VALUES (%s, %s, %s, %s, 1)""",
+            VALUES (?, ?, ?, ?, 1)""",
             (event_type.event_name, event_type.event_type, score, event_type.description)
         )
 
@@ -803,7 +803,7 @@ async def update_daily_event_type(
     with get_moral_db() as db:
         # 获取原记录
         old_type = db.query_one(
-            "SELECT * FROM daily_event_type WHERE event_id = %s",
+            "SELECT * FROM daily_event_type WHERE event_id = ?",
             (type_id,)
         )
         if not old_type:
@@ -816,33 +816,33 @@ async def update_daily_event_type(
         if update_data.event_name is not None:
             # 检查名称是否重复
             existing = db.query_one(
-                "SELECT event_id FROM daily_event_type WHERE event_name = %s AND event_id != %s",
+                "SELECT event_id FROM daily_event_type WHERE event_name = ? AND event_id != ?",
                 (update_data.event_name, type_id)
             )
             if existing:
                 raise HTTPException(400, f"事件类型 '{update_data.event_name}' 已存在")
-            updates.append("event_name = %s")
+            updates.append("event_name = ?")
             params.append(update_data.event_name)
 
         # 获取最终的事件类型（新值或原值）
         final_event_type = update_data.event_type if update_data.event_type is not None else old_type['event_type']
 
         if update_data.event_type is not None:
-            updates.append("event_type = %s")
+            updates.append("event_type = ?")
             params.append(update_data.event_type)
 
         if update_data.score is not None:
             # 分值正负与事件类型一致
             score = abs(update_data.score) if final_event_type == 1 else -abs(update_data.score)
-            updates.append("score = %s")
+            updates.append("score = ?")
             params.append(score)
 
         if update_data.description is not None:
-            updates.append("description = %s")
+            updates.append("description = ?")
             params.append(update_data.description)
 
         if update_data.is_active is not None:
-            updates.append("is_active = %s")
+            updates.append("is_active = ?")
             params.append(update_data.is_active)
 
         if not updates:
@@ -850,7 +850,7 @@ async def update_daily_event_type(
 
         params.append(type_id)
         db.execute(
-            f"UPDATE daily_event_type SET {', '.join(updates)} WHERE event_id = %s",
+            f"UPDATE daily_event_type SET {', '.join(updates)} WHERE event_id = ?",
             tuple(params)
         )
 
@@ -878,7 +878,7 @@ async def delete_daily_event_type(
     with get_moral_db() as db:
         # 获取原记录
         old_type = db.query_one(
-            "SELECT * FROM daily_event_type WHERE event_id = %s",
+            "SELECT * FROM daily_event_type WHERE event_id = ?",
             (type_id,)
         )
         if not old_type:
@@ -886,14 +886,14 @@ async def delete_daily_event_type(
 
         # 检查是否有关联记录
         record_count = db.query_value(
-            "SELECT COUNT(*) FROM student_daily_record WHERE event_id = %s",
+            "SELECT COUNT(*) FROM student_daily_record WHERE event_id = ?",
             (type_id,)
         )
 
         if record_count > 0:
             # 有关联记录，只禁用不删除
             db.execute(
-                "UPDATE daily_event_type SET is_active = 0 WHERE event_id = %s",
+                "UPDATE daily_event_type SET is_active = 0 WHERE event_id = ?",
                 (type_id,)
             )
             log_operation(
@@ -905,7 +905,7 @@ async def delete_daily_event_type(
         else:
             # 无关联记录，直接删除
             db.execute(
-                "DELETE FROM daily_event_type WHERE event_id = %s",
+                "DELETE FROM daily_event_type WHERE event_id = ?",
                 (type_id,)
             )
             log_operation(
@@ -951,7 +951,7 @@ async def batch_import_daily_event_types(
 
                 # 检查是否已存在
                 existing = db.query_one(
-                    "SELECT event_id FROM daily_event_type WHERE event_name = %s",
+                    "SELECT event_id FROM daily_event_type WHERE event_name = ?",
                     (item.event_name,)
                 )
                 if existing:
@@ -963,7 +963,7 @@ async def batch_import_daily_event_types(
 
                 db.execute(
                     """INSERT INTO daily_event_type (event_name, event_type, score, description, is_active)
-                    VALUES (%s, %s, %s, %s, 1)""",
+                    VALUES (?, ?, ?, ?, 1)""",
                     (item.event_name, event_type_num, score, item.description or "")
                 )
                 success_count += 1
@@ -1010,7 +1010,7 @@ def check_related_punishments(db, record_id: int, student_id: str, event_id: int
     punishments = db.query_all(
         """SELECT id, student_id, event_id, semester_id, source_record_ids, reason, is_revoked
         FROM punishment_record
-        WHERE student_id = %s AND event_id = %s AND semester_id = %s
+        WHERE student_id = ? AND event_id = ? AND semester_id = ?
         AND is_revoked = 0 AND source_record_ids IS NOT NULL""",
         (student_id, event_id, semester_id)
     )
@@ -1026,7 +1026,7 @@ def check_related_punishments(db, record_id: int, student_id: str, event_id: int
 
         # 2. 从累进规则获取阈值
         rule = db.query_one(
-            """SELECT escalation_rules FROM violation_escalation_rule WHERE event_id = %s""",
+            """SELECT escalation_rules FROM violation_escalation_rule WHERE event_id = ?""",
             (event_id,)
         )
 
@@ -1053,7 +1053,7 @@ def check_related_punishments(db, record_id: int, student_id: str, event_id: int
 
         # 获取处分日期作为基准
         punishment_date = db.query_value(
-            "SELECT punishment_date FROM punishment_record WHERE id = %s",
+            "SELECT punishment_date FROM punishment_record WHERE id = ?",
             (p['id'],)
         )
 
@@ -1068,9 +1068,9 @@ def check_related_punishments(db, record_id: int, student_id: str, event_id: int
 
             valid_count = db.query_value(
                 """SELECT COUNT(*) FROM student_daily_record
-                WHERE student_id = %s AND event_id = %s
-                AND strftime('%Y-%m-%d', record_date) >= %s
-                AND strftime('%Y-%m-%d', record_date) <= %s
+                WHERE student_id = ? AND event_id = ?
+                AND strftime('%Y-%m-%d', record_date) >= ?
+                AND strftime('%Y-%m-%d', record_date) <= ?
                 AND is_deleted = 0""",
                 (student_id, event_id, window_start.strftime('%Y-%m-%d'), base_date.strftime('%Y-%m-%d'))
             ) or 0
@@ -1081,7 +1081,7 @@ def check_related_punishments(db, record_id: int, student_id: str, event_id: int
         if valid_count < threshold:
             # 标记待复核
             db.execute(
-                """UPDATE punishment_record SET review_status = 1 WHERE id = %s""",
+                """UPDATE punishment_record SET review_status = 1 WHERE id = ?""",
                 (p['id'],)
             )
             logger.info(f"处分 {p['id']} 已标记待复核：有效次数 {valid_count} < 阈值 {threshold}")

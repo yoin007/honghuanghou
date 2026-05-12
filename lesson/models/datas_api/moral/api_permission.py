@@ -451,7 +451,7 @@ def ensure_api_permission_schema(db) -> None:
             continue
         module_key = _module_key_from_group(group_name)
         existing = db.query_one(
-            "SELECT id FROM api_permission_module WHERE module_key = %s OR module_name = %s ORDER BY id LIMIT 1",
+            "SELECT id FROM api_permission_module WHERE module_key = ? OR module_name = ? ORDER BY id LIMIT 1",
             (module_key, group_name),
         )
         if not existing:
@@ -459,7 +459,7 @@ def ensure_api_permission_schema(db) -> None:
             db.execute(
                 """INSERT INTO api_permission_module
                 (module_key, module_name, allowed_roles, min_level, policy_mode, description)
-                VALUES (%s, %s, %s, %s, %s, %s)""",
+                VALUES (?, ?, ?, ?, ?, ?)""",
                 (
                     module_key,
                     group_name,
@@ -474,7 +474,7 @@ def ensure_api_permission_schema(db) -> None:
             module_id = existing["id"]
 
         db.execute(
-            "UPDATE api_permission_config SET module_id = %s WHERE api_group = %s AND module_id IS NULL",
+            "UPDATE api_permission_config SET module_id = ? WHERE api_group = ? AND module_id IS NULL",
             (module_id, group_name),
         )
 
@@ -490,16 +490,16 @@ def _backfill_default_scope_rules(db) -> None:
     for api_path, rules in DEFAULT_DATA_SCOPE_RULES.items():
         db.execute(
             """UPDATE api_permission_config
-               SET data_scope_rules = %s
-               WHERE api_path = %s
+               SET data_scope_rules = ?
+               WHERE api_path = ?
                  AND (data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}')""",
             (_json_dict_dump(rules), api_path),
         )
     for api_path, rules in DEFAULT_TARGET_SCOPE_RULES.items():
         db.execute(
             """UPDATE api_permission_config
-               SET target_scope_rules = %s
-               WHERE api_path = %s
+               SET target_scope_rules = ?
+               WHERE api_path = ?
                  AND (target_scope_rules IS NULL OR target_scope_rules = '' OR target_scope_rules = '{}')""",
             (_json_dict_dump(rules), api_path),
         )
@@ -519,7 +519,7 @@ def _fix_incorrect_scope_rules(db) -> None:
     # 修复 target_scope_rules
     for api_path in ["/api/moral/daily-records/create", "/api/moral/moment-records/create"]:
         config = db.query_one(
-            "SELECT target_scope_rules FROM api_permission_config WHERE api_path = %s",
+            "SELECT target_scope_rules FROM api_permission_config WHERE api_path = ?",
             (api_path,)
         )
         if not config:
@@ -539,7 +539,7 @@ def _fix_incorrect_scope_rules(db) -> None:
             rules["g_leader"] = ["g_leader_grade"]
 
         db.execute(
-            "UPDATE api_permission_config SET target_scope_rules = %s WHERE api_path = %s",
+            "UPDATE api_permission_config SET target_scope_rules = ? WHERE api_path = ?",
             (_json_dict_dump(rules), api_path),
         )
 
@@ -563,7 +563,7 @@ def _fix_incorrect_scope_rules(db) -> None:
 
     for api_path in apis_need_g_leader:
         config = db.query_one(
-            "SELECT data_scope_rules FROM api_permission_config WHERE api_path = %s",
+            "SELECT data_scope_rules FROM api_permission_config WHERE api_path = ?",
             (api_path,)
         )
         if not config:
@@ -605,7 +605,7 @@ def _fix_incorrect_scope_rules(db) -> None:
                     rules["g_leader"] = ["own_created", "g_leader_grade"]
 
             db.execute(
-                "UPDATE api_permission_config SET data_scope_rules = %s WHERE api_path = %s",
+                "UPDATE api_permission_config SET data_scope_rules = ? WHERE api_path = ?",
                 (_json_dict_dump(rules), api_path),
             )
 
@@ -614,7 +614,7 @@ def _fix_incorrect_scope_rules(db) -> None:
                                             "/api/moral/daily-records/types", "/api/moral/birthdays/upcoming",
                                             "/api/moral/birthdays/today"]:
         config = db.query_one(
-            "SELECT allowed_roles FROM api_permission_config WHERE api_path = %s",
+            "SELECT allowed_roles FROM api_permission_config WHERE api_path = ?",
             (api_path,)
         )
         if not config:
@@ -628,7 +628,7 @@ def _fix_incorrect_scope_rules(db) -> None:
         if "g_leader" not in roles:
             roles.append("g_leader")
             db.execute(
-                "UPDATE api_permission_config SET allowed_roles = %s WHERE api_path = %s",
+                "UPDATE api_permission_config SET allowed_roles = ? WHERE api_path = ?",
                 (_json_dump(roles), api_path),
             )
 
@@ -639,7 +639,7 @@ def _fix_incorrect_scope_rules(db) -> None:
     ]
     for api_path in profile_apis:
         config = db.query_one(
-            "SELECT allowed_roles FROM api_permission_config WHERE api_path = %s",
+            "SELECT allowed_roles FROM api_permission_config WHERE api_path = ?",
             (api_path,)
         )
         if not config:
@@ -653,7 +653,7 @@ def _fix_incorrect_scope_rules(db) -> None:
         if "cleader" not in roles:
             roles.append("cleader")
         db.execute(
-            "UPDATE api_permission_config SET allowed_roles = %s WHERE api_path = %s",
+            "UPDATE api_permission_config SET allowed_roles = ? WHERE api_path = ?",
             (_json_dump(roles), api_path),
         )
 
@@ -666,14 +666,14 @@ def _fix_incorrect_scope_rules(db) -> None:
     ]
     for api_path, api_name in consultation_apis:
         exists = db.query_one(
-            "SELECT 1 FROM api_permission_config WHERE api_path = %s",
+            "SELECT 1 FROM api_permission_config WHERE api_path = ?",
             (api_path,)
         )
         if not exists:
             db.execute(
                 """INSERT INTO api_permission_config
                    (api_path, api_name, api_group, allowed_roles, min_level, is_active)
-                   VALUES (%s, %s, 'AI诊疗', %s, 20, 1)""",
+                   VALUES (?, ?, 'AI诊疗', ?, 20, 1)""",
                 (api_path, api_name, _json_dump(["admin", "xuefa", "g_leader", "cleader"])),
             )
 
@@ -715,20 +715,20 @@ def _dedupe_permission_modules(db) -> None:
         module_name = item["module_name"]
         keep_id = item["keep_id"]
         dupes = db.query_all(
-            "SELECT id FROM api_permission_module WHERE module_name = %s AND id != %s",
+            "SELECT id FROM api_permission_module WHERE module_name = ? AND id != ?",
             (module_name, keep_id),
         )
         for dupe in dupes:
             db.execute(
-                "UPDATE api_permission_config SET module_id = %s WHERE module_id = %s",
+                "UPDATE api_permission_config SET module_id = ? WHERE module_id = ?",
                 (keep_id, dupe["id"]),
             )
-            db.execute("DELETE FROM api_permission_module WHERE id = %s", (dupe["id"],))
+            db.execute("DELETE FROM api_permission_module WHERE id = ?", (dupe["id"],))
 
 
 def _roles_for_group(db, group_name: str) -> List[str]:
     rows = db.query_all(
-        "SELECT allowed_roles FROM api_permission_config WHERE api_group = %s",
+        "SELECT allowed_roles FROM api_permission_config WHERE api_group = ?",
         (group_name,),
     )
     roles = set()
@@ -739,7 +739,7 @@ def _roles_for_group(db, group_name: str) -> List[str]:
 
 def _ensure_module(db, module_key: str, module_name: str, allowed_roles: Optional[List[str]] = None, min_level: int = 0) -> int:
     module = db.query_one(
-        "SELECT id FROM api_permission_module WHERE module_key = %s OR module_name = %s ORDER BY id LIMIT 1",
+        "SELECT id FROM api_permission_module WHERE module_key = ? OR module_name = ? ORDER BY id LIMIT 1",
         (module_key, module_name),
     )
     if module:
@@ -747,7 +747,7 @@ def _ensure_module(db, module_key: str, module_name: str, allowed_roles: Optiona
     db.execute(
         """INSERT INTO api_permission_module
         (module_key, module_name, allowed_roles, min_level, policy_mode, description)
-        VALUES (%s, %s, %s, %s, %s, %s)""",
+        VALUES (?, ?, ?, ?, ?, ?)""",
         (
             module_key,
             module_name,
@@ -785,18 +785,18 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
         match_type = "pattern" if "{" in raw_path and "}" in raw_path else "exact"
         api_name = f"旧版接口 {raw_path}"
 
-        existing = db.query_one("SELECT id FROM api_permission_config WHERE api_path = %s", (api_path,))
+        existing = db.query_one("SELECT id FROM api_permission_config WHERE api_path = ?", (api_path,))
         if existing:
             db.execute(
                 """UPDATE api_permission_config
-                   SET module_id = COALESCE(module_id, %s),
+                   SET module_id = COALESCE(module_id, ?),
                        api_group = CASE WHEN api_group = '' THEN %s ELSE api_group END,
                        http_method = COALESCE(http_method, '*'),
-                       match_type = %s,
+                       match_type = ?,
                        policy_mode = COALESCE(policy_mode, 'role_and_level'),
-                       is_public = %s,
+                       is_public = ?,
                        updated_at = datetime('now', 'localtime')
-                   WHERE id = %s""",
+                   WHERE id = ?""",
                 (module_id, "旧版教务接口", match_type, is_public, existing["id"]),
             )
             updated += 1
@@ -806,7 +806,7 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
             """INSERT INTO api_permission_config
             (api_path, api_name, api_group, allowed_roles, min_level, module_id,
              http_method, match_type, policy_mode, is_public, enforce_backend, description)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 api_path,
                 api_name,
@@ -1182,7 +1182,7 @@ async def get_api_permissions(
                           m.is_active AS module_is_active
                    FROM api_permission_config c
                    LEFT JOIN api_permission_module m ON c.module_id = m.id
-                   WHERE c.api_group = %s
+                   WHERE c.api_group = ?
                    ORDER BY c.api_group, c.api_path""",
                 (api_group,)
             )
@@ -1230,7 +1230,7 @@ async def create_api_permission_module(
     with get_moral_db() as db:
         ensure_api_permission_schema(db)
         existing = db.query_one(
-            "SELECT id FROM api_permission_module WHERE module_key = %s",
+            "SELECT id FROM api_permission_module WHERE module_key = ?",
             (module.module_key,),
         )
         if existing:
@@ -1239,7 +1239,7 @@ async def create_api_permission_module(
         db.execute(
             """INSERT INTO api_permission_module
             (module_key, module_name, parent_id, allowed_roles, min_level, policy_mode, description, sort_order)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 module.module_key,
                 module.module_name,
@@ -1266,7 +1266,7 @@ async def update_api_permission_module(
     """更新API权限模块（仅admin）"""
     with get_moral_db() as db:
         ensure_api_permission_schema(db)
-        existing = db.query_one("SELECT * FROM api_permission_module WHERE id = %s", (module_id,))
+        existing = db.query_one("SELECT * FROM api_permission_module WHERE id = ?", (module_id,))
         if not existing:
             raise HTTPException(404, "模块不存在")
 
@@ -1275,19 +1275,19 @@ async def update_api_permission_module(
         for field in ["module_key", "module_name", "parent_id", "min_level", "description", "sort_order", "is_active"]:
             value = getattr(module, field)
             if value is not None:
-                updates.append(f"{field} = %s")
+                updates.append(f"{field} = ?")
                 params.append(value)
 
         if module.allowed_roles is not None:
-            updates.append("allowed_roles = %s")
+            updates.append("allowed_roles = ?")
             params.append(_json_dump(module.allowed_roles))
         if module.policy_mode is not None:
-            updates.append("policy_mode = %s")
+            updates.append("policy_mode = ?")
             params.append(_normalize_policy_mode(module.policy_mode))
 
         updates.append("updated_at = datetime('now', 'localtime')")
         params.append(module_id)
-        db.execute(f"UPDATE api_permission_module SET {', '.join(updates)} WHERE id = %s", tuple(params))
+        db.execute(f"UPDATE api_permission_module SET {', '.join(updates)} WHERE id = ?", tuple(params))
         log_operation(db, user.username, user.role, "UPDATE", "api_permission_module", module_id, new_data=module.dict(exclude_unset=True))
         return {"success": True, "message": "模块更新成功"}
 
@@ -1301,15 +1301,15 @@ async def apply_module_permission(
     """将模块权限批量写入模块下API，并取消单API覆盖。"""
     with get_moral_db() as db:
         ensure_api_permission_schema(db)
-        module = db.query_one("SELECT * FROM api_permission_module WHERE id = %s", (module_id,))
+        module = db.query_one("SELECT * FROM api_permission_module WHERE id = ?", (module_id,))
         if not module:
             raise HTTPException(404, "模块不存在")
         affected = db.execute(
             """UPDATE api_permission_config
-               SET allowed_roles = %s, min_level = %s, policy_mode = %s,
-                   inherit_from_module = 1, api_group = %s,
+               SET allowed_roles = ?, min_level = ?, policy_mode = ?,
+                   inherit_from_module = 1, api_group = ?,
                    updated_at = datetime('now', 'localtime')
-               WHERE module_id = %s""",
+               WHERE module_id = ?""",
             (
                 module["allowed_roles"],
                 module["min_level"],
@@ -1363,7 +1363,7 @@ async def sync_default_scope_rules(
             if force:
                 # 强制覆盖
                 db.execute(
-                    "UPDATE api_permission_config SET data_scope_rules = %s WHERE api_path = %s",
+                    "UPDATE api_permission_config SET data_scope_rules = ? WHERE api_path = ?",
                     (_json_dict_dump(rules), api_path),
                 )
                 updated_data_scope += 1
@@ -1371,8 +1371,8 @@ async def sync_default_scope_rules(
                 # 只补齐空配置
                 result = db.execute(
                     """UPDATE api_permission_config
-                       SET data_scope_rules = %s
-                       WHERE api_path = %s
+                       SET data_scope_rules = ?
+                       WHERE api_path = ?
                          AND (data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}')""",
                     (_json_dict_dump(rules), api_path),
                 )
@@ -1383,15 +1383,15 @@ async def sync_default_scope_rules(
         for api_path, rules in DEFAULT_TARGET_SCOPE_RULES.items():
             if force:
                 db.execute(
-                    "UPDATE api_permission_config SET target_scope_rules = %s WHERE api_path = %s",
+                    "UPDATE api_permission_config SET target_scope_rules = ? WHERE api_path = ?",
                     (_json_dict_dump(rules), api_path),
                 )
                 updated_target_scope += 1
             else:
                 result = db.execute(
                     """UPDATE api_permission_config
-                       SET target_scope_rules = %s
-                       WHERE api_path = %s
+                       SET target_scope_rules = ?
+                       WHERE api_path = ?
                          AND (target_scope_rules IS NULL OR target_scope_rules = '' OR target_scope_rules = '{}')""",
                     (_json_dict_dump(rules), api_path),
                 )
@@ -1428,7 +1428,7 @@ async def create_api_permission(
         ensure_api_permission_schema(db)
         # 检查是否已存在
         existing = db.query_one(
-            "SELECT id FROM api_permission_config WHERE api_path = %s",
+            "SELECT id FROM api_permission_config WHERE api_path = ?",
             (config.api_path,)
         )
         if existing:
@@ -1438,7 +1438,7 @@ async def create_api_permission(
         module_id = config.module_id
         if not module_id and config.api_group:
             module = db.query_one(
-                "SELECT id FROM api_permission_module WHERE module_name = %s",
+                "SELECT id FROM api_permission_module WHERE module_name = ?",
                 (config.api_group,),
             )
             module_id = module["id"] if module else None
@@ -1448,7 +1448,7 @@ async def create_api_permission(
             (api_path, api_name, api_group, allowed_roles, min_level, module_id, http_method,
              match_type, policy_mode, inherit_from_module, is_public, enforce_backend,
              data_scope_rules, target_scope_rules, description)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 config.api_path,
                 config.api_name,
@@ -1489,7 +1489,7 @@ async def update_api_permission(
     with get_moral_db() as db:
         ensure_api_permission_schema(db)
         existing = db.query_one(
-            "SELECT * FROM api_permission_config WHERE id = %s",
+            "SELECT * FROM api_permission_config WHERE id = ?",
             (config_id,)
         )
         if not existing:
@@ -1499,63 +1499,63 @@ async def update_api_permission(
         params = []
 
         if config.api_name is not None:
-            updates.append("api_name = %s")
+            updates.append("api_name = ?")
             params.append(config.api_name)
 
         if config.api_group is not None:
-            updates.append("api_group = %s")
+            updates.append("api_group = ?")
             params.append(config.api_group)
 
         if config.module_id is not None:
-            updates.append("module_id = %s")
+            updates.append("module_id = ?")
             params.append(config.module_id)
 
         if config.allowed_roles is not None:
-            updates.append("allowed_roles = %s")
+            updates.append("allowed_roles = ?")
             params.append(_json_dump(config.allowed_roles))
 
         if config.min_level is not None:
-            updates.append("min_level = %s")
+            updates.append("min_level = ?")
             params.append(config.min_level)
 
         if config.http_method is not None:
-            updates.append("http_method = %s")
+            updates.append("http_method = ?")
             params.append((config.http_method or "*").upper())
 
         if config.match_type is not None:
-            updates.append("match_type = %s")
+            updates.append("match_type = ?")
             params.append(_normalize_match_type(config.match_type))
 
         if config.policy_mode is not None:
-            updates.append("policy_mode = %s")
+            updates.append("policy_mode = ?")
             params.append(_normalize_policy_mode(config.policy_mode))
 
         if config.inherit_from_module is not None:
-            updates.append("inherit_from_module = %s")
+            updates.append("inherit_from_module = ?")
             params.append(config.inherit_from_module)
 
         if config.is_public is not None:
-            updates.append("is_public = %s")
+            updates.append("is_public = ?")
             params.append(config.is_public)
 
         if config.enforce_backend is not None:
-            updates.append("enforce_backend = %s")
+            updates.append("enforce_backend = ?")
             params.append(config.enforce_backend)
 
         if config.data_scope_rules is not None:
-            updates.append("data_scope_rules = %s")
+            updates.append("data_scope_rules = ?")
             params.append(_json_dict_dump(config.data_scope_rules))
 
         if config.target_scope_rules is not None:
-            updates.append("target_scope_rules = %s")
+            updates.append("target_scope_rules = ?")
             params.append(_json_dict_dump(config.target_scope_rules))
 
         if config.description is not None:
-            updates.append("description = %s")
+            updates.append("description = ?")
             params.append(config.description)
 
         if config.is_active is not None:
-            updates.append("is_active = %s")
+            updates.append("is_active = ?")
             params.append(config.is_active)
 
         updates.append("updated_at = datetime('now', 'localtime')")
@@ -1566,7 +1566,7 @@ async def update_api_permission(
         params.append(config_id)
 
         db.execute(
-            f"UPDATE api_permission_config SET {', '.join(updates)} WHERE id = %s",
+            f"UPDATE api_permission_config SET {', '.join(updates)} WHERE id = ?",
             tuple(params)
         )
 
@@ -1588,14 +1588,14 @@ async def delete_api_permission(
     with get_moral_db() as db:
         ensure_api_permission_schema(db)
         existing = db.query_one(
-            "SELECT * FROM api_permission_config WHERE id = %s",
+            "SELECT * FROM api_permission_config WHERE id = ?",
             (config_id,)
         )
         if not existing:
             raise HTTPException(404, "配置不存在")
 
         db.execute(
-            "DELETE FROM api_permission_config WHERE id = %s",
+            "DELETE FROM api_permission_config WHERE id = ?",
             (config_id,)
         )
 
@@ -1679,7 +1679,7 @@ async def init_api_permissions(
 
         for default_config in DEFAULT_API_PERMISSIONS:
             existing = db.query_one(
-                "SELECT id FROM api_permission_config WHERE api_path = %s",
+                "SELECT id FROM api_permission_config WHERE api_path = ?",
                 (default_config['api_path'],)
             )
 
@@ -1689,14 +1689,14 @@ async def init_api_permissions(
 
             module_key = _module_key_from_group(default_config["api_group"])
             module = db.query_one(
-                "SELECT id FROM api_permission_module WHERE module_key = %s OR module_name = %s ORDER BY id LIMIT 1",
+                "SELECT id FROM api_permission_module WHERE module_key = ? OR module_name = ? ORDER BY id LIMIT 1",
                 (module_key, default_config["api_group"]),
             )
             if not module:
                 db.execute(
                     """INSERT INTO api_permission_module
                     (module_key, module_name, allowed_roles, min_level, policy_mode, description)
-                    VALUES (%s, %s, %s, %s, %s, %s)""",
+                    VALUES (?, ?, ?, ?, ?, ?)""",
                     (
                         module_key,
                         default_config["api_group"],
@@ -1716,7 +1716,7 @@ async def init_api_permissions(
                 """INSERT INTO api_permission_config
                 (api_path, api_name, api_group, allowed_roles, min_level, module_id, policy_mode,
                  data_scope_rules, target_scope_rules, description)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     default_config['api_path'],
                     default_config['api_name'],

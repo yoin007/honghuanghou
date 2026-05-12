@@ -94,15 +94,15 @@ async def get_school_event_types(
         params = []
 
         if event_type is not None:
-            query += " AND event_type = %s"
+            query += " AND event_type = ?"
             params.append(event_type)
 
         if event_level:
-            query += " AND event_level = %s"
+            query += " AND event_level = ?"
             params.append(event_level)
 
         if is_active is not None:
-            query += " AND is_active = %s"
+            query += " AND is_active = ?"
             params.append(is_active)
 
         query += " ORDER BY event_type, score DESC"
@@ -133,23 +133,23 @@ async def get_school_records(
         params = []
 
         if student_id:
-            conditions.append("sr.student_id = %s")
+            conditions.append("sr.student_id = ?")
             params.append(student_id)
 
         if class_id:
-            conditions.append("sr.class_id = %s")
+            conditions.append("sr.class_id = ?")
             params.append(class_id)
 
         if grade_id:
-            conditions.append("sr.grade_id = %s")
+            conditions.append("sr.grade_id = ?")
             params.append(grade_id)
 
         if semester_id:
-            conditions.append("sr.semester_id = %s")
+            conditions.append("sr.semester_id = ?")
             params.append(semester_id)
 
         if event_type is not None:
-            conditions.append("se.event_type = %s")
+            conditions.append("se.event_type = ?")
             params.append(event_type)
 
         where_clause = " AND ".join(conditions)
@@ -178,7 +178,7 @@ async def get_school_records(
             JOIN grade g ON sr.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY sr.get_date DESC, sr.created_at DESC
-            LIMIT %s OFFSET %s
+            LIMIT ? OFFSET ?
         """
         params.extend([page_size, offset])
         records = db.query_all(data_query, tuple(params))
@@ -225,7 +225,7 @@ async def create_school_record(
 
         # 获取事件类型
         event = db.query_one(
-            "SELECT * FROM school_event_type WHERE event_id = %s AND is_active = 1",
+            "SELECT * FROM school_event_type WHERE event_id = ? AND is_active = 1",
             (record.event_id,)
         )
         if not event:
@@ -239,7 +239,7 @@ async def create_school_record(
         # 检查证书编号唯一性
         if proof:
             existing = db.query_one(
-                "SELECT record_id FROM student_school_record WHERE proof = %s",
+                "SELECT record_id FROM student_school_record WHERE proof = ?",
                 (proof,)
             )
             if existing:
@@ -249,7 +249,7 @@ async def create_school_record(
         db.execute(
             """INSERT INTO student_school_record
             (student_id, event_id, semester_id, get_date, class_id, grade_id, score, proof)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record.student_id,
                 record.event_id,
@@ -284,7 +284,7 @@ async def update_school_record(
     """更新校级事件记录"""
     with get_moral_db() as db:
         old_record = db.query_one(
-            "SELECT * FROM student_school_record WHERE record_id = %s",
+            "SELECT * FROM student_school_record WHERE record_id = ?",
             (record_id,)
         )
         if not old_record:
@@ -294,7 +294,7 @@ async def update_school_record(
         params = []
 
         if update_data.event_date is not None:
-            updates.append("get_date = %s")
+            updates.append("get_date = ?")
             params.append(update_data.event_date)
 
         # 组合 description 和 evidence 到 proof 字段
@@ -302,11 +302,11 @@ async def update_school_record(
             proof_value = update_data.evidence or ''
             if update_data.description:
                 proof_value = update_data.description if not proof_value else f"{update_data.description} | {update_data.evidence}"
-            updates.append("proof = %s")
+            updates.append("proof = ?")
             params.append(proof_value or None)
 
         if update_data.is_deleted is not None:
-            updates.append("is_deleted = %s")
+            updates.append("is_deleted = ?")
             params.append(update_data.is_deleted)
 
         if not updates:
@@ -314,7 +314,7 @@ async def update_school_record(
 
         params.append(record_id)
         db.execute(
-            f"UPDATE student_school_record SET {', '.join(updates)} WHERE record_id = %s",
+            f"UPDATE student_school_record SET {', '.join(updates)} WHERE record_id = ?",
             tuple(params)
         )
 
@@ -336,14 +336,14 @@ async def delete_school_record(
     """删除校级事件记录（软删除）"""
     with get_moral_db() as db:
         old_record = db.query_one(
-            "SELECT * FROM student_school_record WHERE record_id = %s",
+            "SELECT * FROM student_school_record WHERE record_id = ?",
             (record_id,)
         )
         if not old_record:
             raise HTTPException(404, "记录不存在")
 
         db.execute(
-            "UPDATE student_school_record SET is_deleted = 1 WHERE record_id = %s",
+            "UPDATE student_school_record SET is_deleted = 1 WHERE record_id = ?",
             (record_id,)
         )
 
@@ -374,7 +374,7 @@ async def create_school_event_type(
     with get_moral_db() as db:
         # 检查是否已存在同名事件
         existing = db.query_one(
-            "SELECT event_id FROM school_event_type WHERE event_name = %s",
+            "SELECT event_id FROM school_event_type WHERE event_name = ?",
             (event_type.event_name,)
         )
         if existing:
@@ -385,7 +385,7 @@ async def create_school_event_type(
 
         db.execute(
             """INSERT INTO school_event_type (event_name, event_type, event_level, score, description, is_active)
-            VALUES (%s, %s, %s, %s, %s, 1)""",
+            VALUES (?, ?, ?, ?, ?, 1)""",
             (event_type.event_name, event_type.event_type, event_type.event_level, score, event_type.description)
         )
 
@@ -415,7 +415,7 @@ async def update_school_event_type(
     with get_moral_db() as db:
         # 获取原记录
         old_type = db.query_one(
-            "SELECT * FROM school_event_type WHERE event_id = %s",
+            "SELECT * FROM school_event_type WHERE event_id = ?",
             (type_id,)
         )
         if not old_type:
@@ -427,36 +427,36 @@ async def update_school_event_type(
 
         if update_data.event_name is not None:
             existing = db.query_one(
-                "SELECT event_id FROM school_event_type WHERE event_name = %s AND event_id != %s",
+                "SELECT event_id FROM school_event_type WHERE event_name = ? AND event_id != ?",
                 (update_data.event_name, type_id)
             )
             if existing:
                 raise HTTPException(400, f"事件类型 '{update_data.event_name}' 已存在")
-            updates.append("event_name = %s")
+            updates.append("event_name = ?")
             params.append(update_data.event_name)
 
         # 获取最终的事件类型
         final_event_type = update_data.event_type if update_data.event_type is not None else old_type['event_type']
 
         if update_data.event_type is not None:
-            updates.append("event_type = %s")
+            updates.append("event_type = ?")
             params.append(update_data.event_type)
 
         if update_data.event_level is not None:
-            updates.append("event_level = %s")
+            updates.append("event_level = ?")
             params.append(update_data.event_level)
 
         if update_data.score is not None:
             score = abs(update_data.score) if final_event_type == 1 else -abs(update_data.score)
-            updates.append("score = %s")
+            updates.append("score = ?")
             params.append(score)
 
         if update_data.description is not None:
-            updates.append("description = %s")
+            updates.append("description = ?")
             params.append(update_data.description)
 
         if update_data.is_active is not None:
-            updates.append("is_active = %s")
+            updates.append("is_active = ?")
             params.append(update_data.is_active)
 
         if not updates:
@@ -464,7 +464,7 @@ async def update_school_event_type(
 
         params.append(type_id)
         db.execute(
-            f"UPDATE school_event_type SET {', '.join(updates)} WHERE event_id = %s",
+            f"UPDATE school_event_type SET {', '.join(updates)} WHERE event_id = ?",
             tuple(params)
         )
 
@@ -491,7 +491,7 @@ async def delete_school_event_type(
     """
     with get_moral_db() as db:
         old_type = db.query_one(
-            "SELECT * FROM school_event_type WHERE event_id = %s",
+            "SELECT * FROM school_event_type WHERE event_id = ?",
             (type_id,)
         )
         if not old_type:
@@ -499,13 +499,13 @@ async def delete_school_event_type(
 
         # 检查是否有关联记录
         record_count = db.query_value(
-            "SELECT COUNT(*) FROM student_school_record WHERE event_id = %s",
+            "SELECT COUNT(*) FROM student_school_record WHERE event_id = ?",
             (type_id,)
         )
 
         if record_count > 0:
             db.execute(
-                "UPDATE school_event_type SET is_active = 0 WHERE event_id = %s",
+                "UPDATE school_event_type SET is_active = 0 WHERE event_id = ?",
                 (type_id,)
             )
             log_operation(
@@ -516,7 +516,7 @@ async def delete_school_event_type(
             return {"success": True, "message": f"该事件类型有 {record_count} 条关联记录，已禁用"}
         else:
             db.execute(
-                "DELETE FROM school_event_type WHERE event_id = %s",
+                "DELETE FROM school_event_type WHERE event_id = ?",
                 (type_id,)
             )
             log_operation(
@@ -563,7 +563,7 @@ async def batch_import_school_event_types(
 
                 # 检查是否已存在
                 existing = db.query_one(
-                    "SELECT event_id FROM school_event_type WHERE event_name = %s",
+                    "SELECT event_id FROM school_event_type WHERE event_name = ?",
                     (item.event_name,)
                 )
                 if existing:
@@ -575,7 +575,7 @@ async def batch_import_school_event_types(
 
                 db.execute(
                     """INSERT INTO school_event_type (event_name, event_type, event_level, score, description, is_active)
-                    VALUES (%s, %s, %s, %s, %s, 1)""",
+                    VALUES (?, ?, ?, ?, ?, 1)""",
                     (item.event_name, event_type_num, item.event_level, score, item.description or "")
                 )
                 success_count += 1

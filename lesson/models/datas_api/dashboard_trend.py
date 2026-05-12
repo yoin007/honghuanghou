@@ -163,7 +163,7 @@ async def get_student_score_trend(
     with get_moral_db() as db:
         # 检查学生是否存在
         student = db.query_one(
-            "SELECT student_id, name, class_id FROM student WHERE student_id = %s",
+            "SELECT student_id, name, class_id, grade_id FROM student WHERE student_id = ?",
             (student_id,)
         )
         if not student:
@@ -194,7 +194,7 @@ async def get_student_score_trend(
             )
         else:
             semester = db.query_one(
-                "SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = %s",
+                "SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?",
                 (semester_id,)
             )
 
@@ -209,8 +209,8 @@ async def get_student_score_trend(
         task_data = db.query_all(
             f"""SELECT strftime('{period_format}', finish_date) as period, SUM(current_score) as score
                 FROM student_task_finish
-                WHERE student_id = %s AND status = 1
-                AND finish_date >= %s AND finish_date <= %s
+                WHERE student_id = ? AND status = 1
+                AND finish_date >= ? AND finish_date <= ?
                 GROUP BY period ORDER BY period""",
             (student_id, start_date, end_date)
         )
@@ -219,8 +219,8 @@ async def get_student_score_trend(
         record_data = db.query_all(
             f"""SELECT strftime('{period_format}', get_date) as period, SUM(score) as score
                 FROM student_school_record
-                WHERE student_id = %s AND is_deleted = 0
-                AND get_date >= %s AND get_date <= %s
+                WHERE student_id = ? AND is_deleted = 0
+                AND get_date >= ? AND get_date <= ?
                 GROUP BY period ORDER BY period""",
             (student_id, start_date, end_date)
         )
@@ -262,7 +262,7 @@ async def get_class_score_trend(
     with get_moral_db() as db:
         # 检查班级是否存在
         class_info = db.query_one(
-            "SELECT class_id, class_name FROM class WHERE class_id = %s AND is_active = 1",
+            "SELECT class_id, class_name FROM class WHERE class_id = ? AND is_active = 1",
             (class_id,)
         )
         if not class_info:
@@ -285,7 +285,7 @@ async def get_class_score_trend(
             )
         else:
             semester = db.query_one(
-                "SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = %s",
+                "SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?",
                 (semester_id,)
             )
 
@@ -302,8 +302,8 @@ async def get_class_score_trend(
                        AVG(stf.current_score) as avg_score
                 FROM student_task_finish stf
                 JOIN student s ON stf.student_id = s.student_id
-                WHERE s.class_id = %s AND stf.status = 1
-                AND stf.finish_date >= %s AND stf.finish_date <= %s
+                WHERE s.class_id = ? AND stf.status = 1
+                AND stf.finish_date >= ? AND stf.finish_date <= ?
                 GROUP BY period ORDER BY period""",
             (class_id, start_date, end_date)
         )
@@ -314,8 +314,8 @@ async def get_class_score_trend(
                        AVG(ssr.score) as avg_score
                 FROM student_school_record ssr
                 JOIN student s ON ssr.student_id = s.student_id
-                WHERE s.class_id = %s AND ssr.is_deleted = 0
-                AND ssr.get_date >= %s AND ssr.get_date <= %s
+                WHERE s.class_id = ? AND ssr.is_deleted = 0
+                AND ssr.get_date >= ? AND ssr.get_date <= ?
                 GROUP BY period ORDER BY period""",
             (class_id, start_date, end_date)
         )
@@ -365,22 +365,27 @@ async def get_grade_score_trend(
 
         # 获取年级ID（优先从 grade 表）
         grade_row = db.query_one(
-            "SELECT grade_id, grade_name FROM grade WHERE grade_name = %s OR grade_name = %s OR grade_id = %s",
+            "SELECT grade_id, grade_name FROM grade WHERE grade_name = ? OR grade_name = ? OR grade_id = ?",
             (grade_name, grade_id + "年级", grade_id)
         )
         grade_id_int = grade_row["grade_id"] if grade_row else None
 
+        if has_user_role(user, 'g_leader') and not (_is_moral_manager(user) or _is_jiaowu(user)):
+            from models.datas_api.moral.base import is_grade_leader
+            if not grade_id_int or not is_grade_leader(user, grade_id_int, db):
+                raise HTTPException(status_code=403, detail="只能查看自己管理的年级趋势")
+
         # 获取年级下所有班级（通过 grade_id 关联）
         if grade_id_int:
             classes = db.query_all(
-                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND grade_id = %s",
+                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND grade_id = ?",
                 (grade_id_int,)
             )
         else:
             # 兜底：用班级名匹配
             grade_filter = f"%{grade_id}%"
             classes = db.query_all(
-                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND class_name LIKE %s",
+                "SELECT class_id, class_name FROM class WHERE is_active = 1 AND class_name LIKE ?",
                 (grade_filter,)
             )
         class_ids = [c['class_id'] for c in classes]
@@ -395,7 +400,7 @@ async def get_grade_score_trend(
             )
         else:
             semester = db.query_one(
-                "SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = %s",
+                "SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?",
                 (semester_id,)
             )
 
@@ -415,7 +420,7 @@ async def get_grade_score_trend(
                 FROM student_task_finish stf
                 JOIN student s ON stf.student_id = s.student_id
                 WHERE s.class_id IN ({class_ids_str}) AND stf.status = 1
-                AND stf.finish_date >= %s AND stf.finish_date <= %s
+                AND stf.finish_date >= ? AND stf.finish_date <= ?
                 GROUP BY period ORDER BY period""",
             (start_date, end_date)
         )
@@ -427,7 +432,7 @@ async def get_grade_score_trend(
                 FROM student_school_record ssr
                 JOIN student s ON ssr.student_id = s.student_id
                 WHERE s.class_id IN ({class_ids_str}) AND ssr.is_deleted = 0
-                AND ssr.get_date >= %s AND ssr.get_date <= %s
+                AND ssr.get_date >= ? AND ssr.get_date <= ?
                 GROUP BY period ORDER BY period""",
             (start_date, end_date)
         )
@@ -488,7 +493,7 @@ async def get_teacher_record_trend(
             )
         else:
             semester = db.query_one(
-                "SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = %s",
+                "SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?",
                 (semester_id,)
             )
 
@@ -511,8 +516,8 @@ async def get_teacher_record_trend(
         daily_data = db.query_all(
             f"""SELECT strftime('{period_format}', record_date) as period, COUNT(*) as count
                 FROM student_daily_record
-                WHERE recorder = %s AND is_deleted = 0
-                AND record_date >= %s AND record_date <= %s
+                WHERE recorder = ? AND is_deleted = 0
+                AND record_date >= ? AND record_date <= ?
                 GROUP BY period ORDER BY period""",
             (target_teacher, start_date, end_date)
         )
@@ -521,8 +526,8 @@ async def get_teacher_record_trend(
         moment_data = db.query_all(
             f"""SELECT strftime('{period_format}', record_date) as period, COUNT(*) as count
                 FROM moment_record
-                WHERE recorder = %s
-                AND record_date >= %s AND record_date <= %s
+                WHERE recorder = ?
+                AND record_date >= ? AND record_date <= ?
                 GROUP BY period ORDER BY period""",
             (target_teacher, start_date, end_date)
         )

@@ -246,14 +246,14 @@ async def create_grade(
     with get_moral_db() as db:
         # 检查是否已存在
         existing = db.query_one(
-            "SELECT grade_id FROM grade WHERE enrollment_year = %s",
+            "SELECT grade_id FROM grade WHERE enrollment_year = ?",
             (grade.enrollment_year,)
         )
         if existing:
             raise HTTPException(400, f"{grade.enrollment_year}年级已存在")
 
         db.execute(
-            "INSERT INTO grade (grade_name, enrollment_year) VALUES (%s, %s)",
+            "INSERT INTO grade (grade_name, enrollment_year) VALUES (?, ?)",
             (grade.grade_name, grade.enrollment_year)
         )
 
@@ -286,7 +286,7 @@ async def update_grade(
     with get_moral_db() as db:
         # 检查级号是否存在
         existing = db.query_one(
-            "SELECT grade_id FROM grade WHERE grade_id = %s",
+            "SELECT grade_id FROM grade WHERE grade_id = ?",
             (grade_id,)
         )
         if not existing:
@@ -296,13 +296,13 @@ async def update_grade(
         updates = []
         params = []
         if data.grade_name:
-            updates.append("grade_name = %s")
+            updates.append("grade_name = ?")
             params.append(data.grade_name)
         if data.enrollment_year:
-            updates.append("enrollment_year = %s")
+            updates.append("enrollment_year = ?")
             params.append(data.enrollment_year)
         if data.leader_names is not None:
-            updates.append("leader_names = %s")
+            updates.append("leader_names = ?")
             params.append(data.leader_names)
             # 同时更新 leader_ids（通过教师姓名查找 teacher_id）
             if data.leader_names:
@@ -310,15 +310,15 @@ async def update_grade(
                 leader_ids_list = []
                 for name in leader_names_list:
                     teacher = db.query_one(
-                        "SELECT teacher_id FROM teacher WHERE name = %s",
+                        "SELECT teacher_id FROM teacher WHERE name = ?",
                         (name,)
                     )
                     if teacher:
                         leader_ids_list.append(teacher['teacher_id'])
-                updates.append("leader_ids = %s")
+                updates.append("leader_ids = ?")
                 params.append(','.join(leader_ids_list) if leader_ids_list else '')
             else:
-                updates.append("leader_ids = %s")
+                updates.append("leader_ids = ?")
                 params.append('')
 
         if not updates:
@@ -326,7 +326,7 @@ async def update_grade(
 
         params.append(grade_id)
         db.execute(
-            f"UPDATE grade SET {', '.join(updates)} WHERE grade_id = %s",
+            f"UPDATE grade SET {', '.join(updates)} WHERE grade_id = ?",
             tuple(params)
         )
 
@@ -348,13 +348,13 @@ async def delete_grade(
     with get_moral_db() as db:
         # 检查是否有关联班级
         class_count = db.query_value(
-            "SELECT COUNT(*) FROM class WHERE grade_id = %s",
+            "SELECT COUNT(*) FROM class WHERE grade_id = ?",
             (grade_id,)
         )
         if class_count > 0:
             raise HTTPException(400, "该级号下存在班级，无法删除")
 
-        db.execute("DELETE FROM grade WHERE grade_id = %s", (grade_id,))
+        db.execute("DELETE FROM grade WHERE grade_id = ?", (grade_id,))
 
         log_operation(
             db, user.username, user.role, 'DELETE', 'grade', grade_id,
@@ -431,7 +431,7 @@ async def preview_grade_promotion(
                    FROM student s
                    JOIN class c ON s.class_id = c.class_id
                    JOIN grade g ON s.grade_id = g.grade_id
-                   WHERE s.grade_id = %s AND s.status = '在校'
+                   WHERE s.grade_id = ? AND s.status = '在校'
                    ORDER BY c.class_number, s.student_id""",
                 (grade['grade_id'],)
             )
@@ -459,7 +459,7 @@ async def preview_grade_promotion(
                     next_start_year = start_year + 1
                     # 从 year_name 查找下一学年（如 '2026-2027学年'）
                     next_school_year = db.query_one(
-                        "SELECT * FROM school_year WHERE year_name LIKE %s",
+                        "SELECT * FROM school_year WHERE year_name LIKE ?",
                         (f"%{next_start_year}%",)
                     )
             except Exception as e:
@@ -533,27 +533,27 @@ async def execute_grade_promotion(
                     # 标记该年级所有在校生为毕业
                     graduated_count = db.query_value(
                         """SELECT COUNT(*) FROM student
-                           WHERE grade_id = %s AND status = '在校'""",
+                           WHERE grade_id = ? AND status = '在校'""",
                         (grade['grade_id'],)
                     )
 
                     db.execute(
-                        """UPDATE student SET status = '毕业', status_date = %s
-                           WHERE grade_id = %s AND status = '在校'""",
+                        """UPDATE student SET status = '毕业', status_date = ?
+                           WHERE grade_id = ? AND status = '在校'""",
                         (today, grade['grade_id'])
                     )
 
                     # 结束班级履历
                     db.execute(
-                        """UPDATE student_class_history SET end_date = %s
-                           WHERE grade_id = %s AND end_date IS NULL""",
+                        """UPDATE student_class_history SET end_date = ?
+                           WHERE grade_id = ? AND end_date IS NULL""",
                         (today, grade['grade_id'])
                     )
 
                     # 归档年级
                     db.execute(
-                        """UPDATE grade SET is_archived = 1, archived_at = %s
-                           WHERE grade_id = %s""",
+                        """UPDATE grade SET is_archived = 1, archived_at = ?
+                           WHERE grade_id = ?""",
                         (archive_time, grade['grade_id'])
                     )
 
@@ -571,7 +571,7 @@ async def execute_grade_promotion(
         # 更新学年标记（如果提供了下一学年ID）
         if request_data.next_year_id:
             next_year = db.query_one(
-                "SELECT * FROM school_year WHERE year_id = %s",
+                "SELECT * FROM school_year WHERE year_id = ?",
                 (request_data.next_year_id,)
             )
             if next_year:
@@ -579,7 +579,7 @@ async def execute_grade_promotion(
                 db.execute("UPDATE school_year SET is_current = 0")
                 # 设置新学年为当前
                 db.execute(
-                    "UPDATE school_year SET is_current = 1 WHERE year_id = %s",
+                    "UPDATE school_year SET is_current = 1 WHERE year_id = ?",
                     (request_data.next_year_id,)
                 )
 
@@ -705,11 +705,11 @@ async def get_classes(
                 conditions.append(f"c.class_id IN ({','.join(map(str, visible_class_ids))})")
 
         if grade_id:
-            conditions.append("c.grade_id = %s")
+            conditions.append("c.grade_id = ?")
             params.append(grade_id)
 
         if is_active is not None:
-            conditions.append("c.is_active = %s")
+            conditions.append("c.is_active = ?")
             params.append(is_active)
 
         where_clause = " AND ".join(conditions)
@@ -737,7 +737,7 @@ async def create_class(
     with get_moral_db() as db:
         # 检查班级代码是否已存在
         existing = db.query_one(
-            "SELECT class_id FROM class WHERE class_code = %s",
+            "SELECT class_id FROM class WHERE class_code = ?",
             (cls.class_code,)
         )
         if existing:
@@ -750,7 +750,7 @@ async def create_class(
             leader_ids_list = []
             for name in leader_names_list:
                 teacher = db.query_one(
-                    "SELECT teacher_id FROM teacher WHERE name = %s",
+                    "SELECT teacher_id FROM teacher WHERE name = ?",
                     (name,)
                 )
                 if teacher:
@@ -760,7 +760,7 @@ async def create_class(
         db.execute(
             """INSERT INTO class
             (class_code, grade_id, class_number, class_name, leader_name, leader_names, leader_ids, leader_wxid, roomid)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (cls.class_code, cls.grade_id, cls.class_number, cls.class_name,
              cls.leader_name, cls.leader_names or '', leader_ids, cls.leader_wxid, cls.roomid)
         )
@@ -790,22 +790,22 @@ async def update_class(
         params = []
 
         if cls.class_code is not None:
-            updates.append("class_code = %s")
+            updates.append("class_code = ?")
             params.append(cls.class_code)
         if cls.grade_id is not None:
-            updates.append("grade_id = %s")
+            updates.append("grade_id = ?")
             params.append(cls.grade_id)
         if cls.class_number is not None:
-            updates.append("class_number = %s")
+            updates.append("class_number = ?")
             params.append(cls.class_number)
         if cls.class_name is not None:
-            updates.append("class_name = %s")
+            updates.append("class_name = ?")
             params.append(cls.class_name)
         if cls.leader_name is not None:
-            updates.append("leader_name = %s")
+            updates.append("leader_name = ?")
             params.append(cls.leader_name)
         if cls.leader_names is not None:
-            updates.append("leader_names = %s")
+            updates.append("leader_names = ?")
             params.append(cls.leader_names)
             # 同时更新 leader_ids（通过教师姓名查找 teacher_id）
             if cls.leader_names:
@@ -813,37 +813,37 @@ async def update_class(
                 leader_ids_list = []
                 for name in leader_names_list:
                     teacher = db.query_one(
-                        "SELECT teacher_id FROM teacher WHERE name = %s",
+                        "SELECT teacher_id FROM teacher WHERE name = ?",
                         (name,)
                     )
                     if teacher:
                         leader_ids_list.append(teacher['teacher_id'])
-                updates.append("leader_ids = %s")
+                updates.append("leader_ids = ?")
                 params.append(','.join(leader_ids_list) if leader_ids_list else '')
             else:
-                updates.append("leader_ids = %s")
+                updates.append("leader_ids = ?")
                 params.append('')
         if cls.leader_wxid is not None:
-            updates.append("leader_wxid = %s")
+            updates.append("leader_wxid = ?")
             params.append(cls.leader_wxid)
         if cls.roomid is not None:
-            updates.append("roomid = %s")
+            updates.append("roomid = ?")
             params.append(cls.roomid)
         if cls.established is not None:
-            updates.append("established = %s")
+            updates.append("established = ?")
             params.append(cls.established)
         if cls.motto is not None:
-            updates.append("motto = %s")
+            updates.append("motto = ?")
             params.append(cls.motto)
         if cls.location is not None:
-            updates.append("location = %s")
+            updates.append("location = ?")
             params.append(cls.location)
 
         if not updates:
             return {"success": True, "message": "无需更新"}
 
         params.append(class_id)
-        sql = f"UPDATE class SET {', '.join(updates)} WHERE class_id = %s"
+        sql = f"UPDATE class SET {', '.join(updates)} WHERE class_id = ?"
         db.execute(sql, tuple(params))
 
         log_operation(
@@ -864,13 +864,13 @@ async def delete_class(
     with get_moral_db() as db:
         # 检查是否有学生
         student_count = db.query_value(
-            "SELECT COUNT(*) FROM student WHERE class_id = %s AND status = '在校'",
+            "SELECT COUNT(*) FROM student WHERE class_id = ? AND status = '在校'",
             (class_id,)
         )
         if student_count > 0:
             raise HTTPException(400, f"该班级下有 {student_count} 名在校生，无法删除")
 
-        db.execute("DELETE FROM class WHERE class_id = %s", (class_id,))
+        db.execute("DELETE FROM class WHERE class_id = ?", (class_id,))
 
         log_operation(
             db, user.username, user.role, 'DELETE', 'class', class_id,
@@ -913,7 +913,7 @@ async def create_school_year(
         db.execute(
             """INSERT INTO school_year
             (year_name, start_date, end_date, is_current)
-            VALUES (%s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?)""",
             (year.school_year_name, start_date, end_date, 0)
         )
 
@@ -939,7 +939,7 @@ async def get_semesters(
         params = []
 
         if year_id:
-            conditions.append("sem.year_id = %s")
+            conditions.append("sem.year_id = ?")
             params.append(year_id)
 
         where_clause = " AND ".join(conditions)
@@ -978,7 +978,7 @@ async def create_semester(
         db.execute(
             """INSERT INTO semester
             (semester_name, year_id, start_date, end_date, status)
-            VALUES (%s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?)""",
             (semester.semester_name, semester.school_year_id, semester.start_date,
              semester.end_date, status)
         )
@@ -987,8 +987,8 @@ async def create_semester(
 
         # 如果是当前学期，更新学年的 is_current
         if status == 1:
-            db.execute("UPDATE semester SET status = 0 WHERE semester_id != %s", (semester_id,))
-            db.execute("UPDATE school_year SET is_current = 1 WHERE year_id = %s", (semester.school_year_id,))
+            db.execute("UPDATE semester SET status = 0 WHERE semester_id != ?", (semester_id,))
+            db.execute("UPDATE school_year SET is_current = 1 WHERE year_id = ?", (semester.school_year_id,))
 
         log_operation(
             db, user.username, user.role, 'INSERT', 'semester', semester_id,
@@ -1008,7 +1008,7 @@ async def set_current_semester(
     """设置当前学期"""
     with get_moral_db() as db:
         semester = db.query_one(
-            "SELECT * FROM semester WHERE semester_id = %s",
+            "SELECT * FROM semester WHERE semester_id = ?",
             (semester_id,)
         )
         if not semester:
@@ -1019,7 +1019,7 @@ async def set_current_semester(
 
         # 设置当前学期
         db.execute(
-            "UPDATE semester SET status = 1 WHERE semester_id = %s",
+            "UPDATE semester SET status = 1 WHERE semester_id = ?",
             (semester_id,)
         )
 
@@ -1028,7 +1028,7 @@ async def set_current_semester(
             "UPDATE school_year SET is_current = 0"
         )
         db.execute(
-            "UPDATE school_year SET is_current = 1 WHERE year_id = %s",
+            "UPDATE school_year SET is_current = 1 WHERE year_id = ?",
             (semester['year_id'],)
         )
 
@@ -1090,15 +1090,15 @@ async def get_students(
             )
 
         if class_id:
-            conditions.append("s.class_id = %s")
+            conditions.append("s.class_id = ?")
             params.append(class_id)
 
         if grade_id:
-            conditions.append("s.grade_id = %s")
+            conditions.append("s.grade_id = ?")
             params.append(grade_id)
 
         if status:
-            conditions.append("s.status = %s")
+            conditions.append("s.status = ?")
             params.append(status)
 
         where_clause = " AND ".join(conditions)
@@ -1119,7 +1119,7 @@ async def get_students(
             JOIN grade g ON s.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY s.student_id
-            LIMIT %s OFFSET %s
+            LIMIT %s OFFSET ?
         """
         params.extend([page_size, offset])
         students = db.query_all(data_query, tuple(params))
@@ -1189,7 +1189,7 @@ async def create_student(
 
         # 检查学号是否已存在
         existing = db.query_one(
-            "SELECT student_id FROM student WHERE student_id = %s",
+            "SELECT student_id FROM student WHERE student_id = ?",
             (student.student_id,)
         )
         if existing:
@@ -1197,7 +1197,7 @@ async def create_student(
 
         # 从班级获取年级ID
         class_info = db.query_one(
-            "SELECT grade_id FROM class WHERE class_id = %s",
+            "SELECT grade_id FROM class WHERE class_id = ?",
             (student.class_id,)
         )
         if not class_info:
@@ -1217,7 +1217,7 @@ async def create_student(
         db.execute(
             """INSERT INTO student
             (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '在校')""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '在校')""",
             (student.student_id, student.name, student.gender, student.class_id,
              grade_id, grade_id, student.birthday, enrollment_date)
         )
@@ -1226,7 +1226,7 @@ async def create_student(
         db.execute(
             """INSERT INTO student_class_history
             (student_id, class_id, grade_id, start_date, change_reason)
-            VALUES (%s, %s, %s, %s, '入学')""",
+            VALUES (?, ?, ?, ?, '入学')""",
             (student.student_id, student.class_id, grade_id, enrollment_date)
         )
 
@@ -1298,7 +1298,7 @@ async def batch_import_students(
 
                 # 检查学号是否已存在
                 existing = db.query_one(
-                    "SELECT student_id, class_id FROM student WHERE student_id = %s",
+                    "SELECT student_id, class_id FROM student WHERE student_id = ?",
                     (item.student_id,)
                 )
 
@@ -1308,8 +1308,8 @@ async def batch_import_students(
 
                     db.execute(
                         """UPDATE student SET
-                        name = %s, gender = %s, class_id = %s, grade_id = %s, birthday = %s
-                        WHERE student_id = %s""",
+                        name = ?, gender = ?, class_id = ?, grade_id = ?, birthday = ?
+                        WHERE student_id = ?""",
                         (item.name, item.gender, class_id, grade_id, birthday, item.student_id)
                     )
 
@@ -1318,7 +1318,7 @@ async def batch_import_students(
                         db.execute(
                             """INSERT INTO student_class_history
                             (student_id, class_id, grade_id, start_date, change_reason)
-                            VALUES (%s, %s, %s, %s, '批量导入更新班级')""",
+                            VALUES (?, ?, ?, ?, '批量导入更新班级')""",
                             (item.student_id, class_id, grade_id, enrollment_date)
                         )
 
@@ -1328,7 +1328,7 @@ async def batch_import_students(
                     db.execute(
                         """INSERT INTO student
                         (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '在校')""",
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '在校')""",
                         (item.student_id, item.name, item.gender, class_id, grade_id, grade_id, birthday, enrollment_date)
                     )
 
@@ -1336,7 +1336,7 @@ async def batch_import_students(
                     db.execute(
                         """INSERT INTO student_class_history
                         (student_id, class_id, grade_id, start_date, change_reason)
-                        VALUES (%s, %s, %s, %s, '入学')""",
+                        VALUES (?, ?, ?, ?, '入学')""",
                         (item.student_id, class_id, grade_id, enrollment_date)
                     )
 
@@ -1385,7 +1385,7 @@ async def update_student(
             """SELECT s.*, c.leader_name
             FROM student s
             JOIN class c ON s.class_id = c.class_id
-            WHERE s.student_id = %s""",
+            WHERE s.student_id = ?""",
             (student_id,)
         )
         if not student:
@@ -1400,29 +1400,29 @@ async def update_student(
         params = []
 
         if update_data.name is not None:
-            updates.append("name = %s")
+            updates.append("name = ?")
             params.append(update_data.name)
 
         if update_data.gender is not None:
-            updates.append("gender = %s")
+            updates.append("gender = ?")
             params.append(update_data.gender)
 
         if update_data.birthday is not None:
-            updates.append("birthday = %s")
+            updates.append("birthday = ?")
             params.append(update_data.birthday)
 
         if update_data.roomid is not None:
-            updates.append("roomid = %s")
+            updates.append("roomid = ?")
             params.append(update_data.roomid)
 
         if update_data.rpid is not None:
-            updates.append("rpid = %s")
+            updates.append("rpid = ?")
             params.append(update_data.rpid)
 
         if update_data.class_id is not None:
             # 获取新班级的年级ID
             new_class = db.query_one(
-                "SELECT grade_id FROM class WHERE class_id = %s",
+                "SELECT grade_id FROM class WHERE class_id = ?",
                 (update_data.class_id,)
             )
             if not new_class:
@@ -1432,16 +1432,16 @@ async def update_student(
             if not update_scope.get("can_all") and update_data.class_id != student['class_id']:
                 raise HTTPException(403, "班主任不能调整学生班级")
 
-            updates.append("class_id = %s")
+            updates.append("class_id = ?")
             params.append(update_data.class_id)
-            updates.append("grade_id = %s")
+            updates.append("grade_id = ?")
             params.append(new_class['grade_id'])
 
         if not updates:
             return {"success": True, "message": "无需更新"}
 
         params.append(student_id)
-        update_query = f"UPDATE student SET {', '.join(updates)} WHERE student_id = %s"
+        update_query = f"UPDATE student SET {', '.join(updates)} WHERE student_id = ?"
         db.execute(update_query, tuple(params))
 
         log_operation(
@@ -1468,22 +1468,22 @@ async def update_student_status(
             raise HTTPException(403, "权限不足：需要学生管理权限")
 
         student = db.query_one(
-            "SELECT * FROM student WHERE student_id = %s",
+            "SELECT * FROM student WHERE student_id = ?",
             (student_id,)
         )
         if not student:
             raise HTTPException(404, "学生不存在")
 
         db.execute(
-            "UPDATE student SET status = %s, status_date = %s WHERE student_id = %s",
+            "UPDATE student SET status = ?, status_date = ? WHERE student_id = ?",
             (status, date.today(), student_id)
         )
 
         # 结束当前班级履历
         if status in ['转出', '毕业']:
             db.execute(
-                """UPDATE student_class_history SET end_date = %s
-                WHERE student_id = %s AND end_date IS NULL""",
+                """UPDATE student_class_history SET end_date = ?
+                WHERE student_id = ? AND end_date IS NULL""",
                 (date.today(), student_id)
             )
 
@@ -1521,23 +1521,23 @@ async def get_operation_logs(
         params = []
 
         if operator:
-            conditions.append("operator LIKE %s")
+            conditions.append("operator LIKE ?")
             params.append(f"%{operator}%")
 
         if operation:
-            conditions.append("operation = %s")
+            conditions.append("operation = ?")
             params.append(operation)
 
         if table_name:
-            conditions.append("table_name = %s")
+            conditions.append("table_name = ?")
             params.append(table_name)
 
         if start_date:
-            conditions.append("DATE(created_at) >= %s")
+            conditions.append("DATE(created_at) >= ?")
             params.append(start_date)
 
         if end_date:
-            conditions.append("DATE(created_at) <= %s")
+            conditions.append("DATE(created_at) <= ?")
             params.append(end_date)
 
         where_clause = " AND ".join(conditions)
@@ -1552,7 +1552,7 @@ async def get_operation_logs(
             SELECT * FROM moral_operation_log
             WHERE {where_clause}
             ORDER BY created_at DESC
-            LIMIT %s OFFSET %s
+            LIMIT %s OFFSET ?
         """
         params.extend([page_size, offset])
         logs = db.query_all(data_query, tuple(params))
@@ -1658,18 +1658,18 @@ async def update_system_config(
 
                 # 检查是否存在
                 existing = db.query_one(
-                    "SELECT config_id FROM moral_config WHERE config_key = %s",
+                    "SELECT config_id FROM moral_config WHERE config_key = ?",
                     (key,)
                 )
 
                 if existing:
                     db.execute(
-                        "UPDATE moral_config SET config_value = %s, updated_at = datetime('now','localtime') WHERE config_key = %s",
+                        "UPDATE moral_config SET config_value = ?, updated_at = datetime('now','localtime') WHERE config_key = ?",
                         (json_value, key)
                     )
                 else:
                     db.execute(
-                        "INSERT INTO moral_config (config_key, config_value) VALUES (%s, %s)",
+                        "INSERT INTO moral_config (config_key, config_value) VALUES (?, ?)",
                         (key, json_value)
                     )
 

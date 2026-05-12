@@ -107,11 +107,11 @@ async def get_collective_events(
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
 
-        conditions = ["ce.semester_id = %s"]
+        conditions = ["ce.semester_id = ?"]
         params = [semester_id]
 
         if class_id:
-            conditions.append("ce.class_id = %s")
+            conditions.append("ce.class_id = ?")
             params.append(class_id)
 
         scoped_roles = get_api_scoped_user_roles(db, user, API_COLLECTIVE_LIST)
@@ -124,7 +124,7 @@ async def get_collective_events(
             conditions.append(f"ce.class_id IN ({','.join(map(str, my_class_ids))})")
 
         if event_type:
-            conditions.append("ce.event_type = %s")
+            conditions.append("ce.event_type = ?")
             params.append(event_type)
 
         where_clause = " AND ".join(conditions)
@@ -145,7 +145,7 @@ async def get_collective_events(
             JOIN grade g ON c.grade_id = g.grade_id
             WHERE {where_clause}
             ORDER BY ce.event_date DESC
-            LIMIT %s OFFSET %s
+            LIMIT %s OFFSET ?
         """
         params.extend([page_size, offset])
         events = db.query_all(data_query, tuple(params))
@@ -184,7 +184,7 @@ async def create_collective_event(
 
         # 检查班级是否存在
         class_info = db.query_one(
-            "SELECT c.class_id, c.class_name, c.grade_id FROM class c WHERE c.class_id = %s",
+            "SELECT c.class_id, c.class_name, c.grade_id FROM class c WHERE c.class_id = ?",
             (event.class_id,)
         )
         if not class_info:
@@ -204,7 +204,7 @@ async def create_collective_event(
         db.execute(
             """INSERT INTO collective_event
             (event_name, event_type, semester_id, event_date, class_id, score, description)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (event.event_name, event.event_type, semester_id, event.event_date,
              event.class_id, event.score, event.description)
         )
@@ -214,7 +214,7 @@ async def create_collective_event(
         # 获取班级所有在校学生
         students = db.query_all(
             """SELECT s.student_id, s.class_id FROM student s
-            WHERE s.class_id = %s AND s.status = '在校'""",
+            WHERE s.class_id = ? AND s.status = '在校'""",
             (event.class_id,)
         )
 
@@ -223,7 +223,7 @@ async def create_collective_event(
             db.execute(
                 """INSERT INTO collective_event_distribution
                 (event_id, student_id, class_id, score_assigned, is_participant, remark)
-                VALUES (%s, %s, %s, %s, 1, NULL)""",
+                VALUES (?, ?, ?, ?, 1, NULL)""",
                 (event_id, student['student_id'], student['class_id'], event.score)
             )
 
@@ -264,7 +264,7 @@ async def get_collective_event(
             FROM collective_event ce
             JOIN class c ON ce.class_id = c.class_id
             JOIN grade g ON c.grade_id = g.grade_id
-            WHERE ce.event_id = %s""",
+            WHERE ce.event_id = ?""",
             (event_id,)
         )
 
@@ -278,7 +278,7 @@ async def get_collective_event(
             """SELECT ced.*, s.name as student_name
             FROM collective_event_distribution ced
             JOIN student s ON ced.student_id = s.student_id
-            WHERE ced.event_id = %s
+            WHERE ced.event_id = ?
             ORDER BY s.student_id""",
             (event_id,)
         )
@@ -298,7 +298,7 @@ async def update_collective_event(
     """更新集体事件基本信息"""
     with get_moral_db() as db:
         old_event = db.query_one(
-            "SELECT * FROM collective_event WHERE event_id = %s",
+            "SELECT * FROM collective_event WHERE event_id = ?",
             (event_id,)
         )
         if not old_event:
@@ -311,37 +311,37 @@ async def update_collective_event(
         params = []
 
         if event.event_name is not None:
-            updates.append("event_name = %s")
+            updates.append("event_name = ?")
             params.append(event.event_name)
 
         if event.event_type is not None:
-            updates.append("event_type = %s")
+            updates.append("event_type = ?")
             params.append(event.event_type)
 
         if event.event_date is not None:
-            updates.append("event_date = %s")
+            updates.append("event_date = ?")
             params.append(event.event_date)
 
         if event.score is not None:
-            updates.append("score = %s")
+            updates.append("score = ?")
             params.append(event.score)
 
         if event.description is not None:
-            updates.append("description = %s")
+            updates.append("description = ?")
             params.append(event.description)
 
         if not updates:
             return {"success": True, "message": "无需更新"}
 
         params.append(event_id)
-        update_query = f"UPDATE collective_event SET {', '.join(updates)} WHERE event_id = %s"
+        update_query = f"UPDATE collective_event SET {', '.join(updates)} WHERE event_id = ?"
         db.execute(update_query, tuple(params))
 
         if event.score is not None:
             db.execute(
                 """UPDATE collective_event_distribution
-                SET score_assigned = %s
-                WHERE event_id = %s AND is_participant = 1""",
+                SET score_assigned = ?
+                WHERE event_id = ? AND is_participant = 1""",
                 (event.score, event_id)
             )
 
@@ -349,7 +349,7 @@ async def update_collective_event(
             """SELECT ced.student_id, ced.class_id, c.grade_id
             FROM collective_event_distribution ced
             JOIN class c ON ced.class_id = c.class_id
-            WHERE ced.event_id = %s""",
+            WHERE ced.event_id = ?""",
             (event_id,)
         )
         from .evaluation import calculate_evaluation
@@ -380,7 +380,7 @@ async def delete_collective_event(
     """删除集体事件及其分配记录"""
     with get_moral_db() as db:
         event = db.query_one(
-            "SELECT * FROM collective_event WHERE event_id = %s",
+            "SELECT * FROM collective_event WHERE event_id = ?",
             (event_id,)
         )
         if not event:
@@ -392,19 +392,19 @@ async def delete_collective_event(
             """SELECT ced.student_id, ced.class_id, c.grade_id
             FROM collective_event_distribution ced
             JOIN class c ON ced.class_id = c.class_id
-            WHERE ced.event_id = %s""",
+            WHERE ced.event_id = ?""",
             (event_id,)
         )
 
         # 删除分配记录
         db.execute(
-            "DELETE FROM collective_event_distribution WHERE event_id = %s",
+            "DELETE FROM collective_event_distribution WHERE event_id = ?",
             (event_id,)
         )
 
         # 删除事件
         db.execute(
-            "DELETE FROM collective_event WHERE event_id = %s",
+            "DELETE FROM collective_event WHERE event_id = ?",
             (event_id,)
         )
 
@@ -439,7 +439,7 @@ async def get_distributions(
     """获取集体事件的学生分配列表"""
     with get_moral_db() as db:
         event = db.query_one(
-            "SELECT class_id FROM collective_event WHERE event_id = %s",
+            "SELECT class_id FROM collective_event WHERE event_id = ?",
             (event_id,)
         )
         if not event:
@@ -453,7 +453,7 @@ async def get_distributions(
                    s.name as student_name, s.status as student_status
             FROM collective_event_distribution ced
             JOIN student s ON ced.student_id = s.student_id
-            WHERE ced.event_id = %s
+            WHERE ced.event_id = ?
             ORDER BY s.student_id""",
             (event_id,)
         )
@@ -479,7 +479,7 @@ async def update_distribution(
             """SELECT ced.*, ce.score as original_score
             FROM collective_event_distribution ced
             JOIN collective_event ce ON ced.event_id = ce.event_id
-            WHERE ced.id = %s AND ced.event_id = %s""",
+            WHERE ced.id = ? AND ced.event_id = ?""",
             (distribution_id, event_id)
         )
 
@@ -496,17 +496,17 @@ async def update_distribution(
 
         db.execute(
             """UPDATE collective_event_distribution SET
-            is_participant = %s, score_assigned = %s, remark = %s
-            WHERE id = %s""",
+            is_participant = ?, score_assigned = ?, remark = ?
+            WHERE id = ?""",
             (update.is_participant, score_assigned, update.remark, distribution_id)
         )
 
         event = db.query_one(
-            "SELECT semester_id FROM collective_event WHERE event_id = %s",
+            "SELECT semester_id FROM collective_event WHERE event_id = ?",
             (event_id,)
         )
         class_info = db.query_one(
-            "SELECT grade_id FROM class WHERE class_id = %s",
+            "SELECT grade_id FROM class WHERE class_id = ?",
             (distribution['class_id'],)
         )
         if event and class_info:
@@ -538,7 +538,7 @@ async def get_student_collective_score(
     """获取学生在某学期的集体事件得分汇总"""
     with get_moral_db() as db:
         student = db.query_one(
-            "SELECT student_id, class_id FROM student WHERE student_id = %s",
+            "SELECT student_id, class_id FROM student WHERE student_id = ?",
             (student_id,)
         )
         if not student:
@@ -559,7 +559,7 @@ async def get_student_collective_score(
                    ce.event_id, ce.event_name, ce.event_type, ce.event_date
             FROM collective_event_distribution ced
             JOIN collective_event ce ON ced.event_id = ce.event_id
-            WHERE ced.student_id = %s AND ce.semester_id = %s
+            WHERE ced.student_id = ? AND ce.semester_id = ?
             ORDER BY ce.event_date DESC""",
             (student_id, semester_id)
         )
