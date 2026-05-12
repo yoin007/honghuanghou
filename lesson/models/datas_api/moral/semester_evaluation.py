@@ -46,7 +46,7 @@ router = APIRouter(prefix="/semester-evaluations", tags=["学期末评价"])
 # API 路径常量
 API_GENERATE = "/api/moral/semester-evaluations/generate"
 API_BATCH_GENERATE = "/api/moral/semester-evaluations/batch-generate"
-API_EXPORT = "/api/moral/semester-evaluations/export"
+API_LIST = "/api/moral/semester-evaluations/list"
 
 
 # =============================================================================
@@ -662,8 +662,7 @@ async def api_get_semester_evaluation_list(
             params.append(grade_id)
 
         # 数据范围过滤
-        scope = get_record_data_scope(
-            db, user, API_EXPORT,
+        scope = get_record_data_scope(db, user, API_LIST,
             all_permissions=['moral_record_manage'],
             own_class_permissions=['moral_record_own_class'],
             own_permissions=[]
