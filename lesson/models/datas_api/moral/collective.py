@@ -112,7 +112,7 @@ async def get_collective_events(
     - cleader: 只能查看本班
     """
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         if not semester_id:
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
@@ -193,7 +193,7 @@ async def create_collective_event(
     3. 自动为每个学生分配分数
     """
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         current_semester = get_current_semester(db)
         if not current_semester:
             raise HTTPException(400, "当前学期未配置")
@@ -277,7 +277,7 @@ async def get_collective_event(
 ):
     """获取集体事件详情，包含分配列表"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         event = db.query_one(
             """SELECT ce.*, c.class_name, g.grade_name
             FROM collective_event ce
@@ -316,7 +316,7 @@ async def update_collective_event(
 ):
     """更新集体事件基本信息"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         old_event = db.query_one(
             "SELECT * FROM collective_event WHERE event_id = ?",
             (event_id,)
@@ -399,7 +399,7 @@ async def delete_collective_event(
 ):
     """删除集体事件及其分配记录"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         event = db.query_one(
             "SELECT * FROM collective_event WHERE event_id = ?",
             (event_id,)
@@ -459,7 +459,7 @@ async def get_distributions(
 ):
     """获取集体事件的学生分配列表"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         event = db.query_one(
             "SELECT class_id FROM collective_event WHERE event_id = ?",
             (event_id,)
@@ -497,7 +497,7 @@ async def update_distribution(
     用例：学生未参与集体活动，标记不加分
     """
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         distribution = db.query_one(
             """SELECT ced.*, ce.score as original_score
             FROM collective_event_distribution ced

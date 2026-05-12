@@ -15,13 +15,13 @@ GMT8 = timezone(timedelta(hours=8))
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from .api_permission import require_configured_api_permission
 from .base import (
     get_moral_db,
     get_current_semester,
     get_student_class_snapshot,
     log_operation,
-    require_permission,
-    check_moral_permission_for_roles,
+        check_moral_permission_for_roles,
     get_api_scoped_user_roles,
     get_record_data_scope,
     append_record_scope_condition,
@@ -174,7 +174,7 @@ async def get_school_records(
 ):
     """获取校级事件记录列表"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         if not semester_id:
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
@@ -271,7 +271,7 @@ async def create_school_record(
 ):
     """创建校级事件记录"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         if not _has_scoped_any_permission(db, user, API_SCHOOL_CREATE, ['moral_record_manage', 'moral_record_input']):
             raise HTTPException(403, "权限不足：需要校级事件录入权限")
 
@@ -358,7 +358,7 @@ async def update_school_record(
 ):
     """更新校级事件记录"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         action_scope = _school_action_scope(db, user, API_SCHOOL_UPDATE)
         if not action_scope.get("can_all") and not action_scope.get("can_own"):
             raise HTTPException(403, "权限不足：需要校级事件记录权限")
@@ -417,7 +417,7 @@ async def delete_school_record(
 ):
     """删除校级事件记录（软删除）"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
+        
         action_scope = _school_action_scope(db, user, API_SCHOOL_DELETE)
         if not action_scope.get("can_all") and not action_scope.get("can_own"):
             raise HTTPException(403, "权限不足：需要校级事件记录权限")

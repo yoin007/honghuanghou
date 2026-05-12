@@ -18,7 +18,6 @@ from .base import (
     get_current_semester,
     get_student_class_snapshot,
     log_operation,
-    require_permission,
     check_moral_permission_for_roles,
     get_api_scoped_user_roles,
     get_record_data_scope,
@@ -28,6 +27,7 @@ from .base import (
     target_student_in_scope,
     has_user_role,
 )
+from .api_permission import require_configured_api_permission
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
@@ -111,15 +111,14 @@ async def get_punishments(
     is_revoked: Optional[int] = Query(None, description="是否已撤销"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_LIST, "GET", allow_missing=False))
 ):
     """
     获取处分记录列表
 
-    权限范围由 API 权限配置中的 data_scope_rules 控制。
+    权限：入口已由 require_configured_api_permission 检查。
     """
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
         if not semester_id:
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
@@ -210,11 +209,10 @@ async def get_punishments(
 async def create_punishment(
     punishment: PunishmentCreate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_CREATE, "POST", allow_missing=False))
 ):
     """创建处分记录"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
         if not _has_scoped_any_permission(db, user, API_PUNISHMENT_CREATE, ['punishment_manage', 'moral_record_input']):
             raise HTTPException(403, "权限不足：需要处分录入权限")
 

@@ -18,7 +18,6 @@ from .base import (
     get_current_semester,
     get_student_class_snapshot,
     log_operation,
-    require_permission,
     check_moral_permission,
     check_moral_permission_for_roles,
     get_api_scoped_user_roles,
@@ -28,12 +27,18 @@ from .base import (
     target_student_in_scope,
     has_user_role,
 )
+from .api_permission import require_configured_api_permission
 from models.datas_api.auth import User, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["德育任务"])
 
+# API路径常量
+API_TASK_LIST = "/api/moral/tasks"
+API_TASK_CREATE = "/api/moral/tasks/create"
+API_TASK_UPDATE = "/api/moral/tasks/update"
+API_TASK_DELETE = "/api/moral/tasks/delete"
 API_TASK_FINISH = "/api/moral/tasks/finish"
 
 
@@ -94,8 +99,8 @@ class TaskFinishCreate(BaseModel):
 @router.get("", summary="获取德育任务列表")
 async def get_moral_tasks(
     grade_id: Optional[int] = Query(None),
-    is_active: Optional[int] = Query(None),  # 不传参数时不过滤，传1查活跃，传0查已结束
-    user: User = Depends(get_current_user)
+    is_active: Optional[int] = Query(None),
+    user: User = Depends(require_configured_api_permission(API_TASK_LIST, "GET", allow_missing=False))
 ):
     """获取德育任务列表"""
     with get_moral_db() as db:
@@ -125,7 +130,7 @@ async def get_moral_tasks(
 async def create_moral_task(
     task: MoralTaskCreate,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission(API_TASK_CREATE, "POST", allow_missing=False))
 ):
     """
     创建德育任务
@@ -200,7 +205,7 @@ async def update_moral_task(
     task_id: int,
     task: MoralTaskCreate,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission(API_TASK_UPDATE, "PUT", allow_missing=False))
 ):
     """更新德育任务"""
     with get_moral_db() as db:
@@ -238,7 +243,7 @@ async def update_moral_task(
 async def delete_moral_task(
     task_id: int,
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission(API_TASK_UPDATE, "PUT", allow_missing=False))
 ):
     """删除德育任务（软删除）"""
     with get_moral_db() as db:
@@ -266,11 +271,10 @@ async def get_task_finish_records(
     status: Optional[int] = Query(None, description="0=未完成 1=已完成 2=已作废"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_TASK_FINISH, "GET", allow_missing=False))
 ):
     """获取任务完成记录列表"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
         conditions = ["1=1"]
         params = []
 
@@ -342,11 +346,10 @@ async def get_task_finish_records(
 async def finish_task(
     record: TaskFinishCreate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_TASK_FINISH, "POST", allow_missing=False))
 ):
     """记录任务完成"""
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
         if not _has_scoped_any_permission(db, user, API_TASK_FINISH, ['moral_record_manage', 'moral_record_input']):
             raise HTTPException(403, "权限不足：需要德育任务完成记录权限")
 
@@ -444,21 +447,14 @@ class BatchFinishRequest(BaseModel):
 async def batch_finish_task(
     request: BatchFinishRequest,
     req: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_TASK_FINISH, "POST", allow_missing=False))
 ):
     """
     批量标记任务完成
 
-    权限要求：admin/xuefa（需要 moral_record_manage 权限）
-
-    使用方式：
-    1. 全班完成：传 class_id，自动标记该班级所有未完成学生
-    2. 指定学生：传 student_ids 数组，批量标记指定学生
-
-    只更新 status=0（未完成）的记录，已完成的不会重复更新
+    权限：入口已由 require_configured_api_permission 检查
     """
     with get_moral_db() as db:
-        _ensure_xuefa_or_admin(user)
         if not _has_scoped_any_permission(db, user, API_TASK_FINISH, ['moral_record_manage', 'moral_record_input']):
             raise HTTPException(403, "权限不足：需要德育任务完成记录权限")
 
@@ -563,7 +559,7 @@ class MoralTaskImportItem(BaseModel):
 async def batch_import_moral_tasks(
     items: List[MoralTaskImportItem],
     request: Request,
-    user: User = Depends(require_permission('event_type_manage'))
+    user: User = Depends(require_configured_api_permission(API_TASK_UPDATE, "PUT", allow_missing=False))
 ):
     """
     批量导入德育任务
