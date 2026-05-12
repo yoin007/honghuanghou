@@ -39,18 +39,20 @@
         :empty="isEmpty(summary.charts?.daily_record_trend, 'count')"
         emptyText="近 14 天暂无日常记录数据"
       />
-      <DashboardChart
-        title="班级得分对比"
-        eyebrow="CLASS SCORES"
-        :option="classRankOption"
-        :empty="isEmpty(classScoreRows, 'avg_score')"
-        emptyText="当前无班级德育分数据"
-      />
-      <div class="score-legend">
-        <span class="legend-item excellent">80+优秀</span>
-        <span class="legend-item good">70-79良好</span>
-        <span class="legend-item pass">60-69及格</span>
-        <span class="legend-item fail">&lt;60不及格</span>
+      <div class="class-score-chart-wrapper">
+        <DashboardChart
+          title="班级得分对比"
+          eyebrow="CLASS SCORES"
+          :option="classRankOption"
+          :empty="isEmpty(classScoreRows, 'avg_score')"
+          emptyText="当前无班级德育分数据"
+        />
+        <div class="score-legend">
+          <span class="legend-item excellent">80+优秀</span>
+          <span class="legend-item good">70-79良好</span>
+          <span class="legend-item pass">60-69及格</span>
+          <span class="legend-item fail">&lt;60不及格</span>
+        </div>
       </div>
       <DashboardChart
         title="请假人数班级分布"
@@ -319,11 +321,18 @@ p {
   font-size: 13px;
 }
 
+.class-score-chart-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .score-legend {
   display: flex;
   gap: 16px;
-  margin-top: 12px;
-  padding: 0 20px;
+  padding: 8px 20px;
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 6px;
 }
 
 .legend-item {

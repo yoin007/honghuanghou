@@ -193,6 +193,36 @@ async def get_moral_dashboard_summary(
                 WHERE dr.is_deleted = 0 AND {where_clause}""",
             tuple(params),
         )
+        # 正向记录数（event_type=1）
+        positive_count = _safe_count(
+            db,
+            f"""SELECT COUNT(*)
+                FROM student_daily_record dr
+                JOIN daily_event_type det ON dr.event_id = det.event_id
+                JOIN student s ON dr.student_id = s.student_id
+                WHERE dr.is_deleted = 0 AND det.event_type = 1 AND {where_clause}""",
+            tuple(params),
+        )
+        # 需改进记录数（event_type=2）
+        negative_count = _safe_count(
+            db,
+            f"""SELECT COUNT(*)
+                FROM student_daily_record dr
+                JOIN daily_event_type det ON dr.event_id = det.event_id
+                JOIN student s ON dr.student_id = s.student_id
+                WHERE dr.is_deleted = 0 AND det.event_type = 2 AND {where_clause}""",
+            tuple(params),
+        )
+        # 本周新增记录数
+        week_start = _current_week_range()["start"].isoformat()
+        week_count = _safe_count(
+            db,
+            f"""SELECT COUNT(*)
+                FROM student_daily_record dr
+                JOIN student s ON dr.student_id = s.student_id
+                WHERE dr.is_deleted = 0 AND dr.record_date >= ? AND {where_clause}""",
+            tuple([week_start] + list(params)),
+        )
         avg_score = db.query_value(
             f"""SELECT AVG(me.total_score)
                 FROM moral_evaluation me
@@ -253,6 +283,9 @@ async def get_moral_dashboard_summary(
             "cards": [
                 _metric("可见学生", student_count, "人"),
                 _metric("日常记录", daily_count, "条", "/moral/daily-record"),
+                _metric("正向记录", positive_count, "条", "/moral/daily-record"),
+                _metric("需改进", negative_count, "条", "/moral/daily-record"),
+                _metric("本周新增", week_count, "条", "/moral/daily-record"),
                 _metric("平均德育分", round(float(avg_score or 0), 1), "分", "/moral/evaluation"),
                 _metric("当前请假", leave_stats["active_leave_count"], "人", "/leave-record"),
             ],
