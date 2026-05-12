@@ -53,10 +53,32 @@ API_EXPORT = "/api/moral/semester-evaluations/export"
 # 权限检查函数
 # =============================================================================
 
-def _has_generate_permission(db, user: User) -> bool:
-    """检查是否具有生成权限（admin/xuefa）"""
+def _has_generate_permission(db, user: User, student_id: str = None) -> bool:
+    """检查是否具有生成权限（配置驱动，支持多角色）"""
     scoped_roles = get_api_scoped_user_roles(db, user, API_GENERATE)
-    return check_moral_permission_for_roles(scoped_roles, 'moral_record_manage')
+
+    # admin/xuefa 有全部权限
+    if check_moral_permission_for_roles(scoped_roles, 'moral_record_manage'):
+        return True
+
+    # g_leader 只能操作本年级学生
+    if 'g_leader' in scoped_roles:
+        if student_id:
+            student = db.query_one("SELECT grade_id FROM student WHERE student_id = ?", (student_id,))
+            if student:
+                my_grade_ids = get_teacher_grade_ids(user, db)
+                return student['grade_id'] in my_grade_ids
+        return False
+
+    # cleader 只能操作本班学生
+    if 'cleader' in scoped_roles:
+        if student_id:
+            student = db.query_one("SELECT class_id FROM student WHERE student_id = ?", (student_id,))
+            if student:
+                return is_class_leader(user, student['class_id'], db)
+        return False
+
+    return False
 
 
 def _check_batch_permission(db, user: User, class_id: int = None, grade_id: int = None) -> bool:
@@ -486,11 +508,14 @@ async def api_generate_semester_evaluation(
     """
     生成单个学生的学期末德育评价报告。
 
-    权限要求：admin/xuefa
+    权限要求：
+    - admin/xuefa：全部学生
+    - g_leader：仅本年级学生
+    - cleader：仅本班学生
     """
     with get_moral_db() as db:
-        if not _has_generate_permission(db, user):
-            raise HTTPException(403, "权限不足：需要 admin 或 xuefa 权限")
+        if not _has_generate_permission(db, user, student_id):
+            raise HTTPException(403, "权限不足：只能为授权范围内的学生生成评价")
 
         # 获取当前学期
         if not semester_id:

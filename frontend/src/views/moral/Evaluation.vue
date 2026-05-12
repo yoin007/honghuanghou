@@ -153,7 +153,7 @@
         <el-divider content-position="left">近期记录</el-divider>
         <el-tabs model-value="daily">
           <el-tab-pane label="日常" name="daily">
-            <el-table :data="detailData.recent_records?.daily || []" size="small" empty-text="暂无日常记录">
+            <el-table :data="detailData.recent_records?.daily_records || []" size="small" empty-text="暂无日常记录">
               <el-table-column prop="date" label="日期" width="110" />
               <el-table-column prop="title" label="事件" min-width="140" />
               <el-table-column prop="score" label="分值" width="80">
@@ -163,7 +163,7 @@
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="校级" name="school">
-            <el-table :data="detailData.recent_records?.school || []" size="small" empty-text="暂无校级记录">
+            <el-table :data="detailData.recent_records?.school_records || []" size="small" empty-text="暂无校级记录">
               <el-table-column prop="date" label="日期" width="110" />
               <el-table-column prop="title" label="事件" min-width="140" />
               <el-table-column prop="score" label="分值" width="80">
@@ -173,7 +173,7 @@
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="集体" name="collective">
-            <el-table :data="detailData.recent_records?.collective || []" size="small" empty-text="暂无集体事件">
+            <el-table :data="detailData.recent_records?.collective_records || []" size="small" empty-text="暂无集体事件">
               <el-table-column prop="date" label="日期" width="110" />
               <el-table-column prop="title" label="事件" min-width="140" />
               <el-table-column prop="event_type" label="类型" width="100" />
@@ -183,7 +183,7 @@
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="处分" name="punishment">
-            <el-table :data="detailData.recent_records?.punishments || []" size="small" empty-text="暂无处分记录">
+            <el-table :data="detailData.recent_records?.punishment_records || []" size="small" empty-text="暂无处分记录">
               <el-table-column prop="date" label="日期" width="110" />
               <el-table-column prop="title" label="等级" width="120" />
               <el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip />

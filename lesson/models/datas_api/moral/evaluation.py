@@ -90,7 +90,7 @@ async def get_student_evaluation(
             FROM student s
             JOIN class c ON s.class_id = c.class_id
             JOIN grade g ON s.grade_id = g.grade_id
-            WHERE s.student_id = %s""",
+            WHERE s.student_id = ?""",
             (student_id,)
         )
         if not student:
@@ -107,7 +107,7 @@ async def get_student_evaluation(
         # 获取或计算评价
         evaluation = db.query_one(
             """SELECT * FROM moral_evaluation
-            WHERE student_id = %s AND semester_id = %s""",
+            WHERE student_id = ? AND semester_id = ?""",
             (student_id, semester_id)
         )
 
@@ -126,14 +126,14 @@ async def get_student_evaluation(
             daily_score = db.query_value(
                 """SELECT COALESCE(SUM(score), 0)
                 FROM student_daily_record
-                WHERE student_id = %s AND semester_id = %s AND is_deleted = 0""",
+                WHERE student_id = ? AND semester_id = ? AND is_deleted = 0""",
                 (student_id, semester_id)
             ) or 0
 
             school_score = db.query_value(
                 """SELECT COALESCE(SUM(score), 0)
                 FROM student_school_record
-                WHERE student_id = %s AND semester_id = %s AND is_deleted = 0""",
+                WHERE student_id = ? AND semester_id = ? AND is_deleted = 0""",
                 (student_id, semester_id)
             ) or 0
 
@@ -141,8 +141,8 @@ async def get_student_evaluation(
             task_score = db.query_value(
                 """SELECT COALESCE(SUM(stf.current_score), 0)
                 FROM student_task_finish stf
-                JOIN semester sem ON sem.semester_id = %s
-                WHERE stf.student_id = %s AND stf.status = 1
+                JOIN semester sem ON sem.semester_id = ?
+                WHERE stf.student_id = ? AND stf.status = 1
                 AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date""",
                 (semester_id, student_id)
             ) or 0
@@ -151,14 +151,14 @@ async def get_student_evaluation(
                 """SELECT COALESCE(SUM(ced.score_assigned), 0)
                 FROM collective_event_distribution ced
                 JOIN collective_event ce ON ced.event_id = ce.event_id
-                WHERE ced.student_id = %s AND ce.semester_id = %s AND ced.is_participant = 1""",
+                WHERE ced.student_id = ? AND ce.semester_id = ? AND ced.is_participant = 1""",
                 (student_id, semester_id)
             ) or 0
 
             punishment_score = db.query_value(
                 """SELECT COALESCE(SUM(ABS(score_deduct)), 0)
                 FROM punishment_record
-                WHERE student_id = %s AND semester_id = %s AND is_revoked = 0""",
+                WHERE student_id = ? AND semester_id = ? AND is_revoked = 0""",
                 (student_id, semester_id)
             ) or 0
 
@@ -206,19 +206,24 @@ async def get_class_evaluation(
     获取班级德育评价汇总
 
     权限要求：
-    - cleader 可查看本班
-    - xuefa/jiaowu/admin 可查看所有
+    - cleader 可查看本班（report_view_own_class）
+    - g_leader 可查看本年级班级（report_view_own_grade）
+    - xuefa/jiaowu/admin 可查看所有（report_view_all）
     """
     with get_moral_db() as db:
-        # 权限检查：按班级评价API配置收敛多角色后的数据范围
-        if not _has_scoped_permission(db, user, API_EVAL_CLASS, 'report_view_all'):
-            # 支持多人班主任：检查用户是否是该班级的班主任
-            from .base import is_class_leader
-            if not _has_scoped_permission(db, user, API_EVAL_CLASS, 'report_view_own_class') or not is_class_leader(user, class_id, db):
-                raise HTTPException(403, "权限不足")
+        # 权限检查：使用配置驱动的数据范围
+        scope = get_record_data_scope(
+            db, user, API_EVAL_CLASS,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[],
+        )
 
-        if not check_class_access(user, class_id, db):
-            raise HTTPException(403, "权限不足")
+        # 检查班级是否在允许范围内
+        if not scope.get('can_all'):
+            allowed_class_ids = scope.get('my_class_ids', []) + scope.get('my_grade_class_ids', [])
+            if class_id not in allowed_class_ids:
+                raise HTTPException(403, "权限不足：只能查看授权范围内的班级")
 
         if not semester_id:
             current_semester = get_current_semester(db)
@@ -237,24 +242,24 @@ async def get_class_evaluation(
             s.student_id, s.name as student_name, s.class_id,
             -- 日常分
             COALESCE((SELECT SUM(score) FROM student_daily_record
-                      WHERE student_id = s.student_id AND semester_id = %s AND is_deleted = 0), 0) as daily_score,
+                      WHERE student_id = s.student_id AND semester_id = ? AND is_deleted = 0), 0) as daily_score,
             -- 校级分
             COALESCE((SELECT SUM(score) FROM student_school_record
-                      WHERE student_id = s.student_id AND semester_id = %s AND is_deleted = 0), 0) as school_score,
+                      WHERE student_id = s.student_id AND semester_id = ? AND is_deleted = 0), 0) as school_score,
             -- 任务分（学期内完成的任务）
             COALESCE((SELECT SUM(stf.current_score) FROM student_task_finish stf
-                      JOIN semester sem ON sem.semester_id = %s
+                      JOIN semester sem ON sem.semester_id = ?
                       WHERE stf.student_id = s.student_id AND stf.status = 1
                       AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date), 0) as task_score,
             -- 集体分
             COALESCE((SELECT SUM(ced.score_assigned) FROM collective_event_distribution ced
                       JOIN collective_event ce ON ced.event_id = ce.event_id
-                      WHERE ced.student_id = s.student_id AND ce.semester_id = %s AND ced.is_participant = 1), 0) as collective_score,
+                      WHERE ced.student_id = s.student_id AND ce.semester_id = ? AND ced.is_participant = 1), 0) as collective_score,
             -- 处分扣分
             COALESCE((SELECT SUM(ABS(score_deduct)) FROM punishment_record
-                      WHERE student_id = s.student_id AND semester_id = %s AND is_revoked = 0), 0) as punishment_score
+                      WHERE student_id = s.student_id AND semester_id = ? AND is_revoked = 0), 0) as punishment_score
             FROM student s
-            WHERE s.class_id = %s""",
+            WHERE s.class_id = ?""",
             (semester_id, semester_id, semester_id, semester_id, semester_id, class_id)
         )
 
@@ -341,8 +346,8 @@ async def get_grade_evaluation(
             MIN(me.total_score) as min_score,
             SUM(CASE WHEN me.level = '优秀' THEN 1 ELSE 0 END) as excellent_count
             FROM class c
-            LEFT JOIN moral_evaluation me ON c.class_id = me.class_id AND me.semester_id = %s
-            WHERE c.grade_id = %s AND c.is_active = 1
+            LEFT JOIN moral_evaluation me ON c.class_id = me.class_id AND me.semester_id = ?
+            WHERE c.grade_id = ? AND c.is_active = 1
             GROUP BY c.class_id
             ORDER BY avg_score DESC""",
             (semester_id, grade_id)
@@ -358,7 +363,7 @@ async def get_grade_evaluation(
             SUM(CASE WHEN level = '合格' THEN 1 ELSE 0 END) as pass_count,
             SUM(CASE WHEN level = '不合格' THEN 1 ELSE 0 END) as fail_count
             FROM moral_evaluation
-            WHERE grade_id = %s AND semester_id = %s""",
+            WHERE grade_id = ? AND semester_id = ?""",
             (grade_id, semester_id)
         )
 
@@ -399,15 +404,15 @@ async def calculate_evaluation_api(
         params = []
 
         if student_id:
-            conditions.append("s.student_id = %s")
+            conditions.append("s.student_id = ?")
             params.append(student_id)
 
         if class_id:
-            conditions.append("s.class_id = %s")
+            conditions.append("s.class_id = ?")
             params.append(class_id)
 
         if grade_id:
-            conditions.append("s.grade_id = %s")
+            conditions.append("s.grade_id = ?")
             params.append(grade_id)
 
         if not can_calculate_all:
@@ -455,7 +460,7 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
     # 获取学生班级信息
     if not class_id or not grade_id:
         student = db.query_one(
-            "SELECT class_id, grade_id FROM student WHERE student_id = %s",
+            "SELECT class_id, grade_id FROM student WHERE student_id = ?",
             (student_id,)
         )
         if student:
@@ -472,7 +477,7 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
     daily_score = db.query_value(
         """SELECT COALESCE(SUM(score), 0)
         FROM student_daily_record
-        WHERE student_id = %s AND semester_id = %s AND is_deleted = 0""",
+        WHERE student_id = ? AND semester_id = ? AND is_deleted = 0""",
         (student_id, semester_id)
     ) or 0
 
@@ -480,7 +485,7 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
     school_score = db.query_value(
         """SELECT COALESCE(SUM(score), 0)
         FROM student_school_record
-        WHERE student_id = %s AND semester_id = %s AND is_deleted = 0""",
+        WHERE student_id = ? AND semester_id = ? AND is_deleted = 0""",
         (student_id, semester_id)
     ) or 0
 
@@ -488,8 +493,8 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
     task_score = db.query_value(
         """SELECT COALESCE(SUM(stf.current_score), 0)
         FROM student_task_finish stf
-        JOIN semester sem ON sem.semester_id = %s
-        WHERE stf.student_id = %s AND stf.status = 1
+        JOIN semester sem ON sem.semester_id = ?
+        WHERE stf.student_id = ? AND stf.status = 1
         AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date""",
         (semester_id, student_id)
     ) or 0
@@ -499,7 +504,7 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
         """SELECT COALESCE(SUM(ced.score_assigned), 0)
         FROM collective_event_distribution ced
         JOIN collective_event ce ON ced.event_id = ce.event_id
-        WHERE ced.student_id = %s AND ce.semester_id = %s AND ced.is_participant = 1""",
+        WHERE ced.student_id = ? AND ce.semester_id = ? AND ced.is_participant = 1""",
         (student_id, semester_id)
     ) or 0
 
@@ -507,7 +512,7 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
     punishment_score = db.query_value(
         """SELECT COALESCE(SUM(ABS(score_deduct)), 0)
         FROM punishment_record
-        WHERE student_id = %s AND semester_id = %s AND is_revoked = 0""",
+        WHERE student_id = ? AND semester_id = ? AND is_revoked = 0""",
         (student_id, semester_id)
     ) or 0
 
@@ -526,22 +531,22 @@ def calculate_evaluation(db, student_id: str, semester_id: int, class_id: int = 
 
     # 保存或更新评价
     existing = db.query_one(
-        "SELECT eval_id FROM moral_evaluation WHERE student_id = %s AND semester_id = %s",
+        "SELECT eval_id FROM moral_evaluation WHERE student_id = ? AND semester_id = ?",
         (student_id, semester_id)
     )
 
     if existing:
         db.execute(
             """UPDATE moral_evaluation SET
-            total_score = %s, level = %s, class_id = %s, grade_id = %s, update_time = datetime('now','localtime')
-            WHERE eval_id = %s""",
+            total_score = ?, level = ?, class_id = ?, grade_id = ?, update_time = datetime('now','localtime')
+            WHERE eval_id = ?""",
             (total_score, level, class_id, grade_id, existing['eval_id'])
         )
     else:
         db.execute(
             """INSERT INTO moral_evaluation
             (student_id, semester_id, class_id, grade_id, total_score, level)
-            VALUES (%s, %s, %s, %s, %s, %s)""",
+            VALUES (?, ?, ?, ?, ?, ?)""",
             (student_id, semester_id, class_id, grade_id, total_score, level)
         )
 
@@ -565,7 +570,7 @@ def get_daily_statistics(db, student_id: str, semester_id: int) -> dict:
         """SELECT COUNT(*) as count, SUM(dr.score) as total
         FROM student_daily_record dr
         JOIN daily_event_type de ON dr.event_id = de.event_id
-        WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+        WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
         AND de.event_type = 1""",
         (student_id, semester_id)
     )
@@ -574,7 +579,7 @@ def get_daily_statistics(db, student_id: str, semester_id: int) -> dict:
         """SELECT COUNT(*) as count, SUM(ABS(dr.score)) as total
         FROM student_daily_record dr
         JOIN daily_event_type de ON dr.event_id = de.event_id
-        WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+        WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
         AND de.event_type = 2""",
         (student_id, semester_id)
     )
@@ -590,7 +595,7 @@ def get_school_statistics(db, student_id: str, semester_id: int) -> dict:
     honors = db.query_one(
         """SELECT COUNT(*) as count, SUM(score) as total
         FROM student_school_record
-        WHERE student_id = %s AND semester_id = %s AND is_deleted = 0
+        WHERE student_id = ? AND semester_id = ? AND is_deleted = 0
         AND score > 0""",
         (student_id, semester_id)
     )
@@ -598,7 +603,7 @@ def get_school_statistics(db, student_id: str, semester_id: int) -> dict:
     punishments = db.query_one(
         """SELECT COUNT(*) as count, SUM(ABS(score)) as total
         FROM student_school_record
-        WHERE student_id = %s AND semester_id = %s AND is_deleted = 0
+        WHERE student_id = ? AND semester_id = ? AND is_deleted = 0
         AND score < 0""",
         (student_id, semester_id)
     )
@@ -617,8 +622,8 @@ def get_task_statistics(db, student_id: str, semester_id: int) -> dict:
         SUM(CASE WHEN stf.status = 1 AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date THEN 1 ELSE 0 END) as finished_tasks,
         SUM(CASE WHEN stf.status = 1 AND stf.finish_date >= sem.start_date AND stf.finish_date <= sem.end_date THEN stf.current_score ELSE 0 END) as total_score
         FROM student_task_finish stf
-        JOIN semester sem ON sem.semester_id = %s
-        WHERE stf.student_id = %s""",
+        JOIN semester sem ON sem.semester_id = ?
+        WHERE stf.student_id = ?""",
         (semester_id, student_id)
     )
 
@@ -632,7 +637,7 @@ def get_collective_statistics(db, student_id: str, semester_id: int) -> dict:
         COALESCE(SUM(CASE WHEN ced.is_participant = 1 THEN 1 ELSE 0 END), 0) as participant_count
         FROM collective_event_distribution ced
         JOIN collective_event ce ON ced.event_id = ce.event_id
-        WHERE ced.student_id = %s AND ce.semester_id = %s""",
+        WHERE ced.student_id = ? AND ce.semester_id = ?""",
         (student_id, semester_id)
     )
     return stats or {'count': 0, 'total_score': 0, 'participant_count': 0}
@@ -644,7 +649,7 @@ def get_punishment_statistics(db, student_id: str, semester_id: int) -> dict:
         """SELECT COUNT(*) as count, COALESCE(SUM(ABS(score_deduct)), 0) as total_deduct,
         SUM(CASE WHEN is_revoked = 1 THEN 1 ELSE 0 END) as revoked_count
         FROM punishment_record
-        WHERE student_id = %s AND semester_id = %s""",
+        WHERE student_id = ? AND semester_id = ?""",
         (student_id, semester_id)
     )
     return stats or {'count': 0, 'total_deduct': 0, 'revoked_count': 0}
