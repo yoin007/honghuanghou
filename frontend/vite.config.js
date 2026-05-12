@@ -63,15 +63,15 @@ export default defineConfig(({ mode }) => {
           target: proxyTarget,
           changeOrigin: true,
           secure: false,
-          timeout: 15000,
-          proxyTimeout: 15000
+          timeout: 300000,  // 批量 AI 生成需要很长时间，proxy timeout 需匹配最大 axios timeout
+          proxyTimeout: 300000
         },
         '/static': {
           target: proxyTarget,
           changeOrigin: true,
           secure: false,
-          timeout: 15000,
-          proxyTimeout: 15000
+          timeout: 300000,
+          proxyTimeout: 300000
         }
       }
     },

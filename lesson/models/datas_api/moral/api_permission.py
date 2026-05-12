@@ -176,6 +176,11 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/evaluations/class", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/evaluations/grade", "api_name": "年级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50},
     {"api_path": "/api/moral/evaluations/calculate", "api_name": "计算德育评价", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50},
+
+    # 学期末评价
+    {"api_path": "/api/moral/semester-evaluations/generate", "api_name": "生成单学生学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/semester-evaluations/batch-generate", "api_name": "批量生成学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/semester-evaluations/list", "api_name": "查询学期末评价列表", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
 ]
 
 VALID_POLICY_MODES = {"role_and_level", "role_or_level", "role_only", "level_only", "public"}

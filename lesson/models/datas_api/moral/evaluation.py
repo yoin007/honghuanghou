@@ -657,7 +657,7 @@ def get_recent_evaluation_records(db, student_id: str, semester_id: int) -> dict
         dr.score, dr.remark
         FROM student_daily_record dr
         JOIN daily_event_type det ON dr.event_id = det.event_id
-        WHERE dr.student_id = %s AND dr.semester_id = %s AND dr.is_deleted = 0
+        WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
         ORDER BY dr.record_date DESC, dr.created_at DESC
         LIMIT 8""",
         (student_id, semester_id)
@@ -667,7 +667,7 @@ def get_recent_evaluation_records(db, student_id: str, semester_id: int) -> dict
         sr.score, sr.proof
         FROM student_school_record sr
         JOIN school_event_type setype ON sr.event_id = setype.event_id
-        WHERE sr.student_id = %s AND sr.semester_id = %s AND sr.is_deleted = 0
+        WHERE sr.student_id = ? AND sr.semester_id = ? AND sr.is_deleted = 0
         ORDER BY sr.get_date DESC, sr.created_at DESC
         LIMIT 8""",
         (student_id, semester_id)
@@ -677,7 +677,7 @@ def get_recent_evaluation_records(db, student_id: str, semester_id: int) -> dict
         ced.score_assigned as score, ced.remark
         FROM collective_event_distribution ced
         JOIN collective_event ce ON ced.event_id = ce.event_id
-        WHERE ced.student_id = %s AND ce.semester_id = %s AND ced.is_participant = 1
+        WHERE ced.student_id = ? AND ce.semester_id = ? AND ced.is_participant = 1
         ORDER BY ce.event_date DESC
         LIMIT 8""",
         (student_id, semester_id)
@@ -686,14 +686,14 @@ def get_recent_evaluation_records(db, student_id: str, semester_id: int) -> dict
         """SELECT punishment_date as date, level as title, reason, ABS(score_deduct) as score,
         is_revoked
         FROM punishment_record
-        WHERE student_id = %s AND semester_id = %s
+        WHERE student_id = ? AND semester_id = ?
         ORDER BY punishment_date DESC, created_at DESC
         LIMIT 5""",
         (student_id, semester_id)
     )
     return {
-        'daily': daily,
-        'school': school,
-        'collective': collective,
-        'punishments': punishments
+        'daily_records': daily,
+        'school_records': school,
+        'collective_records': collective,
+        'punishment_records': punishments
     }

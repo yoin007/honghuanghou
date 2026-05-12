@@ -414,7 +414,7 @@ export function getStudentProfile(studentId) {
  */
 export function generateStudentProfile(studentId) {
   return httpClient.post(`/api/moral/profiles/student/${studentId}/generate`, null, {
-    timeout: 60000
+    timeout: 90000  // AI生成耗时较长，略小于 proxy timeout 300s
   })
 }
 
@@ -442,7 +442,7 @@ export function getStudentProfileGenerationStatus(jobId) {
 export function batchGenerateProfiles(params = {}) {
   return httpClient.post('/api/moral/profiles/batch-generate', null, {
     params,
-    timeout: 120000
+    timeout: 270000  // 批量生成耗时较长，略小于 proxy timeout 300s
   })
 }
 
@@ -1021,6 +1021,50 @@ export function initAiModelConfig() {
   return httpClient.post('/api/moral/ai-model-config/init')
 }
 
+// =============================================================================
+// 学期末评价 API
+// =============================================================================
+
+/**
+ * 生成单学生学期末评价
+ * @param {string} studentId - 学生ID
+ * @param {number} semesterId - 学期ID（可选）
+ * @param {boolean} generateAi - 是否生成AI总结
+ */
+export function generateSemesterEvaluation(studentId, semesterId = null, generateAi = true) {
+  return httpClient.post('/api/moral/semester-evaluations/generate', null, {
+    params: { student_id: studentId, semester_id: semesterId, generate_ai: generateAi },
+    timeout: 90000  // AI生成耗时较长，略小于 proxy timeout 300s
+  })
+}
+
+/**
+ * 批量生成学期末评价
+ * @param {object} params - { class_id, grade_id, semester_id, generate_ai }
+ */
+export function batchGenerateSemesterEvaluations(params) {
+  return httpClient.post('/api/moral/semester-evaluations/batch-generate', null, {
+    params,
+    timeout: 270000  // 批量生成耗时较长，略小于 proxy timeout 300s
+  })
+}
+
+/**
+ * 查询学期末评价列表
+ * @param {object} params - { class_id, grade_id, semester_id, page, pageSize }
+ */
+export function getSemesterEvaluationList(params = {}) {
+  return httpClient.get('/api/moral/semester-evaluations/list', { params })
+}
+
+/**
+ * 获取学期末评价详情
+ * @param {number} recordId - 记录ID
+ */
+export function getSemesterEvaluationDetail(recordId) {
+  return httpClient.get(`/api/moral/semester-evaluations/${recordId}`)
+}
+
 // 导出所有 API
 export default {
   // 数据范围能力
@@ -1135,6 +1179,12 @@ export default {
   initAiModelConfig,
   getSystemConfig,
   updateSystemConfig,
+
+  // 学期末评价
+  generateSemesterEvaluation,
+  batchGenerateSemesterEvaluations,
+  getSemesterEvaluationList,
+  getSemesterEvaluationDetail,
 
   // 事件类型管理
   createDailyEventType,

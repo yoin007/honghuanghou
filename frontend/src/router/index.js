@@ -373,6 +373,15 @@ const routes = [
       title: '一生一册'
     }
   },
+  {
+    path: '/moral/semester-evaluation',
+    name: 'MoralSemesterEvaluation',
+    component: () => import('../views/moral/SemesterEvaluation.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '学期末评价'
+    }
+  },
   // 德育配置管理路由
   {
     path: '/moral/config',
