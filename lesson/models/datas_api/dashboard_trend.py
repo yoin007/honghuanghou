@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from models.datas_api.auth import User
 from models.datas_api.moral.base import (
     get_moral_db,
-    get_teacher_class_id,
     has_user_role,
     get_record_data_scope,
 )
@@ -169,8 +168,11 @@ def _merge_class_moral_trend(
         return {
             "periods": ["baseline"],
             "labels": ["学期起点"],
+            "daily_scores": [0],
+            "school_scores": [0],
             "task_scores": [0],
-            "record_scores": [0],
+            "collective_scores": [0],
+            "punishment_scores": [0],
             "total_scores": [base_score],  # 基础分作为起点
             "has_changes": False,  # 标记无变化记录
         }
@@ -178,8 +180,11 @@ def _merge_class_moral_trend(
     return {
         "periods": periods,
         "labels": labels,
+        "daily_scores": daily_cumulative,
+        "school_scores": school_cumulative,
         "task_scores": task_cumulative,
-        "record_scores": daily_cumulative,  # 日常记录 = record_scores（保持前端兼容）
+        "collective_scores": collective_cumulative,
+        "punishment_scores": punishment_cumulative,
         "total_scores": total_cumulative,
         "has_changes": True,  # 标记有变化记录
     }
@@ -197,8 +202,11 @@ def _build_empty_trend_response(unit: str) -> Dict:
     return {
         "periods": [],
         "labels": [],
+        "daily_scores": [],
+        "school_scores": [],
         "task_scores": [],
-        "record_scores": [],
+        "collective_scores": [],
+        "punishment_scores": [],
         "total_scores": [],
     }
 
@@ -731,11 +739,6 @@ async def get_grade_score_trend(
             own_permissions=[]
         )
 
-        if not scope.get('can_all'):
-            my_grade_ids = scope.get('my_grade_ids', [])
-            if grade_id_int not in my_grade_ids:
-                raise HTTPException(status_code=403, detail="只能查看授权范围内的年级")
-
         # 获取年级下所有班级（通过 grade_id 关联）
         if grade_id_int:
             classes = db.query_all(
@@ -753,6 +756,10 @@ async def get_grade_score_trend(
 
         if not class_ids:
             raise HTTPException(status_code=404, detail="年级不存在或无班级")
+        if not scope.get('can_all'):
+            managed_grade_class_ids = set(scope.get('my_grade_class_ids', []))
+            if not managed_grade_class_ids or not set(class_ids).issubset(managed_grade_class_ids):
+                raise HTTPException(status_code=403, detail="只能查看授权范围内的年级")
 
         # 获取学期信息
         if not semester_id:
@@ -774,10 +781,37 @@ async def get_grade_score_trend(
 
         class_ids_str = ','.join(map(str, class_ids))
 
-        # 年级任务得分平均趋势
+        # 年级学生总数（用于计算平均）
+        student_count = db.query_value(
+            f"SELECT COUNT(*) FROM student WHERE class_id IN ({class_ids_str})"
+        ) or 1
+
+        # 1. 年级日常记录平均趋势
+        daily_data = db.query_all(
+            f"""SELECT strftime('{period_format}', record_date) as period,
+                       SUM(score) as total_score
+                FROM student_daily_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0
+                AND record_date >= ? AND record_date <= ?
+                GROUP BY period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        # 2. 年级校级事件平均趋势
+        school_data = db.query_all(
+            f"""SELECT strftime('{period_format}', get_date) as period,
+                       SUM(score) as total_score
+                FROM student_school_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0
+                AND get_date >= ? AND get_date <= ?
+                GROUP BY period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        # 3. 年级任务得分平均趋势
         task_data = db.query_all(
             f"""SELECT strftime('{period_format}', stf.finish_date) as period,
-                       AVG(stf.current_score) as avg_score
+                       SUM(stf.current_score) as total_score
                 FROM student_task_finish stf
                 JOIN student s ON stf.student_id = s.student_id
                 WHERE s.class_id IN ({class_ids_str}) AND stf.status = 1
@@ -786,20 +820,41 @@ async def get_grade_score_trend(
             (start_date, end_date)
         )
 
-        # 年级加减分平均趋势
-        record_data = db.query_all(
-            f"""SELECT strftime('{period_format}', ssr.get_date) as period,
-                       AVG(ssr.score) as avg_score
-                FROM student_school_record ssr
-                JOIN student s ON ssr.student_id = s.student_id
-                WHERE s.class_id IN ({class_ids_str}) AND ssr.is_deleted = 0
-                AND ssr.get_date >= ? AND ssr.get_date <= ?
+        # 4. 年级集体活动平均趋势
+        collective_data = db.query_all(
+            f"""SELECT strftime('{period_format}', ce.event_date) as period,
+                       SUM(ced.score_assigned) as total_score
+                FROM collective_event_distribution ced
+                JOIN collective_event ce ON ced.event_id = ce.event_id
+                WHERE ced.class_id IN ({class_ids_str}) AND ced.is_participant = 1
+                AND ce.event_date >= ? AND ce.event_date <= ?
                 GROUP BY period ORDER BY period""",
             (start_date, end_date)
         )
 
-        # 合并数据
-        trend_data = _merge_trend_data(task_data or [], record_data or [], unit)
+        # 5. 年级处分扣分平均趋势
+        punishment_data = db.query_all(
+            f"""SELECT strftime('{period_format}', punishment_date) as period,
+                       SUM(ABS(score_deduct)) as total_score
+                FROM punishment_record
+                WHERE class_id IN ({class_ids_str}) AND is_revoked = 0
+                AND punishment_date >= ? AND punishment_date <= ?
+                GROUP BY period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        # 从配置表读取基础分
+        base_score_config = db.query_value(
+            "SELECT config_value FROM moral_config WHERE config_key = 'evaluation_base_score'"
+        )
+        base_score = float(base_score_config or 80)
+
+        # 合并数据（使用班级合并函数，计算平均）
+        trend_data = _merge_class_moral_trend(
+            daily_data or [], school_data or [], task_data or [],
+            collective_data or [], punishment_data or [],
+            base_score, unit, student_count
+        )
 
     return {
         "success": True,

@@ -163,7 +163,7 @@ const gradeInfo = ref({})
 const studentList = ref([])
 const selectedStudentId = ref(null)
 const trendUnit = ref('week')
-const gradeTrendData = ref({ periods: [], labels: [], task_scores: [], record_scores: [], total_scores: [] })
+const gradeTrendData = ref({ periods: [], labels: [], daily_scores: [], school_scores: [], task_scores: [], collective_scores: [], punishment_scores: [], total_scores: [] })
 const studentTrendData = ref({ periods: [], labels: [], daily_scores: [], school_scores: [], task_scores: [], collective_scores: [], punishment_scores: [], total_scores: [] })
 const trendLoading = ref(false)
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
@@ -236,15 +236,29 @@ const scoreBandOption = computed(() => {
 const gradeTrendOption = computed(() => {
   const data = gradeTrendData.value
   if (!data.periods?.length) return null
+
+  // 无变化记录时显示基础分 + 提示
+  const hasChanges = data.has_changes !== false
+  const subtitleText = hasChanges ? '' : `年级德育平均分保持在基础分 ${data.total_scores?.[0] || 80} 分`
+
   return {
+    title: {
+      text: subtitleText,
+      left: 'center',
+      top: 0,
+      textStyle: { color: '#94a3b8', fontSize: 12, fontWeight: 'normal' }
+    },
     tooltip: { trigger: 'axis' },
-    legend: { data: ['任务得分', '加减分', '总分'], top: 10 },
+    legend: { data: ['德育总分', '日常记录', '校级事件', '任务完成', '集体活动', '处分扣分'], top: subtitleText ? 28 : 10 },
     xAxis: { type: 'category', data: data.labels },
-    yAxis: { type: 'value', name: '平均得分' },
+    yAxis: { type: 'value', name: '平均得分', min: 0, max: 100 },
     series: [
-      { name: '任务得分', type: 'line', data: data.task_scores, smooth: true, itemStyle: { color: '#E6A23C' } },
-      { name: '加减分', type: 'line', data: data.record_scores, smooth: true, itemStyle: { color: '#67C23A' } },
-      { name: '总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#409EFF' } }
+      { name: '德育总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#38bdf8' }, lineStyle: { width: 3 } },
+      { name: '日常记录', type: 'line', data: data.daily_scores, smooth: true, itemStyle: { color: '#34d399' } },
+      { name: '校级事件', type: 'line', data: data.school_scores, smooth: true, itemStyle: { color: '#fbbf24' } },
+      { name: '任务完成', type: 'line', data: data.task_scores, smooth: true, itemStyle: { color: '#a78bfa' } },
+      { name: '集体活动', type: 'line', data: data.collective_scores, smooth: true, itemStyle: { color: '#f472b6' } },
+      { name: '处分扣分', type: 'line', data: data.punishment_scores, smooth: true, itemStyle: { color: '#fb7185' } }
     ]
   }
 })
