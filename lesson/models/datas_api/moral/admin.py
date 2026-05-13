@@ -675,7 +675,6 @@ async def get_classes(
     - admin/jiaowu/xuefa/g_leader：始终看相应范围班级
     """
     from .base import (
-    require_configured_api_permission,
         get_teacher_teaching_class_ids,
         get_teacher_class_ids,
         get_teacher_grade_ids,
