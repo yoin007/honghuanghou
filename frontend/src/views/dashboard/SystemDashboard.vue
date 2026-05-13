@@ -110,9 +110,12 @@ const roleNames = {
     'teacher/cleader': '教师/班主任',
     'teacher/jiaowu': '教师/教务',
     'teacher/xuefa': '教师/学发',
+    'teacher/g_leader': '教师/年级主任',
+    'teacher/cleader/g_leader': '教师/班主任/年级主任',
     cleader: '班主任',
     jiaowu: '教务',
     xuefa: '学发',
+    g_leader: '年级主任',
     member: '会员'
   }
   const roleDistributionOption = computed(() => basePieOption({
