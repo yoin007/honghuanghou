@@ -25,10 +25,9 @@ from .base import (
     record_in_scope,
     record_action_flags,
     target_student_in_scope,
-    has_user_role,
 )
 from .api_permission import require_configured_api_permission
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +38,6 @@ API_PUNISHMENT_CREATE = "/api/moral/punishments/create"
 API_PUNISHMENT_UPDATE = "/api/moral/punishments/update"
 API_PUNISHMENT_REVOKE = "/api/moral/punishments/revoke"
 API_PUNISHMENT_REVIEW = "/api/moral/punishments/review"
-
-
-def _ensure_xuefa_or_admin(user: User) -> None:
-    if not (has_user_role(user, "admin") or has_user_role(user, "xuefa")):
-        raise HTTPException(403, "处分管理仅学发和管理员可访问")
-
 
 def _has_scoped_any_permission(db, user: User, api_path: str, permissions: List[str]) -> bool:
     scoped_roles = get_api_scoped_user_roles(db, user, api_path)
@@ -293,7 +286,7 @@ async def update_punishment(
     record_id: int,
     punishment: PunishmentCreate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_UPDATE, "PUT", allow_missing=False))
 ):
     """更新处分记录"""
     with get_moral_db() as db:
@@ -338,7 +331,7 @@ async def revoke_punishment(
     record_id: int,
     revoke_data: PunishmentRevoke,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_REVOKE, "POST", allow_missing=False))
 ):
     """
     撤销处分
@@ -412,7 +405,7 @@ async def revoke_punishment(
 @router.get("/{record_id}/review-info", summary="获取处分复核信息")
 async def get_punishment_review_info(
     record_id: int,
-    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_REVIEW))
+    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_REVIEW, "GET", allow_missing=False))
 ):
     """
     获取处分复核所需信息
@@ -538,7 +531,7 @@ async def review_punishment(
     record_id: int,
     review_data: PunishmentReview,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_REVIEW))
+    user: User = Depends(require_configured_api_permission(API_PUNISHMENT_REVIEW, "POST", allow_missing=False))
 ):
     """
     复核处分（撤销或通过）

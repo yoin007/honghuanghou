@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api-permissions", tags=["API权限管理"])
 
+EXPECTED_PUBLIC_API_PATHS = {
+    "/api/token",
+}
+
 
 # =============================================================================
 # Pydantic 模型
@@ -49,8 +53,11 @@ class ApiPermissionCreate(BaseModel):
     inherit_from_module: int = Field(default=0, description="是否继承模块权限")
     is_public: int = Field(default=0, description="是否无需鉴权")
     enforce_backend: int = Field(default=1, description="是否用于后端鉴权")
+    resource_type: str = Field(default="", description="业务资源类型")
+    action_type: str = Field(default="", description="动作类型")
     data_scope_rules: Optional[Dict[str, List[str]]] = Field(default_factory=dict, description="角色数据范围规则")
     target_scope_rules: Optional[Dict[str, List[str]]] = Field(default_factory=dict, description="角色目标对象范围规则")
+    operation_scope_rules: Optional[Dict[str, List[str]]] = Field(default_factory=dict, description="角色动作范围规则")
     description: Optional[str] = Field(None, description="描述")
 
 
@@ -67,8 +74,11 @@ class ApiPermissionUpdate(BaseModel):
     inherit_from_module: Optional[int] = Field(None, description="是否继承模块权限")
     is_public: Optional[int] = Field(None, description="是否无需鉴权")
     enforce_backend: Optional[int] = Field(None, description="是否用于后端鉴权")
+    resource_type: Optional[str] = Field(None, description="业务资源类型")
+    action_type: Optional[str] = Field(None, description="动作类型")
     data_scope_rules: Optional[Dict[str, List[str]]] = Field(None, description="角色数据范围规则")
     target_scope_rules: Optional[Dict[str, List[str]]] = Field(None, description="角色目标对象范围规则")
+    operation_scope_rules: Optional[Dict[str, List[str]]] = Field(None, description="角色动作范围规则")
     description: Optional[str] = Field(None, description="描述")
     is_active: Optional[int] = Field(None, description="是否启用")
 
@@ -98,6 +108,17 @@ class ApiPermissionModuleUpdate(BaseModel):
     is_active: Optional[int] = Field(None, description="是否启用")
 
 
+class ApiPermissionTemplateApply(BaseModel):
+    """批量套用权限模板"""
+    config_ids: List[int] = Field(..., description="API配置ID列表")
+    template_key: str = Field(..., description="模板标识")
+
+
+class ApiPermissionAuditRequest(BaseModel):
+    """权限配置巡检请求"""
+    config_ids: List[int] = Field(default_factory=list, description="仅巡检这些API；为空时巡检全部")
+
+
 # =============================================================================
 # 默认API权限配置
 # =============================================================================
@@ -119,6 +140,7 @@ DEFAULT_API_PERMISSIONS = [
 
     # 校级事件
     {"api_path": "/api/moral/school-records", "api_name": "获取校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
+    {"api_path": "/api/moral/school-records/types", "api_name": "校级事件类型管理", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
     {"api_path": "/api/moral/school-records/create", "api_name": "创建校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
     {"api_path": "/api/moral/school-records/update", "api_name": "更新校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
     {"api_path": "/api/moral/school-records/delete", "api_name": "删除校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
@@ -128,6 +150,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/punishments/create", "api_name": "创建处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
     {"api_path": "/api/moral/punishments/update", "api_name": "更新处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
     {"api_path": "/api/moral/punishments/revoke", "api_name": "撤销处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
+    {"api_path": "/api/moral/punishments/review", "api_name": "处分复核", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
 
     # 集体事件
     {"api_path": "/api/moral/collective-events", "api_name": "集体事件管理", "api_group": "集体事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
@@ -174,9 +197,9 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
     {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
 
-    # 生日查看
-    {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日查看", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/birthdays/today", "api_name": "获取今日生日", "api_group": "生日查看", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    # 生日提醒
+    {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/birthdays/today", "api_name": "获取今日生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
 
     # 学生画像
     {"api_path": "/api/moral/timeline", "api_name": "一生一册查看", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20},
@@ -206,6 +229,171 @@ DEFAULT_API_PERMISSIONS = [
 
 VALID_POLICY_MODES = {"role_and_level", "role_or_level", "role_only", "level_only", "public"}
 VALID_MATCH_TYPES = {"exact", "prefix", "pattern"}
+
+DEFAULT_OPERATION_SCOPE_RULES = {
+    "/api/moral/daily-records/update": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/daily-records/delete": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/moment-records/update": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/moment-records/delete": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/school-records/update": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/school-records/delete": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/punishments/update": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/punishments/revoke": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/punishments/review": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/collective-events/update": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/collective-events/delete": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/collective-events/distributions/update": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+}
+
+PERMISSION_TEMPLATES = {
+    "record_view": {
+        "label": "记录查看模板",
+        "data_scope_rules": {
+            "admin": ["all"],
+            "jiaowu": ["all"],
+            "xuefa": ["all"],
+            "g_leader": ["own_created", "managed_grades"],
+            "cleader": ["own_created", "managed_classes"],
+            "teacher": ["own_created"],
+        },
+        "target_scope_rules": {},
+        "operation_scope_rules": {},
+    },
+    "record_create": {
+        "label": "记录创建模板",
+        "data_scope_rules": {},
+        "target_scope_rules": {
+            "admin": ["all_students"],
+            "jiaowu": ["all_students"],
+            "xuefa": ["all_students"],
+            "g_leader": ["teaching_classes", "managed_grades"],
+            "cleader": ["teaching_classes", "managed_classes"],
+            "teacher": ["teaching_classes"],
+        },
+        "operation_scope_rules": {},
+    },
+    "record_action": {
+        "label": "记录编辑删除模板",
+        "data_scope_rules": {},
+        "target_scope_rules": {},
+        "operation_scope_rules": {
+            "admin": ["all"],
+            "jiaowu": ["all"],
+            "xuefa": ["all"],
+            "g_leader": ["own_created"],
+            "cleader": ["own_created"],
+            "teacher": ["own_created"],
+        },
+    },
+    "xuefa_manage": {
+        "label": "学发专管模板",
+        "data_scope_rules": {"admin": ["all"], "xuefa": ["all"]},
+        "target_scope_rules": {"admin": ["all_students"], "xuefa": ["all_students"]},
+        "operation_scope_rules": {"admin": ["all"], "xuefa": ["all"]},
+    },
+    "student_archive": {
+        "label": "学生档案查看模板",
+        "data_scope_rules": {
+            "admin": ["all"],
+            "jiaowu": ["all"],
+            "xuefa": ["all"],
+            "g_leader": ["managed_grades"],
+            "cleader": ["managed_classes"],
+        },
+        "target_scope_rules": {},
+        "operation_scope_rules": {},
+    },
+}
+
+
+def _infer_resource_type(api_path: str) -> str:
+    mapping = [
+        ("/api/moral/daily-records", "daily_record"),
+        ("/api/moral/moment-records", "moment_record"),
+        ("/api/moral/school-records", "school_record"),
+        ("/api/moral/punishments", "punishment_record"),
+        ("/api/moral/tasks", "moral_task"),
+        ("/api/moral/collective-events", "collective_event"),
+        ("/api/moral/timeline", "student_lifebook"),
+        ("/api/moral/profiles", "student_profile"),
+        ("/api/moral/consultations", "consultation"),
+        ("/api/dashboard/score-trend", "score_trend"),
+        ("/api/dashboard", "dashboard"),
+    ]
+    for prefix, resource in mapping:
+        if api_path.startswith(prefix):
+            return resource
+    return ""
+
+
+def _infer_action_type(api_path: str, http_method: str = "*") -> str:
+    path = api_path or ""
+    method = (http_method or "*").upper()
+    if "/review" in path:
+        return "review"
+    if "/create" in path or method == "POST" and any(token in path for token in ["/finish", "/batch", "/types"]):
+        return "create"
+    if any(token in path for token in ["/delete", "/revoke"]) or method == "DELETE":
+        return "delete"
+    if any(token in path for token in ["/update", "/close", "/review"]) or method == "PUT":
+        return "update"
+    if "/export" in path:
+        return "export"
+    if any(token in path for token in ["/trend", "/summary", "/search", "/list"]):
+        return "view"
+    return "view" if method == "GET" else "operate"
 
 DEFAULT_DATA_SCOPE_RULES = {
     "/api/moral/daily-records": {
@@ -421,6 +609,25 @@ DEFAULT_DATA_SCOPE_RULES = {
         "cleader": ["managed_classes"],
         "teacher": ["teaching_classes"],
     },
+    "/api/dashboard/score-trend/student/{student_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/dashboard/score-trend/class/{class_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/dashboard/score-trend/grade/{grade_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+    },
 }
 
 DEFAULT_TARGET_SCOPE_RULES = {
@@ -567,8 +774,11 @@ def ensure_api_permission_schema(db) -> None:
         ("inherit_from_module", "ALTER TABLE api_permission_config ADD COLUMN inherit_from_module INTEGER DEFAULT 0"),
         ("is_public", "ALTER TABLE api_permission_config ADD COLUMN is_public INTEGER DEFAULT 0"),
         ("enforce_backend", "ALTER TABLE api_permission_config ADD COLUMN enforce_backend INTEGER DEFAULT 1"),
+        ("resource_type", "ALTER TABLE api_permission_config ADD COLUMN resource_type TEXT DEFAULT ''"),
+        ("action_type", "ALTER TABLE api_permission_config ADD COLUMN action_type TEXT DEFAULT ''"),
         ("data_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN data_scope_rules TEXT DEFAULT '{}'"),
         ("target_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN target_scope_rules TEXT DEFAULT '{}'"),
+        ("operation_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN operation_scope_rules TEXT DEFAULT '{}'"),
     ]
     for column, sql in migrations:
         if column not in columns:
@@ -639,6 +849,14 @@ def _backfill_default_scope_rules(db) -> None:
                  AND (target_scope_rules IS NULL OR target_scope_rules = '' OR target_scope_rules = '{}')""",
             (_json_dict_dump(rules), api_path),
         )
+    for api_path, rules in DEFAULT_OPERATION_SCOPE_RULES.items():
+        db.execute(
+            """UPDATE api_permission_config
+               SET operation_scope_rules = ?
+               WHERE api_path = ?
+                 AND (operation_scope_rules IS NULL OR operation_scope_rules = '' OR operation_scope_rules = '{}')""",
+            (_json_dict_dump(rules), api_path),
+        )
 
     # 修复 teacher 的错误目标范围：从 all_students 改为 teaching_classes
     # 同时补齐 g_leader 的范围规则
@@ -655,23 +873,24 @@ def _fix_incorrect_scope_rules(db) -> None:
     # 补齐代码默认 API 配置，并同步默认 match_type/http_method。已有手工角色配置不在这里覆盖，
     # 只处理缺失行和动态路径匹配方式，避免 /student/{id} 这类接口绕过配置。
     for default_config in DEFAULT_API_PERMISSIONS:
-        module_id = _ensure_module(
-            db,
-            _module_key_from_group(default_config["api_group"]),
-            default_config["api_group"],
-            default_config.get("allowed_roles") or [],
-            int(default_config.get("min_level") or 0),
-        )
         existing = db.query_one(
-            "SELECT id FROM api_permission_config WHERE api_path = ?",
+            "SELECT id, module_id FROM api_permission_config WHERE api_path = ?",
             (default_config["api_path"],),
         )
         if not existing:
+            module_id = _ensure_module(
+                db,
+                _module_key_from_group(default_config["api_group"]),
+                default_config["api_group"],
+                default_config.get("allowed_roles") or [],
+                int(default_config.get("min_level") or 0),
+            )
             db.execute(
                 """INSERT INTO api_permission_config
                    (api_path, api_name, api_group, allowed_roles, min_level, module_id,
-                    http_method, match_type, policy_mode, is_active, enforce_backend)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'role_and_level', 1, 1)""",
+                    http_method, match_type, policy_mode, is_active, enforce_backend,
+                    resource_type, action_type, operation_scope_rules)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'role_and_level', 1, 1, ?, ?, ?)""",
                 (
                     default_config["api_path"],
                     default_config["api_name"],
@@ -681,19 +900,40 @@ def _fix_incorrect_scope_rules(db) -> None:
                     module_id,
                     default_config.get("http_method", "*"),
                     default_config.get("match_type", "exact"),
+                    default_config.get("resource_type") or _infer_resource_type(default_config["api_path"]),
+                    default_config.get("action_type") or _infer_action_type(default_config["api_path"], default_config.get("http_method", "*")),
+                    _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES.get(default_config["api_path"], {})),
                 ),
             )
         else:
             db.execute(
                 """UPDATE api_permission_config
-                   SET http_method = ?, match_type = ?
+                   SET http_method = ?, match_type = ?,
+                       resource_type = COALESCE(NULLIF(resource_type, ''), ?),
+                       action_type = COALESCE(NULLIF(action_type, ''), ?),
+                       operation_scope_rules = CASE
+                           WHEN operation_scope_rules IS NULL OR operation_scope_rules = '' OR operation_scope_rules = '{}'
+                           THEN ?
+                           ELSE operation_scope_rules
+                       END
                    WHERE api_path = ?""",
                 (
                     default_config.get("http_method", "*"),
                     default_config.get("match_type", "exact"),
+                    default_config.get("resource_type") or _infer_resource_type(default_config["api_path"]),
+                    default_config.get("action_type") or _infer_action_type(default_config["api_path"], default_config.get("http_method", "*")),
+                    _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES.get(default_config["api_path"], {})),
                     default_config["api_path"],
                 ),
             )
+
+    db.execute(
+        """DELETE FROM api_permission_module
+           WHERE module_name = '生日查看'
+             AND NOT EXISTS (
+                 SELECT 1 FROM api_permission_config c WHERE c.module_id = api_permission_module.id
+             )"""
+    )
 
     # 只要 API 允许 teacher 角色访问，最低等级必须为 10；否则数据库历史配置可能让教师被等级拦掉。
     teacher_configs = db.query_all("SELECT id, allowed_roles, min_level FROM api_permission_config")
@@ -1021,13 +1261,23 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
                 """UPDATE api_permission_config
                    SET module_id = COALESCE(module_id, ?),
                        api_group = CASE WHEN api_group = '' THEN ? ELSE api_group END,
+                       allowed_roles = ?,
+                       min_level = ?,
                        http_method = COALESCE(http_method, '*'),
                        match_type = ?,
                        policy_mode = COALESCE(policy_mode, 'role_and_level'),
                        is_public = ?,
                        updated_at = datetime('now', 'localtime')
                    WHERE id = ?""",
-                (module_id, "旧版教务接口", match_type, is_public, existing["id"]),
+                (
+                    module_id,
+                    "旧版教务接口",
+                    _json_dump(normalized_roles),
+                    min_level,
+                    match_type,
+                    is_public,
+                    existing["id"],
+                ),
             )
             updated += 1
             continue
@@ -1380,10 +1630,109 @@ def _parse_config_row(config: Dict[str, Any]) -> Dict[str, Any]:
     config["allowed_roles"] = _json_list(config.get("allowed_roles"))
     config["data_scope_rules"] = _json_dict(config.get("data_scope_rules"))
     config["target_scope_rules"] = _json_dict(config.get("target_scope_rules"))
+    config["operation_scope_rules"] = _json_dict(config.get("operation_scope_rules"))
+    config["resource_type"] = config.get("resource_type") or _infer_resource_type(config.get("api_path") or "")
+    config["action_type"] = config.get("action_type") or _infer_action_type(config.get("api_path") or "", config.get("http_method") or "*")
     if config.get("module_allowed_roles") is not None:
         config["module_allowed_roles"] = _json_list(config.get("module_allowed_roles"))
     config["effective_policy"] = _effective_policy(config)
+    config["risk_flags"] = _permission_risk_flags(config)
     return config
+
+
+def _permission_risk_flags(config: Dict[str, Any]) -> List[str]:
+    risks: List[str] = []
+    action_type = config.get("action_type") or ""
+    api_path = config.get("api_path") or ""
+    allowed_roles = set(_json_list(config.get("allowed_roles")))
+    data_rules = config.get("data_scope_rules") or {}
+    target_rules = config.get("target_scope_rules") or {}
+    operation_rules = config.get("operation_scope_rules") or {}
+    role_scope_expectations = {
+        "view": data_rules,
+        "create": target_rules,
+        "update": operation_rules,
+        "delete": operation_rules,
+        "review": operation_rules,
+        "export": operation_rules,
+    }
+    if "{" in api_path and "}" in api_path and (config.get("match_type") or "exact") != "pattern":
+        risks.append("动态路径建议使用参数模式")
+    if int(config.get("enforce_backend") or 0) == 0:
+        risks.append("未参与后端统一鉴权")
+    if int(config.get("is_public") or 0) == 1 and api_path not in EXPECTED_PUBLIC_API_PATHS:
+        risks.append("公开接口")
+    if action_type == "view" and not data_rules:
+        risks.append("查看动作未配置数据范围")
+    if action_type == "create" and not target_rules:
+        risks.append("创建动作未配置目标范围")
+    if action_type in {"update", "delete", "review", "export"} and not operation_rules:
+        risks.append("动作范围未配置")
+    for scope_name, rules in {
+        "数据范围": data_rules,
+        "目标范围": target_rules,
+        "动作范围": operation_rules,
+    }.items():
+        extra_roles = sorted(set(rules.keys()) - allowed_roles)
+        if extra_roles:
+            risks.append(f"{scope_name}存在未授权角色：{'、'.join(extra_roles)}")
+    expected_rules = role_scope_expectations.get(action_type)
+    if expected_rules is not None and expected_rules:
+        missing_roles = sorted(allowed_roles - set(expected_rules.keys()))
+        if missing_roles:
+            risks.append(f"允许角色缺少对应范围：{'、'.join(missing_roles)}")
+    return risks
+
+
+def _build_permission_audit(configs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    risk_counter: Dict[str, int] = {}
+    module_counter: Dict[str, int] = {}
+    action_counter: Dict[str, int] = {}
+    risky_items: List[Dict[str, Any]] = []
+
+    for config in configs:
+        parsed = _parse_config_row(dict(config))
+        risks = parsed.get("risk_flags") or []
+        module_name = parsed.get("module_name") or parsed.get("api_group") or "未分组"
+        action_type = parsed.get("action_type") or "unknown"
+
+        if risks:
+            module_counter[module_name] = module_counter.get(module_name, 0) + 1
+            action_counter[action_type] = action_counter.get(action_type, 0) + 1
+            for risk in risks:
+                risk_counter[risk] = risk_counter.get(risk, 0) + 1
+            risky_items.append(
+                {
+                    "id": parsed.get("id"),
+                    "module_id": parsed.get("module_id"),
+                    "api_name": parsed.get("api_name"),
+                    "api_path": parsed.get("api_path"),
+                    "module_name": module_name,
+                    "action_type": action_type,
+                    "risk_flags": risks,
+                }
+            )
+
+    return {
+        "summary": {
+            "total": len(configs),
+            "risky": len(risky_items),
+            "healthy": len(configs) - len(risky_items),
+        },
+        "risk_counts": [
+            {"label": label, "count": count}
+            for label, count in sorted(risk_counter.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "module_counts": [
+            {"label": label, "count": count}
+            for label, count in sorted(module_counter.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "action_counts": [
+            {"label": label, "count": count}
+            for label, count in sorted(action_counter.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "items": risky_items,
+    }
 
 
 # =============================================================================
@@ -1552,6 +1901,87 @@ async def apply_module_permission(
         return {"success": True, "message": f"已应用到 {affected} 个API"}
 
 
+@router.get("/templates", summary="获取API权限模板")
+async def get_api_permission_templates(user: User = Depends(require_admin)):
+    return {
+        "success": True,
+        "data": [
+            {"key": key, "label": payload["label"]}
+            for key, payload in PERMISSION_TEMPLATES.items()
+        ],
+    }
+
+
+@router.post("/templates/apply", summary="批量套用API权限模板")
+async def apply_api_permission_template(
+    payload: ApiPermissionTemplateApply,
+    request: Request,
+    user: User = Depends(require_admin),
+):
+    template = PERMISSION_TEMPLATES.get(payload.template_key)
+    if not template:
+        raise HTTPException(400, "模板不存在")
+    if not payload.config_ids:
+        raise HTTPException(400, "请选择需要更新的API")
+
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        updated = 0
+        for config_id in payload.config_ids:
+            existing = db.query_one("SELECT id FROM api_permission_config WHERE id = ?", (config_id,))
+            if not existing:
+                continue
+            db.execute(
+                """UPDATE api_permission_config
+                   SET data_scope_rules = ?, target_scope_rules = ?, operation_scope_rules = ?,
+                       updated_at = datetime('now', 'localtime')
+                   WHERE id = ?""",
+                (
+                    _json_dict_dump(template["data_scope_rules"]),
+                    _json_dict_dump(template["target_scope_rules"]),
+                    _json_dict_dump(template["operation_scope_rules"]),
+                    config_id,
+                ),
+            )
+            updated += 1
+        log_operation(
+            db,
+            user.username,
+            user.role,
+            "APPLY_TEMPLATE",
+            "api_permission_config",
+            None,
+            new_data={"template": payload.template_key, "updated": updated, "config_ids": payload.config_ids},
+        )
+        return {"success": True, "message": f"已套用模板到 {updated} 条API", "data": {"updated": updated}}
+
+
+@router.post("/audit", summary="巡检API权限配置风险")
+async def audit_api_permissions(
+    payload: ApiPermissionAuditRequest,
+    user: User = Depends(require_admin),
+):
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        params: List[Any] = []
+        where_sql = ""
+        if payload.config_ids:
+            placeholders = ",".join("?" for _ in payload.config_ids)
+            where_sql = f"WHERE c.id IN ({placeholders})"
+            params.extend(payload.config_ids)
+        configs = db.query_all(
+            f"""SELECT c.*, m.module_name, m.allowed_roles AS module_allowed_roles,
+                       m.min_level AS module_min_level, m.policy_mode AS module_policy_mode,
+                       m.is_active AS module_is_active
+                FROM api_permission_config c
+                LEFT JOIN api_permission_module m ON c.module_id = m.id
+                {where_sql}
+                ORDER BY c.api_group, c.api_path""",
+            tuple(params),
+        )
+        return {"success": True, "data": _build_permission_audit(configs)}
+
+
 @router.post("/sync-legacy-yaml", summary="同步旧版YAML权限配置")
 async def sync_legacy_yaml_permissions(
     request: Request,
@@ -1587,6 +2017,7 @@ async def sync_default_scope_rules(
         ensure_api_permission_schema(db)
         updated_data_scope = 0
         updated_target_scope = 0
+        updated_operation_scope = 0
 
         # 同步数据范围规则
         for api_path, rules in DEFAULT_DATA_SCOPE_RULES.items():
@@ -1628,20 +2059,47 @@ async def sync_default_scope_rules(
                 if result:
                     updated_target_scope += 1
 
+        for api_path, rules in DEFAULT_OPERATION_SCOPE_RULES.items():
+            if force:
+                db.execute(
+                    "UPDATE api_permission_config SET operation_scope_rules = ? WHERE api_path = ?",
+                    (_json_dict_dump(rules), api_path),
+                )
+                updated_operation_scope += 1
+            else:
+                result = db.execute(
+                    """UPDATE api_permission_config
+                       SET operation_scope_rules = ?
+                       WHERE api_path = ?
+                         AND (operation_scope_rules IS NULL OR operation_scope_rules = '' OR operation_scope_rules = '{}')""",
+                    (_json_dict_dump(rules), api_path),
+                )
+                if result:
+                    updated_operation_scope += 1
+
         # 补齐 g_leader allowed_roles
         _fix_incorrect_scope_rules(db)
 
         log_operation(
             db, user.username, user.role, "SYNC_SCOPE", "api_permission_config", None,
-            new_data={"data_scope": updated_data_scope, "target_scope": updated_target_scope, "force": force}
+            new_data={
+                "data_scope": updated_data_scope,
+                "target_scope": updated_target_scope,
+                "operation_scope": updated_operation_scope,
+                "force": force,
+            }
         )
 
         return {
             "success": True,
-            "message": f"同步完成：数据范围更新 {updated_data_scope} 条，目标范围更新 {updated_target_scope} 条",
+            "message": (
+                f"同步完成：数据范围更新 {updated_data_scope} 条，"
+                f"目标范围更新 {updated_target_scope} 条，动作范围更新 {updated_operation_scope} 条"
+            ),
             "data": {
                 "updated_data_scope": updated_data_scope,
                 "updated_target_scope": updated_target_scope,
+                "updated_operation_scope": updated_operation_scope,
                 "force": force,
             },
         }
@@ -1677,8 +2135,8 @@ async def create_api_permission(
             """INSERT INTO api_permission_config
             (api_path, api_name, api_group, allowed_roles, min_level, module_id, http_method,
              match_type, policy_mode, inherit_from_module, is_public, enforce_backend,
-             data_scope_rules, target_scope_rules, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             resource_type, action_type, data_scope_rules, target_scope_rules, operation_scope_rules, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 config.api_path,
                 config.api_name,
@@ -1692,8 +2150,11 @@ async def create_api_permission(
                 config.inherit_from_module,
                 config.is_public,
                 config.enforce_backend,
+                config.resource_type or _infer_resource_type(config.api_path),
+                config.action_type or _infer_action_type(config.api_path, config.http_method),
                 _json_dict_dump(config.data_scope_rules),
                 _json_dict_dump(config.target_scope_rules),
+                _json_dict_dump(config.operation_scope_rules),
                 config.description,
             )
         )
@@ -1772,6 +2233,14 @@ async def update_api_permission(
             updates.append("enforce_backend = ?")
             params.append(config.enforce_backend)
 
+        if config.resource_type is not None:
+            updates.append("resource_type = ?")
+            params.append(config.resource_type)
+
+        if config.action_type is not None:
+            updates.append("action_type = ?")
+            params.append(config.action_type)
+
         if config.data_scope_rules is not None:
             updates.append("data_scope_rules = ?")
             params.append(_json_dict_dump(config.data_scope_rules))
@@ -1779,6 +2248,10 @@ async def update_api_permission(
         if config.target_scope_rules is not None:
             updates.append("target_scope_rules = ?")
             params.append(_json_dict_dump(config.target_scope_rules))
+
+        if config.operation_scope_rules is not None:
+            updates.append("operation_scope_rules = ?")
+            params.append(_json_dict_dump(config.operation_scope_rules))
 
         if config.description is not None:
             updates.append("description = ?")
@@ -1945,8 +2418,9 @@ async def init_api_permissions(
             db.execute(
                 """INSERT INTO api_permission_config
                 (api_path, api_name, api_group, allowed_roles, min_level, module_id, http_method,
-                 match_type, policy_mode, data_scope_rules, target_scope_rules, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 match_type, policy_mode, resource_type, action_type,
+                 data_scope_rules, target_scope_rules, operation_scope_rules, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     default_config['api_path'],
                     default_config['api_name'],
@@ -1957,8 +2431,11 @@ async def init_api_permissions(
                     default_config.get('http_method', '*'),
                     default_config.get('match_type', 'exact'),
                     "role_and_level",
+                    default_config.get("resource_type") or _infer_resource_type(default_config['api_path']),
+                    default_config.get("action_type") or _infer_action_type(default_config['api_path'], default_config.get('http_method', '*')),
                     _json_dict_dump(default_config.get('data_scope_rules')),
                     _json_dict_dump(default_config.get('target_scope_rules')),
+                    _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES.get(default_config['api_path'], {})),
                     default_config.get('description', '')
                 )
             )

@@ -21,16 +21,15 @@ from .base import (
     get_current_semester,
     get_student_class_snapshot,
     log_operation,
-        check_moral_permission_for_roles,
+    check_moral_permission_for_roles,
     get_api_scoped_user_roles,
     get_record_data_scope,
     append_record_scope_condition,
     record_in_scope,
     record_action_flags,
     target_student_in_scope,
-    has_user_role,
 )
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +40,6 @@ API_SCHOOL_CREATE = "/api/moral/school-records/create"
 API_SCHOOL_UPDATE = "/api/moral/school-records/update"
 API_SCHOOL_DELETE = "/api/moral/school-records/delete"
 API_SCHOOL_EVENT_TYPES = "/api/moral/school-records/types"
-
-
-def _ensure_xuefa_or_admin(user: User) -> None:
-    if not (has_user_role(user, "admin") or has_user_role(user, "xuefa")):
-        raise HTTPException(403, "校级事件仅学发和管理员可访问")
-
 
 def _has_scoped_any_permission(db, user: User, api_path: str, permissions: List[str]) -> bool:
     scoped_roles = get_api_scoped_user_roles(db, user, api_path)
@@ -136,7 +129,7 @@ async def get_school_event_types(
     event_type: Optional[int] = Query(None, description="事件类型：1=荣誉，2=处分"),
     event_level: Optional[str] = Query(None, description="事件级别"),
     is_active: Optional[int] = Query(None, description="是否启用：不传返回全部，1=启用，0=禁用"),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES, "GET", allow_missing=False))
 ):
     """获取校级事件类型列表"""
     with get_moral_db() as db:
@@ -171,7 +164,7 @@ async def get_school_records(
     event_type: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_LIST, "GET", allow_missing=False))
 ):
     """获取校级事件记录列表"""
     with get_moral_db() as db:
@@ -268,7 +261,7 @@ async def get_school_records(
 async def create_school_record(
     record: SchoolRecordCreate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_CREATE, "POST", allow_missing=False))
 ):
     """创建校级事件记录"""
     with get_moral_db() as db:
@@ -355,7 +348,7 @@ async def update_school_record(
     record_id: int,
     update_data: SchoolRecordUpdate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_UPDATE, "PUT", allow_missing=False))
 ):
     """更新校级事件记录"""
     with get_moral_db() as db:
@@ -414,7 +407,7 @@ async def update_school_record(
 async def delete_school_record(
     record_id: int,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_DELETE, "DELETE", allow_missing=False))
 ):
     """删除校级事件记录（软删除）"""
     with get_moral_db() as db:
@@ -454,7 +447,7 @@ async def delete_school_record(
 async def create_school_event_type(
     event_type: SchoolEventTypeCreate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES))
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES, "POST", allow_missing=False))
 ):
     """
     创建校级事件类型
@@ -495,7 +488,7 @@ async def update_school_event_type(
     type_id: int,
     update_data: SchoolEventTypeUpdate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES))
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES, "PUT", allow_missing=False))
 ):
     """
     更新校级事件类型
@@ -572,7 +565,7 @@ async def update_school_event_type(
 async def delete_school_event_type(
     type_id: int,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES))
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES, "DELETE", allow_missing=False))
 ):
     """
     删除校级事件类型（软删除，设为禁用状态）
@@ -630,7 +623,7 @@ class SchoolEventImportItem(BaseModel):
 async def batch_import_school_event_types(
     items: List[SchoolEventImportItem],
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES))
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_EVENT_TYPES, "POST", allow_missing=False))
 ):
     """
     批量导入校级事件类型

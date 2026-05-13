@@ -271,7 +271,9 @@
       "Skill(update-config)",
       "Bash(kill 42985)",
       "Bash(find:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(git -C /Users/yoin/bdsync/program/honghuanghou status --short)",
+      "Bash(git diff:*)"
     ]
   }
 }

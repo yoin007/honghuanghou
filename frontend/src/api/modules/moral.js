@@ -669,6 +669,18 @@ export function syncLegacyApiPermissions() {
   return httpClient.post('/api/moral/api-permissions/sync-legacy-yaml')
 }
 
+export function getApiPermissionTemplates() {
+  return httpClient.get('/api/moral/api-permissions/templates')
+}
+
+export function applyApiPermissionTemplate(data) {
+  return httpClient.post('/api/moral/api-permissions/templates/apply', data)
+}
+
+export function auditApiPermissions(data = {}) {
+  return httpClient.post('/api/moral/api-permissions/audit', data)
+}
+
 /**
  * 创建API权限配置
  */

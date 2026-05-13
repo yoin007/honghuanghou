@@ -25,10 +25,9 @@ from .base import (
     append_record_scope_condition,
     record_action_flags,
     target_student_in_scope,
-    has_user_role,
 )
 from .api_permission import require_configured_api_permission
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +39,6 @@ API_TASK_CREATE = "/api/moral/tasks/create"
 API_TASK_UPDATE = "/api/moral/tasks/update"
 API_TASK_DELETE = "/api/moral/tasks/delete"
 API_TASK_FINISH = "/api/moral/tasks/finish"
-
-
-def _ensure_xuefa_or_admin(user: User) -> None:
-    if not (has_user_role(user, "admin") or has_user_role(user, "xuefa")):
-        raise HTTPException(403, "德育任务记录仅学发和管理员可访问")
-
 
 def _has_scoped_any_permission(db, user: User, api_path: str, permissions: List[str]) -> bool:
     scoped_roles = get_api_scoped_user_roles(db, user, api_path)

@@ -187,19 +187,24 @@ class FakeScopeDB:
         class_id=101,
         data_scope_rules=None,
         target_scope_rules=None,
+        operation_scope_rules=None,
         teaching_class_ids=None,
     ):
         self.api_roles = api_roles or {}
         self.class_id = class_id
         self.data_scope_rules = data_scope_rules or {}
         self.target_scope_rules = target_scope_rules or {}
+        self.operation_scope_rules = operation_scope_rules or {}
         self.teaching_class_ids = teaching_class_ids or []
 
     def query_one(self, sql, params=None):
         if "FROM api_permission_config" in sql:
             api_path = params[0]
             if "data_scope_rules" in sql:
-                return {"data_scope_rules": json.dumps(self.data_scope_rules.get(api_path, {}), ensure_ascii=False)}
+                return {
+                    "data_scope_rules": json.dumps(self.data_scope_rules.get(api_path, {}), ensure_ascii=False),
+                    "operation_scope_rules": json.dumps(self.operation_scope_rules.get(api_path, {}), ensure_ascii=False),
+                }
             if "target_scope_rules" in sql:
                 return {"target_scope_rules": json.dumps(self.target_scope_rules.get(api_path, {}), ensure_ascii=False)}
             roles = self.api_roles.get(api_path, [])
@@ -434,3 +439,26 @@ def test_record_teaching_classes_defaults_to_all_when_no_mapping_exists():
     append_record_scope_condition(conditions, params, scope, table_alias="dr", username="teacher1")
     assert conditions == ["dr.is_deleted = 0"]
     assert params == []
+
+
+def test_operation_scope_rules_drive_update_action_scope():
+    api_path = "/api/moral/daily-records/update"
+    db = FakeScopeDB(
+        api_roles={api_path: ["cleader"]},
+        class_id=101,
+        data_scope_rules={api_path: {"cleader": ["managed_classes"]}},
+        operation_scope_rules={api_path: {"cleader": ["own_created"]}},
+    )
+    user = User(username="cleader1", role="cleader")
+
+    scope = get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=[],
+        own_class_permissions=[],
+        own_permissions=[],
+    )
+
+    assert record_in_scope({"recorder": "cleader1", "class_id": 999}, scope, username="cleader1")
+    assert not record_in_scope({"recorder": "other", "class_id": 101}, scope, username="cleader1")

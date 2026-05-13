@@ -36,12 +36,6 @@ API_COLLECTIVE_UPDATE = "/api/moral/collective-events/update"
 API_COLLECTIVE_DELETE = "/api/moral/collective-events/delete"
 API_COLLECTIVE_DISTRIBUTION_UPDATE = "/api/moral/collective-events/distributions/update"
 
-
-def _ensure_xuefa_or_admin(user: User) -> None:
-    if not (has_user_role(user, "admin") or has_user_role(user, "xuefa")):
-        raise HTTPException(403, "集体事件仅学发和管理员可访问")
-
-
 # =============================================================================
 # Pydantic 模型
 # =============================================================================
@@ -102,7 +96,7 @@ async def get_collective_events(
     semester_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_LIST, "GET"))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_LIST, "GET", allow_missing=False))
 ):
     """
     获取集体事件列表
@@ -182,7 +176,7 @@ async def get_collective_events(
 async def create_collective_event(
     event: CollectiveEventCreate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_CREATE, "POST"))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_CREATE, "POST", allow_missing=False))
 ):
     """
     创建集体事件并自动分配给班级学生
@@ -273,7 +267,7 @@ async def create_collective_event(
 @router.get("/{event_id}", summary="获取集体事件详情")
 async def get_collective_event(
     event_id: int,
-    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_LIST, "GET"))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_LIST, "GET", allow_missing=False))
 ):
     """获取集体事件详情，包含分配列表"""
     with get_moral_db() as db:
@@ -312,7 +306,7 @@ async def update_collective_event(
     event_id: int,
     event: CollectiveEventUpdate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_UPDATE, "PUT"))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_UPDATE, "PUT", allow_missing=False))
 ):
     """更新集体事件基本信息"""
     with get_moral_db() as db:
@@ -395,7 +389,7 @@ async def update_collective_event(
 async def delete_collective_event(
     event_id: int,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_DELETE, "DELETE"))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_DELETE, "DELETE", allow_missing=False))
 ):
     """删除集体事件及其分配记录"""
     with get_moral_db() as db:
@@ -455,7 +449,7 @@ async def delete_collective_event(
 @router.get("/{event_id}/distributions", summary="获取分配列表")
 async def get_distributions(
     event_id: int,
-    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_LIST, "GET"))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_LIST, "GET", allow_missing=False))
 ):
     """获取集体事件的学生分配列表"""
     with get_moral_db() as db:
@@ -489,7 +483,7 @@ async def update_distribution(
     distribution_id: int,
     update: DistributionUpdate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_DISTRIBUTION_UPDATE, "PUT"))
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_DISTRIBUTION_UPDATE, "PUT", allow_missing=False))
 ):
     """
     更新单个学生的分配记录

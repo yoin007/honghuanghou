@@ -487,9 +487,24 @@ def _get_configured_data_scope(
 
     config = _get_matching_config(db, api_path, "GET")
     if not config:
+        # 精确路径回退：兼容尚未走 pattern matching 的旧配置，也便于轻量测试库复用。
+        config = db.query_one(
+            """
+            SELECT data_scope_rules, operation_scope_rules
+            FROM api_permission_config
+            WHERE api_path = ? AND is_active = 1
+            LIMIT 1
+            """,
+            (api_path,),
+        )
+    if not config:
         return None
 
-    raw_rules = config.get("data_scope_rules")
+    action_tokens = ("/update", "/delete", "/revoke", "/review", "/close")
+    use_operation_rules = any(token in api_path for token in action_tokens)
+    raw_rules = config.get("operation_scope_rules") if use_operation_rules else config.get("data_scope_rules")
+    if use_operation_rules and not raw_rules:
+        raw_rules = config.get("data_scope_rules")
     if not raw_rules:
         return None
 
