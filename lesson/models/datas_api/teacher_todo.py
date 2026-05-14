@@ -111,7 +111,7 @@ class GroupMemberAdd(BaseModel):
 async def get_todos(
     view: str = Query("week", description="视图: week/month/year"),
     anchor_date: Optional[str] = Query(None, description="当前周期锚点日期"),
-    status: str = Query("all", description="状态筛选: all/pending/completed"),
+    status: str = Query("all", description="状态筛选: all/pending/completed/overdue"),
     scope: str = Query("all_visible", description="范围: all_visible/created/assigned"),
     user: User = Depends(require_configured_api_permission(API_TODO_LIST, "GET", allow_missing=False))
 ):
@@ -135,9 +135,11 @@ async def get_todos(
 
         # 状态筛选
         if status == "pending":
-            conditions.append("o.status = 'pending'")
+            conditions.append("o.status = 'pending' AND o.is_overdue = 0")
         elif status == "completed":
             conditions.append("o.status = 'completed'")
+        elif status == "overdue":
+            conditions.append("o.status = 'pending' AND o.is_overdue = 1")
 
         # 日期范围
         conditions.append("o.occurrence_date >= ?")
@@ -190,8 +192,9 @@ async def get_todos(
 
         # 统计
         total = len(items)
-        pending_count = sum(1 for i in items if i["status"] == "pending")
-        completed_count = total - pending_count
+        overdue_count = sum(1 for i in items if i.get("is_overdue") == 1)
+        pending_count = sum(1 for i in items if i["status"] == "pending" and i.get("is_overdue") == 0)
+        completed_count = sum(1 for i in items if i["status"] == "completed")
 
         return {
             "success": True,
@@ -204,7 +207,8 @@ async def get_todos(
                 "summary": {
                     "total": total,
                     "pending": pending_count,
-                    "completed": completed_count
+                    "completed": completed_count,
+                    "overdue": overdue_count
                 },
                 "items": items
             }

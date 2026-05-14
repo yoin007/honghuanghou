@@ -21,6 +21,7 @@
             <el-option label="全部" value="all" />
             <el-option label="待完成" value="pending" />
             <el-option label="已完成" value="completed" />
+            <el-option label="逾期" value="overdue" />
           </el-select>
         </el-form-item>
         <el-form-item label="范围">
@@ -41,7 +42,7 @@
       <template #header>
         <div class="card-header">
           <span>我的待办</span>
-          <span class="summary-text">共 {{ totalCount }} 条，已完成 {{ completedCount }} 条</span>
+          <span class="summary-text">共 {{ totalCount }} 条，待完成 {{ pendingCount }} 条，已完成 {{ completedCount }} 条，逾期 {{ overdueCount }} 条</span>
         </div>
       </template>
 
@@ -194,7 +195,9 @@ const loading = ref(false)
 const router = useRouter()
 const todoList = ref([])
 const totalCount = ref(0)
+const pendingCount = ref(0)
 const completedCount = ref(0)
+const overdueCount = ref(0)
 const teacherList = ref([])
 const groupList = ref([])
 
@@ -321,7 +324,9 @@ const fetchTodos = async () => {
     if (res.success) {
       todoList.value = res.data.items || []
       totalCount.value = res.data.summary?.total || 0
+      pendingCount.value = res.data.summary?.pending || 0
       completedCount.value = res.data.summary?.completed || 0
+      overdueCount.value = res.data.summary?.overdue || 0
     }
   } catch (e) {
     ElMessage.error('获取待办列表失败')
