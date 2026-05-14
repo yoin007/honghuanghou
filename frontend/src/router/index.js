@@ -93,6 +93,12 @@ const routes = [
     meta: { requiresAuth: true, title: '教师消息' }
   },
   {
+    path: '/teacher/todo',
+    name: 'TeacherTodo',
+    component: () => import('../views/teacher/Todo.vue'),
+    meta: { requiresAuth: true, title: '我的待办' }
+  },
+  {
     path: '/homework',
     name: 'Homework',
     component: () => import('../views/Homework.vue'),
@@ -500,6 +506,16 @@ const routes = [
     meta: {
       requiresAuth: true,
       title: '大模型配置',
+      requiresAdmin: true
+    }
+  },
+  {
+    path: '/moral/config/punishment-period',
+    name: 'MoralConfigPunishmentPeriod',
+    component: () => import('../views/moral/config/PunishmentPeriod.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '处分期限配置',
       requiresAdmin: true
     }
   },

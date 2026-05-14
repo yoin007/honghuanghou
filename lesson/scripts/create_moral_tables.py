@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS class (
     FOREIGN KEY (grade_id) REFERENCES grade(grade_id),
     UNIQUE (grade_id, class_number)
 );
-"",
+""",
     # 6. 学生表
     "student": """
 CREATE TABLE IF NOT EXISTS student (
@@ -739,6 +739,58 @@ CREATE TABLE IF NOT EXISTS menu_permission_config (
 );
 CREATE INDEX IF NOT EXISTS idx_menu_permission_key ON menu_permission_config(menu_key);
 CREATE INDEX IF NOT EXISTS idx_menu_permission_group ON menu_permission_config(menu_group);
+""",
+    # 40. 教师待办定义表
+    "teacher_todo_series": """
+CREATE TABLE IF NOT EXISTS teacher_todo_series (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    creator_teacher_id TEXT NOT NULL,
+    creator_name TEXT,
+    todo_type TEXT NOT NULL CHECK (todo_type IN ('one_off', 'weekly', 'monthly', 'yearly')),
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    recurrence_rule_json TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_todo_series_creator ON teacher_todo_series(creator_teacher_id);
+CREATE INDEX IF NOT EXISTS idx_todo_series_type ON teacher_todo_series(todo_type);
+""",
+    # 41. 教师待办关联教师表
+    "teacher_todo_assignee": """
+CREATE TABLE IF NOT EXISTS teacher_todo_assignee (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    todo_series_id INTEGER NOT NULL,
+    teacher_id TEXT NOT NULL,
+    teacher_name TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (todo_series_id) REFERENCES teacher_todo_series(id),
+    UNIQUE (todo_series_id, teacher_id)
+);
+CREATE INDEX IF NOT EXISTS idx_todo_assignee_series ON teacher_todo_assignee(todo_series_id);
+CREATE INDEX IF NOT EXISTS idx_todo_assignee_teacher ON teacher_todo_assignee(teacher_id);
+""",
+    # 42. 教师待办实例表
+    "teacher_todo_occurrence": """
+CREATE TABLE IF NOT EXISTS teacher_todo_occurrence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    todo_series_id INTEGER NOT NULL,
+    occurrence_date TEXT NOT NULL,
+    due_at TEXT,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'completed')),
+    completed_at TEXT,
+    completed_by TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (todo_series_id) REFERENCES teacher_todo_series(id),
+    UNIQUE (todo_series_id, occurrence_date)
+);
+CREATE INDEX IF NOT EXISTS idx_todo_occurrence_series ON teacher_todo_occurrence(todo_series_id);
+CREATE INDEX IF NOT EXISTS idx_todo_occurrence_date ON teacher_todo_occurrence(occurrence_date);
+CREATE INDEX IF NOT EXISTS idx_todo_occurrence_status ON teacher_todo_occurrence(status);
 """,
 }
 
@@ -1449,8 +1501,11 @@ INITIAL_DATA_SQL = [
     ('累进通报批评', 'escalation_criticism', 5, '["cleader", "xuefa"]', 1),
     ('累进记过', 'escalation_demerit', 10, '["cleader", "xuefa"]', 1);""",
     # 累进规则示例(需要根据实际event_id调整)
-    """INSERT IGNORE INTO violation_escalation_rule (rule_id, event_id, time_window_days, escalation_rules) VALUES
-    (1, 1, 90, '{"rules": [{"threshold": 3, "action": "warning", "description": "警告", "notify_roles": ["cleader"], "score_penalty": 0}, {"threshold": 5, "action": "criticism", "description": "通报批评", "notify_roles": ["cleader", "xuefa"], "score_penalty": -5}, {"threshold": 10, "action": "demerit", "description": "记过", "notify_roles": ["cleader", "xuefa"], "score_penalty": -10, "auto_create_punishment": true, "punishment_level": 2}], "reset_on_action": false}');""",
+    """INSERT IGNORE INTO violation_escalation_rule (rule_id, event_id, time_window_days, escalation_rules)
+    SELECT 1, event_id, 90, '{"rules": [{"threshold": 3, "action": "warning", "description": "警告", "notify_roles": ["cleader"], "score_penalty": 0}, {"threshold": 5, "action": "criticism", "description": "通报批评", "notify_roles": ["cleader", "xuefa"], "score_penalty": -5}, {"threshold": 10, "action": "demerit", "description": "记过", "notify_roles": ["cleader", "xuefa"], "score_penalty": -10, "auto_create_punishment": true, "punishment_level": 2}], "reset_on_action": false}'
+    FROM daily_event_type
+    WHERE event_id = 1
+    LIMIT 1;""",
     # 画像配置
     """INSERT IGNORE INTO profile_config VALUES
     (1, 'tag_definitions', '["责任担当", "诚实守信", "乐于助人", "勤奋刻苦", "积极进取", "团结协作", "遵纪守法", "文明礼貌", "关爱他人", "勇于创新"]', '画像标签定义'),
@@ -1599,8 +1654,11 @@ SQLite_INITIAL_DATA_SQL = [
     (5, '累进通报批评', 'escalation_criticism', 5, '["cleader", "xuefa"]', 1),
     (6, '累进记过', 'escalation_demerit', 10, '["cleader", "xuefa"]', 1);""",
     # 累进规则示例(需要根据实际event_id调整)
-    """INSERT OR IGNORE INTO violation_escalation_rule (rule_id, event_id, time_window_days, escalation_rules) VALUES
-    (1, 1, 90, '{"rules": [{"threshold": 3, "action": "warning", "description": "警告", "notify_roles": ["cleader"], "score_penalty": 0}, {"threshold": 5, "action": "criticism", "description": "通报批评", "notify_roles": ["cleader", "xuefa"], "score_penalty": -5}, {"threshold": 10, "action": "demerit", "description": "记过", "notify_roles": ["cleader", "xuefa"], "score_penalty": -10, "auto_create_punishment": true, "punishment_level": 2}], "reset_on_action": false}');""",
+    """INSERT OR IGNORE INTO violation_escalation_rule (rule_id, event_id, time_window_days, escalation_rules)
+    SELECT 1, event_id, 90, '{"rules": [{"threshold": 3, "action": "warning", "description": "警告", "notify_roles": ["cleader"], "score_penalty": 0}, {"threshold": 5, "action": "criticism", "description": "通报批评", "notify_roles": ["cleader", "xuefa"], "score_penalty": -5}, {"threshold": 10, "action": "demerit", "description": "记过", "notify_roles": ["cleader", "xuefa"], "score_penalty": -10, "auto_create_punishment": true, "punishment_level": 2}], "reset_on_action": false}'
+    FROM daily_event_type
+    WHERE event_id = 1
+    LIMIT 1;""",
     # 画像配置
     """INSERT OR IGNORE INTO profile_config VALUES
     (1, 'tag_definitions', '["责任担当", "诚实守信", "乐于助人", "勤奋刻苦", "积极进取", "团结协作", "遵纪守法", "文明礼貌", "关爱他人", "勇于创新"]', '画像标签定义'),

@@ -40,6 +40,9 @@ from .daily_record import router as daily_record_router
 from .school_event import router as school_event_router
 from .task import router as task_router
 from .punishment import router as punishment_router
+from .punishment_period import router as punishment_period_router
+from .punishment_revoke_apply import router as punishment_revoke_apply_router
+from .punishment_expire import router as punishment_expire_router
 from .evaluation import router as evaluation_router
 from .profile import router as profile_router
 from .birthday import router as birthday_router
@@ -146,6 +149,9 @@ router.include_router(daily_record_router)
 router.include_router(school_event_router)
 router.include_router(task_router)
 router.include_router(punishment_router)
+router.include_router(punishment_period_router)
+router.include_router(punishment_revoke_apply_router)
+router.include_router(punishment_expire_router)
 router.include_router(evaluation_router)
 router.include_router(profile_router)
 router.include_router(birthday_router)

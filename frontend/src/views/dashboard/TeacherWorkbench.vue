@@ -32,18 +32,18 @@
         <DashboardEmptyStrip v-else text="今日暂无课程安排。" />
       </DashboardPanelSection>
 
-      <DashboardPanelSection eyebrow="INVIGILATION" title="监考任务" :min-height="280">
-        <div v-if="invigilationTasks.length" class="invigilation-list">
-          <div v-for="task in invigilationTasks" :key="task.exam_date + task.start_time" class="invigilation-item">
-            <div class="invigilation-date">{{ task.exam_date }}</div>
-            <div class="invigilation-info">
-              <strong>{{ task.project_name }}</strong>
-              <span>{{ task.grade_name }} · {{ task.subject }} · {{ task.room_name }}</span>
-              <small>{{ task.start_time }} - {{ task.end_time }}</small>
+      <DashboardPanelSection eyebrow="UPCOMING TODOS" title="即将待办" :min-height="280" class="todo-panel">
+        <div v-if="upcomingTodos.length" class="todo-list-mini">
+          <div v-for="todo in upcomingTodos" :key="todo.occurrence_id || todo.series_id" class="todo-item-mini" @click="go('/teacher/todo')">
+            <div class="todo-date-mini">{{ todo.occurrence_date }}</div>
+            <div class="todo-info-mini">
+              <strong>{{ todo.title }}</strong>
+              <span v-if="todo.todo_type !== 'one_off'" class="todo-type-tag">{{ todoTypeLabel(todo.todo_type) }}</span>
             </div>
+            <el-button link type="primary" size="small">查看</el-button>
           </div>
         </div>
-        <DashboardEmptyStrip v-else text="暂无监考任务安排。" />
+        <DashboardEmptyStrip v-else text="暂无即将到期的待办事项。" />
       </DashboardPanelSection>
     </section>
 
@@ -156,6 +156,22 @@
         <DashboardEmptyStrip v-else text="当前区间暂无课时明细。" />
       </div>
     </section>
+
+    <!-- 监考任务区块 -->
+    <section class="invigilation-section">
+      <DashboardPanelHeader eyebrow="INVIGILATION DUTY" title="监考任务" />
+      <div v-if="invigilationTasks.length" class="invigilation-list">
+        <div v-for="task in invigilationTasks" :key="task.exam_date + task.start_time" class="invigilation-item">
+          <div class="invigilation-date">{{ task.exam_date }}</div>
+          <div class="invigilation-info">
+            <strong>{{ task.project_name }}</strong>
+            <span>{{ task.grade_name }} · {{ task.subject }} · {{ task.room_name }}</span>
+            <small>{{ task.start_time }} - {{ task.end_time }}</small>
+          </div>
+        </div>
+      </div>
+      <DashboardEmptyStrip v-else text="暂无监考任务安排。" />
+    </section>
   </div>
 </template>
 
@@ -174,6 +190,7 @@ import DashboardTimeChip from '@/components/dashboard/DashboardTimeChip.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
 import DashboardChart from '@/components/dashboard/DashboardChart.vue'
 import { getTeacherWorkbench, getTeacherRecordTrend } from '@/api/modules/dashboard'
+import { getUpcomingTodos } from '@/api/modules/teacherTodo'
 import { teacherApi } from '@/api/modules/teacher'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
@@ -237,6 +254,7 @@ const fetchTeacherList = async () => {
 
 const todayLessons = computed(() => summary.value.tables?.today_lessons || [])
 const invigilationTasks = computed(() => summary.value.tables?.invigilation_tasks || [])
+const upcomingTodos = ref([])
 const workloadLessons = computed(() => summary.value.tables?.workload_lessons || [])
 const weekdayText = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '日' }
 const workloadText = computed(() => {
@@ -292,6 +310,22 @@ const onTrendUnitChange = () => {
   fetchTeacherTrend()
 }
 
+const todoTypeLabel = (type) => {
+  const labels = { one_off: '一次性', weekly: '每周', monthly: '每月', yearly: '每年' }
+  return labels[type] || type
+}
+
+const fetchUpcomingTodos = async () => {
+  try {
+    const res = await getUpcomingTodos({ days: 7, limit: 5 })
+    if (res.success) {
+      upcomingTodos.value = res.data.todos || []
+    }
+  } catch (e) {
+    // 静默失败
+  }
+}
+
 const fetchSummary = () => {
   const params = { ...filters }
   if (selectedTeacherName.value) {
@@ -307,6 +341,7 @@ onMounted(() => {
   fetchTeacherList()
   fetchSummary()
   fetchTeacherTrend()
+  fetchUpcomingTodos()
 })
 </script>
 
@@ -390,6 +425,58 @@ p {
   margin-top: 6px;
   color: #67e8f9;
   font-size: 12px;
+}
+
+/* 待办区块样式 */
+.todo-panel {
+  --panel-border: rgba(251, 191, 36, 0.3);
+}
+
+.todo-list-mini {
+  display: grid;
+  gap: 10px;
+}
+
+.todo-item-mini {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 6px;
+  background: rgba(180, 83, 9, 0.15);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.todo-item-mini:hover {
+  background: rgba(180, 83, 9, 0.25);
+}
+
+.todo-date-mini {
+  min-width: 90px;
+  color: #fbbf24;
+  font-size: 14px;
+}
+
+.todo-info-mini strong {
+  display: block;
+  color: #fef3c7;
+}
+
+.todo-info-mini span {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.todo-type-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  margin-left: 8px;
+  border-radius: 4px;
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  font-size: 11px;
 }
 
 .shortcut-grid {
@@ -614,6 +701,54 @@ p {
 
 .trend-chart-wrapper {
   height: 220px;
+}
+
+/* 监考任务区块 - 底部 */
+.invigilation-section {
+  padding: 20px;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(12, 26, 48, 0.94), rgba(7, 15, 30, 0.9)),
+    radial-gradient(circle at 8% 10%, rgba(34, 211, 238, 0.16), transparent 40%);
+}
+
+.invigilation-section .invigilation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.invigilation-section .invigilation-item {
+  display: flex;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  border-radius: 6px;
+  background: rgba(30, 64, 175, 0.18);
+}
+
+.invigilation-section .invigilation-date {
+  min-width: 80px;
+  color: #bfdbfe;
+  font-size: 14px;
+}
+
+.invigilation-section .invigilation-info strong {
+  display: block;
+  color: #e2e8f0;
+  margin-bottom: 4px;
+}
+
+.invigilation-section .invigilation-info span {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.invigilation-section .invigilation-info small {
+  display: block;
+  margin-top: 6px;
+  color: #67e8f9;
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {

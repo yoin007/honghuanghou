@@ -80,6 +80,7 @@ def get_users_dict():
         is_password_changed = teacher.get('is_password_changed', 0)
         stored_password = _get_compat_stored_password(teacher, is_password_changed)
         users_data[name] = {
+            'teacher_id': teacher.get('teacher_id', ''),
             'username': name,
             'stored_password': stored_password,
             'is_password_changed': is_password_changed,

@@ -38,6 +38,7 @@ const STATIC_RESOURCE_CONFIG = {
       { key: 'publish-announcement', label: '发布公告', route: '/publish-announcement', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 20 },
       { key: 'file-upload', label: '文件上传', route: '/file-upload', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 30 },
       { key: 'my-files', label: '我的文件', route: '/my-files', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 40 },
+      { key: 'teacher-todo', label: '我的待办', route: '/teacher/todo', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 50 },
     ],
 
     jiaowu: [
@@ -141,7 +142,8 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
           key: item.menu_key,
           label: item.menu_label,
           route: item.menu_route,
-          roles: item.is_public ? ['all'] : item.allowed_roles
+          roles: item.is_public ? ['all'] : item.allowed_roles,
+          sort_order: item.sort_order || 0
         }
 
         menus[group].push(menuItem)

@@ -89,6 +89,51 @@
       <DashboardEmptyStrip v-else text="当前可见范围内暂无 60 分以下学生。" />
     </DashboardPanelSection>
 
+    <DashboardPanelSection
+      v-if="expiredPunishments.length || expiringSoonPunishments.length"
+      class="expire-panel"
+      variant="warning"
+      eyebrow="PUNISHMENT EXPIRE"
+      title="处分到期提醒"
+    >
+      <div v-if="expiredPunishments.length" class="expire-group">
+        <div class="expire-header">
+          <span class="expire-label expired">已到期待撤销</span>
+          <span class="expire-count">{{ expiredPunishments.length }} 人</span>
+        </div>
+        <div class="expire-list">
+          <div v-for="p in expiredPunishments" :key="p.id" class="expire-row" @click="go('/moral/punishment')">
+            <div class="expire-info">
+              <strong>{{ p.student_name }}</strong>
+              <span>{{ p.class_name }} · {{ p.level }}</span>
+            </div>
+            <div class="expire-meta">
+              <span class="expire-date">到期 {{ p.expire_date }}</span>
+              <el-tag type="danger" size="small">已到期</el-tag>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-if="expiringSoonPunishments.length" class="expire-group">
+        <div class="expire-header">
+          <span class="expire-label expiring">即将到期</span>
+          <span class="expire-count">{{ expiringSoonPunishments.length }} 人</span>
+        </div>
+        <div class="expire-list">
+          <div v-for="p in expiringSoonPunishments" :key="p.id" class="expire-row" @click="go('/moral/punishment')">
+            <div class="expire-info">
+              <strong>{{ p.student_name }}</strong>
+              <span>{{ p.class_name }} · {{ p.level }}</span>
+            </div>
+            <div class="expire-meta">
+              <span class="expire-date">剩余 {{ p.days_until_expire }} 天</span>
+              <el-tag type="warning" size="small">即将到期</el-tag>
+            </div>
+          </div>
+        </div>
+      </div>
+    </DashboardPanelSection>
+
     <DashboardLeaveList
       :students="leaveStudents"
       mode="moral"
@@ -114,11 +159,13 @@ import DashboardMetricGrid from '@/components/dashboard/DashboardMetricGrid.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
 import DashboardTopNSelect from '@/components/dashboard/DashboardTopNSelect.vue'
 import { getMoralDashboardSummary } from '@/api/modules/dashboard'
+import { getExpiringPunishments } from '@/api/modules/moral'
 import { basePieOption, baseHorizontalBarOption, baseLineOption, baseVerticalBarOption } from '@/utils/charting'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
 const router = useRouter()
 const summary = ref({ cards: [], charts: {}, tables: {} })
+const expiringPunishments = ref({ expiring_soon: [], already_expired: [] })
 const topN = ref(50) // 默认50，获取全部班级对比
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#22d3ee', '#a3e635', '#f59e0b', '#fb7185']
@@ -138,6 +185,10 @@ const leaveStudents = computed(() => summary.value.tables?.leave_students || [])
 const insights = computed(() => summary.value.insights || [])
 const effectiveTopN = computed(() => summary.value.top_n || topN.value)
 const classScoreRows = computed(() => summary.value.charts?.class_score_rank || [])
+
+// 处分到期提醒数据
+const expiredPunishments = computed(() => expiringPunishments.value.already_expired || [])
+const expiringSoonPunishments = computed(() => expiringPunishments.value.expiring_soon || [])
 
 const scoreDistributionOption = computed(() => baseVerticalBarOption({
   xAxisData: (summary.value.charts?.score_distribution || []).map(item => item.name),
@@ -279,12 +330,26 @@ const teacherRecordOption = computed(() => {
   })
 })
 
+const fetchExpiringPunishments = async () => {
+  try {
+    const res = await getExpiringPunishments({ days: 7, page_size: 10 })
+    if (res.success && res.data) {
+      expiringPunishments.value = res.data
+    }
+  } catch (e) {
+    // 静默失败，不影响仪表盘主数据
+  }
+}
+
 const fetchSummary = () => execute(
   () => getMoralDashboardSummary({ top_n: topN.value }),
   data => { summary.value = data }
 )
 
-onMounted(fetchSummary)
+onMounted(() => {
+  fetchSummary()
+  fetchExpiringPunishments()
+})
 </script>
 
 <style scoped>
@@ -388,4 +453,86 @@ p {
 .legend-item.good::before { background: #3b82f6; }
 .legend-item.pass::before { background: #f59e0b; }
 .legend-item.fail::before { background: #ef4444; }
+
+/* 处分到期提醒样式 */
+.expire-panel {
+  --panel-border: rgba(245, 158, 11, 0.3);
+}
+
+.expire-group {
+  margin-bottom: 16px;
+}
+
+.expire-group:last-child {
+  margin-bottom: 0;
+}
+
+.expire-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.expire-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.expire-label.expired {
+  color: #fca5a5;
+}
+
+.expire-label.expiring {
+  color: #fcd34d;
+}
+
+.expire-count {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.expire-list {
+  display: grid;
+  gap: 10px;
+}
+
+.expire-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 14px;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  background: rgba(180, 83, 9, 0.15);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.expire-row:hover {
+  background: rgba(180, 83, 9, 0.25);
+}
+
+.expire-info strong {
+  color: #fef3c7;
+}
+
+.expire-info span {
+  display: block;
+  margin-top: 4px;
+  color: rgba(226, 232, 240, 0.66);
+  font-size: 13px;
+}
+
+.expire-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.expire-date {
+  font-size: 12px;
+  color: #94a3b8;
+}
 </style>

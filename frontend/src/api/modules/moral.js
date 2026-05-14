@@ -361,6 +361,67 @@ export function reviewPunishment(recordId, action, reason) {
 }
 
 // =============================================================================
+// 处分期限配置 API
+// =============================================================================
+
+/**
+ * 获取处分期限配置列表
+ */
+export function getPunishmentPeriods() {
+  return httpClient.get('/api/moral/punishment-periods')
+}
+
+/**
+ * 更新处分期限配置
+ */
+export function updatePunishmentPeriod(configId, data) {
+  return httpClient.put(`/api/moral/punishment-periods/${configId}`, data)
+}
+
+// =============================================================================
+// 处分到期提醒 API
+// =============================================================================
+
+/**
+ * 获取即将到期处分列表
+ */
+export function getExpiringPunishments(params = {}) {
+  return httpClient.get('/api/moral/punishments/expiring', { params })
+}
+
+// =============================================================================
+// 处分撤销申请 API
+// =============================================================================
+
+/**
+ * 班主任代学生提交撤销申请
+ */
+export function createRevokeApplication(data) {
+  return httpClient.post('/api/moral/punishment-revoke-applications/create', data)
+}
+
+/**
+ * 获取撤销申请列表
+ */
+export function getRevokeApplications(params = {}) {
+  return httpClient.get('/api/moral/punishment-revoke-applications', { params })
+}
+
+/**
+ * 管理员审批通过
+ */
+export function approveRevokeApplication(appId, opinion) {
+  return httpClient.post(`/api/moral/punishment-revoke-applications/${appId}/approve`, { opinion })
+}
+
+/**
+ * 管理员审批拒绝
+ */
+export function rejectRevokeApplication(appId, opinion) {
+  return httpClient.post(`/api/moral/punishment-revoke-applications/${appId}/reject`, { opinion })
+}
+
+// =============================================================================
 // 评价查询 API
 // =============================================================================
 
@@ -1125,6 +1186,21 @@ export default {
   createPunishment,
   updatePunishment,
   revokePunishment,
+  getPunishmentReviewInfo,
+  reviewPunishment,
+
+  // 处分期限配置
+  getPunishmentPeriods,
+  updatePunishmentPeriod,
+
+  // 处分到期提醒
+  getExpiringPunishments,
+
+  // 处分撤销申请
+  createRevokeApplication,
+  getRevokeApplications,
+  approveRevokeApplication,
+  rejectRevokeApplication,
 
   // 评价查询
   getStudentEvaluation,
