@@ -67,6 +67,27 @@
           (失败 {{ generateProgress.error_count }} 个)
         </span>
       </div>
+      <div class="progress-actions" v-if="canCancelBatchGenerate || canDeleteBatchGenerate">
+        <el-button
+          v-if="canCancelBatchGenerate"
+          size="small"
+          type="danger"
+          plain
+          :loading="cancelLoading"
+          @click="handleCancelBatchGenerate"
+        >
+          停止批量生成
+        </el-button>
+        <el-button
+          v-if="canDeleteBatchGenerate"
+          size="small"
+          type="danger"
+          :loading="deleteLoading"
+          @click="handleDeleteBatchGenerate"
+        >
+          删除任务
+        </el-button>
+      </div>
       <el-alert v-if="generateProgress.errors.length > 0" type="warning" :closable="false">
         <template #title>错误列表（前10条）</template>
         <ul class="error-list">
@@ -281,6 +302,8 @@ const evaluationList = ref([])
 const searchLoading = ref(false)
 const tableLoading = ref(false)
 const generateLoading = ref(false)
+const cancelLoading = ref(false)
+const deleteLoading = ref(false)
 
 // 分页
 const pagination = reactive({
@@ -299,8 +322,12 @@ const generateProgress = reactive({
   total_count: 0,
   message: '',
   current_student_name: '',
+  job_id: '',
+  job_status: '',
+  cancel_requested: false,
   errors: [],
 })
+const BATCH_JOB_STORAGE_KEY = 'moral.semesterEvaluation.batchJob'
 
 // 详情对话框
 const detailDialog = reactive({
@@ -321,12 +348,22 @@ const singleGenerateDialog = reactive({
 const canBatchGenerate = computed(() => {
   return filterForm.grade_id || filterForm.class_id
 })
+const canCancelBatchGenerate = computed(() => {
+  return Boolean(generateProgress.job_id)
+    && ['queued', 'running'].includes(generateProgress.job_status)
+    && !generateProgress.cancel_requested
+})
+const canDeleteBatchGenerate = computed(() => {
+  return Boolean(generateProgress.job_id)
+    && (isBatchJobFinished(generateProgress.job_status) || generateProgress.cancel_requested)
+})
 
 // 初始化
 onMounted(async () => {
   await fetchSemesters()
   await fetchGrades()
   await fetchEvaluationList()
+  resumeBatchGenerateProgress()
 })
 
 // 获取学期列表
@@ -438,9 +475,12 @@ async function handleBatchGenerate() {
     const res = await moralApi.batchGenerateSemesterEvaluations(params)
     if (res?.success) {
       const jobId = res.data?.job_id
+      generateProgress.job_id = jobId || ''
+      generateProgress.job_status = res.data?.status || 'queued'
       generateProgress.total_count = res.data?.total_count || 0
       generateProgress.message = res.message || '批量生成任务已提交'
       if (jobId) {
+        saveBatchJob(jobId)
         ElMessage.info('批量生成任务已提交，正在后台处理')
         await pollBatchGenerate(jobId)
       } else {
@@ -466,30 +506,199 @@ async function handleBatchGenerate() {
 
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
+function resetGenerateProgress(message = '') {
+  generateProgress.show = Boolean(message)
+  generateProgress.percentage = 0
+  generateProgress.status = ''
+  generateProgress.success_count = 0
+  generateProgress.error_count = 0
+  generateProgress.total_count = 0
+  generateProgress.message = message
+  generateProgress.current_student_name = ''
+  generateProgress.job_id = ''
+  generateProgress.job_status = ''
+  generateProgress.cancel_requested = false
+  generateProgress.errors = []
+}
+
+function saveBatchJob(jobId) {
+  localStorage.setItem(BATCH_JOB_STORAGE_KEY, JSON.stringify({
+    job_id: jobId,
+    saved_at: Date.now()
+  }))
+}
+
+function clearSavedBatchJob() {
+  localStorage.removeItem(BATCH_JOB_STORAGE_KEY)
+}
+
+async function resumeBatchGenerateProgress() {
+  const raw = localStorage.getItem(BATCH_JOB_STORAGE_KEY)
+  let jobId = null
+  if (raw) {
+    try {
+      jobId = JSON.parse(raw)?.job_id || null
+    } catch {
+      clearSavedBatchJob()
+    }
+  }
+
+  generateLoading.value = true
+  resetGenerateProgress('正在恢复批量生成进度...')
+  try {
+    if (!jobId) {
+      const latestRes = await moralApi.getLatestSemesterEvaluationBatchJob()
+      const latest = latestRes?.data
+      if (!latest) {
+        generateProgress.show = false
+        return
+      }
+      jobId = latest.job_id
+      updateBatchProgress(latest)
+      if (isBatchJobFinished(latest.status)) {
+        clearSavedBatchJob()
+        fetchEvaluationList()
+        return
+      }
+      saveBatchJob(jobId)
+    }
+
+    const res = await moralApi.getSemesterEvaluationBatchStatus(jobId)
+    const data = res?.data || {}
+    updateBatchProgress(data)
+    if (isBatchJobFinished(data.status)) {
+      clearSavedBatchJob()
+      fetchEvaluationList()
+      return
+    }
+    await pollBatchGenerate(jobId, { immediate: true })
+    fetchEvaluationList()
+  } catch (e) {
+    console.warn('恢复批量生成进度失败:', e)
+    try {
+      const latestRes = await moralApi.getLatestSemesterEvaluationBatchJob()
+      const latest = latestRes?.data
+      if (latest) {
+        updateBatchProgress(latest)
+        if (isBatchJobFinished(latest.status)) {
+          clearSavedBatchJob()
+          fetchEvaluationList()
+          return
+        }
+        saveBatchJob(latest.job_id)
+        await pollBatchGenerate(latest.job_id, { immediate: true })
+        fetchEvaluationList()
+        return
+      }
+    } catch (latestError) {
+      console.warn('查询最近批量生成任务失败:', latestError)
+    }
+    clearSavedBatchJob()
+    generateProgress.show = false
+  } finally {
+    generateLoading.value = false
+  }
+}
+
+function isBatchJobFinished(status) {
+  return ['success', 'partial_success', 'failed', 'cancelled'].includes(status)
+}
+
+function updateBatchProgress(data = {}) {
+  generateProgress.show = true
+  generateProgress.job_id = data.job_id || generateProgress.job_id || ''
+  generateProgress.job_status = data.status || generateProgress.job_status || ''
+  generateProgress.success_count = data.success_count || 0
+  generateProgress.error_count = data.error_count || 0
+  generateProgress.total_count = data.total_count || generateProgress.total_count || 0
+  generateProgress.errors = data.errors || []
+  generateProgress.percentage = data.progress ?? generateProgress.percentage ?? 0
+  generateProgress.message = data.message || '正在批量生成...'
+  generateProgress.current_student_name = data.current_student_name || ''
+  generateProgress.cancel_requested = Boolean(data.cancel_requested)
+}
+
 async function pollBatchGenerate(jobId) {
   const maxAttempts = 360
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     await wait(attempt < 3 ? 1000 : 2000)
     const res = await moralApi.getSemesterEvaluationBatchStatus(jobId)
     const data = res?.data || {}
-    generateProgress.success_count = data.success_count || 0
-    generateProgress.error_count = data.error_count || 0
-    generateProgress.total_count = data.total_count || generateProgress.total_count || 0
-    generateProgress.errors = data.errors || []
-    generateProgress.percentage = data.progress || 0
-    generateProgress.message = data.message || '正在批量生成...'
-    generateProgress.current_student_name = data.current_student_name || ''
+    updateBatchProgress(data)
 
-    if (data.status === 'success' || data.status === 'partial_success' || data.status === 'failed') {
+    if (isBatchJobFinished(data.status)) {
       generateProgress.percentage = 100
       generateProgress.status = data.error_count > 0 ? 'warning' : 'success'
+      if (data.status === 'cancelled') {
+        generateProgress.status = 'warning'
+      }
       generateProgress.current_student_name = ''
-      ElMessage.success(`批量生成完成：成功 ${data.success_count || 0} 个`)
+      clearSavedBatchJob()
+      if (data.status === 'cancelled') {
+        ElMessage.warning(`批量生成已停止：成功 ${data.success_count || 0} 个`)
+      } else {
+        ElMessage.success(`批量生成完成：成功 ${data.success_count || 0} 个`)
+      }
       return
     }
   }
   generateProgress.status = 'warning'
   throw new Error('批量生成仍在后台处理中，请稍后刷新列表查看')
+}
+
+async function handleCancelBatchGenerate() {
+  const jobId = generateProgress.job_id
+  if (!jobId) return
+
+  try {
+    await ElMessageBox.confirm(
+      '确定停止当前批量生成任务吗？当前正在处理的学生会完成，后续学生将不再生成。',
+      '停止批量生成',
+      { type: 'warning' }
+    )
+    cancelLoading.value = true
+    const res = await moralApi.cancelSemesterEvaluationBatchJob(jobId)
+    const data = res?.data || {}
+    updateBatchProgress(data)
+    ElMessage.warning(res?.message || '已请求停止批量生成')
+    if (!isBatchJobFinished(data.status)) {
+      await pollBatchGenerate(jobId)
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error('停止批量生成失败:', e)
+      ElMessage.error('停止失败：' + (e.response?.data?.detail || '未知错误'))
+    }
+  } finally {
+    cancelLoading.value = false
+  }
+}
+
+async function handleDeleteBatchGenerate() {
+  const jobId = generateProgress.job_id
+  if (!jobId) return
+
+  try {
+    await ElMessageBox.confirm(
+      '确定删除这条已结束的批量生成任务状态吗？已生成的评价记录不会被删除。',
+      '删除批量生成任务',
+      { type: 'warning' }
+    )
+    deleteLoading.value = true
+    const res = await moralApi.deleteSemesterEvaluationBatchJob(jobId)
+    clearSavedBatchJob()
+    resetGenerateProgress()
+    generateProgress.show = false
+    await fetchEvaluationList()
+    ElMessage.success(res?.message || '已删除批量生成任务')
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error('删除批量生成任务失败:', e)
+      ElMessage.error('删除失败：' + (e.response?.data?.detail || '未知错误'))
+    }
+  } finally {
+    deleteLoading.value = false
+  }
 }
 
 // 查看详情
@@ -655,6 +864,11 @@ function getEventTypeTag(type) {
 }
 
 .progress-card .progress-text {
+  margin-top: 10px;
+  text-align: center;
+}
+
+.progress-card .progress-actions {
   margin-top: 10px;
   text-align: center;
 }

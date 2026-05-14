@@ -908,13 +908,13 @@ def start_scheduler():
     )
 
     # 生日祝福（每日05:51）
-    scheduler.add_job(
-        birthday_blessing_task,
-        CronTrigger(hour=5, minute=51),
-        id='birthday_blessing',
-        name='生日祝福任务',
-        replace_existing=True
-    )
+    # scheduler.add_job(
+    #     birthday_blessing_task,
+    #     CronTrigger(hour=5, minute=51),
+    #     id='birthday_blessing',
+    #     name='生日祝福任务',
+    #     replace_existing=True
+    # )
 
     # 画像更新检查（每周一09:00）
     scheduler.add_job(

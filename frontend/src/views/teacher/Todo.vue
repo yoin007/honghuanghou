@@ -69,6 +69,7 @@
               </div>
               <div class="todo-meta">
                 <span v-if="todo.description" class="todo-desc">{{ todo.description }}</span>
+                <span class="todo-time">时间: {{ todo.time_of_day || (todo.scheduled_at ? todo.scheduled_at.slice(11, 16) : '08:00') }}</span>
                 <span class="todo-creator">创建者: {{ todo.creator_name || todo.creator_teacher_id }}</span>
                 <span v-if="todo.assignee_names?.length" class="todo-assignees">
                   协作人: {{ todo.assignee_names.join(', ') }}

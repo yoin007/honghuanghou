@@ -52,10 +52,14 @@ router = APIRouter(prefix="/semester-evaluations", tags=["学期末评价"])
 API_GENERATE = "/api/moral/semester-evaluations/generate"
 API_BATCH_GENERATE = "/api/moral/semester-evaluations/batch-generate"
 API_BATCH_STATUS = "/api/moral/semester-evaluations/batch-status/{job_id}"
+API_BATCH_LATEST = "/api/moral/semester-evaluations/batch-latest"
+API_BATCH_CANCEL = "/api/moral/semester-evaluations/batch-cancel/{job_id}"
+API_BATCH_DELETE = "/api/moral/semester-evaluations/batch-delete/{job_id}"
 API_LIST = "/api/moral/semester-evaluations/list"
 API_DETAIL = "/api/moral/semester-evaluations/{record_id}"
 SEMESTER_EVALUATION_JOBS: Dict[str, Dict[str, Any]] = {}
 SEMESTER_EVALUATION_JOB_TTL_SECONDS = 60 * 60
+FINISHED_BATCH_JOB_STATUSES = {"success", "partial_success", "failed", "cancelled"}
 
 
 def _cleanup_semester_evaluation_jobs() -> None:
@@ -66,6 +70,150 @@ def _cleanup_semester_evaluation_jobs() -> None:
     ]
     for job_id in expired:
         SEMESTER_EVALUATION_JOBS.pop(job_id, None)
+
+
+def _ensure_batch_job_table(db) -> None:
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS semester_evaluation_batch_job (
+            job_id TEXT PRIMARY KEY,
+            created_by TEXT NOT NULL,
+            status TEXT NOT NULL,
+            message TEXT,
+            semester_id INTEGER,
+            generate_ai INTEGER DEFAULT 1,
+            total_count INTEGER DEFAULT 0,
+            success_count INTEGER DEFAULT 0,
+            error_count INTEGER DEFAULT 0,
+            current INTEGER DEFAULT 0,
+            current_student_id TEXT,
+            current_student_name TEXT,
+            cancel_requested INTEGER DEFAULT 0,
+            errors TEXT DEFAULT '[]',
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+            finished_at TEXT
+        )"""
+    )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_semester_eval_batch_job_user_status ON semester_evaluation_batch_job(created_by, status, updated_at)"
+    )
+    columns = {row["name"] for row in db.query_all("PRAGMA table_info(semester_evaluation_batch_job)")}
+    if "cancel_requested" not in columns:
+        db.execute("ALTER TABLE semester_evaluation_batch_job ADD COLUMN cancel_requested INTEGER DEFAULT 0")
+
+
+def _persist_batch_job(job: Dict[str, Any]) -> None:
+    try:
+        with get_moral_db() as db:
+            _ensure_batch_job_table(db)
+            db.execute(
+                """INSERT INTO semester_evaluation_batch_job
+                   (job_id, created_by, status, message, semester_id, generate_ai,
+                    total_count, success_count, error_count, current,
+                    current_student_id, current_student_name, cancel_requested, errors, finished_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(job_id) DO UPDATE SET
+                    status = excluded.status,
+                    message = excluded.message,
+                    success_count = excluded.success_count,
+                    error_count = excluded.error_count,
+                    current = excluded.current,
+                    current_student_id = excluded.current_student_id,
+                    current_student_name = excluded.current_student_name,
+                    cancel_requested = excluded.cancel_requested,
+                    errors = excluded.errors,
+                    finished_at = excluded.finished_at,
+                    updated_at = datetime('now', 'localtime')""",
+                (
+                    job.get("job_id"),
+                    job.get("created_by"),
+                    job.get("status") or "queued",
+                    job.get("message") or "",
+                    job.get("semester_id"),
+                    1 if job.get("generate_ai") else 0,
+                    int(job.get("total_count") or 0),
+                    int(job.get("success_count") or 0),
+                    int(job.get("error_count") or 0),
+                    int(job.get("current") or 0),
+                    job.get("current_student_id"),
+                    job.get("current_student_name"),
+                    1 if job.get("cancel_requested") else 0,
+                    json.dumps(job.get("errors") or [], ensure_ascii=False),
+                    datetime.now().isoformat() if job.get("finished_at") else None,
+                ),
+            )
+    except Exception as exc:
+        logger.warning("持久化学期末评价批量任务状态失败: %s", exc)
+
+
+def _batch_job_status_payload(job: Dict[str, Any]) -> Dict[str, Any]:
+    total_count = int(job.get("total_count") or 0)
+    current = int(job.get("current") or 0)
+    progress = int(current * 100 / total_count) if total_count else 100
+    return {
+        "job_id": job.get("job_id"),
+        "status": job.get("status"),
+        "message": job.get("message"),
+        "total_count": total_count,
+        "success_count": int(job.get("success_count") or 0),
+        "error_count": int(job.get("error_count") or 0),
+        "current": current,
+        "progress": min(progress, 100),
+        "current_student_id": job.get("current_student_id"),
+        "current_student_name": job.get("current_student_name"),
+        "errors": job.get("errors") or [],
+        "evaluations": job.get("evaluations") or [],
+        "finished_at": job.get("finished_at"),
+        "cancel_requested": bool(job.get("cancel_requested")),
+    }
+
+
+def _batch_job_row_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        errors = json.loads(row.get("errors") or "[]")
+    except Exception:
+        errors = []
+    return _batch_job_status_payload({
+        "job_id": row.get("job_id"),
+        "status": row.get("status"),
+        "message": row.get("message"),
+        "total_count": row.get("total_count"),
+        "success_count": row.get("success_count"),
+        "error_count": row.get("error_count"),
+        "current": row.get("current"),
+        "current_student_id": row.get("current_student_id"),
+        "current_student_name": row.get("current_student_name"),
+        "errors": errors,
+        "finished_at": row.get("finished_at"),
+        "cancel_requested": bool(row.get("cancel_requested")),
+    })
+
+
+def _mark_orphaned_cancel_requested_job_cancelled(db, row: Dict[str, Any]) -> Dict[str, Any]:
+    if not row:
+        return row
+    if row.get("status") not in {"queued", "running"} or not row.get("cancel_requested"):
+        return row
+    if SEMESTER_EVALUATION_JOBS.get(row.get("job_id")):
+        return row
+
+    success_count = int(row.get("success_count") or 0)
+    error_count = int(row.get("error_count") or 0)
+    db.execute(
+        """UPDATE semester_evaluation_batch_job
+           SET status = 'cancelled',
+               message = ?,
+               current_student_id = NULL,
+               current_student_name = NULL,
+               finished_at = datetime('now', 'localtime'),
+               updated_at = datetime('now', 'localtime')
+           WHERE job_id = ?""",
+        (f"批量生成已停止：成功 {success_count} 个，失败 {error_count} 个", row.get("job_id")),
+    )
+    return db.query_one(
+        "SELECT * FROM semester_evaluation_batch_job WHERE job_id = ?",
+        (row.get("job_id"),),
+    )
 
 
 def _run_semester_evaluation_batch_job(job_id: str) -> None:
@@ -81,35 +229,48 @@ def _run_semester_evaluation_batch_job(job_id: str) -> None:
         "message": "正在批量生成学期末评价",
         "started_at": time.time(),
     })
+    _persist_batch_job(job)
     success_count = 0
     errors = []
     results = []
     try:
-        with get_moral_db() as db:
-            for index, student in enumerate(students, start=1):
+        for index, student in enumerate(students, start=1):
+            if job.get("cancel_requested"):
                 job.update({
-                    "current": index,
-                    "current_student_id": student.get('student_id'),
-                    "current_student_name": student.get('name') or student.get('student_id'),
-                    "message": f"正在生成 {index}/{len(students)}",
+                    "status": "cancelled",
+                    "message": f"批量生成已停止：成功 {success_count} 个，失败 {len(errors)} 个",
+                    "current_student_id": None,
+                    "current_student_name": None,
+                    "finished_at": time.time(),
                 })
-                try:
+                _persist_batch_job(job)
+                return
+            job.update({
+                "current": index,
+                "current_student_id": student.get('student_id'),
+                "current_student_name": student.get('name') or student.get('student_id'),
+                "message": f"正在生成 {index}/{len(students)}",
+            })
+            _persist_batch_job(job)
+            try:
+                with get_moral_db() as db:
                     result = generate_semester_evaluation_with_ai(
                         db, student['student_id'], semester_id, user, generate_ai
                     )
-                    success_count += 1
-                    if len(results) < 20:
-                        results.append(result)
-                except Exception as exc:
-                    error_msg = f"{student.get('student_id')}: {str(exc)}"
-                    errors.append(error_msg)
-                    logger.error("批量生成学期末评价失败: %s", error_msg)
-                job.update({
-                    "success_count": success_count,
-                    "error_count": len(errors),
-                    "errors": errors[:10],
-                    "evaluations": results,
-                })
+                success_count += 1
+                if len(results) < 20:
+                    results.append(result)
+            except Exception as exc:
+                error_msg = f"{student.get('student_id')}: {str(exc)}"
+                errors.append(error_msg)
+                logger.error("批量生成学期末评价失败: %s", error_msg)
+            job.update({
+                "success_count": success_count,
+                "error_count": len(errors),
+                "errors": errors[:10],
+                "evaluations": results,
+            })
+            _persist_batch_job(job)
 
         job.update({
             "status": "success" if not errors else "partial_success",
@@ -120,6 +281,7 @@ def _run_semester_evaluation_batch_job(job_id: str) -> None:
             "evaluations": results,
             "finished_at": time.time(),
         })
+        _persist_batch_job(job)
     except Exception as exc:
         logger.exception("学期末评价批量生成任务失败: %s", exc)
         job.update({
@@ -130,6 +292,7 @@ def _run_semester_evaluation_batch_job(job_id: str) -> None:
             "errors": (errors + [str(exc)])[:10],
             "finished_at": time.time(),
         })
+        _persist_batch_job(job)
 
 
 # =============================================================================
@@ -477,6 +640,9 @@ def generate_semester_evaluation_with_ai(
         db, student_id, semester_id,
         student.get('class_id'), student.get('grade_id')
     )
+    # 先提交德育总评缓存，避免 AI 调用期间长时间持有 SQLite 写锁。
+    if hasattr(db, "commit"):
+        db.commit()
 
     # 4. 获取详细数据和关键事件
     details = get_evaluation_details(db, student_id, semester_id)
@@ -698,6 +864,8 @@ async def api_batch_generate_semester_evaluations(
             "evaluations": [],
             "user": user,
         }
+        _ensure_batch_job_table(db)
+        _persist_batch_job(SEMESTER_EVALUATION_JOBS[job_id])
         background_tasks.add_task(_run_semester_evaluation_batch_job, job_id)
 
         return {
@@ -722,30 +890,121 @@ async def get_semester_evaluation_batch_status(
     _cleanup_semester_evaluation_jobs()
     job = SEMESTER_EVALUATION_JOBS.get(job_id)
     if not job:
-        raise HTTPException(404, "批量生成任务不存在或已过期")
+        with get_moral_db() as db:
+            _ensure_batch_job_table(db)
+            row = db.query_one(
+                "SELECT * FROM semester_evaluation_batch_job WHERE job_id = ?",
+                (job_id,),
+            )
+        if not row:
+            raise HTTPException(404, "批量生成任务不存在或已过期")
+        if row.get("created_by") != user.username:
+            raise HTTPException(403, "只能查看自己提交的批量生成任务")
+        row = _mark_orphaned_cancel_requested_job_cancelled(db, row)
+        return {"success": True, "data": _batch_job_row_payload(row)}
     if job.get("created_by") != user.username:
         raise HTTPException(403, "只能查看自己提交的批量生成任务")
-    total_count = int(job.get("total_count") or 0)
-    current = int(job.get("current") or 0)
-    progress = int(current * 100 / total_count) if total_count else 100
-    return {
-        "success": True,
-        "data": {
-            "job_id": job_id,
-            "status": job.get("status"),
-            "message": job.get("message"),
-            "total_count": total_count,
-            "success_count": int(job.get("success_count") or 0),
-            "error_count": int(job.get("error_count") or 0),
-            "current": current,
-            "progress": min(progress, 100),
-            "current_student_id": job.get("current_student_id"),
-            "current_student_name": job.get("current_student_name"),
-            "errors": job.get("errors") or [],
-            "evaluations": job.get("evaluations") or [],
-            "finished_at": job.get("finished_at"),
-        }
-    }
+    return {"success": True, "data": _batch_job_status_payload(job)}
+
+
+@router.get("/batch-latest", summary="查询当前用户最近的学期末评价批量任务")
+async def get_latest_semester_evaluation_batch_job(
+    user: User = Depends(require_configured_api_permission(API_BATCH_LATEST, "GET", allow_missing=False))
+):
+    with get_moral_db() as db:
+        _ensure_batch_job_table(db)
+        row = db.query_one(
+            """SELECT * FROM semester_evaluation_batch_job
+               WHERE created_by = ?
+               ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                        updated_at DESC
+               LIMIT 1""",
+            (user.username,),
+        )
+        row = _mark_orphaned_cancel_requested_job_cancelled(db, row)
+    return {"success": True, "data": _batch_job_row_payload(row) if row else None}
+
+
+@router.post("/batch-cancel/{job_id}", summary="停止学期末评价批量生成")
+async def cancel_semester_evaluation_batch_job(
+    job_id: str,
+    user: User = Depends(require_configured_api_permission(API_BATCH_CANCEL, "POST", allow_missing=False))
+):
+    _cleanup_semester_evaluation_jobs()
+    job = SEMESTER_EVALUATION_JOBS.get(job_id)
+    if job:
+        if job.get("created_by") != user.username:
+            raise HTTPException(403, "只能停止自己提交的批量生成任务")
+        if job.get("status") in FINISHED_BATCH_JOB_STATUSES:
+            return {"success": True, "message": "任务已结束", "data": _batch_job_status_payload(job)}
+        job.update({
+            "cancel_requested": True,
+            "message": "已请求停止，当前学生处理完成后停止",
+        })
+        _persist_batch_job(job)
+        return {"success": True, "message": "已请求停止批量生成", "data": _batch_job_status_payload(job)}
+
+    with get_moral_db() as db:
+        _ensure_batch_job_table(db)
+        row = db.query_one(
+            "SELECT * FROM semester_evaluation_batch_job WHERE job_id = ?",
+            (job_id,),
+        )
+        if not row:
+            raise HTTPException(404, "批量生成任务不存在或已过期")
+        if row.get("created_by") != user.username:
+            raise HTTPException(403, "只能停止自己提交的批量生成任务")
+        if row.get("status") in FINISHED_BATCH_JOB_STATUSES:
+            return {"success": True, "message": "任务已结束", "data": _batch_job_row_payload(row)}
+        db.execute(
+            """UPDATE semester_evaluation_batch_job
+               SET cancel_requested = 1,
+                   message = '已请求停止，当前学生处理完成后停止',
+                   updated_at = datetime('now', 'localtime')
+               WHERE job_id = ?""",
+            (job_id,),
+        )
+        row = db.query_one(
+            "SELECT * FROM semester_evaluation_batch_job WHERE job_id = ?",
+            (job_id,),
+        )
+    return {"success": True, "message": "已请求停止批量生成", "data": _batch_job_row_payload(row)}
+
+
+@router.delete("/batch-delete/{job_id}", summary="删除已结束的学期末评价批量任务")
+async def delete_semester_evaluation_batch_job(
+    job_id: str,
+    user: User = Depends(require_configured_api_permission(API_BATCH_DELETE, "DELETE", allow_missing=False))
+):
+    _cleanup_semester_evaluation_jobs()
+    job = SEMESTER_EVALUATION_JOBS.get(job_id)
+    if job:
+        if job.get("created_by") != user.username:
+            raise HTTPException(403, "只能删除自己提交的批量生成任务")
+        if job.get("status") not in FINISHED_BATCH_JOB_STATUSES:
+            raise HTTPException(400, "运行中的批量生成任务不能删除，请先停止任务")
+
+    with get_moral_db() as db:
+        _ensure_batch_job_table(db)
+        row = db.query_one(
+            "SELECT * FROM semester_evaluation_batch_job WHERE job_id = ?",
+            (job_id,),
+        )
+        if row:
+            if row.get("created_by") != user.username:
+                raise HTTPException(403, "只能删除自己提交的批量生成任务")
+            row = _mark_orphaned_cancel_requested_job_cancelled(db, row)
+            if row.get("status") not in FINISHED_BATCH_JOB_STATUSES:
+                raise HTTPException(400, "运行中的批量生成任务不能删除，请先停止任务")
+            db.execute(
+                "DELETE FROM semester_evaluation_batch_job WHERE job_id = ?",
+                (job_id,),
+            )
+        elif not job:
+            raise HTTPException(404, "批量生成任务不存在或已过期")
+
+    SEMESTER_EVALUATION_JOBS.pop(job_id, None)
+    return {"success": True, "message": "已删除批量生成任务"}
 
 
 @router.get("/list", summary="查询学期末评价列表")

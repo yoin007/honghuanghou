@@ -9,6 +9,7 @@ import logging
 import json
 import re
 import hashlib
+import sqlite3
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -303,6 +304,9 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/semester-evaluations/generate", "api_name": "生成单学生学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/semester-evaluations/batch-generate", "api_name": "批量生成学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/semester-evaluations/batch-status/{job_id}", "api_name": "查询学期末评价批量生成状态", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
+    {"api_path": "/api/moral/semester-evaluations/batch-latest", "api_name": "查询最近学期末评价批量任务", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/semester-evaluations/batch-cancel/{job_id}", "api_name": "停止学期末评价批量生成", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "POST", "match_type": "pattern", "action_type": "operate"},
+    {"api_path": "/api/moral/semester-evaluations/batch-delete/{job_id}", "api_name": "删除已结束学期末评价批量任务", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "DELETE", "match_type": "pattern", "action_type": "delete"},
     {"api_path": "/api/moral/semester-evaluations/list", "api_name": "查询学期末评价列表", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/semester-evaluations/{record_id}", "api_name": "查询学期末评价详情", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
 ]
@@ -1785,8 +1789,22 @@ def check_configured_api_permission(
     已配置且 enforce_backend=1 的 API 必须满足配置中的角色、等级和策略。
     """
     with get_moral_db() as db:
-        ensure_api_permission_schema(db)
-        config = _get_matching_config(db, api_path, http_method)
+        try:
+            config = _get_matching_config(db, api_path, http_method)
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if "no such table" in message or "no such column" in message:
+                logger.warning("API权限表结构缺失，尝试补齐后重试: %s", exc)
+                ensure_api_permission_schema(db)
+                config = _get_matching_config(db, api_path, http_method)
+            else:
+                logger.error("读取API权限配置失败: %s", exc)
+                return {
+                    "allowed": False,
+                    "reason": "权限配置读取失败，请稍后重试",
+                    "policy": {},
+                    "config": None,
+                }
         if not config:
             return {
                 "allowed": bool(allow_missing),

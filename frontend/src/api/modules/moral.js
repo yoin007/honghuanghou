@@ -1140,6 +1140,35 @@ export function getSemesterEvaluationBatchStatus(jobId) {
 }
 
 /**
+ * 查询当前用户最近的学期末评价批量任务
+ */
+export function getLatestSemesterEvaluationBatchJob() {
+  return httpClient.get('/api/moral/semester-evaluations/batch-latest', {
+    timeout: 10000
+  })
+}
+
+/**
+ * 停止学期末评价批量生成
+ * @param {string} jobId - 任务ID
+ */
+export function cancelSemesterEvaluationBatchJob(jobId) {
+  return httpClient.post(`/api/moral/semester-evaluations/batch-cancel/${jobId}`, null, {
+    timeout: 10000
+  })
+}
+
+/**
+ * 删除已结束的学期末评价批量生成任务
+ * @param {string} jobId - 任务ID
+ */
+export function deleteSemesterEvaluationBatchJob(jobId) {
+  return httpClient.delete(`/api/moral/semester-evaluations/batch-delete/${jobId}`, {
+    timeout: 10000
+  })
+}
+
+/**
  * 查询学期末评价列表
  * @param {object} params - { class_id, grade_id, semester_id, page, pageSize }
  */
@@ -1290,6 +1319,9 @@ export default {
   generateSemesterEvaluation,
   batchGenerateSemesterEvaluations,
   getSemesterEvaluationBatchStatus,
+  getLatestSemesterEvaluationBatchJob,
+  cancelSemesterEvaluationBatchJob,
+  deleteSemesterEvaluationBatchJob,
   getSemesterEvaluationList,
   getSemesterEvaluationDetail,
 

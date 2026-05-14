@@ -225,34 +225,34 @@ def _run_profile_batch_generation_job(job_id: str) -> None:
     errors = []
     generated_profiles = []
     try:
-        with get_moral_db() as db:
-            for index, student in enumerate(students, start=1):
-                job.update({
-                    "current": index,
-                    "current_student_id": student.get('student_id'),
-                    "current_student_name": student.get('name') or student.get('student_id'),
-                    "message": f"正在生成 {index}/{len(students)}",
-                })
-                try:
+        for index, student in enumerate(students, start=1):
+            job.update({
+                "current": index,
+                "current_student_id": student.get('student_id'),
+                "current_student_name": student.get('name') or student.get('student_id'),
+                "message": f"正在生成 {index}/{len(students)}",
+            })
+            try:
+                with get_moral_db() as db:
                     result = generate_single_profile_internal(
                         db,
                         student['student_id'],
                         semester_id,
                         generated_by=generated_by,
                     )
-                    success_count += 1
-                    if len(generated_profiles) < 20:
-                        generated_profiles.append(result)
-                except Exception as exc:
-                    error_msg = f"{student.get('student_id')}({student.get('name', '')}): {str(exc)}"
-                    errors.append(error_msg)
-                    logger.error("批量生成画像失败: %s", error_msg)
-                job.update({
-                    "success_count": success_count,
-                    "error_count": len(errors),
-                    "errors": errors[:10],
-                    "generated_profiles": generated_profiles,
-                })
+                success_count += 1
+                if len(generated_profiles) < 20:
+                    generated_profiles.append(result)
+            except Exception as exc:
+                error_msg = f"{student.get('student_id')}({student.get('name', '')}): {str(exc)}"
+                errors.append(error_msg)
+                logger.error("批量生成画像失败: %s", error_msg)
+            job.update({
+                "success_count": success_count,
+                "error_count": len(errors),
+                "errors": errors[:10],
+                "generated_profiles": generated_profiles,
+            })
 
         job.update({
             "status": "success" if not errors else "partial_success",
