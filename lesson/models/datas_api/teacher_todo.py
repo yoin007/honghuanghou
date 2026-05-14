@@ -987,6 +987,56 @@ def ensure_teacher_todo_schema(db):
     db.execute("CREATE INDEX IF NOT EXISTS idx_todo_occurrence_scheduled ON teacher_todo_occurrence(scheduled_at)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_todo_group_owner ON teacher_todo_group(owner_teacher_id)")
 
+    # 移除 teacher_todo_reminder_log 的 UNIQUE 约束（支持多次提醒记录）
+    # SQLite 不支持 ALTER 删除约束，需要重建表
+    try:
+        old_schema = db.query_one(
+            """SELECT sql FROM sqlite_master
+               WHERE type='table' AND name='teacher_todo_reminder_log'"""
+        )
+        if old_schema and "UNIQUE (occurrence_id, receiver_teacher_id, channel, planned_remind_at)" in old_schema.get("sql", ""):
+            # 备份数据
+            db.execute("CREATE TABLE IF NOT EXISTS teacher_todo_reminder_log_backup AS SELECT * FROM teacher_todo_reminder_log")
+            # 删除旧表
+            db.execute("DROP TABLE teacher_todo_reminder_log")
+            # 创建新表（无 UNIQUE 约束）
+            db.execute(
+                """CREATE TABLE teacher_todo_reminder_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    occurrence_id INTEGER NOT NULL,
+                    receiver_teacher_id TEXT NOT NULL,
+                    channel TEXT DEFAULT 'wechat',
+                    planned_remind_at TEXT NOT NULL,
+                    sent_at TEXT,
+                    send_status TEXT DEFAULT 'pending',
+                    error_message TEXT,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                    todo_series_id INTEGER,
+                    teacher_id TEXT,
+                    reminder_type TEXT DEFAULT 'scheduled',
+                    remind_before_minutes INTEGER DEFAULT 30,
+                    scheduled_remind_time TEXT,
+                    actual_remind_time TEXT,
+                    message TEXT,
+                    is_sent INTEGER DEFAULT 0,
+                    reminder_sequence INTEGER DEFAULT 1
+                )"""
+            )
+            # 恢复数据
+            db.execute(
+                """INSERT INTO teacher_todo_reminder_log
+                   SELECT id, occurrence_id, receiver_teacher_id, channel, planned_remind_at,
+                          sent_at, send_status, error_message, created_at, todo_series_id,
+                          teacher_id, reminder_type, remind_before_minutes, scheduled_remind_time,
+                          actual_remind_time, message, is_sent, reminder_sequence
+                   FROM teacher_todo_reminder_log_backup"""
+            )
+            # 删除备份表
+            db.execute("DROP TABLE teacher_todo_reminder_log_backup")
+            logger.info("teacher_todo_reminder_log UNIQUE 约束已移除，支持多次提醒记录")
+    except Exception as e:
+        logger.warning(f"移除 UNIQUE 约束失败（非致命）: {e}")
+
 
 def ensure_future_occurrences(db, today: Optional[date] = None) -> Dict[str, int]:
     """滚动维护周期待办实例，并清理不符合当前规则的未完成未来实例。"""
