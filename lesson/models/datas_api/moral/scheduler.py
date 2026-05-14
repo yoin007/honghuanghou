@@ -12,6 +12,7 @@
 """
 
 import logging
+import json
 from datetime import datetime, date, timedelta
 from typing import Optional
 
@@ -572,6 +573,167 @@ def punishment_expire_reminder_task():
             logger.info(f"已发送到期提醒：{student_name}（{class_name}）")
 
 
+def teacher_todo_reminder_task():
+    """
+    教师待办提醒任务（每分钟执行）
+
+    流程：
+    1. 查询需要发送提醒的待办（scheduled_at - remind_before_minutes <= 当前时间）
+    2. 检查通知设置和教师微信ID
+    3. 发送微信提醒（如已配置微信接口）
+    4. 记录提醒日志并去重
+    """
+    logger.info("执行教师待办提醒任务")
+
+    from .base import get_moral_db
+    from models.datas_api.teacher_todo import ensure_teacher_todo_schema, ensure_future_occurrences
+    from sendqueue import send_text
+
+    with get_moral_db() as db:
+        ensure_teacher_todo_schema(db)
+        ensure_future_occurrences(db)
+        now = datetime.now()
+
+        # 查询需要提醒的待办实例
+        # 条件：scheduled_at - remind_before_minutes <= now，按接收教师去重。
+        remindables = db.query_all(
+            """SELECT o.id as occurrence_id, o.todo_series_id, o.scheduled_at, o.occurrence_date,
+                   t.title, t.description, t.wechat_notify_enabled, t.remind_before_minutes,
+                   t.notify_creator, t.notify_assignees, t.creator_teacher_id, t.creator_name,
+                   t.time_of_day
+            FROM teacher_todo_occurrence o
+            JOIN teacher_todo_series t ON o.todo_series_id = t.id
+            WHERE o.status = 'pending'
+            AND t.is_active = 1
+            AND t.wechat_notify_enabled = 1"""
+        )
+
+        for todo in remindables:
+            scheduled_at = todo['scheduled_at']
+            remind_before = todo['remind_before_minutes'] or 30
+
+            # 计算 remind_time = scheduled_at - remind_before_minutes
+            try:
+                scheduled_dt = datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M:%S")
+            except:
+                scheduled_dt = datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M")
+
+            remind_time = scheduled_dt - timedelta(minutes=remind_before)
+
+            # 判断是否应该发送提醒（当前时间 >= 提醒时间）
+            if now < remind_time:
+                continue  # 还没到提醒时间，跳过
+
+            # 获取需要通知的教师列表
+            notify_teacher_ids = []
+            if todo['notify_creator'] == 1:
+                notify_teacher_ids.append(todo['creator_teacher_id'])
+            if todo['notify_assignees'] == 1:
+                assignees = db.query_all(
+                    """SELECT teacher_id FROM teacher_todo_assignee WHERE todo_series_id = ?""",
+                    (todo['todo_series_id'],)
+                )
+                for a in assignees:
+                    if a['teacher_id'] == todo['creator_teacher_id'] and todo['notify_creator'] != 1:
+                        continue
+                    if a['teacher_id'] not in notify_teacher_ids:
+                        notify_teacher_ids.append(a['teacher_id'])
+
+            # 检查教师是否有微信ID（暂用 teacher 表的 wxid 字段，如存在）
+            for teacher_id in notify_teacher_ids:
+                # 检查是否已发送过提醒
+                existing_log = db.query_one(
+                    """SELECT 1 FROM teacher_todo_reminder_log
+                    WHERE occurrence_id = ? AND teacher_id = ? AND reminder_type = 'scheduled'""",
+                    (todo['occurrence_id'], teacher_id)
+                )
+                if existing_log:
+                    continue  # 已发送过，跳过
+
+                teacher = db.query_one(
+                    """SELECT teacher_id, name, wxid, notice_enabled
+                       FROM teacher
+                       WHERE (teacher_id = ? OR name = ?) AND is_active = 1""",
+                    (teacher_id, teacher_id)
+                )
+
+                if not teacher:
+                    continue
+
+                if int(teacher.get("notice_enabled") or 0) != 1:
+                    logger.debug(f"教师 {teacher_id} 已关闭通知，跳过微信通知")
+                    db.execute(
+                        """INSERT OR IGNORE INTO teacher_todo_reminder_log
+                        (occurrence_id, todo_series_id, teacher_id, reminder_type,
+                         remind_before_minutes, scheduled_remind_time, actual_remind_time, message, is_sent)
+                        VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, 0)""",
+                        (
+                            todo['occurrence_id'], todo['todo_series_id'], teacher_id, remind_before,
+                            remind_time.strftime("%Y-%m-%d %H:%M:%S"),
+                            now.strftime("%Y-%m-%d %H:%M:%S"),
+                            "教师已关闭微信通知",
+                        )
+                    )
+                    continue
+
+                wxid = teacher.get('wxid')
+                if not wxid:
+                    logger.debug(f"教师 {teacher_id} 无微信ID，跳过微信通知")
+                    # 记录日志但不发送
+                    db.execute(
+                        """INSERT INTO teacher_todo_reminder_log
+                        (occurrence_id, todo_series_id, teacher_id, reminder_type,
+                         remind_before_minutes, scheduled_remind_time, actual_remind_time, message, is_sent)
+                        VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, 0)""",
+                        (
+                            todo['occurrence_id'], todo['todo_series_id'], teacher_id, remind_before,
+                            remind_time.strftime("%Y-%m-%d %H:%M:%S"),
+                            now.strftime("%Y-%m-%d %H:%M:%S"),
+                            "教师无微信ID",
+                        )
+                    )
+                    continue
+
+                # 构建提醒消息
+                title = todo['title']
+                time_str = todo['time_of_day'] or '08:00'
+                date_str = todo['occurrence_date']
+
+                message = (
+                    f"【待办提醒】\n"
+                    f"标题：{title}\n"
+                    f"时间：{date_str} {time_str}\n"
+                    f"{todo['description'] or ''}\n\n"
+                    f"— 德育评价系统"
+                )
+
+                is_sent = 1
+                log_message = message
+                try:
+                    send_text(message, wxid, producer="teacher_todo")
+                except Exception as exc:
+                    is_sent = 0
+                    log_message = f"发送失败: {exc}"
+                    logger.exception("教师待办微信提醒发送失败: teacher_id=%s", teacher_id)
+
+                # 记录提醒日志
+                db.execute(
+                    """INSERT OR IGNORE INTO teacher_todo_reminder_log
+                    (occurrence_id, todo_series_id, teacher_id, reminder_type,
+                     remind_before_minutes, scheduled_remind_time, actual_remind_time, message, is_sent)
+                    VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, ?)""",
+                    (
+                        todo['occurrence_id'], todo['todo_series_id'], teacher_id, remind_before,
+                        remind_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        now.strftime("%Y-%m-%d %H:%M:%S"),
+                        log_message,
+                        is_sent,
+                    )
+                )
+
+                logger.info(f"已处理待办提醒：{title} → 教师 {teacher_id}，提醒时间 {remind_time}")
+
+
 def semester_evaluation_task():
     """
     学期末德育评价计算任务
@@ -638,6 +800,88 @@ def task_carryover_year_end_task():
         )
 
 
+def database_backup_task():
+    """
+    数据库自动备份任务
+
+    流程：
+    1. 检查备份配置是否启用
+    2. 执行备份（使用 zipfile）
+    3. 清理旧备份
+    4. 记录备份历史
+    """
+    logger.info("执行数据库自动备份任务")
+
+    from .base import get_moral_db
+
+    with get_moral_db() as db:
+        # 获取定时备份配置
+        config = db.query_one(
+            "SELECT config_value FROM moral_config WHERE config_key = 'backup_schedule'"
+        )
+
+        if config:
+            try:
+                schedule_config = json.loads(config['config_value'])
+                if not schedule_config.get('enabled'):
+                    logger.info("定时备份已禁用，跳过")
+                    return
+            except:
+                pass
+
+        # 执行备份
+        from .database_backup import execute_backup_internal
+        result = execute_backup_internal(
+            db,
+            backup_type='scheduled',
+            operator='system'
+        )
+
+        if result['success']:
+            logger.info(f"自动备份完成：{result['backup_name']} ({result['file_size']} 字节)")
+        else:
+            logger.error(f"自动备份失败：{result['error']}")
+
+
+def update_backup_job(config: dict):
+    """
+    根据配置动态更新备份任务
+
+    Args:
+        config: 定时备份配置 {"enabled": bool, "day_of_week": str, "hour": int, "minute": int}
+    """
+    global scheduler
+
+    if scheduler is None or not scheduler.running:
+        logger.warning("调度器未运行，无法更新备份任务")
+        return
+
+    job_id = 'database_backup'
+
+    # 先移除现有任务
+    existing_job = scheduler.get_job(job_id)
+    if existing_job:
+        scheduler.remove_job(job_id)
+
+    # 如果启用，重新添加
+    if config.get('enabled'):
+        trigger = CronTrigger(
+            day_of_week=config.get('day_of_week', 'sun'),
+            hour=config.get('hour', 3),
+            minute=config.get('minute', 0)
+        )
+        scheduler.add_job(
+            database_backup_task,
+            trigger,
+            id=job_id,
+            name='数据库自动备份任务',
+            replace_existing=True
+        )
+        logger.info(f"已更新定时备份任务：{config.get('day_of_week')} {config.get('hour')}:{config.get('minute')}")
+    else:
+        logger.info("定时备份已禁用，任务已移除")
+
+
 # =============================================================================
 # 调度器启动与停止
 # =============================================================================
@@ -695,6 +939,24 @@ def start_scheduler():
         CronTrigger(hour=8, minute=0),
         id='punishment_expire_reminder',
         name='处分到期提醒任务',
+        replace_existing=True
+    )
+
+    # 教师待办提醒（每分钟）
+    scheduler.add_job(
+        teacher_todo_reminder_task,
+        CronTrigger(minute='*'),
+        id='teacher_todo_reminder',
+        name='教师待办提醒任务',
+        replace_existing=True
+    )
+
+    # 数据库自动备份（默认周日凌晨3点）
+    scheduler.add_job(
+        database_backup_task,
+        CronTrigger(day_of_week='sun', hour=3, minute=0),
+        id='database_backup',
+        name='数据库自动备份任务',
         replace_existing=True
     )
 
@@ -842,5 +1104,17 @@ async def api_trigger_task_carryover(
     try:
         task_carryover_year_end_task()
         return {"success": True, "message": "任务结转已执行"}
+    except Exception as e:
+        return {"success": False, "message": f"执行失败：{str(e)}"}
+
+
+@scheduler_router.post("/trigger/teacher-todo-reminder", summary="手动触发教师待办提醒")
+async def api_trigger_teacher_todo_reminder(
+    user: User = Depends(require_configured_api_permission("/api/moral/scheduler", "GET", allow_missing=False))
+):
+    """手动触发教师待办提醒任务"""
+    try:
+        teacher_todo_reminder_task()
+        return {"success": True, "message": "教师待办提醒任务已执行"}
     except Exception as e:
         return {"success": False, "message": f"执行失败：{str(e)}"}

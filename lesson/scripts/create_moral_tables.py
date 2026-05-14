@@ -752,6 +752,11 @@ CREATE TABLE IF NOT EXISTS teacher_todo_series (
     start_date TEXT NOT NULL,
     end_date TEXT,
     recurrence_rule_json TEXT,
+    time_of_day TEXT DEFAULT '08:00',
+    wechat_notify_enabled INTEGER DEFAULT 1,
+    remind_before_minutes INTEGER DEFAULT 30,
+    notify_creator INTEGER DEFAULT 1,
+    notify_assignees INTEGER DEFAULT 1,
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
@@ -779,6 +784,7 @@ CREATE TABLE IF NOT EXISTS teacher_todo_occurrence (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     todo_series_id INTEGER NOT NULL,
     occurrence_date TEXT NOT NULL,
+    scheduled_at TEXT,
     due_at TEXT,
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'completed')),
     completed_at TEXT,
@@ -791,6 +797,82 @@ CREATE TABLE IF NOT EXISTS teacher_todo_occurrence (
 CREATE INDEX IF NOT EXISTS idx_todo_occurrence_series ON teacher_todo_occurrence(todo_series_id);
 CREATE INDEX IF NOT EXISTS idx_todo_occurrence_date ON teacher_todo_occurrence(occurrence_date);
 CREATE INDEX IF NOT EXISTS idx_todo_occurrence_status ON teacher_todo_occurrence(status);
+CREATE INDEX IF NOT EXISTS idx_todo_occurrence_scheduled ON teacher_todo_occurrence(scheduled_at);
+""",
+    # 43. 教师待办提醒日志表
+    "teacher_todo_reminder_log": """
+CREATE TABLE IF NOT EXISTS teacher_todo_reminder_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    occurrence_id INTEGER NOT NULL,
+    todo_series_id INTEGER NOT NULL,
+    teacher_id TEXT NOT NULL,
+    reminder_type TEXT DEFAULT 'scheduled',
+    remind_before_minutes INTEGER DEFAULT 30,
+    scheduled_remind_time TEXT NOT NULL,
+    actual_remind_time TEXT,
+    message TEXT,
+    is_sent INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (occurrence_id) REFERENCES teacher_todo_occurrence(id),
+    FOREIGN KEY (todo_series_id) REFERENCES teacher_todo_series(id),
+    UNIQUE (occurrence_id, teacher_id, reminder_type)
+);
+CREATE INDEX IF NOT EXISTS idx_todo_reminder_occurrence ON teacher_todo_reminder_log(occurrence_id);
+CREATE INDEX IF NOT EXISTS idx_todo_reminder_teacher ON teacher_todo_reminder_log(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_todo_reminder_sent ON teacher_todo_reminder_log(is_sent);
+""",
+    # 44. 教师待办群组表
+    "teacher_todo_group": """
+CREATE TABLE IF NOT EXISTS teacher_todo_group (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_teacher_id TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    description TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (owner_teacher_id) REFERENCES teacher(teacher_id),
+    UNIQUE (owner_teacher_id, group_name)
+);
+CREATE INDEX IF NOT EXISTS idx_todo_group_owner ON teacher_todo_group(owner_teacher_id);
+""",
+    # 45. 教师待办群组成员表
+    "teacher_todo_group_member": """
+CREATE TABLE IF NOT EXISTS teacher_todo_group_member (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    teacher_id TEXT NOT NULL,
+    teacher_name TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (group_id) REFERENCES teacher_todo_group(id),
+    FOREIGN KEY (teacher_id) REFERENCES teacher(teacher_id),
+    UNIQUE (group_id, teacher_id)
+);
+CREATE INDEX IF NOT EXISTS idx_todo_group_member_group ON teacher_todo_group_member(group_id);
+CREATE INDEX IF NOT EXISTS idx_todo_group_member_teacher ON teacher_todo_group_member(teacher_id);
+""",
+    # 备份历史表
+    "backup_history": """
+CREATE TABLE IF NOT EXISTS backup_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    backup_type TEXT NOT NULL CHECK (backup_type IN ('manual', 'scheduled')),
+    backup_name TEXT NOT NULL,
+    backup_path TEXT NOT NULL,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    file_count INTEGER DEFAULT 0,
+    databases_list TEXT DEFAULT '',
+    backup_status TEXT DEFAULT 'pending' CHECK (backup_status IN ('pending', 'success', 'failed')),
+    error_message TEXT,
+    operator TEXT DEFAULT 'system',
+    operator_role TEXT,
+    started_at TEXT DEFAULT (datetime('now', 'localtime')),
+    completed_at TEXT,
+    ip_address TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_backup_history_type ON backup_history(backup_type);
+CREATE INDEX IF NOT EXISTS idx_backup_history_status ON backup_history(backup_status);
+CREATE INDEX IF NOT EXISTS idx_backup_history_date ON backup_history(created_at);
 """,
 }
 

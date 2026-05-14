@@ -99,6 +99,12 @@ const routes = [
     meta: { requiresAuth: true, title: '我的待办' }
   },
   {
+    path: '/teacher/todo-group',
+    name: 'TeacherTodoGroup',
+    component: () => import('../views/teacher/TodoGroup.vue'),
+    meta: { requiresAuth: true, title: '协作群组' }
+  },
+  {
     path: '/homework',
     name: 'Homework',
     component: () => import('../views/Homework.vue'),
@@ -486,6 +492,16 @@ const routes = [
     meta: {
       requiresAuth: true,
       title: '数据库管理',
+      requiresAdmin: true
+    }
+  },
+  {
+    path: '/moral/config/database-backup',
+    name: 'MoralConfigDatabaseBackup',
+    component: () => import('../views/moral/config/DatabaseBackup.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '数据库备份',
       requiresAdmin: true
     }
   },

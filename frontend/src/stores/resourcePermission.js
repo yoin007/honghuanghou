@@ -39,6 +39,7 @@ const STATIC_RESOURCE_CONFIG = {
       { key: 'file-upload', label: '文件上传', route: '/file-upload', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 30 },
       { key: 'my-files', label: '我的文件', route: '/my-files', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 40 },
       { key: 'teacher-todo', label: '我的待办', route: '/teacher/todo', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 50 },
+      { key: 'teacher-todo-group', label: '协作群组', route: '/teacher/todo-group', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 55 },
     ],
 
     jiaowu: [
@@ -83,6 +84,7 @@ const STATIC_RESOURCE_CONFIG = {
       { key: 'teacher-manage', label: '教师管理', route: '/teacher-manage', roles: ['admin'], sort_order: 50 },
       { key: 'moral-api-permission', label: 'API权限', route: '/moral/config/api-permission', roles: ['admin'], sort_order: 60 },
       { key: 'moral-database', label: '数据库管理', route: '/moral/config/database', roles: ['admin'], sort_order: 70 },
+      { key: 'moral-database-backup', label: '数据库备份', route: '/moral/config/database-backup', roles: ['admin'], sort_order: 75 },
       { key: 'moral-menu-permission', label: '菜单权限', route: '/moral/config/menu-permission', roles: ['admin'], sort_order: 80 },
     ],
   },
