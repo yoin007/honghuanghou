@@ -464,6 +464,13 @@ export function calculateEvaluation(params = {}) {
 // =============================================================================
 
 /**
+ * 获取画像列表（已生成画像的学生）
+ */
+export function getProfileList(params = {}) {
+  return httpClient.get('/api/moral/profiles', { params })
+}
+
+/**
  * 获取学生画像
  */
 export function getStudentProfile(studentId) {
@@ -1209,6 +1216,7 @@ export default {
   calculateEvaluation,
 
   // 学生画像
+  getProfileList,
   getStudentProfile,
   generateStudentProfile,
   startStudentProfileGeneration,

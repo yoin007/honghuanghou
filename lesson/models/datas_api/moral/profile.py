@@ -24,6 +24,7 @@ from .base import (
     check_moral_permission_for_roles,
     get_api_scoped_user_roles,
     get_record_data_scope,
+    append_record_scope_condition,
     record_in_scope,
 )
 from .api_permission import require_configured_api_permission
@@ -40,6 +41,7 @@ API_PROFILE_GENERATE_ASYNC = "/api/moral/profiles/student/{student_id}/generate-
 API_PROFILE_GENERATION_STATUS = "/api/moral/profiles/generation-status/{job_id}"
 API_PROFILE_BATCH_GENERATE = "/api/moral/profiles/batch-generate"
 API_PROFILE_CONFIG = "/api/moral/profiles/config"
+API_PROFILE_LIST = "/api/moral/profiles"
 PROFILE_GENERATION_JOBS: Dict[str, Dict[str, Any]] = {}
 PROFILE_JOB_TTL_SECONDS = 30 * 60
 
@@ -76,7 +78,7 @@ def _cleanup_profile_jobs() -> None:
         PROFILE_GENERATION_JOBS.pop(job_id, None)
 
 
-def _generate_student_profile_payload(student_id: str, use_ai: bool = True) -> dict:
+def _generate_student_profile_payload(student_id: str, use_ai: bool = True, generated_by: str = None) -> dict:
     """生成并保存单个学生画像，返回前端可直接展示的数据。"""
     with get_moral_db() as db:
         student = db.query_one(
@@ -93,7 +95,8 @@ def _generate_student_profile_payload(student_id: str, use_ai: bool = True) -> d
         current_semester = get_current_semester(db)
         semester_id = current_semester['semester_id'] if current_semester else None
 
-        analysis = analyze_student_data(db, student_id, semester_id)
+        # 使用全量数据生成画像（一生一册模式）
+        analysis = analyze_student_data(db, student_id, None)
         config = get_all_profile_config(db)
         profile_output = build_profile_output(student, analysis, config, use_ai=use_ai)
 
@@ -118,8 +121,8 @@ def _generate_student_profile_payload(student_id: str, use_ai: bool = True) -> d
             """INSERT INTO student_profile
             (student_id, profile_version, profile_summary, profile_tags, strength_tags,
              improvement_tags, risk_level, moral_score, attitude_score, social_score,
-             growth_score, suggestions, data_source_summary)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             growth_score, suggestions, data_source_summary, generated_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 student_id,
                 new_version,
@@ -133,7 +136,8 @@ def _generate_student_profile_payload(student_id: str, use_ai: bool = True) -> d
                 social_score,
                 growth_score,
                 suggestions,
-                json.dumps(analysis, ensure_ascii=False, cls=DecimalEncoder)
+                json.dumps(analysis, ensure_ascii=False, cls=DecimalEncoder),
+                generated_by
             )
         )
         profile_id = db.lastrowid()
@@ -186,9 +190,10 @@ def _run_profile_generation_job(job_id: str, student_id: str) -> None:
     job = PROFILE_GENERATION_JOBS.get(job_id)
     if not job:
         return
+    generated_by = job.get('generated_by')
     job.update({"status": "running", "message": "正在生成学生画像"})
     try:
-        data = _generate_student_profile_payload(student_id, use_ai=True)
+        data = _generate_student_profile_payload(student_id, use_ai=True, generated_by=generated_by)
         job.update({
             "status": "success",
             "message": "画像生成成功",
@@ -229,6 +234,101 @@ class ProfileUpdate(BaseModel):
 # =============================================================================
 # API 路由
 # =============================================================================
+
+@router.get("", summary="获取画像列表")
+async def list_profiles(
+    class_id: Optional[int] = Query(None),
+    grade_id: Optional[int] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user: User = Depends(require_configured_api_permission(API_PROFILE_LIST, "GET", allow_missing=False))
+):
+    """
+    获取已生成画像的学生列表
+
+    权限说明：
+    - 班主任只能查看本班学生
+    - xuefa/jiaowu/admin 可查看所有
+    """
+    with get_moral_db() as db:
+        scope = get_record_data_scope(
+            db,
+            user,
+            API_PROFILE_LIST,
+            all_permissions=['student_profile', 'profile_view_all'],
+            own_class_permissions=['student_profile_own_class', 'profile_view_own_class'],
+            own_permissions=[],
+        )
+
+        # 构建查询条件
+        conditions = ["sp.id IS NOT NULL"]
+        params = []
+
+        if class_id:
+            conditions.append("s.class_id = ?")
+            params.append(class_id)
+
+        if grade_id:
+            conditions.append("s.grade_id = ?")
+            params.append(grade_id)
+
+        # 数据范围筛选（使用配置驱动的数据范围规则）
+        append_record_scope_condition(
+            conditions,
+            params,
+            scope,
+            table_alias="s",
+            class_field="class_id",
+            username=user.username,
+        )
+
+        # 查询总数
+        count_query = f"""
+            SELECT COUNT(DISTINCT s.student_id)
+            FROM student s
+            JOIN student_profile sp ON s.student_id = sp.student_id
+            WHERE {' AND '.join(conditions)}
+        """
+        total = db.query_value(count_query, tuple(params) if params else None) or 0
+
+        # 分页查询
+        offset = (page - 1) * page_size
+        list_query = f"""
+            SELECT
+                s.student_id,
+                s.name as student_name,
+                c.class_name,
+                g.grade_name,
+                sp.profile_version,
+                sp.generated_at,
+                sp.generated_by,
+                sp.risk_level,
+                sp.moral_score,
+                sp.attitude_score,
+                sp.social_score,
+                sp.growth_score
+            FROM student s
+            JOIN student_profile sp ON s.student_id = sp.student_id
+            LEFT JOIN class c ON s.class_id = c.class_id
+            LEFT JOIN grade g ON s.grade_id = g.grade_id
+            WHERE {' AND '.join(conditions)}
+            GROUP BY s.student_id
+            ORDER BY sp.generated_at DESC
+            LIMIT ? OFFSET ?
+        """
+        params.extend([page_size, offset])
+        profiles = db.query_all(list_query, tuple(params))
+
+        return {
+            "success": True,
+            "data": {
+                "profiles": profiles,
+                "total": total,
+                "page": page,
+                "page_size": page_size
+            }
+        }
+
 
 @router.get("/student/{student_id}", summary="获取学生画像")
 async def get_student_profile(
@@ -329,7 +429,7 @@ async def generate_student_profile(
         if not _student_allowed_by_profile_scope(db, user, student, API_PROFILE_GENERATE):
             raise HTTPException(403, "只能生成授权范围内学生画像")
 
-    data = _generate_student_profile_payload(student_id, use_ai=True)
+    data = _generate_student_profile_payload(student_id, use_ai=True, generated_by=user.username)
     return {"success": True, "message": "画像生成成功", "data": data}
 
 
@@ -365,6 +465,7 @@ async def generate_student_profile_async(
     PROFILE_GENERATION_JOBS[job_id] = {
         "job_id": job_id,
         "student_id": student_id,
+        "generated_by": user.username,
         "status": "queued",
         "message": "画像生成任务已提交",
         "created_at": time.time(),
@@ -399,7 +500,7 @@ async def get_profile_generation_status(
     }
 
 
-def generate_single_profile_internal(db, student_id: str, semester_id: int) -> dict:
+def generate_single_profile_internal(db, student_id: str, semester_id: int, generated_by: str = None) -> dict:
     """
     单个学生画像生成的内部函数（用于批量生成）
 
@@ -407,6 +508,7 @@ def generate_single_profile_internal(db, student_id: str, semester_id: int) -> d
         db: 数据库连接
         student_id: 学生ID
         semester_id: 学期ID
+        generated_by: 生成人用户名
 
     Returns:
         dict: 生成结果
@@ -454,8 +556,8 @@ def generate_single_profile_internal(db, student_id: str, semester_id: int) -> d
         """INSERT INTO student_profile
         (student_id, profile_version, profile_summary, profile_tags, strength_tags,
          improvement_tags, risk_level, moral_score, attitude_score, social_score,
-         growth_score, suggestions, data_source_summary)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+         growth_score, suggestions, data_source_summary, generated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             student_id,
             new_version,
@@ -469,7 +571,8 @@ def generate_single_profile_internal(db, student_id: str, semester_id: int) -> d
             social_score,
             growth_score,
             suggestions,
-            json.dumps(analysis, ensure_ascii=False, cls=DecimalEncoder)
+            json.dumps(analysis, ensure_ascii=False, cls=DecimalEncoder),
+            generated_by
         )
     )
 
@@ -579,7 +682,7 @@ async def batch_generate_profiles(
         for student in students:
             try:
                 # 调用单人生成逻辑
-                result = generate_single_profile_internal(db, student['student_id'], semester_id)
+                result = generate_single_profile_internal(db, student['student_id'], semester_id, generated_by=user.username)
                 success_count += 1
                 generated_profiles.append(result)
             except Exception as e:
@@ -676,143 +779,188 @@ def get_all_profile_config(db) -> dict:
 # 辅助函数
 # =============================================================================
 
-def analyze_student_data(db, student_id: str, semester_id: int) -> dict:
-    """分析学生数据"""
+def analyze_student_data(db, student_id: str, semester_id: int = None) -> dict:
+    """分析学生数据
+
+    Args:
+        db: 数据库连接
+        student_id: 学生ID
+        semester_id: 学期ID，None 表示查询全量数据（一生一册模式）
+    """
     analysis = {}
+
+    # 构建学期筛选条件
+    semester_filter = "AND dr.semester_id = ?" if semester_id else ""
+    semester_params = (student_id, semester_id) if semester_id else (student_id,)
 
     # 日常表现统计
     daily_stats = db.query_all(
-        """SELECT de.event_type, COUNT(*) as count, SUM(dr.score) as total_score
+        f"""SELECT de.event_type, COUNT(*) as count, SUM(dr.score) as total_score
         FROM student_daily_record dr
         JOIN daily_event_type de ON dr.event_id = de.event_id
-        WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
+        WHERE dr.student_id = ? {semester_filter} AND dr.is_deleted = 0
         GROUP BY de.event_type""",
-        (student_id, semester_id)
+        semester_params
     )
     analysis['daily_stats'] = {str(s['event_type']): {'count': s['count'], 'total': s['total_score']} for s in daily_stats}
     analysis['daily_recent'] = db.query_all(
-        """SELECT dr.record_date, det.event_name, det.event_type, dr.score, dr.remark
+        f"""SELECT dr.record_date, det.event_name, det.event_type, dr.score, dr.remark
         FROM student_daily_record dr
         JOIN daily_event_type det ON dr.event_id = det.event_id
-        WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
+        WHERE dr.student_id = ? {semester_filter} AND dr.is_deleted = 0
         ORDER BY dr.record_date DESC, dr.created_at DESC
         LIMIT 8""",
-        (student_id, semester_id)
+        semester_params
     )
 
     # 校级事件统计
     school_stats = db.query_all(
-        """SELECT se.event_type, COUNT(*) as count, SUM(sr.score) as total_score
+        f"""SELECT se.event_type, COUNT(*) as count, SUM(sr.score) as total_score
         FROM student_school_record sr
         JOIN school_event_type se ON sr.event_id = se.event_id
-        WHERE sr.student_id = ? AND sr.semester_id = ? AND sr.is_deleted = 0
+        WHERE sr.student_id = ? {semester_filter} AND sr.is_deleted = 0
         GROUP BY se.event_type""",
-        (student_id, semester_id)
+        semester_params
     )
     analysis['school_stats'] = {str(s['event_type']): {'count': s['count'], 'total': s['total_score']} for s in school_stats}
     analysis['school_recent'] = db.query_all(
-        """SELECT sr.get_date as record_date, setype.event_name, setype.event_type, sr.score, sr.proof
+        f"""SELECT sr.get_date as record_date, setype.event_name, setype.event_type, sr.score, sr.proof
         FROM student_school_record sr
         JOIN school_event_type setype ON sr.event_id = setype.event_id
-        WHERE sr.student_id = ? AND sr.semester_id = ? AND sr.is_deleted = 0
+        WHERE sr.student_id = ? {semester_filter} AND sr.is_deleted = 0
         ORDER BY sr.get_date DESC, sr.created_at DESC
         LIMIT 8""",
-        (student_id, semester_id)
+        semester_params
     )
 
-    # 任务完成情况
-    task_stats = db.query_one(
-        """SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN stf.status = 1 THEN 1 ELSE 0 END) as finished,
-        SUM(CASE WHEN stf.status = 1 THEN stf.current_score ELSE 0 END) as score
-        FROM student_task_finish stf
-        JOIN semester sem ON sem.semester_id = ?
-        JOIN school_year sy ON sem.year_id = sy.year_id
-        WHERE stf.student_id = ? AND stf.year_id = sy.year_id""",
-        (semester_id, student_id)
-    )
+    # 任务完成情况（按学年或全量）
+    if semester_id:
+        task_stats = db.query_one(
+            """SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN stf.status = 1 THEN 1 ELSE 0 END) as finished,
+            SUM(CASE WHEN stf.status = 1 THEN stf.current_score ELSE 0 END) as score
+            FROM student_task_finish stf
+            JOIN semester sem ON sem.semester_id = ?
+            JOIN school_year sy ON sem.year_id = sy.year_id
+            WHERE stf.student_id = ? AND stf.year_id = sy.year_id""",
+            (semester_id, student_id)
+        )
+        analysis['task_recent'] = db.query_all(
+            """SELECT gmt.task_name, gmt.deadline_type, stf.status, stf.current_score, stf.finish_date
+            FROM student_task_finish stf
+            JOIN grade_moral_task gmt ON stf.task_id = gmt.task_id
+            JOIN semester sem ON sem.semester_id = ?
+            JOIN school_year sy ON sem.year_id = sy.year_id
+            WHERE stf.student_id = ? AND stf.year_id = sy.year_id
+            ORDER BY COALESCE(stf.finish_date, stf.created_at) DESC
+            LIMIT 8""",
+            (semester_id, student_id)
+        )
+    else:
+        # 全量查询
+        task_stats = db.query_one(
+            """SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN stf.status = 1 THEN 1 ELSE 0 END) as finished,
+            SUM(CASE WHEN stf.status = 1 THEN stf.current_score ELSE 0 END) as score
+            FROM student_task_finish stf
+            WHERE stf.student_id = ?""",
+            (student_id,)
+        )
+        analysis['task_recent'] = db.query_all(
+            """SELECT gmt.task_name, gmt.deadline_type, stf.status, stf.current_score, stf.finish_date
+            FROM student_task_finish stf
+            JOIN grade_moral_task gmt ON stf.task_id = gmt.task_id
+            WHERE stf.student_id = ?
+            ORDER BY COALESCE(stf.finish_date, stf.created_at) DESC
+            LIMIT 8""",
+            (student_id,)
+        )
     analysis['task_stats'] = task_stats or {'total': 0, 'finished': 0, 'score': 0}
-    analysis['task_recent'] = db.query_all(
-        """SELECT gmt.task_name, gmt.deadline_type, stf.status, stf.current_score, stf.finish_date
-        FROM student_task_finish stf
-        JOIN grade_moral_task gmt ON stf.task_id = gmt.task_id
-        JOIN semester sem ON sem.semester_id = ?
-        JOIN school_year sy ON sem.year_id = sy.year_id
-        WHERE stf.student_id = ? AND stf.year_id = sy.year_id
-        ORDER BY COALESCE(stf.finish_date, stf.created_at) DESC
-        LIMIT 8""",
-        (semester_id, student_id)
-    )
 
     # 集体活动参与统计（用于社交评分）
     collective_stats = db.query_one(
-        """SELECT COUNT(*) as collective_count, COALESCE(SUM(d.score_assigned), 0) as score
+        f"""SELECT COUNT(*) as collective_count, COALESCE(SUM(d.score_assigned), 0) as score
         FROM collective_event_distribution d
         JOIN collective_event e ON d.event_id = e.event_id
-        WHERE d.student_id = ? AND e.semester_id = ? AND d.is_participant = 1""",
-        (student_id, semester_id)
+        WHERE d.student_id = ? {semester_filter} AND d.is_participant = 1""",
+        semester_params
     )
     analysis['collective_stats'] = collective_stats or {'collective_count': 0, 'score': 0}
     analysis['collective_recent'] = db.query_all(
-        """SELECT e.event_date, e.event_name, e.event_type, d.score_assigned, d.remark
+        f"""SELECT e.event_date, e.event_name, e.event_type, d.score_assigned, d.remark
         FROM collective_event_distribution d
         JOIN collective_event e ON d.event_id = e.event_id
-        WHERE d.student_id = ? AND e.semester_id = ? AND d.is_participant = 1
+        WHERE d.student_id = ? {semester_filter} AND d.is_participant = 1
         ORDER BY e.event_date DESC
         LIMIT 8""",
-        (student_id, semester_id)
+        semester_params
     )
 
+    # 处分统计
     punishment_stats = db.query_one(
-        """SELECT COUNT(*) as count, COALESCE(SUM(ABS(score_deduct)), 0) as total_deduct,
+        f"""SELECT COUNT(*) as count, COALESCE(SUM(ABS(score_deduct)), 0) as total_deduct,
         SUM(CASE WHEN is_revoked = 1 THEN 1 ELSE 0 END) as revoked_count
         FROM punishment_record
-        WHERE student_id = ? AND semester_id = ?""",
-        (student_id, semester_id)
+        WHERE student_id = ? {semester_filter}""",
+        semester_params
     )
     analysis['punishment_stats'] = punishment_stats or {'count': 0, 'total_deduct': 0, 'revoked_count': 0}
     analysis['punishment_recent'] = db.query_all(
-        """SELECT punishment_date, level, reason, ABS(score_deduct) as score_deduct, is_revoked
+        f"""SELECT punishment_date, level, reason, ABS(score_deduct) as score_deduct, is_revoked
         FROM punishment_record
-        WHERE student_id = ? AND semester_id = ?
+        WHERE student_id = ? {semester_filter}
         ORDER BY punishment_date DESC, created_at DESC
         LIMIT 5""",
-        (student_id, semester_id)
+        semester_params
     )
 
     analysis['daily_top_events'] = db.query_all(
-        """SELECT det.event_name, det.event_type, COUNT(*) as count, COALESCE(SUM(dr.score), 0) as total_score
+        f"""SELECT det.event_name, det.event_type, COUNT(*) as count, COALESCE(SUM(dr.score), 0) as total_score
         FROM student_daily_record dr
         JOIN daily_event_type det ON dr.event_id = det.event_id
-        WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
+        WHERE dr.student_id = ? {semester_filter} AND dr.is_deleted = 0
         GROUP BY det.event_id
         ORDER BY count DESC, ABS(total_score) DESC
         LIMIT 8""",
-        (student_id, semester_id)
+        semester_params
     )
 
+    # 点滴记录统计
     analysis['moment_stats'] = db.query_one(
-        """SELECT COUNT(*) as count
+        f"""SELECT COUNT(*) as count
         FROM moment_record
-        WHERE student_id = ? AND semester_id = ?""",
-        (student_id, semester_id)
+        WHERE student_id = ? {semester_filter}""",
+        semester_params
     ) or {'count': 0}
     analysis['moment_recent'] = db.query_all(
-        """SELECT record_date, record_type, content, tags
+        f"""SELECT record_date, record_type, content, tags
         FROM moment_record
-        WHERE student_id = ? AND semester_id = ?
+        WHERE student_id = ? {semester_filter}
         ORDER BY record_date DESC, created_at DESC
         LIMIT 8""",
-        (student_id, semester_id)
+        semester_params
     )
 
-    evaluation = db.query_one(
-        """SELECT total_score, level
-        FROM moral_evaluation
-        WHERE student_id = ? AND semester_id = ?""",
-        (student_id, semester_id)
-    )
+    # 德育评价（学期关联）
+    if semester_id:
+        evaluation = db.query_one(
+            """SELECT total_score, level
+            FROM moral_evaluation
+            WHERE student_id = ? AND semester_id = ?""",
+            (student_id, semester_id)
+        )
+    else:
+        # 全量取最新一条
+        evaluation = db.query_one(
+            """SELECT total_score, level
+            FROM moral_evaluation
+            WHERE student_id = ?
+            ORDER BY semester_id DESC
+            LIMIT 1""",
+            (student_id,)
+        )
     analysis['evaluation'] = evaluation or {'total_score': None, 'level': None}
 
     return analysis
