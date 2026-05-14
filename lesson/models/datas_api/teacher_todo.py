@@ -163,7 +163,7 @@ async def get_todos(
         # 查询待办实例
         occurrences = db.query_all(
             f"""SELECT o.id, o.todo_series_id, o.occurrence_date, o.scheduled_at, o.due_at, o.status,
-                       o.completed_at, o.completed_by,
+                       o.completed_at, o.completed_by, o.is_overdue,
                        t.title, t.description, t.todo_type, t.creator_teacher_id, t.creator_name,
                        t.start_date, t.end_date,
                        t.recurrence_rule_json, t.time_of_day, t.wechat_notify_enabled,
@@ -556,7 +556,7 @@ async def get_upcoming_todos(
 
         items = db.query_all(
             f"""SELECT o.id as occurrence_id, o.todo_series_id as series_id, o.occurrence_date,
-                       o.scheduled_at, o.due_at,
+                       o.scheduled_at, o.due_at, o.is_overdue,
                        t.title, t.description, t.todo_type, t.creator_teacher_id, t.creator_name,
                        t.time_of_day, t.wechat_notify_enabled, t.remind_before_minutes,
                        t.notify_creator, t.notify_assignees
@@ -958,6 +958,7 @@ def ensure_teacher_todo_schema(db):
         ("teacher_todo_series", "notify_assignees", "ALTER TABLE teacher_todo_series ADD COLUMN notify_assignees INTEGER DEFAULT 1"),
         ("teacher_todo_occurrence", "scheduled_at", "ALTER TABLE teacher_todo_occurrence ADD COLUMN scheduled_at TEXT"),
         ("teacher_todo_occurrence", "due_at", "ALTER TABLE teacher_todo_occurrence ADD COLUMN due_at TEXT"),
+        ("teacher_todo_occurrence", "is_overdue", "ALTER TABLE teacher_todo_occurrence ADD COLUMN is_overdue INTEGER DEFAULT 0"),
         ("teacher_todo_reminder_log", "todo_series_id", "ALTER TABLE teacher_todo_reminder_log ADD COLUMN todo_series_id INTEGER"),
         ("teacher_todo_reminder_log", "teacher_id", "ALTER TABLE teacher_todo_reminder_log ADD COLUMN teacher_id TEXT"),
         ("teacher_todo_reminder_log", "reminder_type", "ALTER TABLE teacher_todo_reminder_log ADD COLUMN reminder_type TEXT DEFAULT 'scheduled'"),
@@ -966,6 +967,7 @@ def ensure_teacher_todo_schema(db):
         ("teacher_todo_reminder_log", "actual_remind_time", "ALTER TABLE teacher_todo_reminder_log ADD COLUMN actual_remind_time TEXT"),
         ("teacher_todo_reminder_log", "message", "ALTER TABLE teacher_todo_reminder_log ADD COLUMN message TEXT"),
         ("teacher_todo_reminder_log", "is_sent", "ALTER TABLE teacher_todo_reminder_log ADD COLUMN is_sent INTEGER DEFAULT 0"),
+        ("teacher_todo_reminder_log", "reminder_sequence", "ALTER TABLE teacher_todo_reminder_log ADD COLUMN reminder_sequence INTEGER DEFAULT 1"),
         ("teacher_todo_group", "description", "ALTER TABLE teacher_todo_group ADD COLUMN description TEXT"),
     ]:
         columns = db.query_all(f"PRAGMA table_info({table})")

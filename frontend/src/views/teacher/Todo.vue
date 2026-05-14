@@ -52,7 +52,7 @@
             <span class="group-date">{{ formatDateLabel(group.date) }}</span>
             <span class="group-count">{{ group.items.length }} 条</span>
           </div>
-          <div v-for="todo in group.items" :key="todo.occurrence_id" class="todo-item" :class="{ completed: todo.is_completed }">
+          <div v-for="todo in group.items" :key="todo.occurrence_id" class="todo-item" :class="{ completed: todo.is_completed, overdue: todo.is_overdue }">
             <div class="todo-check">
               <el-checkbox
                 :model-value="todo.is_completed"
@@ -63,6 +63,7 @@
             <div class="todo-content">
               <div class="todo-title">
                 <span>{{ todo.title }}</span>
+                <el-tag v-if="todo.is_overdue" size="small" type="danger">逾期</el-tag>
                 <el-tag v-if="todo.todo_type !== 'one_off'" size="small" type="info">
                   {{ todoTypeLabel(todo.todo_type) }}
                 </el-tag>
@@ -257,6 +258,7 @@ const groupedTodos = computed(() => {
       occurrence_id: todo.id,
       series_id: todo.todo_series_id,
       is_completed: todo.status === 'completed',
+      is_overdue: todo.is_overdue === 1 || todo.is_overdue === true,
       recurrence_rule: todo.recurrence_rule_json ? JSON.parse(todo.recurrence_rule_json) : null,
       assignee_names: todo.assignees?.map(a => a.teacher_name) || [],
       assignee_teacher_ids: todo.assignees?.map(a => a.teacher_id) || []
@@ -562,6 +564,14 @@ onMounted(() => {
 
 .todo-item.completed {
   opacity: 0.6;
+}
+
+.todo-item.overdue {
+  border-left: 3px solid #f56c6c;
+}
+
+.todo-item.overdue .todo-title span:first-child {
+  color: #f56c6c;
 }
 
 .todo-check {

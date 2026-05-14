@@ -580,9 +580,10 @@ def teacher_todo_reminder_task():
 
     流程：
     1. 查询需要发送提醒的待办（scheduled_at - remind_before_minutes <= 当前时间）
-    2. 检查通知设置和教师微信ID
-    3. 发送微信提醒（如已配置微信接口）
-    4. 记录提醒日志并去重
+    2. 检查已发送次数和上次发送时间
+    3. 若次数<3且距上次>=2分钟，发送微信提醒
+    4. 若次数=3且仍pending，标记为逾期
+    5. 记录提醒日志
     """
     logger.info("执行教师待办提醒任务")
 
@@ -590,13 +591,15 @@ def teacher_todo_reminder_task():
     from models.datas_api.teacher_todo import ensure_teacher_todo_schema, ensure_future_occurrences
     from sendqueue import send_text
 
+    MAX_REMINDERS = 3  # 最大提醒次数
+    REMINDER_INTERVAL = 2  # 提醒间隔（分钟）
+
     with get_moral_db() as db:
         ensure_teacher_todo_schema(db)
         ensure_future_occurrences(db)
         now = datetime.now()
 
-        # 查询需要提醒的待办实例
-        # 条件：scheduled_at - remind_before_minutes <= now，按接收教师去重。
+        # 查询需要提醒的待办实例（pending 且未逾期）
         remindables = db.query_all(
             """SELECT o.id as occurrence_id, o.todo_series_id, o.scheduled_at, o.occurrence_date,
                    t.title, t.description, t.wechat_notify_enabled, t.remind_before_minutes,
@@ -605,6 +608,7 @@ def teacher_todo_reminder_task():
             FROM teacher_todo_occurrence o
             JOIN teacher_todo_series t ON o.todo_series_id = t.id
             WHERE o.status = 'pending'
+            AND o.is_overdue = 0
             AND t.is_active = 1
             AND t.wechat_notify_enabled = 1"""
         )
@@ -640,16 +644,36 @@ def teacher_todo_reminder_task():
                     if a['teacher_id'] not in notify_teacher_ids:
                         notify_teacher_ids.append(a['teacher_id'])
 
-            # 检查教师是否有微信ID（暂用 teacher 表的 wxid 字段，如存在）
+            # 检查教师是否有微信ID
             for teacher_id in notify_teacher_ids:
-                # 检查是否已发送过提醒
-                existing_log = db.query_one(
-                    """SELECT 1 FROM teacher_todo_reminder_log
-                    WHERE occurrence_id = ? AND teacher_id = ? AND reminder_type = 'scheduled'""",
+                # 查询已发送提醒次数和上次发送时间
+                reminder_stats = db.query_one(
+                    """SELECT COUNT(*) as sent_count,
+                              MAX(actual_remind_time) as last_remind_time
+                       FROM teacher_todo_reminder_log
+                       WHERE occurrence_id = ? AND teacher_id = ? AND is_sent = 1""",
                     (todo['occurrence_id'], teacher_id)
                 )
-                if existing_log:
-                    continue  # 已发送过，跳过
+                sent_count = reminder_stats['sent_count'] or 0
+                last_remind_time_str = reminder_stats['last_remind_time']
+
+                # 检查是否已发送3次，标记逾期
+                if sent_count >= MAX_REMINDERS:
+                    db.execute(
+                        """UPDATE teacher_todo_occurrence SET is_overdue = 1 WHERE id = ?""",
+                        (todo['occurrence_id'],)
+                    )
+                    logger.info(f"待办 {todo['title']} 已发送3次提醒仍未完成，标记为逾期")
+                    continue
+
+                # 检查距离上次提醒是否>=2分钟
+                if last_remind_time_str:
+                    try:
+                        last_remind_dt = datetime.strptime(last_remind_time_str, "%Y-%m-%d %H:%M:%S")
+                        if now < last_remind_dt + timedelta(minutes=REMINDER_INTERVAL):
+                            continue  # 距上次提醒不足2分钟，跳过
+                    except:
+                        pass  # 时间解析失败，允许发送
 
                 teacher = db.query_one(
                     """SELECT teacher_id, name, wxid, notice_enabled
@@ -661,47 +685,24 @@ def teacher_todo_reminder_task():
                 if not teacher:
                     continue
 
+                # 教师关闭通知时，记录但不计入提醒次数
                 if int(teacher.get("notice_enabled") or 0) != 1:
                     logger.debug(f"教师 {teacher_id} 已关闭通知，跳过微信通知")
-                    db.execute(
-                        """INSERT OR IGNORE INTO teacher_todo_reminder_log
-                        (occurrence_id, todo_series_id, teacher_id, reminder_type,
-                         remind_before_minutes, scheduled_remind_time, actual_remind_time, message, is_sent)
-                        VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, 0)""",
-                        (
-                            todo['occurrence_id'], todo['todo_series_id'], teacher_id, remind_before,
-                            remind_time.strftime("%Y-%m-%d %H:%M:%S"),
-                            now.strftime("%Y-%m-%d %H:%M:%S"),
-                            "教师已关闭微信通知",
-                        )
-                    )
                     continue
 
                 wxid = teacher.get('wxid')
                 if not wxid:
                     logger.debug(f"教师 {teacher_id} 无微信ID，跳过微信通知")
-                    # 记录日志但不发送
-                    db.execute(
-                        """INSERT INTO teacher_todo_reminder_log
-                        (occurrence_id, todo_series_id, teacher_id, reminder_type,
-                         remind_before_minutes, scheduled_remind_time, actual_remind_time, message, is_sent)
-                        VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, 0)""",
-                        (
-                            todo['occurrence_id'], todo['todo_series_id'], teacher_id, remind_before,
-                            remind_time.strftime("%Y-%m-%d %H:%M:%S"),
-                            now.strftime("%Y-%m-%d %H:%M:%S"),
-                            "教师无微信ID",
-                        )
-                    )
                     continue
 
-                # 构建提醒消息
+                # 构建提醒消息（第N次提醒）
                 title = todo['title']
                 time_str = todo['time_of_day'] or '08:00'
                 date_str = todo['occurrence_date']
+                next_sequence = sent_count + 1
 
                 message = (
-                    f"【待办提醒】\n"
+                    f"【待办提醒】（第{next_sequence}次）\n"
                     f"标题：{title}\n"
                     f"时间：{date_str} {time_str}\n"
                     f"{todo['description'] or ''}\n\n"
@@ -717,22 +718,32 @@ def teacher_todo_reminder_task():
                     log_message = f"发送失败: {exc}"
                     logger.exception("教师待办微信提醒发送失败: teacher_id=%s", teacher_id)
 
-                # 记录提醒日志
+                # 记录提醒日志（使用 reminder_sequence）
                 db.execute(
-                    """INSERT OR IGNORE INTO teacher_todo_reminder_log
+                    """INSERT INTO teacher_todo_reminder_log
                     (occurrence_id, todo_series_id, teacher_id, reminder_type,
-                     remind_before_minutes, scheduled_remind_time, actual_remind_time, message, is_sent)
-                    VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, ?)""",
+                     remind_before_minutes, scheduled_remind_time, actual_remind_time,
+                     message, is_sent, reminder_sequence)
+                    VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, ?, ?)""",
                     (
                         todo['occurrence_id'], todo['todo_series_id'], teacher_id, remind_before,
                         remind_time.strftime("%Y-%m-%d %H:%M:%S"),
                         now.strftime("%Y-%m-%d %H:%M:%S"),
                         log_message,
                         is_sent,
+                        next_sequence,
                     )
                 )
 
-                logger.info(f"已处理待办提醒：{title} → 教师 {teacher_id}，提醒时间 {remind_time}")
+                logger.info(f"已发送待办提醒（第{next_sequence}次）：{title} → 教师 {teacher_id}")
+
+                # 如果是第3次提醒且发送成功，标记逾期
+                if is_sent == 1 and next_sequence >= MAX_REMINDERS:
+                    db.execute(
+                        """UPDATE teacher_todo_occurrence SET is_overdue = 1 WHERE id = ?""",
+                        (todo['occurrence_id'],)
+                    )
+                    logger.info(f"待办 {title} 已发送{MAX_REMINDERS}次提醒，标记为逾期")
 
 
 def semester_evaluation_task():
