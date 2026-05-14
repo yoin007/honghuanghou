@@ -184,7 +184,6 @@ def birthday_blessing_task():
         logger.info(f"今日有 {len(students)} 位学生生日，准备发布祝福公告")
 
         # 按班级分组
-        from collections import defaultdict
         class_students = defaultdict(list)
         for student in students:
             class_students[student['class_code']].append(student)
@@ -210,13 +209,22 @@ def birthday_blessing_task():
                 class_name = class_student_list[0]['class_name']
                 student_names = [s['name'] for s in class_student_list]
 
+                # 获取班主任名称作为署名
+                leader_names_str = class_student_list[0].get('leader_names', '')
+                leader_name = class_student_list[0].get('leader_name', '')
+                if leader_names_str:
+                    first_leader = leader_names_str.split(',')[0].strip()
+                    author = first_leader or "班主任"
+                else:
+                    author = leader_name or "班主任"
+
                 # 构建祝福内容
                 if len(student_names) == 1:
                     individual_blessing = template.format(name=student_names[0])
                     content = (
                         f"🎉 生日快乐！\n\n"
                         f"{individual_blessing}\n\n"
-                        f"— 德育评价系统\n"
+                        f"— {author}\n"
                         f"{datetime.now().strftime('%Y-%m-%d')}"
                     )
                 else:
@@ -226,21 +234,13 @@ def birthday_blessing_task():
                     content = (
                         f"🎉 生日快乐！\n\n"
                         f"{chr(10).join(blessings)}\n\n"
-                        f"— 德育评价系统\n"
+                        f"— {author}\n"
                         f"{datetime.now().strftime('%Y-%m-%d')}"
                     )
 
                 title = f"🎉 生日祝福"
 
                 try:
-                    # 支持多人班主任：使用第一个班主任姓名或 leader_name
-                    leader_names_str = class_student_list[0].get('leader_names', '')
-                    leader_name = class_student_list[0].get('leader_name', '')
-                    if leader_names_str:
-                        first_leader = leader_names_str.split(',')[0].strip()
-                        author = first_leader or "德育系统"
-                    else:
-                        author = leader_name or "德育系统"
                     hw.add_announcement(class_code, title, author, content, None)
                     logger.info(f"已发布班级祝福公告：{class_name}，作者：{author}，学生：{student_names}")
 
