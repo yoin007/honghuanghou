@@ -104,6 +104,14 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(consume_queue()),
     ]
 
+    # 启动时启动定时任务调度器
+    try:
+        from models.datas_api.moral.scheduler import start_scheduler
+        start_scheduler()
+        log.info("定时任务调度器已启动")
+    except Exception as e:
+        log.warning(f"调度器启动失败（非致命）: {e}")
+
     try:
         yield
     finally:
@@ -111,6 +119,13 @@ async def lifespan(app: FastAPI):
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        # 关闭时停止调度器
+        try:
+            from models.datas_api.moral.scheduler import stop_scheduler
+            stop_scheduler()
+            log.info("定时任务调度器已停止")
+        except Exception as e:
+            log.warning(f"调度器停止失败: {e}")
 
 
 app = FastAPI(lifespan=lifespan, default_response_class=NumpyJSONResponse)
