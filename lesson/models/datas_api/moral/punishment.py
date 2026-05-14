@@ -27,6 +27,7 @@ from .base import (
     target_student_in_scope,
 )
 from .api_permission import require_configured_api_permission
+from .punishment_period import get_period_config_by_type, calculate_expire_date
 from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,8 @@ async def get_punishments(
             SELECT p.id as record_id, p.student_id, p.punishment_date, p.score_deduct,
                    p.level as punishment_level, p.reason as punishment_reason,
                    p.is_revoked, p.revoke_date, p.revoke_reason, p.revoke_type, p.revoke_category,
-                   p.review_status, p.recorder,
+                   p.review_status, p.recorder, p.expire_date, p.period_days, p.can_apply_revoke,
+                   p.revoke_application_id,
                    COALESCE(de.event_name, se.event_name, '累进扣分') as punishment_type,
                    s.name as student_name, c.class_name, g.grade_name
             FROM punishment_record p
@@ -249,12 +251,18 @@ async def create_punishment(
         level_map = {1: '一级', 2: '二级', 3: '三级', 4: '四级'}
         level_text = level_map.get(punishment.punishment_level, '二级')
 
+        # 获取处分期限配置并计算到期日期
+        period_config = get_period_config_by_type(db, punishment.punishment_type)
+        period_days = period_config['period_days'] if period_config else 90
+        can_apply_revoke = period_config['allow_revoke_apply'] if period_config else 1
+        expire_date = calculate_expire_date(str(punishment.punishment_date), period_days)
+
         # 插入记录
         db.execute(
             """INSERT INTO punishment_record
             (student_id, event_id, semester_id, punishment_date, class_id, grade_id,
-             score_deduct, level, reason, recorder)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             score_deduct, level, reason, recorder, expire_date, period_days, can_apply_revoke)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 punishment.student_id,
                 event_id,
@@ -265,7 +273,10 @@ async def create_punishment(
                 score_deduct,
                 level_text,
                 punishment.punishment_reason,
-                user.username
+                user.username,
+                expire_date,
+                period_days,
+                can_apply_revoke
             )
         )
 

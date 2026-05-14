@@ -13,7 +13,6 @@ GMT8 = timezone(timedelta(hours=8))
 
 from .base import (
     get_moral_db,
-    get_current_user,
     log_operation,
     get_current_semester,
     get_student_class_snapshot,
@@ -25,6 +24,7 @@ from .base import (
     record_action_flags,
     target_student_in_scope,
 )
+from .api_permission import require_configured_api_permission
 from models.datas_api.auth import User
 
 router = APIRouter(prefix="/moment-records", tags=["点滴记录"])
@@ -105,7 +105,7 @@ async def get_moment_records(
     scope: Optional[str] = Query(None, description="数据范围: own(我创建的), own_class(我的班级), own_grade(我的年级), all(全校)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MOMENT_LIST, "GET", allow_missing=False))
 ):
     """
     获取点滴记录列表
@@ -238,7 +238,7 @@ async def get_moment_records(
 async def create_moment_record(
     record: MomentRecordCreate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MOMENT_CREATE, "POST", allow_missing=False))
 ):
     """
     创建点滴记录
@@ -308,7 +308,7 @@ async def update_moment_record(
     record_id: int,
     update_data: MomentRecordUpdate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MOMENT_UPDATE, "PUT", allow_missing=False))
 ):
     """
     更新点滴记录
@@ -374,7 +374,7 @@ async def update_moment_record(
 async def delete_moment_record(
     record_id: int,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MOMENT_DELETE, "DELETE", allow_missing=False))
 ):
     """
     删除点滴记录

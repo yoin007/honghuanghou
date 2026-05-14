@@ -67,6 +67,13 @@
         />
 
         <div class="filter-toolbar">
+          <el-input v-model="keywordFilter" clearable placeholder="搜索名称或路径" />
+          <el-select v-model="resourceFilter" clearable placeholder="按业务对象筛选">
+            <el-option v-for="item in resourceOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+          <el-select v-model="actionFilter" clearable placeholder="按动作筛选">
+            <el-option v-for="item in actionOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
           <el-segmented v-model="riskViewMode" :options="riskViewOptions" />
           <el-select v-model="riskLabelFilter" clearable placeholder="按风险类型筛选">
             <el-option v-for="risk in availableRiskLabels" :key="risk" :label="risk" :value="risk" />
@@ -77,6 +84,7 @@
         <div v-if="selectedRows.length" class="batch-toolbar">
           <span>已选择 {{ selectedRows.length }} 条 API</span>
           <el-button type="primary" @click="templateDialogVisible = true">批量套用模板</el-button>
+          <el-button @click="batchRoleDialogVisible = true">批量设置角色</el-button>
           <el-button @click="handleAuditPermissions(selectedRows)">批量校验</el-button>
         </div>
 
@@ -160,7 +168,13 @@
       </el-card>
     </section>
 
-    <el-dialog v-model="apiDialogVisible" :title="apiDialogTitle" width="860px">
+    <el-drawer
+      v-model="apiDialogVisible"
+      :title="apiDialogTitle"
+      size="920px"
+      direction="rtl"
+      class="api-permission-drawer"
+    >
       <el-form :model="form" :rules="rules" ref="formRef" label-width="116px">
         <el-tabs v-model="activeApiTab" class="api-config-tabs">
           <el-tab-pane label="基本信息" name="basic">
@@ -318,7 +332,7 @@
         <el-button @click="apiDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit" :loading="submitLoading">确定</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <el-dialog v-model="templateDialogVisible" title="批量套用权限模板" width="460px">
       <el-form label-width="92px">
@@ -331,6 +345,23 @@
       <template #footer>
         <el-button @click="templateDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="templateApplyLoading" @click="handleApplyTemplate">应用</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="batchRoleDialogVisible" title="批量设置允许角色" width="520px">
+      <el-form label-width="92px">
+        <el-form-item label="允许角色">
+          <el-checkbox-group v-model="batchAllowedRoles">
+            <el-checkbox v-for="role in roleOptions" :key="role.value" :label="role.value">{{ role.label }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="说明">
+          <div class="scope-help">将为所选 API 写入独立角色配置，并取消“继承模块权限”。范围规则不会自动改写，保存后可用“批量校验”复核。</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchRoleDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchRoleLoading" @click="handleBatchRoleApply">应用</el-button>
       </template>
     </el-dialog>
 
@@ -387,6 +418,10 @@
           </template>
         </el-table-column>
       </el-table>
+      <template #footer>
+        <el-button @click="auditDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="exportAuditReport">导出审计报告</el-button>
+      </template>
     </el-dialog>
 
     <el-dialog v-model="moduleDialogVisible" :title="moduleDialogTitle" width="560px">
@@ -463,6 +498,9 @@ const templates = ref([])
 const templateDialogVisible = ref(false)
 const templateApplyLoading = ref(false)
 const selectedTemplateKey = ref('')
+const batchRoleDialogVisible = ref(false)
+const batchRoleLoading = ref(false)
+const batchAllowedRoles = ref([])
 const auditLoading = ref(false)
 const auditDialogVisible = ref(false)
 const auditReport = ref({
@@ -474,6 +512,9 @@ const auditReport = ref({
 })
 const permissionTableRef = ref(null)
 const focusedApiId = ref(null)
+const keywordFilter = ref('')
+const resourceFilter = ref('')
+const actionFilter = ref('')
 const riskViewMode = ref('all')
 const riskLabelFilter = ref('')
 const riskViewOptions = [
@@ -504,6 +545,13 @@ const availableRiskLabels = computed(() => [...new Set(
 const filteredPermissions = computed(() => {
   return permissions.value.filter((item) => {
     if (selectedModuleId.value && item.module_id !== selectedModuleId.value) return false
+    const keyword = keywordFilter.value.trim().toLowerCase()
+    if (keyword) {
+      const searchable = `${item.api_name || ''} ${item.api_path || ''}`.toLowerCase()
+      if (!searchable.includes(keyword)) return false
+    }
+    if (resourceFilter.value && item.resource_type !== resourceFilter.value) return false
+    if (actionFilter.value && item.action_type !== actionFilter.value) return false
     const risks = item.risk_flags || []
     if (riskViewMode.value === 'risky' && !risks.length) return false
     if (riskViewMode.value === 'healthy' && risks.length) return false
@@ -633,6 +681,9 @@ const moduleRules = {
 
 const handleSelectionChange = (rows) => {
   selectedRows.value = rows
+  if (!batchRoleDialogVisible.value && rows.length) {
+    batchAllowedRoles.value = [...new Set(rows.flatMap(row => row.allowed_roles || []))]
+  }
 }
 
 const getPermissionRowClass = ({ row }) => row.id === focusedApiId.value ? 'focused-api-row' : ''
@@ -1077,6 +1128,33 @@ const handleApplyTemplate = async () => {
   }
 }
 
+const handleBatchRoleApply = async () => {
+  if (!selectedRows.value.length) {
+    ElMessage.warning('请选择需要更新的API')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定为 ${selectedRows.value.length} 条 API 批量设置允许角色，并取消继承模块权限吗？`,
+      '批量设置角色',
+      { type: 'warning' }
+    )
+    batchRoleLoading.value = true
+    await Promise.all(selectedRows.value.map(row => updateApiPermission(row.id, {
+      allowed_roles: batchAllowedRoles.value,
+      inherit_from_module: 0
+    })))
+    ElMessage.success('批量角色设置成功')
+    batchRoleDialogVisible.value = false
+    selectedRows.value = []
+    refreshAll()
+  } catch (error) {
+    if (error !== 'cancel') console.error('批量设置角色失败:', error)
+  } finally {
+    batchRoleLoading.value = false
+  }
+}
+
 const handleAuditPermissions = async (rows = []) => {
   try {
     auditLoading.value = true
@@ -1103,6 +1181,34 @@ const locateAuditItem = async (row) => {
   await nextTick()
   const target = filteredPermissions.value.find(item => item.id === row.id)
   if (target) permissionTableRef.value?.setCurrentRow?.(target)
+}
+
+const escapeCsv = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`
+
+const exportAuditReport = () => {
+  const summary = auditReport.value.summary || {}
+  const rows = [
+    ['巡检总数', summary.total || 0],
+    ['风险数量', summary.risky || 0],
+    ['正常数量', summary.healthy || 0],
+    [],
+    ['API名称', 'API路径', '模块', '动作', '风险项'],
+    ...(auditReport.value.items || []).map(item => [
+      item.api_name || '',
+      item.api_path || '',
+      item.module_name || '',
+      getActionName(item.action_type),
+      (item.risk_flags || []).join('；')
+    ])
+  ]
+  const csv = rows.map(row => row.map(escapeCsv).join(',')).join('\n')
+  const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `api-permission-audit-${new Date().toISOString().slice(0, 10)}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 const resetModuleForm = () => {
@@ -1325,6 +1431,10 @@ onMounted(refreshAll)
   gap: 12px;
   align-items: center;
   margin: 14px 0;
+}
+
+.filter-toolbar :deep(.el-input) {
+  width: 240px;
 }
 
 .filter-toolbar :deep(.el-select) {

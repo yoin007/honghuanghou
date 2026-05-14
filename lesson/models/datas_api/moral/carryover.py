@@ -312,10 +312,15 @@ def manual_carryover_trigger(from_year_id: int, to_year_id: int, operator: str =
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
 from .base import require_permission
 
 router = APIRouter(prefix="/carryover", tags=["任务结转"])
+
+API_CARRYOVER_EXECUTE = "/api/moral/carryover/execute"
+API_CARRYOVER_PREVIEW = "/api/moral/carryover/preview"
+API_CARRYOVER_LOGS = "/api/moral/carryover/logs"
+API_CARRYOVER_CONFIG = "/api/moral/carryover/config"
 
 
 class CarryoverRequest(BaseModel):
@@ -328,7 +333,7 @@ class CarryoverRequest(BaseModel):
 async def api_execute_carryover(
     request: CarryoverRequest,
     req: Request,
-    user: User = Depends(require_configured_api_permission("/api/moral/carryover", "GET", allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_CARRYOVER_EXECUTE, "POST", allow_missing=False))
 ):
     """
     手动执行任务结转
@@ -365,7 +370,7 @@ async def api_execute_carryover(
 @router.get("/preview", summary="预览结转情况")
 async def api_preview_carryover(
     year_id: int,
-    user: User = Depends(require_configured_api_permission("/api/moral/carryover", "GET", allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_CARRYOVER_PREVIEW, "GET", allow_missing=False))
 ):
     """
     预览某学年待结转任务情况
@@ -466,7 +471,7 @@ async def api_get_carryover_logs(
     year_id: Optional[int] = None,
     page: int = 1,
     page_size: int = 20,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_CARRYOVER_LOGS, "GET", allow_missing=False))
 ):
     """
     获取任务结转日志列表
@@ -518,7 +523,7 @@ async def api_get_carryover_logs(
 
 @router.get("/config", summary="获取结转配置")
 async def api_get_carryover_config(
-    user: User = Depends(require_configured_api_permission("/api/moral/carryover", "GET", allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_CARRYOVER_CONFIG, "GET", allow_missing=False))
 ):
     """
     获取结转配置参数
@@ -545,7 +550,7 @@ class CarryoverConfigUpdate(BaseModel):
 async def api_update_carryover_config(
     config: CarryoverConfigUpdate,
     req: Request,
-    user: User = Depends(require_configured_api_permission("/api/moral/carryover", "GET", allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_CARRYOVER_CONFIG, "PUT", allow_missing=False))
 ):
     """
     更新结转配置参数

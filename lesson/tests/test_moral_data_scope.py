@@ -402,6 +402,14 @@ def test_target_scope_rules_can_limit_record_input_to_teaching_classes():
     assert not target_student_in_scope(db, user, api_path, {"student_id": "S2", "class_id": 101})
 
 
+def test_configured_create_api_without_target_scope_denies_selection():
+    api_path = "/api/moral/daily-records/create"
+    db = FakeScopeDB(api_roles={api_path: ["teacher"]})
+    user = User(username="teacher1", role="teacher")
+
+    assert not target_student_in_scope(db, user, api_path, {"student_id": "S1", "class_id": 201})
+
+
 def test_teaching_classes_defaults_to_all_when_no_mapping_exists():
     api_path = "/api/moral/daily-records/create"
     db = FakeScopeDB(

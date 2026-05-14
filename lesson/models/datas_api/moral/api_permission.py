@@ -131,6 +131,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/daily-records/batch", "api_name": "批量创建记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/daily-records/update", "api_name": "更新日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
     {"api_path": "/api/moral/daily-records/delete", "api_name": "删除日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/daily-records/statistics/student/{student_id}", "api_name": "学生日常表现统计", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern"},
 
     # 点滴记录
     {"api_path": "/api/moral/moment-records", "api_name": "获取点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
@@ -187,15 +188,52 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/dashboard/score-trend/grade/{grade_id}", "api_name": "年级平均得分趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/dashboard/teacher-record-trend", "api_name": "教师德育记录趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
 
+    # 教师待办
+    {"api_path": "/api/teacher/todos", "api_name": "查询教师待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher_todo", "action_type": "view"},
+    {"api_path": "/api/teacher/todos/create", "api_name": "创建教师待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "resource_type": "teacher_todo", "action_type": "create"},
+    {"api_path": "/api/teacher/todos/{series_id}", "api_name": "编辑删除教师待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern", "resource_type": "teacher_todo", "action_type": "update"},
+    {"api_path": "/api/teacher/todos/occurrences/{occurrence_id}/complete", "api_name": "完成教师待办实例", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo", "action_type": "operate"},
+    {"api_path": "/api/teacher/todos/occurrences/{occurrence_id}/reopen", "api_name": "恢复教师待办实例", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo", "action_type": "operate"},
+    {"api_path": "/api/teacher/todos/upcoming", "api_name": "教师近期待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher_todo", "action_type": "view"},
+
     # 学生管理
     {"api_path": "/api/moral/admin/students", "api_name": "获取学生列表", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/admin/students/create", "api_name": "创建学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/admin/students/update", "api_name": "更新学生信息", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/admin/students/batch", "api_name": "批量导入学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/admin/teachers", "api_name": "获取教师选择列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/grades", "api_name": "获取级号列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/grades/create", "api_name": "创建级号", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/grades/{grade_id}", "api_name": "更新级号", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern"},
+    {"api_path": "/api/moral/admin/grades/archived", "api_name": "获取归档年级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/classes", "api_name": "获取班级列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/classes/create", "api_name": "创建班级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/classes/{class_id}", "api_name": "更新班级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern"},
+    {"api_path": "/api/moral/admin/school-years", "api_name": "获取学年列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/school-years/create", "api_name": "创建学年", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/semesters", "api_name": "获取学期列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/semesters/create", "api_name": "创建学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/semesters/{semester_id}/set-current", "api_name": "设置当前学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "action_type": "operate"},
 
     # 系统配置
     {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
     {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
+    {"api_path": "/api/moral/menu-permission/list", "api_name": "获取菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/my-menu", "api_name": "获取当前用户菜单", "api_group": "菜单权限", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher", "student"], "min_level": 0, "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/groups", "api_name": "获取菜单分组", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/roles", "api_name": "获取菜单角色", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/create", "api_name": "创建菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/{menu_key}", "api_name": "修改菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/batch", "api_name": "批量更新菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/batch-by-group", "api_name": "按分组更新菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/init", "api_name": "初始化菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/reset", "api_name": "重置菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/list", "api_name": "获取数据库列表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/tables/{db_name}", "api_name": "获取数据库表列表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/protected-tables", "api_name": "获取受保护表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/generate-token/{db_name}/{table_name}", "api_name": "生成清空确认令牌", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/clear/{db_name}/{table_name}", "api_name": "清空数据库表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/check-integrity", "api_name": "检查数据库完整性", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
 
     # 生日提醒
     {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
@@ -204,27 +242,42 @@ DEFAULT_API_PERMISSIONS = [
     # 学生画像
     {"api_path": "/api/moral/timeline", "api_name": "一生一册查看", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/timeline/search", "api_name": "一生一册学生搜索", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/timeline/export/{student_id}/xlsx", "api_name": "导出单学生一生一册", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
+    {"api_path": "/api/moral/timeline/export/class/{class_id}", "api_name": "批量导出班级一生一册", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
 
     # 学生画像
-    {"api_path": "/api/moral/profiles/student", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/profiles/student/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/profiles/student/{student_id}", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
+    {"api_path": "/api/moral/profiles/student/{student_id}/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
+    {"api_path": "/api/moral/profiles/student/{student_id}/generate-async", "api_name": "异步生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
+    {"api_path": "/api/moral/profiles/generation-status/{job_id}", "api_name": "查询画像生成状态", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
     {"api_path": "/api/moral/profiles/batch-generate", "api_name": "批量生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/profiles/config", "api_name": "获取画像配置", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
 
     # AI 诊疗
     {"api_path": "/api/moral/consultations", "api_name": "获取诊疗会话列表", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/consultations/create", "api_name": "创建诊疗会话", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/consultations/update", "api_name": "更新诊疗会话", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/consultations/close", "api_name": "关闭诊疗会话", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/carryover/execute", "api_name": "执行任务结转", "api_group": "任务结转", "allowed_roles": ["admin", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/carryover/preview", "api_name": "预览任务结转", "api_group": "任务结转", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/carryover/logs", "api_name": "查看任务结转日志", "api_group": "任务结转", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/carryover/config", "api_name": "任务结转配置", "api_group": "任务结转", "allowed_roles": ["admin", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/escalation-rules/student/{student_id}/history", "api_name": "学生累进处罚历史", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
+    {"api_path": "/api/moral/escalation-rules/student/{student_id}/count", "api_name": "学生事件累计次数", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
+    {"api_path": "/api/moral/escalation-rules/student/{student_id}/progress", "api_name": "学生消极事件累计进度", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
+    {"api_path": "/api/moral/collective-events/student/{student_id}", "api_name": "学生集体事件得分汇总", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "student"], "min_level": 0, "match_type": "pattern"},
 
     # 评价查询
-    {"api_path": "/api/moral/evaluations/class", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/evaluations/grade", "api_name": "年级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50},
+    {"api_path": "/api/moral/evaluations/student/{student_id}", "api_name": "学生评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "student"], "min_level": 0, "match_type": "pattern"},
+    {"api_path": "/api/moral/evaluations/class/{class_id}", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
+    {"api_path": "/api/moral/evaluations/grade/{grade_id}", "api_name": "年级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50, "match_type": "pattern"},
     {"api_path": "/api/moral/evaluations/calculate", "api_name": "计算德育评价", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50},
 
     # 学期末评价
     {"api_path": "/api/moral/semester-evaluations/generate", "api_name": "生成单学生学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/semester-evaluations/batch-generate", "api_name": "批量生成学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/semester-evaluations/list", "api_name": "查询学期末评价列表", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/semester-evaluations/{record_id}", "api_name": "查询学期末评价详情", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
 ]
 
 VALID_POLICY_MODES = {"role_and_level", "role_or_level", "role_only", "level_only", "public"}
@@ -263,6 +316,20 @@ DEFAULT_OPERATION_SCOPE_RULES = {
         "cleader": ["own_created"],
         "teacher": ["own_created"],
     },
+    "/api/moral/timeline/export/{student_id}/xlsx": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/timeline/export/class/{class_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
     "/api/moral/school-records/update": {
         "admin": ["all"],
         "xuefa": ["all"],
@@ -294,6 +361,67 @@ DEFAULT_OPERATION_SCOPE_RULES = {
     "/api/moral/collective-events/distributions/update": {
         "admin": ["all"],
         "xuefa": ["all"],
+    },
+    "/api/moral/carryover/preview": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/carryover/logs": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/escalation-rules/student/{student_id}/history": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/escalation-rules/student/{student_id}/count": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/escalation-rules/student/{student_id}/progress": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/collective-events/student/{student_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+        "student": ["own_created"],
+    },
+    "/api/teacher/todos/{series_id}": {
+        "admin": ["own_created"],
+        "jiaowu": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/teacher/todos/occurrences/{occurrence_id}/complete": {
+        "admin": ["own_created", "assigned_to_me"],
+        "jiaowu": ["own_created", "assigned_to_me"],
+        "xuefa": ["own_created", "assigned_to_me"],
+        "g_leader": ["own_created", "assigned_to_me"],
+        "cleader": ["own_created", "assigned_to_me"],
+        "teacher": ["own_created", "assigned_to_me"],
+    },
+    "/api/teacher/todos/occurrences/{occurrence_id}/reopen": {
+        "admin": ["own_created", "assigned_to_me"],
+        "jiaowu": ["own_created", "assigned_to_me"],
+        "xuefa": ["own_created", "assigned_to_me"],
+        "g_leader": ["own_created", "assigned_to_me"],
+        "cleader": ["own_created", "assigned_to_me"],
+        "teacher": ["own_created", "assigned_to_me"],
     },
 }
 
@@ -369,6 +497,7 @@ def _infer_resource_type(api_path: str) -> str:
         ("/api/moral/timeline", "student_lifebook"),
         ("/api/moral/profiles", "student_profile"),
         ("/api/moral/consultations", "consultation"),
+        ("/api/teacher/todos", "teacher_todo"),
         ("/api/dashboard/score-trend", "score_trend"),
         ("/api/dashboard", "dashboard"),
     ]
@@ -420,6 +549,14 @@ DEFAULT_DATA_SCOPE_RULES = {
         "cleader": ["own_created"],
         "teacher": ["own_created"],
     },
+    "/api/moral/daily-records/statistics/student/{student_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["own_created", "managed_grades"],
+        "cleader": ["own_created", "managed_classes"],
+        "teacher": ["own_created"],
+    },
     "/api/moral/moment-records": {
         "admin": ["all"],
         "jiaowu": ["all"],
@@ -444,14 +581,21 @@ DEFAULT_DATA_SCOPE_RULES = {
         "cleader": ["own_created"],
         "teacher": ["own_created"],
     },
-    "/api/moral/profiles/student": {
+    "/api/moral/profiles/student/{student_id}": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
     },
-    "/api/moral/profiles/student/generate": {
+    "/api/moral/profiles/student/{student_id}/generate": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/profiles/student/{student_id}/generate-async": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
@@ -489,12 +633,26 @@ DEFAULT_DATA_SCOPE_RULES = {
         "g_leader": ["own_created"],
         "cleader": ["own_created"],
     },
-    "/api/moral/evaluations/class": {
+    "/api/moral/evaluations/student/{student_id}": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
+        "student": ["own_created"],
+    },
+    "/api/moral/evaluations/class/{class_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/evaluations/grade/{grade_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
     },
     "/api/moral/evaluations/calculate": {
         "admin": ["all"],
@@ -593,6 +751,20 @@ DEFAULT_DATA_SCOPE_RULES = {
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
     },
+    "/api/moral/timeline/export/{student_id}/xlsx": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/timeline/export/class/{class_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
     "/api/moral/birthdays/upcoming": {
         "admin": ["all"],
         "jiaowu": ["all"],
@@ -608,6 +780,12 @@ DEFAULT_DATA_SCOPE_RULES = {
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
         "teacher": ["teaching_classes"],
+    },
+    "/api/moral/semester-evaluations/{record_id}": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
     },
     "/api/dashboard/score-trend/student/{student_id}": {
         "admin": ["all"],
@@ -627,6 +805,22 @@ DEFAULT_DATA_SCOPE_RULES = {
         "jiaowu": ["all"],
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
+    },
+    "/api/teacher/todos": {
+        "admin": ["own_created", "assigned_to_me"],
+        "jiaowu": ["own_created", "assigned_to_me"],
+        "xuefa": ["own_created", "assigned_to_me"],
+        "g_leader": ["own_created", "assigned_to_me"],
+        "cleader": ["own_created", "assigned_to_me"],
+        "teacher": ["own_created", "assigned_to_me"],
+    },
+    "/api/teacher/todos/upcoming": {
+        "admin": ["own_created", "assigned_to_me"],
+        "jiaowu": ["own_created", "assigned_to_me"],
+        "xuefa": ["own_created", "assigned_to_me"],
+        "g_leader": ["own_created", "assigned_to_me"],
+        "cleader": ["own_created", "assigned_to_me"],
+        "teacher": ["own_created", "assigned_to_me"],
     },
 }
 
@@ -935,6 +1129,35 @@ def _fix_incorrect_scope_rules(db) -> None:
              )"""
     )
 
+    # 早期数据库把这几个“录入页依赖的查询接口”保留成了纯管理员配置，
+    # 会导致教师进入日常表现页时，班级/年级下拉请求直接 403。
+    # 这里只修复可识别的旧基线配置，避免覆盖管理员后续手工调整。
+    lookup_api_role_repairs = {
+        "/api/moral/admin/grades": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"],
+        "/api/moral/admin/classes": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"],
+        "/api/moral/admin/school-years": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"],
+        "/api/moral/admin/semesters": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"],
+    }
+    legacy_admin_lookup_roles = {"admin", "jiaowu", "xuefa"}
+    for api_path, expected_roles in lookup_api_role_repairs.items():
+        config = db.query_one(
+            "SELECT allowed_roles, min_level FROM api_permission_config WHERE api_path = ?",
+            (api_path,),
+        )
+        if not config:
+            continue
+        try:
+            existing_roles = set(json.loads(config.get("allowed_roles") or "[]"))
+        except Exception:
+            continue
+        if existing_roles == legacy_admin_lookup_roles and int(config.get("min_level") or 0) == 0:
+            db.execute(
+                """UPDATE api_permission_config
+                   SET allowed_roles = ?, min_level = 10
+                   WHERE api_path = ?""",
+                (_json_dump(expected_roles), api_path),
+            )
+
     # 只要 API 允许 teacher 角色访问，最低等级必须为 10；否则数据库历史配置可能让教师被等级拦掉。
     teacher_configs = db.query_all("SELECT id, allowed_roles, min_level FROM api_permission_config")
     for config in teacher_configs:
@@ -994,9 +1217,12 @@ def _fix_incorrect_scope_rules(db) -> None:
         "/api/moral/moment-records",
         "/api/moral/moment-records/update",
         "/api/moral/moment-records/delete",
-        "/api/moral/profiles/student",
-        "/api/moral/profiles/student/generate",
-        "/api/moral/evaluations/class",
+        "/api/moral/profiles/student/{student_id}",
+        "/api/moral/profiles/student/{student_id}/generate",
+        "/api/moral/profiles/student/{student_id}/generate-async",
+        "/api/moral/evaluations/student/{student_id}",
+        "/api/moral/evaluations/class/{class_id}",
+        "/api/moral/evaluations/grade/{grade_id}",
         "/api/moral/evaluations/calculate",
         "/api/moral/admin/students",
         "/api/moral/admin/students/create",
@@ -1104,7 +1330,8 @@ def _fix_incorrect_scope_rules(db) -> None:
 
     # 修复学生画像 API 的 allowed_roles（补齐 g_leader 和 cleader）
     profile_apis = [
-        "/api/moral/profiles/student/generate",
+        "/api/moral/profiles/student/{student_id}/generate",
+        "/api/moral/profiles/student/{student_id}/generate-async",
         "/api/moral/profiles/batch-generate"
     ]
     for api_path in profile_apis:

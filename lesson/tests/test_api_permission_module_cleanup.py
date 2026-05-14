@@ -102,3 +102,34 @@ def test_fix_scope_rules_removes_empty_legacy_birthday_module():
     assert legacy is None
     assert today["api_group"] == "生日提醒"
     assert today["module_id"] == birthday_module_id
+
+
+def test_fix_scope_rules_repairs_legacy_lookup_permissions_for_record_pages():
+    db = SQLiteTestDB()
+    for api_path in (
+        "/api/moral/admin/grades",
+        "/api/moral/admin/classes",
+        "/api/moral/admin/school-years",
+        "/api/moral/admin/semesters",
+    ):
+        db.execute(
+            """INSERT INTO api_permission_config
+               (api_path, api_name, api_group, allowed_roles, min_level)
+               VALUES (?, ?, ?, ?, ?)""",
+            (api_path, "legacy lookup", "基础配置", '["admin", "xuefa", "jiaowu"]', 0),
+        )
+
+    _fix_incorrect_scope_rules(db)
+
+    for api_path in (
+        "/api/moral/admin/grades",
+        "/api/moral/admin/classes",
+        "/api/moral/admin/school-years",
+        "/api/moral/admin/semesters",
+    ):
+        row = db.query_one(
+            "SELECT allowed_roles, min_level FROM api_permission_config WHERE api_path = ?",
+            (api_path,),
+        )
+        assert row["allowed_roles"] == '["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"]'
+        assert row["min_level"] == 10

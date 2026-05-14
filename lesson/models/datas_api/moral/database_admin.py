@@ -15,13 +15,21 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.datas_api.moral.base import log_operation, get_moral_db
 from models.datas_api.repositories.sqlite_base import get_sqlite_connection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/database", tags=["数据库管理"])
+
+API_DATABASE_LIST = "/api/moral/admin/database/list"
+API_DATABASE_TABLES = "/api/moral/admin/database/tables/{db_name}"
+API_DATABASE_PROTECTED = "/api/moral/admin/database/protected-tables"
+API_DATABASE_TOKEN = "/api/moral/admin/database/generate-token/{db_name}/{table_name}"
+API_DATABASE_CLEAR = "/api/moral/admin/database/clear/{db_name}/{table_name}"
+API_DATABASE_INTEGRITY = "/api/moral/admin/database/check-integrity"
 
 # 数据库目录（lesson/databases）
 DATABASES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "databases")
@@ -198,7 +206,7 @@ def generate_confirmation_token(db_name: str, table_name: str, username: str) ->
 # ==================== API 路由 ====================
 
 @router.get("/list", summary="获取数据库列表")
-async def list_databases(user: User = Depends(get_current_user)):
+async def list_databases(user: User = Depends(require_configured_api_permission(API_DATABASE_LIST, "GET", allow_missing=False))):
     """获取所有数据库文件列表"""
     if not is_admin_user(user):
         raise HTTPException(403, "只有管理员可以访问")
@@ -239,7 +247,7 @@ async def list_databases(user: User = Depends(get_current_user)):
 
 
 @router.get("/tables/{db_name}", summary="获取数据库表列表")
-async def get_database_tables(db_name: str, user: User = Depends(get_current_user)):
+async def get_database_tables(db_name: str, user: User = Depends(require_configured_api_permission(API_DATABASE_TABLES, "GET", allow_missing=False))):
     """获取指定数据库的所有表"""
     if not is_admin_user(user):
         raise HTTPException(403, "只有管理员可以访问")
@@ -293,7 +301,7 @@ async def get_database_tables(db_name: str, user: User = Depends(get_current_use
 
 
 @router.get("/protected-tables", summary="获取受保护表列表")
-async def get_protected_tables(user: User = Depends(get_current_user)):
+async def get_protected_tables(user: User = Depends(require_configured_api_permission(API_DATABASE_PROTECTED, "GET", allow_missing=False))):
     """获取所有受保护的表列表"""
     if not is_admin_user(user):
         raise HTTPException(403, "只有管理员可以访问")
@@ -302,7 +310,7 @@ async def get_protected_tables(user: User = Depends(get_current_user)):
 
 
 @router.get("/generate-token/{db_name}/{table_name}", summary="生成清空确认令牌")
-async def generate_clear_token(db_name: str, table_name: str, user: User = Depends(get_current_user)):
+async def generate_clear_token(db_name: str, table_name: str, user: User = Depends(require_configured_api_permission(API_DATABASE_TOKEN, "GET", allow_missing=False))):
     """生成清空操作的确认令牌"""
     if not is_admin_user(user):
         raise HTTPException(403, "只有管理员可以访问")
@@ -324,7 +332,7 @@ async def clear_table(
     table_name: str,
     request: ClearTableRequest,
     req: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_DATABASE_CLEAR, "POST", allow_missing=False))
 ):
     """清空指定表的数据"""
     if not is_admin_user(user):
@@ -387,7 +395,7 @@ async def clear_table(
 
 
 @router.get("/check-integrity", summary="检查数据库完整性")
-async def check_database_integrity(user: User = Depends(get_current_user)):
+async def check_database_integrity(user: User = Depends(require_configured_api_permission(API_DATABASE_INTEGRITY, "GET", allow_missing=False))):
     """检查所有数据库的表完整性"""
     if not is_admin_user(user):
         raise HTTPException(403, "只有管理员可以访问")

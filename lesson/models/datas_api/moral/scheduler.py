@@ -437,6 +437,141 @@ def warning_check_task():
                         logger.warning(f"预警：{student['name']} 违纪次数过多（{student['negative_count']}次）")
 
 
+def punishment_expire_reminder_task():
+    """
+    处分到期提醒任务（每日08:00执行）
+
+    流程：
+    1. 查询未来7天内到期且未撤销的处分
+    2. 发送提前提醒通知（班级公告）
+    3. 查询今日已到期且未撤销的处分
+    4. 发送到期提醒通知（班级公告）
+    5. 记录提醒日志
+    """
+    logger.info("执行处分到期提醒任务")
+
+    from .base import get_moral_db
+    from models.lesson.homework import Homework
+
+    with get_moral_db() as db:
+        today = date.today()
+        pre_expire_date = today + timedelta(days=7)  # 提前7天提醒
+
+        # 1. 查询未来7天内到期处分（提前提醒）
+        upcoming_expires = db.query_all(
+            """SELECT p.id, p.student_id, p.punishment_date, p.expire_date,
+                   p.level, p.can_apply_revoke, s.name as student_name,
+                   c.class_code, c.class_name, c.leader_name, c.leader_names
+            FROM punishment_record p
+            JOIN student s ON p.student_id = s.student_id
+            JOIN class c ON p.class_id = c.class_id
+            WHERE p.is_revoked = 0
+            AND p.expire_date IS NOT NULL
+            AND p.expire_date > ?
+            AND p.expire_date <= ?
+            AND NOT EXISTS (
+                SELECT 1 FROM punishment_expire_reminder r
+                WHERE r.punishment_id = p.id AND r.reminder_type = 'pre_expire'
+            )""",
+            (today.strftime("%Y-%m-%d"), pre_expire_date.strftime("%Y-%m-%d"))
+        )
+
+        for punishment in upcoming_expires:
+            days_until = (datetime.strptime(punishment['expire_date'], "%Y-%m-%d").date() - today).days
+            student_name = punishment['student_name']
+            class_name = punishment['class_name']
+            class_code = punishment['class_code']
+
+            # 发送班级公告
+            content = (
+                f"【处分到期提醒】\n\n"
+                f"学生 {student_name} 的处分（{punishment['level']}）将于 {days_until} 天后到期。\n"
+                f"处分日期：{punishment['punishment_date']}\n"
+                f"到期日期：{punishment['expire_date']}\n\n"
+                f"如观察期表现良好，可在到期后申请撤销处分。\n"
+                f"— 德育评价系统\n"
+                f"{today.strftime('%Y-%m-%d')}"
+            )
+
+            with Homework() as hw:
+                leader_names_str = punishment.get('leader_names', '')
+                leader_name = punishment.get('leader_name', '')
+                if leader_names_str:
+                    first_leader = leader_names_str.split(',')[0].strip()
+                    author = first_leader or "德育系统"
+                else:
+                    author = leader_name or "德育系统"
+                hw.add_announcement(class_code, "处分到期提醒", author, content, None)
+
+            # 记录提醒日志
+            db.execute(
+                """INSERT INTO punishment_expire_reminder
+                (punishment_id, student_id, expire_date, reminder_type, reminder_days,
+                 is_sent, sent_at, recipient_type, message)
+                VALUES (?, ?, ?, 'pre_expire', ?, 1, datetime('now','localtime'), 'class_teacher', ?)""",
+                (punishment['id'], punishment['student_id'], punishment['expire_date'],
+                 days_until, f"班级公告：{class_name}")
+            )
+
+            logger.info(f"已发送提前提醒：{student_name}（{class_name}），{days_until}天后到期")
+
+        # 2. 查询今日到期处分
+        today_expires = db.query_all(
+            """SELECT p.id, p.student_id, p.punishment_date, p.expire_date,
+                   p.level, p.can_apply_revoke, s.name as student_name,
+                   c.class_code, c.class_name, c.leader_name, c.leader_names
+            FROM punishment_record p
+            JOIN student s ON p.student_id = s.student_id
+            JOIN class c ON p.class_id = c.class_id
+            WHERE p.is_revoked = 0
+            AND p.expire_date IS NOT NULL
+            AND p.expire_date = ?
+            AND NOT EXISTS (
+                SELECT 1 FROM punishment_expire_reminder r
+                WHERE r.punishment_id = p.id AND r.reminder_type = 'expired'
+            )""",
+            (today.strftime("%Y-%m-%d"),)
+        )
+
+        for punishment in today_expires:
+            student_name = punishment['student_name']
+            class_name = punishment['class_name']
+            class_code = punishment['class_code']
+
+            content = (
+                f"【处分已到期】\n\n"
+                f"学生 {student_name} 的处分（{punishment['level']}）今日已到期。\n"
+                f"处分日期：{punishment['punishment_date']}\n"
+                f"到期日期：{punishment['expire_date']}\n\n"
+            )
+
+            if punishment['can_apply_revoke'] == 1:
+                content += "观察期表现良好者可申请撤销处分，请在德育系统提交申请。\n"
+
+            content += f"— 德育评价系统\n{today.strftime('%Y-%m-%d')}"
+
+            with Homework() as hw:
+                leader_names_str = punishment.get('leader_names', '')
+                leader_name = punishment.get('leader_name', '')
+                if leader_names_str:
+                    first_leader = leader_names_str.split(',')[0].strip()
+                    author = first_leader or "德育系统"
+                else:
+                    author = leader_name or "德育系统"
+                hw.add_announcement(class_code, "处分已到期", author, content, None)
+
+            db.execute(
+                """INSERT INTO punishment_expire_reminder
+                (punishment_id, student_id, expire_date, reminder_type,
+                 is_sent, sent_at, recipient_type, message)
+                VALUES (?, ?, ?, 'expired', 1, datetime('now','localtime'), 'class_teacher', ?)""",
+                (punishment['id'], punishment['student_id'], punishment['expire_date'],
+                 f"班级公告：{class_name}")
+            )
+
+            logger.info(f"已发送到期提醒：{student_name}（{class_name}）")
+
+
 def semester_evaluation_task():
     """
     学期末德育评价计算任务
@@ -554,6 +689,15 @@ def start_scheduler():
         replace_existing=True
     )
 
+    # 处分到期提醒（每日08:00）
+    scheduler.add_job(
+        punishment_expire_reminder_task,
+        CronTrigger(hour=8, minute=0),
+        id='punishment_expire_reminder',
+        name='处分到期提醒任务',
+        replace_existing=True
+    )
+
     # 学期末评价（学期末）- 手动触发或配置具体日期
     # 学年末结转（学年末）- 手动触发或配置具体日期
 
@@ -662,6 +806,18 @@ async def api_trigger_warning_check(
     try:
         warning_check_task()
         return {"success": True, "message": "预警检查任务已执行"}
+    except Exception as e:
+        return {"success": False, "message": f"执行失败：{str(e)}"}
+
+
+@scheduler_router.post("/trigger/punishment-expire-reminder", summary="手动触发处分到期提醒")
+async def api_trigger_punishment_expire_reminder(
+    user: User = Depends(require_configured_api_permission("/api/moral/scheduler", "GET", allow_missing=False))
+):
+    """手动触发处分到期提醒任务"""
+    try:
+        punishment_expire_reminder_task()
+        return {"success": True, "message": "处分到期提醒任务已执行"}
     except Exception as e:
         return {"success": False, "message": f"执行失败：{str(e)}"}
 

@@ -15,12 +15,24 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.datas_api.moral.base import log_operation, get_moral_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/menu-permission", tags=["菜单权限配置"])
+
+API_MENU_LIST = "/api/moral/menu-permission/list"
+API_MENU_MY_MENU = "/api/moral/menu-permission/my-menu"
+API_MENU_GROUPS = "/api/moral/menu-permission/groups"
+API_MENU_ROLES = "/api/moral/menu-permission/roles"
+API_MENU_CREATE = "/api/moral/menu-permission/create"
+API_MENU_ITEM = "/api/moral/menu-permission/{menu_key}"
+API_MENU_BATCH = "/api/moral/menu-permission/batch"
+API_MENU_BATCH_GROUP = "/api/moral/menu-permission/batch-by-group"
+API_MENU_INIT = "/api/moral/menu-permission/init"
+API_MENU_RESET = "/api/moral/menu-permission/reset"
 
 # 所有可用角色
 ALL_ROLES = ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"]
@@ -46,6 +58,7 @@ DEFAULT_MENU_CONFIG = [
     {"key": "publish-announcement", "label": "发布公告", "route": "/publish-announcement", "group": "teacher", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 20},
     {"key": "file-upload", "label": "文件上传", "route": "/file-upload", "group": "teacher", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 30},
     {"key": "my-files", "label": "我的文件", "route": "/my-files", "group": "teacher", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 40},
+    {"key": "teacher-todo", "label": "我的待办", "route": "/teacher/todo", "group": "teacher", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 50},
     # 教务菜单
     {"key": "admin-files", "label": "文件管理", "route": "/admin-files", "group": "jiaowu", "roles": ["jiaowu", "admin"], "is_public": 0, "sort_order": 10},
     {"key": "admin-files-done", "label": "已查阅文件", "route": "/admin-files-done", "group": "jiaowu", "roles": ["jiaowu", "admin"], "is_public": 0, "sort_order": 20},
@@ -159,7 +172,7 @@ def ensure_menu_table_exists(db):
 @router.get("/list", summary="获取所有菜单配置")
 async def list_menu_config(
     group: Optional[str] = None,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MENU_LIST, "GET", allow_missing=False))
 ):
     """获取所有菜单权限配置"""
     if not is_admin_user(user):
@@ -200,7 +213,7 @@ async def list_menu_config(
 
 
 @router.get("/my-menu", summary="获取当前用户可见的菜单配置")
-async def get_my_menu_config(user: User = Depends(get_current_user)):
+async def get_my_menu_config(user: User = Depends(require_configured_api_permission(API_MENU_MY_MENU, "GET", allow_missing=False))):
     """获取当前登录用户可见的菜单配置（无需 admin 权限）"""
     # 从 user.role 解析用户角色
     role_text = str(user.role or '')
@@ -243,7 +256,7 @@ async def get_my_menu_config(user: User = Depends(get_current_user)):
 
 
 @router.get("/groups", summary="获取菜单分组列表")
-async def get_menu_groups(user: User = Depends(get_current_user)):
+async def get_menu_groups(user: User = Depends(require_configured_api_permission(API_MENU_GROUPS, "GET", allow_missing=False))):
     """获取所有菜单分组"""
     if not is_admin_user(user):
         raise HTTPException(403, "只有管理员可以访问")
@@ -252,7 +265,7 @@ async def get_menu_groups(user: User = Depends(get_current_user)):
 
 
 @router.get("/roles", summary="获取所有角色列表")
-async def get_all_roles(user: User = Depends(get_current_user)):
+async def get_all_roles(user: User = Depends(require_configured_api_permission(API_MENU_ROLES, "GET", allow_missing=False))):
     """获取所有可用角色"""
     if not is_admin_user(user):
         raise HTTPException(403, "只有管理员可以访问")
@@ -264,7 +277,7 @@ async def get_all_roles(user: User = Depends(get_current_user)):
 async def create_menu_config(
     config: MenuConfigItem,
     req: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MENU_CREATE, "POST", allow_missing=False))
 ):
     """创建新的菜单权限配置"""
     if not is_admin_user(user):
@@ -323,7 +336,7 @@ async def update_menu_config(
     menu_key: str,
     config: MenuConfigItem,
     req: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MENU_ITEM, "PUT", allow_missing=False))
 ):
     """更新菜单权限配置"""
     if not is_admin_user(user):
@@ -389,7 +402,7 @@ async def update_menu_config(
 async def delete_menu_config(
     menu_key: str,
     req: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MENU_ITEM, "DELETE", allow_missing=False))
 ):
     """删除菜单权限配置"""
     if not is_admin_user(user):
@@ -432,7 +445,7 @@ async def delete_menu_config(
 async def batch_update_roles(
     request: BatchUpdateRequest,
     req: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MENU_BATCH, "POST", allow_missing=False))
 ):
     """批量更新多个菜单的角色配置"""
     if not is_admin_user(user):
@@ -465,7 +478,7 @@ async def batch_update_roles(
 async def batch_update_by_group(
     request: BatchUpdateByGroupRequest,
     req: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MENU_BATCH_GROUP, "POST", allow_missing=False))
 ):
     """按分组批量更新菜单的角色配置"""
     if not is_admin_user(user):
@@ -493,7 +506,7 @@ async def batch_update_by_group(
 @router.post("/init", summary="初始化默认菜单配置")
 async def init_default_config(
     req: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MENU_INIT, "POST", allow_missing=False))
 ):
     """从静态配置初始化菜单权限配置"""
     if not is_admin_user(user):
@@ -551,7 +564,7 @@ async def init_default_config(
 @router.post("/reset", summary="重置为默认配置")
 async def reset_to_default(
     req: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_MENU_RESET, "POST", allow_missing=False))
 ):
     """重置所有菜单配置为默认值"""
     if not is_admin_user(user):

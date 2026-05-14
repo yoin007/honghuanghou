@@ -25,15 +25,16 @@ from .base import (
     get_record_data_scope,
     record_in_scope,
 )
-from models.datas_api.auth import User, get_current_user
+from .api_permission import require_configured_api_permission
+from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/evaluations", tags=["评价查询"])
 
-API_EVAL_STUDENT = "/api/moral/evaluations/class"
-API_EVAL_CLASS = "/api/moral/evaluations/class"
-API_EVAL_GRADE = "/api/moral/evaluations/grade"
+API_EVAL_STUDENT = "/api/moral/evaluations/student/{student_id}"
+API_EVAL_CLASS = "/api/moral/evaluations/class/{class_id}"
+API_EVAL_GRADE = "/api/moral/evaluations/grade/{grade_id}"
 API_EVAL_CALCULATE = "/api/moral/evaluations/calculate"
 
 
@@ -64,7 +65,7 @@ def _student_allowed_by_eval_scope(db, user: User, student: dict, api_path: str)
 async def get_student_evaluation(
     student_id: str,
     semester_id: Optional[int] = Query(None),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_EVAL_STUDENT, "GET", allow_missing=False))
 ):
     """
     获取学生德育评价
@@ -200,7 +201,7 @@ async def get_student_evaluation(
 async def get_class_evaluation(
     class_id: int,
     semester_id: Optional[int] = Query(None),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_EVAL_CLASS, "GET", allow_missing=False))
 ):
     """
     获取班级德育评价汇总
@@ -321,7 +322,7 @@ async def get_class_evaluation(
 async def get_grade_evaluation(
     grade_id: int,
     semester_id: Optional[int] = Query(None),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_EVAL_GRADE, "GET", allow_missing=False))
 ):
     """
     获取年级德育评价汇总
@@ -382,7 +383,7 @@ async def calculate_evaluation_api(
     class_id: Optional[int] = Query(None),
     grade_id: Optional[int] = Query(None),
     semester_id: Optional[int] = Query(None),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_EVAL_CALCULATE, "POST", allow_missing=False))
 ):
     """
     计算德育评价

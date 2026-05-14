@@ -19,7 +19,8 @@ from .base import (
     append_record_scope_condition,
     log_operation,
 )
-from models.datas_api.auth import User, get_current_user
+from .api_permission import require_configured_api_permission
+from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class BirthdayConfigUpdate(BaseModel):
 async def get_upcoming_birthdays(
     days: int = Query(7, ge=1, le=30, description="提前天数"),
     class_id: Optional[int] = Query(None),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_BIRTHDAY_UPCOMING, "GET", allow_missing=False))
 ):
     """
     获取即将到来的生日列表
@@ -153,7 +154,7 @@ async def get_upcoming_birthdays(
 
 @router.get("/today", summary="获取今日过生日的学生")
 async def get_today_birthdays(
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_BIRTHDAY_TODAY, "GET", allow_missing=False))
 ):
     """
     获取今日过生日的学生

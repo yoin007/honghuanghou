@@ -24,7 +24,7 @@ from .base import (
 )
 from .api_permission import require_configured_api_permission
 from models.datas_api.auth import is_admin_user
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ API_COLLECTIVE_CREATE = "/api/moral/collective-events/create"
 API_COLLECTIVE_UPDATE = "/api/moral/collective-events/update"
 API_COLLECTIVE_DELETE = "/api/moral/collective-events/delete"
 API_COLLECTIVE_DISTRIBUTION_UPDATE = "/api/moral/collective-events/distributions/update"
+API_COLLECTIVE_STUDENT_SCORE = "/api/moral/collective-events/student/{student_id}"
 
 # =============================================================================
 # Pydantic 模型
@@ -550,7 +551,7 @@ async def update_distribution(
 async def get_student_collective_score(
     student_id: str,
     semester_id: Optional[int] = Query(None),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_COLLECTIVE_STUDENT_SCORE, "GET", allow_missing=False))
 ):
     """获取学生在某学期的集体事件得分汇总"""
     with get_moral_db() as db:
@@ -565,7 +566,7 @@ async def get_student_collective_score(
             if user.username != student_id:
                 raise HTTPException(403, "只能查看自己的集体事件得分")
         else:
-            ensure_collective_class_access(user, db, student['class_id'], API_COLLECTIVE_LIST)
+            ensure_collective_class_access(user, db, student['class_id'], API_COLLECTIVE_STUDENT_SCORE)
 
         if not semester_id:
             current_semester = get_current_semester(db)

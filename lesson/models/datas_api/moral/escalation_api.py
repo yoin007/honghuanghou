@@ -18,6 +18,8 @@ from .base import (
     get_moral_db,
     get_current_semester,
     log_operation,
+    get_record_data_scope,
+    record_in_scope,
     )
 from .escalation import (
     get_student_escalation_history,
@@ -25,11 +27,35 @@ from .escalation import (
     get_next_threshold_info,
     check_and_trigger_escalation,
 )
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/escalation-rules", tags=["累进规则管理"])
+
+API_ESCALATION_STUDENT_HISTORY = "/api/moral/escalation-rules/student/{student_id}/history"
+API_ESCALATION_STUDENT_COUNT = "/api/moral/escalation-rules/student/{student_id}/count"
+API_ESCALATION_STUDENT_PROGRESS = "/api/moral/escalation-rules/student/{student_id}/progress"
+
+
+def _ensure_student_escalation_access(db, user: User, student_id: str, api_path: str) -> None:
+    student = db.query_one(
+        "SELECT student_id, class_id, grade_id FROM student WHERE student_id = ?",
+        (student_id,),
+    )
+    if not student:
+        raise HTTPException(404, "学生不存在")
+
+    scope = get_record_data_scope(
+        db,
+        user,
+        api_path,
+        all_permissions=["report_view_all"],
+        own_class_permissions=["report_view_own_class"],
+        own_permissions=[],
+    )
+    if not record_in_scope(student, scope, username=user.username, recorder_field="student_id"):
+        raise HTTPException(403, "无权查看该学生的累进信息")
 
 
 # =============================================================================
@@ -231,10 +257,11 @@ async def delete_escalation_rule(
 async def get_escalation_history(
     student_id: str,
     semester_id: Optional[int] = Query(None),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_ESCALATION_STUDENT_HISTORY, "GET", allow_missing=False))
 ):
     """获取学生累进处罚历史"""
     with get_moral_db() as db:
+        _ensure_student_escalation_access(db, user, student_id, API_ESCALATION_STUDENT_HISTORY)
         if not semester_id:
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
@@ -249,10 +276,11 @@ async def get_event_count(
     student_id: str,
     event_id: int = Query(..., description="事件ID"),
     time_window_days: int = Query(90, description="时间窗口"),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_ESCALATION_STUDENT_COUNT, "GET", allow_missing=False))
 ):
     """获取学生在时间窗口内某事件的累计次数"""
     with get_moral_db() as db:
+        _ensure_student_escalation_access(db, user, student_id, API_ESCALATION_STUDENT_COUNT)
         count = get_student_event_count_in_window(
             db, student_id, event_id, date.today(), time_window_days
         )
@@ -278,10 +306,11 @@ async def get_event_count(
 @router.get("/student/{student_id}/progress", summary="获取学生所有消极事件累计进度")
 async def get_student_all_progress(
     student_id: str,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_ESCALATION_STUDENT_PROGRESS, "GET", allow_missing=False))
 ):
     """获取学生所有消极事件的累计进度"""
     with get_moral_db() as db:
+        _ensure_student_escalation_access(db, user, student_id, API_ESCALATION_STUDENT_PROGRESS)
         # 获取所有消极事件类型
         negative_events = db.query_all(
             """SELECT de.event_id, de.event_name, de.score

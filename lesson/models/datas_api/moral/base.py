@@ -391,6 +391,7 @@ def get_record_data_scope(
 
     # 年级主任范围：如果未从配置获取，则回退到角色判断
     can_own_grade = has_user_role(user, 'g_leader') and not (scoped["has_any"](all_permissions) or can_own_class)
+    my_grade_ids = []
     my_grade_class_ids = []
     if can_own_grade:
         my_grade_ids = get_teacher_grade_ids(user, db)
@@ -405,6 +406,7 @@ def get_record_data_scope(
         "can_all": False,
         "can_own_class": can_own_class,
         "can_own_grade": can_own_grade,
+        "my_grade_ids": my_grade_ids,
         "my_grade_class_ids": my_grade_class_ids,
         "can_teaching_classes": False,
         "teaching_class_ids": teaching_class_ids,
@@ -677,15 +679,17 @@ def target_student_in_scope(
            LIMIT 1""",
         (api_path,)
     )
-    if not config or not config.get("target_scope_rules"):
+    if not config:
         return True
+    if not config.get("target_scope_rules"):
+        return False
 
     try:
         rules = json.loads(config.get("target_scope_rules"))
     except Exception:
-        return True
+        return False
     if not isinstance(rules, dict) or not rules:
-        return True
+        return False
 
     scopes = set()
     for role in scoped_roles:

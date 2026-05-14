@@ -28,7 +28,7 @@ from .base import (
     append_record_scope_condition,
     record_in_scope,
 )
-from models.datas_api.auth import User, get_current_user, is_admin_user
+from models.datas_api.auth import User, is_admin_user
 
 logger = logging.getLogger(__name__)
 
@@ -102,14 +102,18 @@ API_STUDENT_UPDATE = "/api/moral/admin/students/update"
 
 API_TEACHERS = "/api/moral/admin/teachers"
 API_GRADES = "/api/moral/admin/grades"
+API_GRADE_CREATE = "/api/moral/admin/grades/create"
 API_GRADE_UPDATE = "/api/moral/admin/grades/{grade_id}"
 API_GRADE_PROMOTE_PREVIEW = "/api/moral/admin/grades/promote/preview"
 API_GRADE_PROMOTE_EXECUTE = "/api/moral/admin/grades/promote/execute"
 API_GRADES_ARCHIVED = "/api/moral/admin/grades/archived"
 API_CLASSES = "/api/moral/admin/classes"
+API_CLASS_CREATE = "/api/moral/admin/classes/create"
 API_CLASS_UPDATE = "/api/moral/admin/classes/{class_id}"
 API_SCHOOL_YEARS = "/api/moral/admin/school-years"
+API_SCHOOL_YEAR_CREATE = "/api/moral/admin/school-years/create"
 API_SEMESTERS = "/api/moral/admin/semesters"
+API_SEMESTER_CREATE = "/api/moral/admin/semesters/create"
 API_SEMESTER_SET_CURRENT = "/api/moral/admin/semesters/{semester_id}/set-current"
 API_LOGS = "/api/moral/admin/logs"
 API_CONFIG = "/api/moral/admin/config"
@@ -227,7 +231,7 @@ class SemesterCreate(BaseModel):
 # =============================================================================
 
 @router.get("/teachers", summary="获取教师列表")
-async def get_teachers_for_config(user: User = Depends(require_configured_api_permission(API_TEACHERS))):
+async def get_teachers_for_config(user: User = Depends(require_configured_api_permission(API_TEACHERS, allow_missing=False))):
     """获取教师列表用于级号/班级配置（选择年级主任/班主任）"""
     with get_moral_db() as db:
         teachers = db.query_all(
@@ -240,7 +244,7 @@ async def get_teachers_for_config(user: User = Depends(require_configured_api_pe
 
 
 @router.get("/grades", summary="获取级号列表")
-async def get_grades(user: User = Depends(get_current_user)):
+async def get_grades(user: User = Depends(require_configured_api_permission(API_GRADES, allow_missing=False))):
     """获取级号列表"""
     with get_moral_db() as db:
         grades = db.query_all(
@@ -256,7 +260,7 @@ async def get_grades(user: User = Depends(get_current_user)):
 async def create_grade(
     grade: GradeCreate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_GRADES))
+    user: User = Depends(require_configured_api_permission(API_GRADE_CREATE, allow_missing=False))
 ):
     """创建级号"""
     with get_moral_db() as db:
@@ -296,7 +300,7 @@ async def update_grade(
     grade_id: int,
     data: GradeUpdate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_GRADE_UPDATE))
+    user: User = Depends(require_configured_api_permission(API_GRADE_UPDATE, allow_missing=False))
 ):
     """更新级号信息，包括年级主任（支持多人）"""
     with get_moral_db() as db:
@@ -358,7 +362,7 @@ async def update_grade(
 async def delete_grade(
     grade_id: int,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_GRADE_UPDATE))
+    user: User = Depends(require_configured_api_permission(API_GRADE_UPDATE, allow_missing=False))
 ):
     """删除级号"""
     with get_moral_db() as db:
@@ -386,7 +390,7 @@ async def delete_grade(
 
 @router.get("/grades/promote/preview", summary="预览升年级情况")
 async def preview_grade_promotion(
-    user: User = Depends(require_configured_api_permission(API_GRADE_PROMOTE_PREVIEW))
+    user: User = Depends(require_configured_api_permission(API_GRADE_PROMOTE_PREVIEW, allow_missing=False))
 ):
     """
     预览升年级情况
@@ -505,7 +509,7 @@ class PromoteExecuteRequest(BaseModel):
 async def execute_grade_promotion(
     request_data: PromoteExecuteRequest,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_GRADE_PROMOTE_EXECUTE))
+    user: User = Depends(require_configured_api_permission(API_GRADE_PROMOTE_EXECUTE, allow_missing=False))
 ):
     """
     执行升年级
@@ -632,7 +636,7 @@ async def execute_grade_promotion(
 
 @router.get("/grades/archived", summary="获取已归档年级列表")
 async def get_archived_grades(
-    user: User = Depends(require_configured_api_permission(API_GRADES_ARCHIVED))
+    user: User = Depends(require_configured_api_permission(API_GRADES_ARCHIVED, allow_missing=False))
 ):
     """
     获取已归档年级列表
@@ -665,7 +669,7 @@ async def get_classes(
     is_active: Optional[int] = Query(None),
     for_record_input: Optional[int] = Query(None, description="是否用于录入记录场景（1=任教+管理班级）"),
     for_evaluation: Optional[int] = Query(None, description="是否用于德育评价场景（1=只管理班级）"),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_CLASSES, allow_missing=False))
 ):
     """获取班级列表
 
@@ -747,7 +751,7 @@ async def get_classes(
 async def create_class(
     cls: ClassCreate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_CLASSES))
+    user: User = Depends(require_configured_api_permission(API_CLASS_CREATE, allow_missing=False))
 ):
     """创建班级"""
     with get_moral_db() as db:
@@ -797,7 +801,7 @@ async def update_class(
     class_id: int,
     cls: ClassUpdate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_CLASS_UPDATE))
+    user: User = Depends(require_configured_api_permission(API_CLASS_UPDATE, allow_missing=False))
 ):
     """更新班级"""
     with get_moral_db() as db:
@@ -874,7 +878,7 @@ async def update_class(
 async def delete_class(
     class_id: int,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_CLASS_UPDATE))
+    user: User = Depends(require_configured_api_permission(API_CLASS_UPDATE, allow_missing=False))
 ):
     """删除班级"""
     with get_moral_db() as db:
@@ -901,7 +905,7 @@ async def delete_class(
 # =============================================================================
 
 @router.get("/school-years", summary="获取学年列表")
-async def get_school_years(user: User = Depends(get_current_user)):
+async def get_school_years(user: User = Depends(require_configured_api_permission(API_SCHOOL_YEARS, allow_missing=False))):
     """获取学年列表"""
     with get_moral_db() as db:
         years = db.query_all(
@@ -918,7 +922,7 @@ async def get_school_years(user: User = Depends(get_current_user)):
 async def create_school_year(
     year: SchoolYearCreate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_SCHOOL_YEARS))
+    user: User = Depends(require_configured_api_permission(API_SCHOOL_YEAR_CREATE, allow_missing=False))
 ):
     """创建学年"""
     with get_moral_db() as db:
@@ -947,7 +951,7 @@ async def create_school_year(
 @router.get("/semesters", summary="获取学期列表")
 async def get_semesters(
     year_id: Optional[int] = Query(None),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_SEMESTERS, allow_missing=False))
 ):
     """获取学期列表"""
     with get_moral_db() as db:
@@ -984,7 +988,7 @@ async def get_semesters(
 async def create_semester(
     semester: SemesterCreate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_SEMESTERS))
+    user: User = Depends(require_configured_api_permission(API_SEMESTER_CREATE, allow_missing=False))
 ):
     """创建学期"""
     with get_moral_db() as db:
@@ -1019,7 +1023,7 @@ async def create_semester(
 async def set_current_semester(
     semester_id: int,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_SEMESTER_SET_CURRENT))
+    user: User = Depends(require_configured_api_permission(API_SEMESTER_SET_CURRENT, allow_missing=False))
 ):
     """设置当前学期"""
     with get_moral_db() as db:
@@ -1069,7 +1073,7 @@ async def get_students(
     for_record_input: int = Query(0, description="1=德育录入选择学生，仅返回最小字段"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=10000),  # 放开上限支持导出全量数据
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_STUDENT_LIST, allow_missing=False))
 ):
     """
     获取学生列表
@@ -1167,7 +1171,7 @@ def check_student_manage_permission(api_path: str):
 
     允许有 student_manage 或 student_manage_own_class 权限的用户访问
     """
-    async def check(user: User = Depends(get_current_user)):
+    async def check(user: User = Depends(require_configured_api_permission(api_path, allow_missing=False))):
         with get_moral_db() as db:
             has_full_permission = _has_scoped_permission(db, user, api_path, 'student_manage')
             has_own_class_permission = _has_scoped_permission(db, user, api_path, 'student_manage_own_class')
@@ -1475,7 +1479,7 @@ async def update_student_status(
     student_id: str,
     status: str = Query(..., description="状态：在校/休学/转出/毕业"),
     request: Request = None,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_STUDENT_UPDATE, allow_missing=False))
 ):
     """更新学生状态"""
     with get_moral_db() as db:
@@ -1525,7 +1529,7 @@ async def get_operation_logs(
     end_date: Optional[date] = Query(None, description="结束日期"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(require_configured_api_permission(API_LOGS))
+    user: User = Depends(require_configured_api_permission(API_LOGS, allow_missing=False))
 ):
     """
     获取操作日志列表
@@ -1612,7 +1616,7 @@ DEFAULT_CONFIG = {
 
 @router.get("/config", summary="获取系统配置")
 async def get_system_config(
-    user: User = Depends(require_configured_api_permission(API_CONFIG))
+    user: User = Depends(require_configured_api_permission(API_CONFIG, allow_missing=False))
 ):
     """
     获取系统配置
@@ -1656,7 +1660,7 @@ class ConfigUpdate(BaseModel):
 async def update_system_config(
     config: ConfigUpdate,
     request: Request,
-    user: User = Depends(require_configured_api_permission(API_CONFIG))
+    user: User = Depends(require_configured_api_permission(API_CONFIG, allow_missing=False))
 ):
     """
     更新系统配置

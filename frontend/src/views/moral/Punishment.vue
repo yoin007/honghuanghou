@@ -33,6 +33,8 @@
         <div class="card-header">
           <span>处分记录管理</span>
           <div class="header-actions">
+            <el-button @click="showExpiringDialog" type="warning" plain>到期提醒</el-button>
+            <el-button @click="showPeriodConfig" v-if="canConfigPeriod">期限配置</el-button>
             <el-button @click="handleExport">导出</el-button>
             <el-button type="primary" @click="handleAdd" v-if="canCreatePunishment">新增处分</el-button>
           </div>
@@ -57,6 +59,22 @@
           </template>
         </el-table-column>
         <el-table-column prop="punishment_date" label="处分日期" width="120" />
+        <el-table-column prop="expire_date" label="到期日期" width="120">
+          <template #default="{ row }">
+            <span v-if="row.expire_date">{{ row.expire_date }}</span>
+            <span v-else class="text-muted">未配置</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="到期状态" width="100">
+          <template #default="{ row }">
+            <template v-if="row.is_revoked === 0 && row.expire_date">
+              <el-tag v-if="isExpired(row.expire_date)" type="danger" size="small">已到期</el-tag>
+              <el-tag v-else-if="isExpiringSoon(row.expire_date)" type="warning" size="small">即将到期</el-tag>
+              <el-tag v-else type="success" size="small">生效中</el-tag>
+            </template>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="150">
           <template #default="{ row }">
             <div>
@@ -70,8 +88,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="revoke_date" label="撤销日期" width="120" />
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="handleApplyRevoke(row)" v-if="canApplyRevoke && row.is_revoked === 0 && row.expire_date && isExpired(row.expire_date)">代申请撤销</el-button>
             <el-button link type="warning" @click="handleRevoke(row)" v-if="row.is_revoked === 0 && canRevokePunishment">撤销</el-button>
             <el-button link type="primary" @click="handleReview(row)" v-if="row.review_status === 1 && canRevokePunishment">复核</el-button>
           </template>
@@ -239,6 +258,68 @@
         <el-button type="success" @click="handleReviewApprove">复核通过（扣分保留）</el-button>
       </template>
     </el-dialog>
+
+    <!-- 代申请撤销对话框 -->
+    <el-dialog v-model="applyRevokeDialogVisible" title="代学生申请撤销处分" width="500px">
+      <el-form :model="applyRevokeForm" ref="applyRevokeFormRef" label-width="100px">
+        <el-form-item label="处分信息">
+          <div class="punishment-info">
+            <p><strong>学生：</strong>{{ applyRevokeForm.student_name }}</p>
+            <p><strong>处分类型：</strong>{{ applyRevokeForm.punishment_type }}</p>
+            <p><strong>处分日期：</strong>{{ applyRevokeForm.punishment_date }}</p>
+            <p><strong>到期日期：</strong>{{ applyRevokeForm.expire_date }}</p>
+          </div>
+        </el-form-item>
+        <el-form-item label="申请理由" prop="apply_reason">
+          <el-input v-model="applyRevokeForm.apply_reason" type="textarea" :rows="3" placeholder="请填写申请理由，如观察期表现良好等" />
+        </el-form-item>
+        <el-form-item label="观察期表现">
+          <el-input v-model="applyRevokeForm.observation_proof" type="textarea" :rows="2" placeholder="描述观察期内的良好表现" />
+        </el-form-item>
+        <el-form-item label="良好记录数">
+          <el-input-number v-model="applyRevokeForm.good_record_count" :min="0" :max="100" />
+          <span class="hint" style="margin-left: 10px; color: #909399">观察期内良好表现记录数</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="applyRevokeDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleApplyRevokeSubmit">提交申请</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 到期提醒对话框 -->
+    <el-dialog v-model="expiringDialogVisible" title="处分到期提醒" width="700px">
+      <el-tabs v-model="expiringTab">
+        <el-tab-pane label="已到期" name="expired">
+          <el-table :data="expiredPunishments" v-loading="expiringLoading" size="small">
+            <el-table-column prop="student_name" label="学生" width="100" />
+            <el-table-column prop="class_name" label="班级" width="150" />
+            <el-table-column prop="punishment_type" label="处分类型" width="100" />
+            <el-table-column prop="expire_date" label="到期日期" width="120" />
+            <el-table-column label="操作" width="100">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="handleQuickApply(row)">代申请</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!expiredPunishments.length && !expiringLoading" description="暂无已到期处分" :image-size="60" />
+        </el-tab-pane>
+        <el-tab-pane label="即将到期（7天内）" name="expiring">
+          <el-table :data="expiringSoonPunishments" v-loading="expiringLoading" size="small">
+            <el-table-column prop="student_name" label="学生" width="100" />
+            <el-table-column prop="class_name" label="班级" width="150" />
+            <el-table-column prop="punishment_type" label="处分类型" width="100" />
+            <el-table-column prop="expire_date" label="到期日期" width="120" />
+            <el-table-column label="剩余天数" width="80">
+              <template #default="{ row }">
+                <el-tag :type="getDaysTagType(row.days_until_expire)" size="small">{{ row.days_until_expire }}天</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!expiringSoonPunishments.length && !expiringLoading" description="暂无即将到期处分" :image-size="60" />
+        </el-tab-pane>
+      </el-tabs>
+    </el-dialog>
   </div>
 </template>
 
@@ -254,15 +335,23 @@ import {
   reviewPunishment,
   getClasses,
   getGrades,
-  getStudents
+  getStudents,
+  getExpiringPunishments,
+  createRevokeApplication,
+  getPunishmentPeriods
 } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
 import { useApiPermission } from '@/composables/useApiPermission'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 // API权限
 const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
 const canCreatePunishment = ref(false)
 const canRevokePunishment = ref(false)
+const canApplyRevoke = ref(false)
+const canConfigPeriod = ref(false)
 
 // 数据
 const loading = ref(false)
@@ -344,6 +433,51 @@ const reviewInfo = reactive({
   source_records: [],
   recommendation: ''
 })
+
+// 代申请撤销对话框
+const applyRevokeDialogVisible = ref(false)
+const applyRevokeFormRef = ref(null)
+const applyRevokeForm = reactive({
+  punishment_id: null,
+  student_id: '',
+  student_name: '',
+  punishment_type: '',
+  punishment_date: '',
+  expire_date: '',
+  apply_reason: '',
+  observation_proof: '',
+  good_record_count: 0
+})
+
+// 到期提醒对话框
+const expiringDialogVisible = ref(false)
+const expiringTab = ref('expired')
+const expiringLoading = ref(false)
+const expiredPunishments = ref([])
+const expiringSoonPunishments = ref([])
+
+// 辅助函数：判断是否已到期
+const isExpired = (expireDate) => {
+  if (!expireDate) return false
+  const today = new Date().toISOString().slice(0, 10)
+  return expireDate <= today
+}
+
+// 辅助函数：判断是否即将到期（7天内）
+const isExpiringSoon = (expireDate) => {
+  if (!expireDate) return false
+  const today = new Date()
+  const expire = new Date(expireDate)
+  const diffDays = Math.ceil((expire - today) / (1000 * 60 * 60 * 24))
+  return diffDays > 0 && diffDays <= 7
+}
+
+// 辅助函数：获取剩余天数标签类型
+const getDaysTagType = (days) => {
+  if (days <= 1) return 'danger'
+  if (days <= 3) return 'warning'
+  return 'info'
+}
 
 // 方法
 const getPunishmentTagType = (level) => {
@@ -589,6 +723,70 @@ const handleReviewApprove = async () => {
   }
 }
 
+// 代申请撤销
+const handleApplyRevoke = (row) => {
+  Object.assign(applyRevokeForm, {
+    punishment_id: row.record_id,
+    student_id: row.student_id,
+    student_name: row.student_name,
+    punishment_type: row.punishment_type,
+    punishment_date: row.punishment_date,
+    expire_date: row.expire_date,
+    apply_reason: '',
+    observation_proof: '',
+    good_record_count: 0
+  })
+  applyRevokeDialogVisible.value = true
+}
+
+// 提交代申请撤销
+const handleApplyRevokeSubmit = async () => {
+  try {
+    const res = await createRevokeApplication({
+      punishment_id: applyRevokeForm.punishment_id,
+      student_id: applyRevokeForm.student_id,
+      apply_reason: applyRevokeForm.apply_reason,
+      observation_proof: applyRevokeForm.observation_proof,
+      good_record_count: applyRevokeForm.good_record_count
+    })
+    if (res.success) {
+      ElMessage.success('申请已提交，等待管理员审批')
+      applyRevokeDialogVisible.value = false
+      fetchRecords()
+    }
+  } catch (error) {
+    ElMessage.error('提交申请失败')
+  }
+}
+
+// 显示到期提醒对话框
+const showExpiringDialog = async () => {
+  expiringDialogVisible.value = true
+  expiringLoading.value = true
+  try {
+    const res = await getExpiringPunishments({ days: 7 })
+    if (res.success) {
+      expiredPunishments.value = res.data.already_expired || []
+      expiringSoonPunishments.value = res.data.expiring_soon || []
+    }
+  } catch (error) {
+    ElMessage.error('获取到期提醒失败')
+  } finally {
+    expiringLoading.value = false
+  }
+}
+
+// 快速代申请（从到期提醒对话框）
+const handleQuickApply = (row) => {
+  expiringDialogVisible.value = false
+  handleApplyRevoke(row)
+}
+
+// 显示期限配置页面
+const showPeriodConfig = () => {
+  router.push('/moral/config/punishment-period')
+}
+
 // 导出处分记录（支持筛选条件，导出全部数据）
 const handleExport = async () => {
   const params = { ...filterForm, page_size: 10000 }
@@ -631,6 +829,8 @@ onMounted(async () => {
   await loadMyPermissions()
   canCreatePunishment.value = hasApiPermissionSync('/api/moral/punishments/create')
   canRevokePunishment.value = hasApiPermissionSync('/api/moral/punishments/revoke')
+  canApplyRevoke.value = hasApiPermissionSync('/api/moral/punishment-revoke-applications/create')
+  canConfigPeriod.value = hasApiPermissionSync('/api/moral/punishment-periods')
   fetchGradeList()
   fetchClassList()
   fetchRecords()
@@ -675,6 +875,15 @@ onMounted(async () => {
 
 .score-hint {
   margin-left: 10px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.text-muted {
+  color: #909399;
+}
+
+.hint {
   color: #909399;
   font-size: 12px;
 }

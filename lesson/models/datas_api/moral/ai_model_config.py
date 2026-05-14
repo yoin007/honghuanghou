@@ -72,7 +72,7 @@ class ModelConfigResponse(BaseModel):
 
 @router.get("/list", summary="获取所有配置")
 async def get_all_configs(
-    user: User = Depends(require_configured_api_permission(API_AI_CONFIG))
+    user: User = Depends(require_configured_api_permission(API_AI_CONFIG, allow_missing=False))
 ):
     """获取所有模块的大模型配置"""
     with get_moral_db() as db:
@@ -84,7 +84,7 @@ async def get_all_configs(
 
 @router.get("/models", summary="获取可用模型列表")
 async def get_available_models(
-    user: User = Depends(require_configured_api_permission(API_AI_CONFIG))
+    user: User = Depends(require_configured_api_permission(API_AI_CONFIG, allow_missing=False))
 ):
     """获取所有可用的大模型列表"""
     return {"success": True, "data": AVAILABLE_MODELS}
@@ -94,7 +94,7 @@ async def get_available_models(
 async def update_model_config(
     module_name: str,
     update: ModelConfigUpdate,
-    user: User = Depends(require_configured_api_permission(API_AI_CONFIG))
+    user: User = Depends(require_configured_api_permission(API_AI_CONFIG, allow_missing=False))
 ):
     """更新指定模块的大模型配置"""
     # 验证模型名称是否在可用列表中
@@ -128,7 +128,7 @@ async def update_model_config(
 
 @router.post("/init", summary="初始化默认配置")
 async def init_default_configs(
-    user: User = Depends(require_configured_api_permission(API_AI_CONFIG))
+    user: User = Depends(require_configured_api_permission(API_AI_CONFIG, allow_missing=False))
 ):
     """初始化默认的大模型配置（如果表为空）"""
     with get_moral_db() as db:

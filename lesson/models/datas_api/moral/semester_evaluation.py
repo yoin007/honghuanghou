@@ -27,6 +27,7 @@ from .base import (
     get_api_scoped_user_roles,
     calculate_moral_level,
     get_moral_db,
+    record_in_scope,
 )
 from .evaluation import (
     calculate_evaluation,
@@ -38,7 +39,8 @@ from .evaluation import (
     get_recent_evaluation_records,
 )
 from .ai_model_config import get_current_model
-from models.datas_api.auth import User, get_current_user
+from .api_permission import require_configured_api_permission
+from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/semester-evaluations", tags=["学期末评价"])
@@ -47,6 +49,7 @@ router = APIRouter(prefix="/semester-evaluations", tags=["学期末评价"])
 API_GENERATE = "/api/moral/semester-evaluations/generate"
 API_BATCH_GENERATE = "/api/moral/semester-evaluations/batch-generate"
 API_LIST = "/api/moral/semester-evaluations/list"
+API_DETAIL = "/api/moral/semester-evaluations/{record_id}"
 
 
 # =============================================================================
@@ -503,7 +506,7 @@ async def api_generate_semester_evaluation(
     student_id: str = Query(..., description="学生ID"),
     semester_id: Optional[int] = Query(None, description="学期ID（默认当前学期）"),
     generate_ai: bool = Query(True, description="是否生成AI总结"),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_GENERATE, "POST", allow_missing=False))
 ):
     """
     生成单个学生的学期末德育评价报告。
@@ -543,7 +546,7 @@ async def api_batch_generate_semester_evaluations(
     grade_id: Optional[int] = Query(None, description="年级ID"),
     semester_id: Optional[int] = Query(None, description="学期ID"),
     generate_ai: bool = Query(True, description="是否生成AI总结"),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_BATCH_GENERATE, "POST", allow_missing=False))
 ):
     """
     批量生成学期末德育评价。
@@ -641,7 +644,7 @@ async def api_get_semester_evaluation_list(
     semester_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_LIST, "GET", allow_missing=False))
 ):
     """查询学期末评价记录列表"""
     with get_moral_db() as db:
@@ -713,7 +716,7 @@ async def api_get_semester_evaluation_list(
 @router.get("/{record_id}", summary="获取学期末评价详情")
 async def api_get_semester_evaluation_detail(
     record_id: int,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_DETAIL, "GET", allow_missing=False))
 ):
     """获取单个学期末评价记录详情"""
     with get_moral_db() as db:
@@ -730,6 +733,15 @@ async def api_get_semester_evaluation_detail(
 
         if not record:
             raise HTTPException(404, "评价记录不存在")
+
+        scope = get_record_data_scope(
+            db, user, API_DETAIL,
+            all_permissions=['moral_record_manage'],
+            own_class_permissions=['moral_record_own_class'],
+            own_permissions=[]
+        )
+        if not record_in_scope(record, scope, username=user.username):
+            raise HTTPException(403, "只能查看授权范围内的学期末评价记录")
 
         # 解析 JSON 字段
         result = dict(record)

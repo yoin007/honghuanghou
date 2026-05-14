@@ -63,6 +63,8 @@
 require_configured_api_permission(API_PATH, METHOD, allow_missing=False)
 ```
 
+对存在“函数直调测试”或“服务内部复用”的接口，还应在函数体内保留同口径的数据库权限断言，避免 FastAPI 依赖只在 HTTP 请求路径生效、而内部调用绕开鉴权。
+
 ### L3 数据记录范围授权
 
 回答：这个 API 涉及的数据记录里，你能看哪些。
@@ -219,16 +221,19 @@ require_configured_api_permission(API_PATH, METHOD, allow_missing=False)
 ## 6. 当前系统中应继续清理的混乱点
 
 1. API 鉴权
-   - 已迁移接口应全部 `allow_missing=False`
-   - “默认放行”必须改成数据库显式策略
+   - 日常表现、点滴记录、AI 诊疗、一生一册、AI 配置及一批系统管理接口，已统一切到 `allow_missing=False`
+   - `日常表现学生统计`、`一生一册导出` 已补成独立可配置 API
+   - 后续继续迁移的接口，也应坚持“默认放行必须改成数据库显式策略”
 
 2. 数据范围 fallback
    - `get_record_data_scope()` 仍存在静态权限 fallback
    - 迁移完成后应逐步取消
 
 3. 目标范围 fallback
-   - `target_student_in_scope()` 在缺配置时仍默认 `True`
-   - 长期应改成“缺配置拒绝”或“显式声明不限制”
+   - 已调整为：
+     - API 完全未纳管时，保留旧兼容行为
+     - API 已纳管但未配置 `target_scope_rules` 时，拒绝目标对象选择
+   - 后续可继续把“未纳管兼容放行”压缩到更小范围
 
 4. 旧静态权限名
    - `MORAL_PERMISSIONS`
@@ -240,6 +245,28 @@ require_configured_api_permission(API_PATH, METHOD, allow_missing=False)
    - `member.py` 的命令鉴权保留
    - HTTP API 的微信 token 支持走 `auth_mode=wechat_token/both`
    - 不应拿 `enforce_backend=0` 代替微信鉴权
+
+## 6.1 截至 2026-05-13 的实现状态
+
+已完成：
+
+- 统一 API 权限配置已落库，并由前端页面维护
+- 数据范围、目标范围、动作范围已拆分建模
+- 预览校验已支持按角色与多角色合并展示
+- 风险巡检、模块风险统计、审计报告导出已具备
+- 日常表现、点滴记录、生日提醒、评价查询、学生画像、学期末评价、校级事件、处分、任务、集体事件、诊疗、一生一册、任务结转、累进规则学生视图、菜单权限、数据库管理、基础配置与部分驾驶舱接口已纳入统一配置
+- `日常表现学生统计` 已按记录范围聚合，不再绕过数据权限
+- 学生画像、评价查询等动态路由已改成真实路由模板配置，不再停留在“逻辑别名路径”
+- dashboard 关键接口已补函数内数据库权限断言，HTTP 调用与直接函数调用保持同一权限语义
+- 年级趋势接口已改为先校验授权范围、再校验数据存在性，越权访问返回 `403`
+- 截至 2026-05-13，当前库权限巡检结果为 `174` 条 API、`0` 条风险
+- 截至 2026-05-13，后端全量测试 `608 passed`
+
+仍保留兼容层：
+
+- `get_record_data_scope()` 的静态权限 fallback
+- 明确暂缓迁移的老模块与部分辅助接口
+- 微信命令鉴权链路
 
 ## 7. 推荐的最终配置模型
 
@@ -269,4 +296,3 @@ require_configured_api_permission(API_PATH, METHOD, allow_missing=False)
 这样前端配置页面才能真正做到：
 
 > 看到 API，就能同时看懂它操作什么数据、谁能调用、能看哪些记录、能改哪些记录。
-

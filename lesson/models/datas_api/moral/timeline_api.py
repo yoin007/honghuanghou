@@ -13,11 +13,11 @@ from datetime import date
 
 from .base import (
     get_moral_db,
-    get_current_user,
     get_record_data_scope,
     append_record_scope_condition,
     record_in_scope,
 )
+from .api_permission import require_configured_api_permission
 from models.datas_api.auth import User
 
 router = APIRouter(prefix="/timeline", tags=["一生一册"])
@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 API_TIMELINE = "/api/moral/timeline"
 API_TIMELINE_SEARCH = "/api/moral/timeline/search"
+API_TIMELINE_EXPORT = "/api/moral/timeline/export/{student_id}/xlsx"
+API_TIMELINE_EXPORT_CLASS = "/api/moral/timeline/export/class/{class_id}"
 
 
 def _timeline_scope(db, user: User, api_path: str = API_TIMELINE) -> dict:
@@ -53,7 +55,7 @@ async def search_students_for_timeline(
     include_archived: int = Query(0, description="1=包含已归档（毕业/转出）学生"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_TIMELINE_SEARCH, "GET", allow_missing=False))
 ):
     """
     搜索学生用于一生一册查看
@@ -132,7 +134,7 @@ async def get_student_timeline(
     end_date: Optional[date] = Query(None),
     event_types: Optional[str] = Query(None, description="事件类型筛选：moment,daily,school,punishment,task,collective"),
     include_archived: int = Query(0, description="1=允许查询已归档学生"),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_TIMELINE, "GET", allow_missing=False))
 ):
     """
     获取学生成长时光轴
@@ -585,7 +587,7 @@ def _get_timeline_data(db, student_id: str, user: User):
 @router.get("/export/{student_id}/xlsx", summary="导出学生档案 Excel")
 async def export_lifebook_xlsx(
     student_id: str,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_TIMELINE_EXPORT, "GET", allow_missing=False))
 ):
     """导出一生一册为 Excel 多Sheet文件"""
     with get_moral_db() as db:
@@ -646,7 +648,7 @@ async def export_lifebook_xlsx(
 @router.get("/export/class/{class_id}", summary="批量导出班级学生档案")
 async def export_class_lifebooks(
     class_id: int,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_TIMELINE_EXPORT_CLASS, "GET", allow_missing=False))
 ):
     """批量导出班级所有学生档案（zip打包）"""
     import zipfile

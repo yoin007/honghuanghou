@@ -117,7 +117,7 @@
             collapse-tags
             collapse-tags-tooltip
             filterable
-            :disabled="!recordForm.class_id"
+            :disabled="!recordForm.class_id || !!recordForm.record_id"
           >
             <el-option
               v-for="student in classStudents"
@@ -408,13 +408,21 @@ const handleSubmit = async () => {
   try {
     await formRef.value.validate()
 
-    // 编辑模式：只更新备注
+    // 编辑模式：更新事件类型、时间、备注
     if (recordForm.record_id) {
-      const res = await updateDailyRecord(recordForm.record_id, { remark: recordForm.remark })
+      const updateData = {
+        remark: recordForm.remark,
+        event_id: recordForm.event_id,
+        record_date: recordForm.record_date
+      }
+
+      const res = await updateDailyRecord(recordForm.record_id, updateData)
       if (res.success) {
         ElMessage.success('更新成功')
         dialogVisible.value = false
         fetchRecords()
+      } else {
+        ElMessage.error(res.message || '更新失败')
       }
       return
     }

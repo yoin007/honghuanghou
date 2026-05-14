@@ -37,7 +37,7 @@ from .base import (
 )
 from .evaluation import calculate_evaluation
 from .escalation import check_and_trigger_escalation
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ API_DAILY_CREATE = "/api/moral/daily-records/create"
 API_DAILY_BATCH = "/api/moral/daily-records/batch"
 API_DAILY_UPDATE = "/api/moral/daily-records/update"
 API_DAILY_DELETE = "/api/moral/daily-records/delete"
+API_DAILY_STATS = "/api/moral/daily-records/statistics/student/{student_id}"
 
 
 def _has_scoped_permission(db, user: User, api_path: str, permission: str) -> bool:
@@ -108,6 +109,8 @@ class DailyRecordCreate(BaseModel):
 
 class DailyRecordUpdate(BaseModel):
     """更新日常表现记录"""
+    event_id: Optional[int] = Field(None, description="事件类型ID")
+    record_date: Optional[datetime] = Field(None, description="记录时间")
     remark: Optional[str] = Field(None, description="备注")
     is_deleted: Optional[int] = Field(None, description="是否删除")
 
@@ -152,7 +155,7 @@ class DailyEventTypeUpdate(BaseModel):
 async def get_daily_event_types(
     event_type: Optional[int] = Query(None, description="事件类型：1=积极，2=消极"),
     is_active: Optional[int] = Query(None, description="是否启用：不传返回全部，1=启用，0=禁用"),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission("/api/moral/daily-records/types", "GET", allow_missing=False))
 ):
     """获取日常事件类型列表"""
     with get_moral_db() as db:
@@ -186,7 +189,7 @@ async def get_daily_records(
     scope: Optional[str] = Query(None, description="数据范围: own(我创建的), managed_classes(管理班级), managed_grades(管理年级), all(全校)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_DAILY_LIST, "GET", allow_missing=False))
 ):
     """
     获取日常表现记录列表
@@ -355,7 +358,7 @@ async def get_daily_records(
 async def create_daily_record(
     record: DailyRecordCreate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_DAILY_CREATE, "POST", allow_missing=False))
 ):
     """
     创建日常表现记录
@@ -475,7 +478,7 @@ async def create_daily_record(
 async def batch_create_daily_records(
     records: List[DailyRecordCreate],
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_DAILY_BATCH, "POST", allow_missing=False))
 ):
     """
     批量创建日常表现记录
@@ -591,7 +594,7 @@ async def update_daily_record(
     record_id: int,
     update_data: DailyRecordUpdate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_DAILY_UPDATE, "PUT", allow_missing=False))
 ):
     """更新日常表现记录"""
     with get_moral_db() as db:
@@ -613,6 +616,28 @@ async def update_daily_record(
         # 构建更新语句
         updates = []
         params = []
+        new_event = None
+
+        if update_data.event_id is not None:
+            # 获取新事件类型
+            new_event = db.query_one(
+                "SELECT * FROM daily_event_type WHERE event_id = ? AND is_active = 1",
+                (update_data.event_id,)
+            )
+            if not new_event:
+                raise HTTPException(404, f"事件类型 {update_data.event_id} 不存在或已禁用")
+            updates.append("event_id = ?")
+            params.append(update_data.event_id)
+            updates.append("score = ?")
+            params.append(new_event['score'])
+
+        if update_data.record_date is not None:
+            # 验证记录时间不能超过当前时间
+            current_time_gmt8 = datetime.now(GMT8).replace(tzinfo=None)
+            if update_data.record_date > current_time_gmt8:
+                raise HTTPException(400, "记录时间不能超过当前时间")
+            updates.append("record_date = ?")
+            params.append(update_data.record_date.strftime('%Y-%m-%d %H:%M'))
 
         if update_data.remark is not None:
             updates.append("remark = ?")
@@ -632,11 +657,19 @@ async def update_daily_record(
         )
 
         # 记录操作日志
+        old_data = {'remark': old_record['remark']}
+        new_data = {'remark': update_data.remark}
+        if update_data.event_id is not None:
+            old_data['event_id'] = old_record['event_id']
+            new_data['event_id'] = update_data.event_id
+        if update_data.record_date is not None:
+            old_data['record_date'] = old_record['record_date']
+            new_data['record_date'] = str(update_data.record_date)
         log_operation(
             db, user.username, user.role, 'UPDATE', 'student_daily_record',
             record_id, old_record['semester_id'],
-            old_data={'remark': old_record['remark']},
-            new_data={'remark': update_data.remark},
+            old_data=old_data,
+            new_data=new_data,
             ip_address=request.client.host if request.client else None
         )
 
@@ -651,7 +684,7 @@ async def update_daily_record(
 async def delete_daily_record(
     record_id: int,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_DAILY_DELETE, "DELETE", allow_missing=False))
 ):
     """
     删除日常表现记录（软删除）
@@ -703,7 +736,7 @@ async def delete_daily_record(
 async def get_student_daily_statistics(
     student_id: str,
     semester_id: Optional[int] = Query(None),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_DAILY_STATS, "GET", allow_missing=False))
 ):
     """获取学生日常表现统计"""
     with get_moral_db() as db:
@@ -711,35 +744,47 @@ async def get_student_daily_statistics(
             current_semester = get_current_semester(db)
             semester_id = current_semester['semester_id'] if current_semester else None
 
+        scope = _daily_view_scope(db, user, API_DAILY_STATS)
+        conditions = ["dr.student_id = ?", "dr.semester_id = ?", "dr.is_deleted = 0"]
+        params = [student_id, semester_id]
+        append_record_scope_condition(
+            conditions,
+            params,
+            scope,
+            table_alias="dr",
+            username=user.username,
+        )
+        where_clause = " AND ".join(conditions)
+
         # 统计积极事件
         positive = db.query_one(
-            """SELECT COUNT(*) as count, SUM(score) as total_score
+            f"""SELECT COUNT(*) as count, SUM(dr.score) as total_score
             FROM student_daily_record dr
             JOIN daily_event_type de ON dr.event_id = de.event_id
-            WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
+            WHERE {where_clause}
             AND de.event_type = 1""",
-            (student_id, semester_id)
+            tuple(params)
         )
 
         # 统计消极事件
         negative = db.query_one(
-            """SELECT COUNT(*) as count, SUM(ABS(score)) as total_score
+            f"""SELECT COUNT(*) as count, SUM(ABS(dr.score)) as total_score
             FROM student_daily_record dr
             JOIN daily_event_type de ON dr.event_id = de.event_id
-            WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
+            WHERE {where_clause}
             AND de.event_type = 2""",
-            (student_id, semester_id)
+            tuple(params)
         )
 
         # 按事件类型统计
         event_stats = db.query_all(
-            """SELECT de.event_name, de.event_type, COUNT(*) as count, SUM(dr.score) as total_score
+            f"""SELECT de.event_name, de.event_type, COUNT(*) as count, SUM(dr.score) as total_score
             FROM student_daily_record dr
             JOIN daily_event_type de ON dr.event_id = de.event_id
-            WHERE dr.student_id = ? AND dr.semester_id = ? AND dr.is_deleted = 0
+            WHERE {where_clause}
             GROUP BY de.event_id
             ORDER BY count DESC""",
-            (student_id, semester_id)
+            tuple(params)
         )
 
         return {

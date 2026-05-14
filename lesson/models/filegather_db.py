@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_STORAGE_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "storage", "filegather")
 
 # 允许的文件扩展名
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "doc", "docx", "xlsx", "xls", "ppt", "pptx", "pdf"}
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "doc", "docx", "xlsx", "xls", "ppt", "pptx", "pdf", "zip", "rar"}
 
 # 最大文件大小 (50MB)
 MAX_FILE_SIZE = 50 * 1024 * 1024

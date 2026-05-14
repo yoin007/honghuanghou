@@ -21,7 +21,8 @@ from .base import (
     record_in_scope,
     target_student_in_scope,
 )
-from models.datas_api.auth import User, get_current_user
+from .api_permission import require_configured_api_permission
+from models.datas_api.auth import User
 
 # 导入 AI 调用模块（放在顶部，确保后续函数可用）
 from .consultation_ai import (
@@ -158,7 +159,7 @@ async def get_consultations(
     priority: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_CONSULTATION_LIST, "GET", allow_missing=False))
 ):
     """
     获取诊疗会话列表
@@ -227,7 +228,7 @@ async def create_consultation(
     consultation: ConsultationCreate,
     request: Request,
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_CONSULTATION_CREATE, "POST", allow_missing=False))
 ):
     """创建诊疗会话 - 异步处理 AI 分析"""
     with get_moral_db() as db:
@@ -344,7 +345,7 @@ def run_ai_analysis_background(
 @router.get("/{consultation_id}", summary="获取诊疗会话详情")
 async def get_consultation(
     consultation_id: int,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_CONSULTATION_LIST, "GET", allow_missing=False))
 ):
     """获取诊疗会话详情"""
     with get_moral_db() as db:
@@ -374,7 +375,7 @@ async def update_consultation(
     consultation_id: int,
     update_data: ConsultationUpdate,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_CONSULTATION_UPDATE, "PUT", allow_missing=False))
 ):
     """更新诊疗会话"""
     with get_moral_db() as db:
@@ -438,7 +439,7 @@ async def add_consultation_message(
     message: MessageCreate,
     background_tasks: BackgroundTasks,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_CONSULTATION_UPDATE, "POST", allow_missing=False))
 ):
     """添加诊疗消息 - 异步生成 AI 回复"""
     with get_moral_db() as db:
@@ -560,7 +561,7 @@ async def close_consultation(
     consultation_id: int,
     outcome: Optional[str] = Query(None, description="处理结果"),
     request: Request = None,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_CONSULTATION_CLOSE, "POST", allow_missing=False))
 ):
     """关闭诊疗会话"""
     with get_moral_db() as db:

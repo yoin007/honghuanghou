@@ -16,7 +16,10 @@ from models.datas_api.moral.base import (
     has_user_role,
     get_record_data_scope,
 )
-from models.datas_api.moral.api_permission import require_configured_api_permission
+from models.datas_api.moral.api_permission import (
+    check_configured_api_permission,
+    require_configured_api_permission,
+)
 from models.datas_api.dashboard_common import (
     current_week_range as _current_week_range,
     date_range as _date_range,
@@ -101,6 +104,18 @@ API_DASHBOARD_INVIGILATION_SUMMARY = "/api/dashboard/invigilation/summary"
 API_DASHBOARD_SYSTEM_SUMMARY = "/api/dashboard/system/summary"
 
 
+def _ensure_dashboard_api_access(user: User, api_path: str) -> None:
+    """Keep direct function calls aligned with FastAPI dependency checks."""
+    decision = check_configured_api_permission(
+        user,
+        api_path,
+        "GET",
+        allow_missing=False,
+    )
+    if not decision.get("allowed"):
+        raise HTTPException(status_code=403, detail=decision.get("reason") or "API权限不足")
+
+
 class _ClosingSQLiteConnection:
     """Delegate sqlite connection access and close after with blocks."""
 
@@ -126,6 +141,7 @@ class _ClosingSQLiteConnection:
 
 @router.get("/overview", summary="当前用户数据驾驶舱总览")
 async def get_dashboard_overview(user: User = Depends(require_configured_api_permission(API_DASHBOARD_OVERVIEW, "GET", allow_missing=False))):
+    _ensure_dashboard_api_access(user, API_DASHBOARD_OVERVIEW)
     cards = _base_overview_cards(user)
     modules = [
         {"title": "德育驾驶舱", "route": "/dashboard/moral", "visible": _is_moral_manager(user) or has_user_role(user, "cleader")},
@@ -160,6 +176,7 @@ async def get_moral_dashboard_summary(
     - 年级主任：本年级学生 + 本年级班级对比
     - 学发/教务/管理员：全校学生 + 全校班级对比
     """
+    _ensure_dashboard_api_access(user, API_DASHBOARD_MORAL_SUMMARY)
     top_n = _normalize_top_n(top_n)
 
     with get_moral_db() as db:
@@ -334,6 +351,7 @@ async def get_teaching_dashboard_summary(
     注意：教务驾驶舱不展示请假学生数据（tables 不含 leave_students）。
     权限：入口已由 require_configured_api_permission 检查。
     """
+    _ensure_dashboard_api_access(user, API_DASHBOARD_TEACHING_SUMMARY)
     week_range = _current_week_range()
     if not isinstance(start_date, date):
         start_date = None
@@ -504,6 +522,7 @@ async def get_class_dashboard_summary(
     Batch47: 增强请假学生名单展示、出勤 insights。
     权限：配置驱动数据范围。
     """
+    _ensure_dashboard_api_access(user, API_DASHBOARD_CLASS_SUMMARY)
     top_n = _normalize_top_n(top_n)
     with get_moral_db() as db:
         # 配置驱动的数据范围
@@ -520,13 +539,19 @@ async def get_class_dashboard_summary(
 
         # 确定查询班级
         if not class_id:
-            if scope.get('my_class_ids'):
+            if has_user_role(user, "cleader") and not scope.get("can_all"):
+                managed_class_id = get_teacher_class_id(user, db)
+                if managed_class_id is None:
+                    raise HTTPException(status_code=403, detail="无班级驾驶舱权限")
+                class_id = managed_class_id
+                class_id_resolved_from_owner = True
+            if not class_id and scope.get('my_class_ids'):
                 class_id = scope['my_class_ids'][0]
                 class_id_resolved_from_owner = True
-            elif scope.get('can_all'):
+            elif not class_id and scope.get('can_all'):
                 first_class = db.query_one("SELECT class_id FROM class WHERE is_active = 1 ORDER BY class_id LIMIT 1")
                 class_id = first_class["class_id"] if first_class else None
-            else:
+            elif not class_id:
                 raise HTTPException(status_code=403, detail="无班级驾驶舱权限")
 
         if not class_id:
@@ -936,6 +961,10 @@ async def get_teacher_workbench(
 
     管理员/年级主任可通过 teacher_name 参数查看其他教师的工作台数据。
     """
+    _ensure_dashboard_api_access(user, API_DASHBOARD_TEACHER_WORKBENCH)
+    if not isinstance(teacher_name, str):
+        teacher_name = None
+
     # 权限判断：管理员/年级主任可查看其他教师，普通教师只能查看自己
     if teacher_name and teacher_name != user.username:
         if not (_is_moral_manager(user) or has_user_role(user, 'g_leader')):
@@ -1007,6 +1036,7 @@ async def get_invigilation_dashboard_summary(
     """监考驾驶舱：考试项目状态、安排完整度、通知状态、教师负载、预警列表
     权限：入口已由 require_configured_api_permission 检查。
     """
+    _ensure_dashboard_api_access(user, API_DASHBOARD_INVIGILATION_SUMMARY)
     top_n = _normalize_top_n(top_n)
 
     today_str = date.today().isoformat()
@@ -1080,6 +1110,7 @@ async def get_system_dashboard_summary(user: User = Depends(require_configured_a
     """系统运维驾驶舱：服务状态、数据库统计、用户权限、操作审计
     权限：入口已由 require_configured_api_permission 检查。
     """
+    _ensure_dashboard_api_access(user, API_DASHBOARD_SYSTEM_SUMMARY)
     # 1. 数据库统计
     db_dir = os.path.join(os.path.dirname(__file__), "..", "..", "databases")
     db_files = []

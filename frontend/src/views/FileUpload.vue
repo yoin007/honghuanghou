@@ -34,7 +34,7 @@
             :on-change="handleFileChange"
             :on-exceed="handleExceed"
             :file-list="fileList"
-            accept=".jpg,.jpeg,.png,.doc,.docx,.xlsx,.xls,.ppt,.pptx,.pdf"
+            accept=".jpg,.jpeg,.png,.doc,.docx,.xlsx,.xls,.ppt,.pptx,.pdf,.zip,.rar"
           >
             <el-icon class="el-icon--upload"><upload-filled /></el-icon>
             <div class="el-upload__text">
@@ -42,7 +42,7 @@
             </div>
             <template #tip>
               <div class="el-upload__tip">
-                支持 jpg, png, doc, docx, xlsx, xls, ppt, pptx, pdf 格式，最大 50MB
+                支持 jpg, png, doc, docx, xlsx, xls, ppt, pptx, pdf, zip, rar 格式，最大 50MB
               </div>
             </template>
           </el-upload>

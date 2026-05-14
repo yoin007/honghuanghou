@@ -738,6 +738,10 @@ async def get_grade_score_trend(
             own_class_permissions=['report_view_own_class'],
             own_permissions=[]
         )
+        if not scope.get('can_all'):
+            managed_grade_ids = set(scope.get('my_grade_ids', []))
+            if grade_id_int not in managed_grade_ids:
+                raise HTTPException(status_code=403, detail="只能查看授权范围内的年级")
 
         # 获取年级下所有班级（通过 grade_id 关联）
         if grade_id_int:

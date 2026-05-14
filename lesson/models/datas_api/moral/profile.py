@@ -26,16 +26,20 @@ from .base import (
     get_record_data_scope,
     record_in_scope,
 )
-from models.datas_api.auth import User, get_current_user
+from .api_permission import require_configured_api_permission
+from models.datas_api.auth import User
 from .ai_model_config import get_current_model
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/profiles", tags=["学生画像"])
 
-API_PROFILE_VIEW = "/api/moral/profiles/student"
-API_PROFILE_GENERATE = "/api/moral/profiles/student/generate"
-API_PROFILE_BATCH_GENERATE = API_PROFILE_GENERATE
+API_PROFILE_VIEW = "/api/moral/profiles/student/{student_id}"
+API_PROFILE_GENERATE = "/api/moral/profiles/student/{student_id}/generate"
+API_PROFILE_GENERATE_ASYNC = "/api/moral/profiles/student/{student_id}/generate-async"
+API_PROFILE_GENERATION_STATUS = "/api/moral/profiles/generation-status/{job_id}"
+API_PROFILE_BATCH_GENERATE = "/api/moral/profiles/batch-generate"
+API_PROFILE_CONFIG = "/api/moral/profiles/config"
 PROFILE_GENERATION_JOBS: Dict[str, Dict[str, Any]] = {}
 PROFILE_JOB_TTL_SECONDS = 30 * 60
 
@@ -229,7 +233,7 @@ class ProfileUpdate(BaseModel):
 @router.get("/student/{student_id}", summary="获取学生画像")
 async def get_student_profile(
     student_id: str,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_PROFILE_VIEW, "GET", allow_missing=False))
 ):
     """
     获取学生画像
@@ -296,7 +300,7 @@ async def get_student_profile(
 async def generate_student_profile(
     student_id: str,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_PROFILE_GENERATE, "POST", allow_missing=False))
 ):
     """
     生成学生画像（基于德育数据分析）
@@ -333,7 +337,7 @@ async def generate_student_profile(
 async def generate_student_profile_async(
     student_id: str,
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_PROFILE_GENERATE_ASYNC, "POST", allow_missing=False))
 ):
     """创建画像生成任务，立即返回任务ID，由前端轮询结果。"""
     _cleanup_profile_jobs()
@@ -376,7 +380,7 @@ async def generate_student_profile_async(
 @router.get("/generation-status/{job_id}", summary="查询画像生成任务状态")
 async def get_profile_generation_status(
     job_id: str,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_PROFILE_GENERATION_STATUS, "GET", allow_missing=False))
 ):
     """查询画像生成任务状态。"""
     _cleanup_profile_jobs()
@@ -513,7 +517,7 @@ async def batch_generate_profiles(
     class_id: Optional[int] = Query(None),
     grade_id: Optional[int] = Query(None),
     request: Request = None,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_configured_api_permission(API_PROFILE_BATCH_GENERATE, "POST", allow_missing=False))
 ):
     """批量生成学生画像"""
     with get_moral_db() as db:
@@ -597,7 +601,7 @@ async def batch_generate_profiles(
 
 
 @router.get("/config", summary="获取画像配置")
-async def get_profile_config(user: User = Depends(get_current_user)):
+async def get_profile_config(user: User = Depends(require_configured_api_permission(API_PROFILE_CONFIG, "GET", allow_missing=False))):
     """获取画像配置"""
     with get_moral_db() as db:
         configs = db.query_all("SELECT * FROM profile_config")

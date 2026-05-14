@@ -113,7 +113,7 @@ class TestDashboardSQLiteBaseMigration:
             conn.close()
 
         # Monkeypatch 数据库路径
-        original_dir = os.path.dirname(dashboard.__file__)
+        original_join = os.path.join
 
         def fake_join(base_dir, *parts):
             # 拦截 databases 路径拼接
@@ -125,7 +125,7 @@ class TestDashboardSQLiteBaseMigration:
                     return str(inout_db)
                 elif db_name == "invigilation.db":
                     return str(invigilation_db)
-            return os.path.join(base_dir, *parts)
+            return original_join(base_dir, *parts)
 
         monkeypatch.setattr(os.path, "join", fake_join)
 
