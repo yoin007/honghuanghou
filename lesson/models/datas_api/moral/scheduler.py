@@ -721,12 +721,18 @@ def teacher_todo_reminder_task():
                 # 记录提醒日志（使用 reminder_sequence）
                 db.execute(
                     """INSERT INTO teacher_todo_reminder_log
-                    (occurrence_id, todo_series_id, teacher_id, reminder_type,
+                    (occurrence_id, receiver_teacher_id, planned_remind_at,
+                     todo_series_id, teacher_id, reminder_type,
                      remind_before_minutes, scheduled_remind_time, actual_remind_time,
                      message, is_sent, reminder_sequence)
-                    VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, ?, ?)""",
+                    VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?, ?, ?)""",
                     (
-                        todo['occurrence_id'], todo['todo_series_id'], teacher_id, remind_before,
+                        todo['occurrence_id'],
+                        teacher_id,
+                        remind_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        todo['todo_series_id'],
+                        teacher_id,
+                        remind_before,
                         remind_time.strftime("%Y-%m-%d %H:%M:%S"),
                         now.strftime("%Y-%m-%d %H:%M:%S"),
                         log_message,
