@@ -74,7 +74,7 @@ export function useNavigationPermissions() {
     canViewEvaluation.value = hasApiPermissionSync('/api/moral/evaluations/class') || hasApiPermissionSync('/api/moral/evaluation/class')
     canViewMoment.value = hasApiPermissionSync('/api/moral/moment-records')
     canViewLifebook.value = hasApiPermissionSync('/api/moral/timeline')
-    canViewProfile.value = hasApiPermissionSync('/api/moral/profiles/student') || hasApiPermissionSync('/api/moral/profile/student')
+    canViewProfile.value = hasApiPermissionSync('/api/moral/profiles') || hasApiPermissionSync('/api/moral/profiles/student/{student_id}')
     canViewBirthday.value = hasApiPermissionSync('/api/moral/birthdays/upcoming')
     canViewStudentManage.value = (
       hasApiPermissionSync('/api/moral/admin/students/create') ||

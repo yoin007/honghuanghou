@@ -9,6 +9,8 @@
 import json
 import logging
 import re
+import time
+import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Dict, Any, List
@@ -28,6 +30,7 @@ from .base import (
     calculate_moral_level,
     get_moral_db,
     record_in_scope,
+    target_student_in_scope,
 )
 from .evaluation import (
     calculate_evaluation,
@@ -48,8 +51,85 @@ router = APIRouter(prefix="/semester-evaluations", tags=["学期末评价"])
 # API 路径常量
 API_GENERATE = "/api/moral/semester-evaluations/generate"
 API_BATCH_GENERATE = "/api/moral/semester-evaluations/batch-generate"
+API_BATCH_STATUS = "/api/moral/semester-evaluations/batch-status/{job_id}"
 API_LIST = "/api/moral/semester-evaluations/list"
 API_DETAIL = "/api/moral/semester-evaluations/{record_id}"
+SEMESTER_EVALUATION_JOBS: Dict[str, Dict[str, Any]] = {}
+SEMESTER_EVALUATION_JOB_TTL_SECONDS = 60 * 60
+
+
+def _cleanup_semester_evaluation_jobs() -> None:
+    now = time.time()
+    expired = [
+        job_id for job_id, job in SEMESTER_EVALUATION_JOBS.items()
+        if now - job.get('created_at', now) > SEMESTER_EVALUATION_JOB_TTL_SECONDS
+    ]
+    for job_id in expired:
+        SEMESTER_EVALUATION_JOBS.pop(job_id, None)
+
+
+def _run_semester_evaluation_batch_job(job_id: str) -> None:
+    job = SEMESTER_EVALUATION_JOBS.get(job_id)
+    if not job:
+        return
+    students = job.get('students') or []
+    user = job.get('user')
+    semester_id = job.get('semester_id')
+    generate_ai = bool(job.get('generate_ai'))
+    job.update({
+        "status": "running",
+        "message": "正在批量生成学期末评价",
+        "started_at": time.time(),
+    })
+    success_count = 0
+    errors = []
+    results = []
+    try:
+        with get_moral_db() as db:
+            for index, student in enumerate(students, start=1):
+                job.update({
+                    "current": index,
+                    "current_student_id": student.get('student_id'),
+                    "current_student_name": student.get('name') or student.get('student_id'),
+                    "message": f"正在生成 {index}/{len(students)}",
+                })
+                try:
+                    result = generate_semester_evaluation_with_ai(
+                        db, student['student_id'], semester_id, user, generate_ai
+                    )
+                    success_count += 1
+                    if len(results) < 20:
+                        results.append(result)
+                except Exception as exc:
+                    error_msg = f"{student.get('student_id')}: {str(exc)}"
+                    errors.append(error_msg)
+                    logger.error("批量生成学期末评价失败: %s", error_msg)
+                job.update({
+                    "success_count": success_count,
+                    "error_count": len(errors),
+                    "errors": errors[:10],
+                    "evaluations": results,
+                })
+
+        job.update({
+            "status": "success" if not errors else "partial_success",
+            "message": f"批量生成完成：成功 {success_count} 个，失败 {len(errors)} 个",
+            "success_count": success_count,
+            "error_count": len(errors),
+            "errors": errors[:10],
+            "evaluations": results,
+            "finished_at": time.time(),
+        })
+    except Exception as exc:
+        logger.exception("学期末评价批量生成任务失败: %s", exc)
+        job.update({
+            "status": "failed",
+            "message": str(exc) or "批量生成任务失败",
+            "success_count": success_count,
+            "error_count": len(errors) + 1,
+            "errors": (errors + [str(exc)])[:10],
+            "finished_at": time.time(),
+        })
 
 
 # =============================================================================
@@ -58,51 +138,40 @@ API_DETAIL = "/api/moral/semester-evaluations/{record_id}"
 
 def _has_generate_permission(db, user: User, student_id: str = None) -> bool:
     """检查是否具有生成权限（配置驱动，支持多角色）"""
-    scoped_roles = get_api_scoped_user_roles(db, user, API_GENERATE)
-
-    # admin/xuefa 有全部权限
-    if check_moral_permission_for_roles(scoped_roles, 'moral_record_manage'):
-        return True
-
-    # g_leader 只能操作本年级学生
-    if 'g_leader' in scoped_roles:
-        if student_id:
-            student = db.query_one("SELECT grade_id FROM student WHERE student_id = ?", (student_id,))
-            if student:
-                my_grade_ids = get_teacher_grade_ids(user, db)
-                return student['grade_id'] in my_grade_ids
+    if not student_id:
         return False
-
-    # cleader 只能操作本班学生
-    if 'cleader' in scoped_roles:
-        if student_id:
-            student = db.query_one("SELECT class_id FROM student WHERE student_id = ?", (student_id,))
-            if student:
-                return is_class_leader(user, student['class_id'], db)
+    student = db.query_one(
+        "SELECT student_id, class_id, grade_id FROM student WHERE student_id = ?",
+        (student_id,),
+    )
+    if not student:
         return False
-
-    return False
+    return target_student_in_scope(db, user, API_GENERATE, student)
 
 
 def _check_batch_permission(db, user: User, class_id: int = None, grade_id: int = None) -> bool:
     """检查批量生成权限和数据范围"""
-    scoped_roles = get_api_scoped_user_roles(db, user, API_BATCH_GENERATE)
-
-    # admin/xuefa 有全部权限
-    if check_moral_permission_for_roles(scoped_roles, 'moral_record_manage'):
+    scope = get_record_data_scope(
+        db,
+        user,
+        API_BATCH_GENERATE,
+        all_permissions=['moral_record_manage'],
+        own_class_permissions=['moral_record_own_class'],
+        own_permissions=[],
+    )
+    if scope.get('can_all'):
         return True
 
-    # g_leader 只能操作本年级
-    if 'g_leader' in scoped_roles:
+    if scope.get('can_own_grade'):
         if grade_id:
-            my_grade_ids = get_teacher_grade_ids(user, db)
-            return grade_id in my_grade_ids
+            return grade_id in get_teacher_grade_ids(user, db)
+        if class_id:
+            return class_id in (scope.get('my_grade_class_ids') or [])
         return False
 
-    # cleader 只能操作本班
-    if 'cleader' in scoped_roles:
+    if scope.get('can_own_class'):
         if class_id:
-            return is_class_leader(user, class_id, db)
+            return class_id in (scope.get('my_class_ids') or [])
         return False
 
     return False
@@ -542,6 +611,7 @@ async def api_generate_semester_evaluation(
 
 @router.post("/batch-generate", summary="批量生成学期末评价")
 async def api_batch_generate_semester_evaluations(
+    background_tasks: BackgroundTasks,
     class_id: Optional[int] = Query(None, description="班级ID"),
     grade_id: Optional[int] = Query(None, description="年级ID"),
     semester_id: Optional[int] = Query(None, description="学期ID"),
@@ -557,6 +627,7 @@ async def api_batch_generate_semester_evaluations(
     - cleader：仅本班
     """
     with get_moral_db() as db:
+        _cleanup_semester_evaluation_jobs()
         # 权限检查
         if not _check_batch_permission(db, user, class_id, grade_id):
             raise HTTPException(403, "权限不足或超出数据范围")
@@ -593,8 +664,9 @@ async def api_batch_generate_semester_evaluations(
                 if grade_class_ids:
                     conditions.append(f"class_id IN ({','.join(map(str, grade_class_ids))})")
             elif scope.get('can_own_class'):
-                conditions.append("class_id = ?")
-                params.append(scope.get('my_class_id'))
+                class_ids = scope.get('my_class_ids') or []
+                if class_ids:
+                    conditions.append(f"class_id IN ({','.join(map(str, class_ids))})")
 
         students = db.query_all(
             f"SELECT student_id FROM student WHERE {' AND '.join(conditions)}",
@@ -605,36 +677,75 @@ async def api_batch_generate_semester_evaluations(
             return {
                 "success": True,
                 "message": "没有需要生成的学生",
-                "data": {"success_count": 0, "error_count": 0, "errors": []}
+                "data": {"success_count": 0, "error_count": 0, "total_count": 0, "errors": []}
             }
 
-        # 批量生成
-        success_count = 0
-        errors = []
-        results = []
-
-        for student in students:
-            try:
-                result = generate_semester_evaluation_with_ai(
-                    db, student['student_id'], semester_id, user, generate_ai
-                )
-                success_count += 1
-                results.append(result)
-            except Exception as e:
-                errors.append(f"{student['student_id']}: {str(e)}")
-                logger.error(f"批量生成失败: {errors[-1]}")
+        job_id = uuid.uuid4().hex
+        SEMESTER_EVALUATION_JOBS[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "message": "批量生成任务已提交",
+            "created_by": user.username,
+            "created_at": time.time(),
+            "semester_id": semester_id,
+            "generate_ai": generate_ai,
+            "students": [dict(student) for student in students],
+            "total_count": len(students),
+            "success_count": 0,
+            "error_count": 0,
+            "current": 0,
+            "errors": [],
+            "evaluations": [],
+            "user": user,
+        }
+        background_tasks.add_task(_run_semester_evaluation_batch_job, job_id)
 
         return {
             "success": True,
-            "message": f"成功生成 {success_count} 个评价，失败 {len(errors)} 个",
+            "message": "批量生成任务已提交",
             "data": {
-                "success_count": success_count,
-                "error_count": len(errors),
+                "job_id": job_id,
+                "status": "queued",
                 "total_count": len(students),
-                "errors": errors[:10],
-                "evaluations": results[:20],
+                "success_count": 0,
+                "error_count": 0,
+                "errors": [],
             }
         }
+
+
+@router.get("/batch-status/{job_id}", summary="查询学期末评价批量生成状态")
+async def get_semester_evaluation_batch_status(
+    job_id: str,
+    user: User = Depends(require_configured_api_permission(API_BATCH_STATUS, "GET", allow_missing=False))
+):
+    _cleanup_semester_evaluation_jobs()
+    job = SEMESTER_EVALUATION_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "批量生成任务不存在或已过期")
+    if job.get("created_by") != user.username:
+        raise HTTPException(403, "只能查看自己提交的批量生成任务")
+    total_count = int(job.get("total_count") or 0)
+    current = int(job.get("current") or 0)
+    progress = int(current * 100 / total_count) if total_count else 100
+    return {
+        "success": True,
+        "data": {
+            "job_id": job_id,
+            "status": job.get("status"),
+            "message": job.get("message"),
+            "total_count": total_count,
+            "success_count": int(job.get("success_count") or 0),
+            "error_count": int(job.get("error_count") or 0),
+            "current": current,
+            "progress": min(progress, 100),
+            "current_student_id": job.get("current_student_id"),
+            "current_student_name": job.get("current_student_name"),
+            "errors": job.get("errors") or [],
+            "evaluations": job.get("evaluations") or [],
+            "finished_at": job.get("finished_at"),
+        }
+    }
 
 
 @router.get("/list", summary="查询学期末评价列表")

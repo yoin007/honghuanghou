@@ -58,6 +58,10 @@
     <el-card v-if="generateProgress.show" class="progress-card">
       <el-progress :percentage="generateProgress.percentage" :status="generateProgress.status" />
       <div class="progress-text">
+        <span v-if="generateProgress.message">{{ generateProgress.message }}</span>
+        <span v-if="generateProgress.current_student_name">
+          当前：{{ generateProgress.current_student_name }}
+        </span>
         已完成 {{ generateProgress.success_count }} / {{ generateProgress.total_count }}
         <span v-if="generateProgress.error_count > 0" class="error-text">
           (失败 {{ generateProgress.error_count }} 个)
@@ -293,6 +297,8 @@ const generateProgress = reactive({
   success_count: 0,
   error_count: 0,
   total_count: 0,
+  message: '',
+  current_student_name: '',
   errors: [],
 })
 
@@ -412,7 +418,12 @@ async function handleBatchGenerate() {
     generateProgress.show = true
     generateProgress.percentage = 0
     generateProgress.status = ''
+    generateProgress.message = '正在提交批量生成任务...'
+    generateProgress.current_student_name = ''
     generateProgress.errors = []
+    generateProgress.success_count = 0
+    generateProgress.error_count = 0
+    generateProgress.total_count = 0
 
     const params = {
       semester_id: filterForm.semester_id,
@@ -426,15 +437,21 @@ async function handleBatchGenerate() {
 
     const res = await moralApi.batchGenerateSemesterEvaluations(params)
     if (res?.success) {
-      const data = res.data
-      generateProgress.success_count = data.success_count
-      generateProgress.error_count = data.error_count
-      generateProgress.total_count = data.total_count
-      generateProgress.errors = data.errors || []
-      generateProgress.percentage = 100
-      generateProgress.status = data.error_count > 0 ? 'warning' : 'success'
-
-      ElMessage.success(`批量生成完成：成功 ${data.success_count} 个`)
+      const jobId = res.data?.job_id
+      generateProgress.total_count = res.data?.total_count || 0
+      generateProgress.message = res.message || '批量生成任务已提交'
+      if (jobId) {
+        ElMessage.info('批量生成任务已提交，正在后台处理')
+        await pollBatchGenerate(jobId)
+      } else {
+        const data = res.data || {}
+        generateProgress.success_count = data.success_count || 0
+        generateProgress.error_count = data.error_count || 0
+        generateProgress.total_count = data.total_count || 0
+        generateProgress.errors = data.errors || []
+        generateProgress.percentage = 100
+        generateProgress.status = data.error_count > 0 ? 'warning' : 'success'
+      }
       fetchEvaluationList()
     }
   } catch (e) {
@@ -445,6 +462,34 @@ async function handleBatchGenerate() {
   } finally {
     generateLoading.value = false
   }
+}
+
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+async function pollBatchGenerate(jobId) {
+  const maxAttempts = 360
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await wait(attempt < 3 ? 1000 : 2000)
+    const res = await moralApi.getSemesterEvaluationBatchStatus(jobId)
+    const data = res?.data || {}
+    generateProgress.success_count = data.success_count || 0
+    generateProgress.error_count = data.error_count || 0
+    generateProgress.total_count = data.total_count || generateProgress.total_count || 0
+    generateProgress.errors = data.errors || []
+    generateProgress.percentage = data.progress || 0
+    generateProgress.message = data.message || '正在批量生成...'
+    generateProgress.current_student_name = data.current_student_name || ''
+
+    if (data.status === 'success' || data.status === 'partial_success' || data.status === 'failed') {
+      generateProgress.percentage = 100
+      generateProgress.status = data.error_count > 0 ? 'warning' : 'success'
+      generateProgress.current_student_name = ''
+      ElMessage.success(`批量生成完成：成功 ${data.success_count || 0} 个`)
+      return
+    }
+  }
+  generateProgress.status = 'warning'
+  throw new Error('批量生成仍在后台处理中，请稍后刷新列表查看')
 }
 
 // 查看详情

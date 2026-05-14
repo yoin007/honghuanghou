@@ -32,6 +32,7 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleAdd">新增待办</el-button>
+          <el-button @click="goGroups">协作群组</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -103,8 +104,25 @@
         <el-form-item label="开始日期" prop="start_date">
           <el-date-picker v-model="todoForm.start_date" type="date" placeholder="选择日期" value-format="YYYY-MM-DD" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="提醒时间">
+          <el-time-picker v-model="todoForm.time_of_day" format="HH:mm" value-format="HH:mm" placeholder="选择时间" style="width: 100%" />
+        </el-form-item>
         <el-form-item label="结束日期" v-if="todoForm.todo_type !== 'one_off'">
           <el-date-picker v-model="todoForm.end_date" type="date" placeholder="可选，留空则长期有效" value-format="YYYY-MM-DD" style="width: 100%" />
+        </el-form-item>
+
+        <!-- 微信通知设置 -->
+        <el-divider content-position="left">通知设置</el-divider>
+        <el-form-item label="微信提醒">
+          <el-switch v-model="todoForm.wechat_notify_enabled" :active-value="1" :inactive-value="0" />
+        </el-form-item>
+        <el-form-item label="提前提醒" v-if="todoForm.wechat_notify_enabled">
+          <el-input-number v-model="todoForm.remind_before_minutes" :min="0" :max="120" :step="5" style="width: 100%" />
+          <span style="margin-left: 8px; color: #909399">分钟</span>
+        </el-form-item>
+        <el-form-item label="通知对象" v-if="todoForm.wechat_notify_enabled">
+          <el-checkbox v-model="todoForm.notify_creator" :true-label="1" :false-label="0">通知创建者</el-checkbox>
+          <el-checkbox v-model="todoForm.notify_assignees" :true-label="1" :false-label="0">通知协作教师</el-checkbox>
         </el-form-item>
 
         <!-- 周期规则 -->
@@ -144,6 +162,11 @@
           </el-form-item>
         </template>
 
+        <el-form-item label="协作群组">
+          <el-select v-model="todoForm.assignee_group_ids" multiple filterable placeholder="选择协作群组" style="width: 100%">
+            <el-option v-for="g in groupList" :key="g.group_id" :label="`${g.group_name} (${g.members?.length || 0}人)`" :value="g.group_id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="协作教师">
           <el-select v-model="todoForm.assignee_teacher_ids" multiple filterable placeholder="选择协作教师" style="width: 100%">
             <el-option v-for="t in teacherList" :key="t.teacher_id || t.username" :label="teacherLabel(t)" :value="t.teacher_id || t.username" />
@@ -160,15 +183,18 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getTodos, createTodo, updateTodo, deleteTodo, completeOccurrence, reopenOccurrence } from '@/api/modules/teacherTodo'
+import { getTodos, createTodo, updateTodo, deleteTodo, completeOccurrence, reopenOccurrence, getGroups } from '@/api/modules/teacherTodo'
 import { teacherApi } from '@/api/modules/teacher'
 
 const loading = ref(false)
+const router = useRouter()
 const todoList = ref([])
 const totalCount = ref(0)
 const completedCount = ref(0)
 const teacherList = ref([])
+const groupList = ref([])
 
 const filterForm = reactive({
   view: 'week',
@@ -188,7 +214,13 @@ const todoForm = reactive({
   todo_type: 'one_off',
   start_date: '',
   end_date: '',
+  time_of_day: '08:00',
   recurrence_rule: { unit: 'weekly', weekday: null, day_of_month: null, month: null, day: null },
+  wechat_notify_enabled: 1,
+  remind_before_minutes: 30,
+  notify_creator: 1,
+  notify_assignees: 1,
+  assignee_group_ids: [],
   assignee_teacher_ids: []
 })
 
@@ -272,6 +304,10 @@ const goToday = () => {
   fetchTodos()
 }
 
+const goGroups = () => {
+  router.push('/teacher/todo-group')
+}
+
 const canEdit = (todo) => todo.is_creator === true || todo.is_creator === 1
 const canDelete = (todo) => todo.is_creator === true || todo.is_creator === 1
 
@@ -302,6 +338,17 @@ const fetchTeachers = async () => {
   }
 }
 
+const fetchGroups = async () => {
+  try {
+    const res = await getGroups()
+    if (res.success) {
+      groupList.value = res.data.groups || []
+    }
+  } catch (e) {
+    console.error('获取群组列表失败:', e)
+  }
+}
+
 const handleAdd = () => {
   dialogTitle.value = '新增待办'
   editingSeriesId.value = null
@@ -310,7 +357,13 @@ const handleAdd = () => {
   todoForm.todo_type = 'one_off'
   todoForm.start_date = new Date().toISOString().slice(0, 10)
   todoForm.end_date = ''
+  todoForm.time_of_day = '08:00'
   todoForm.recurrence_rule = { unit: 'weekly', weekday: null, day_of_month: null, month: null, day: null }
+  todoForm.wechat_notify_enabled = 1
+  todoForm.remind_before_minutes = 30
+  todoForm.notify_creator = 1
+  todoForm.notify_assignees = 1
+  todoForm.assignee_group_ids = []
   todoForm.assignee_teacher_ids = []
   dialogVisible.value = true
 }
@@ -323,6 +376,11 @@ const handleEdit = (todo) => {
   todoForm.todo_type = todo.todo_type
   todoForm.start_date = todo.start_date
   todoForm.end_date = todo.end_date || ''
+  todoForm.time_of_day = todo.time_of_day || (todo.scheduled_at ? todo.scheduled_at.slice(11, 16) : '08:00')
+  todoForm.wechat_notify_enabled = todo.wechat_notify_enabled ?? 1
+  todoForm.remind_before_minutes = todo.remind_before_minutes ?? 30
+  todoForm.notify_creator = todo.notify_creator ?? 1
+  todoForm.notify_assignees = todo.notify_assignees ?? 1
   todoForm.recurrence_rule = {
     unit: todo.todo_type,
     weekday: null,
@@ -332,6 +390,7 @@ const handleEdit = (todo) => {
     ...(todo.recurrence_rule || {})
   }
   todoForm.assignee_teacher_ids = todo.assignee_teacher_ids || []
+  todoForm.assignee_group_ids = []
   dialogVisible.value = true
 }
 
@@ -350,6 +409,12 @@ const handleSubmit = async () => {
     todo_type: todoForm.todo_type,
     start_date: todoForm.start_date,
     end_date: todoForm.end_date || null,
+    time_of_day: todoForm.time_of_day,
+    wechat_notify_enabled: todoForm.wechat_notify_enabled,
+    remind_before_minutes: todoForm.remind_before_minutes,
+    notify_creator: todoForm.notify_creator,
+    notify_assignees: todoForm.notify_assignees,
+    assignee_group_ids: todoForm.assignee_group_ids || null,
     assignee_teacher_ids: todoForm.assignee_teacher_ids
   }
 
@@ -424,6 +489,7 @@ const handleToggleComplete = async (todo) => {
 onMounted(() => {
   fetchTodos()
   fetchTeachers()
+  fetchGroups()
 })
 </script>
 

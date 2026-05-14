@@ -73,6 +73,20 @@ def _school_action_scope(db, user: User, api_path: str) -> dict:
     )
 
 
+def _refresh_school_record_evaluation(db, student_id: str, semester_id: int, class_id: int = None, grade_id: int = None) -> None:
+    """校级事件变更后刷新德育总评缓存。"""
+    try:
+        from .evaluation import calculate_evaluation
+        calculate_evaluation(db, student_id, semester_id, class_id, grade_id)
+    except Exception as exc:
+        logger.warning(
+            "刷新校级事件德育评价失败: student_id=%s semester_id=%s error=%s",
+            student_id,
+            semester_id,
+            exc,
+        )
+
+
 # =============================================================================
 # Pydantic 模型
 # =============================================================================
@@ -332,6 +346,13 @@ async def create_school_record(
         )
 
         record_id = db.lastrowid()
+        _refresh_school_record_evaluation(
+            db,
+            record.student_id,
+            semester_id,
+            student_info['class_id'],
+            student_info['grade_id'],
+        )
 
         log_operation(
             db, user.username, user.role, 'INSERT', 'student_school_record',
@@ -393,6 +414,13 @@ async def update_school_record(
             f"UPDATE student_school_record SET {', '.join(updates)} WHERE record_id = ?",
             tuple(params)
         )
+        _refresh_school_record_evaluation(
+            db,
+            old_record['student_id'],
+            old_record['semester_id'],
+            old_record.get('class_id'),
+            old_record.get('grade_id'),
+        )
 
         log_operation(
             db, user.username, user.role, 'UPDATE', 'student_school_record',
@@ -428,6 +456,13 @@ async def delete_school_record(
         db.execute(
             "UPDATE student_school_record SET is_deleted = 1 WHERE record_id = ?",
             (record_id,)
+        )
+        _refresh_school_record_evaluation(
+            db,
+            old_record['student_id'],
+            old_record['semester_id'],
+            old_record.get('class_id'),
+            old_record.get('grade_id'),
         )
 
         log_operation(

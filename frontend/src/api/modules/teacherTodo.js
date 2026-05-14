@@ -89,3 +89,59 @@ export function completeOccurrence(occurrenceId, completedDate) {
 export function reopenOccurrence(occurrenceId) {
   return httpClient.post(`/api/teacher/todos/occurrences/${occurrenceId}/reopen`)
 }
+
+// =============================================================================
+// 协作群组 API
+// =============================================================================
+
+/**
+ * 查询协作群组列表
+ */
+export function getGroups() {
+  return httpClient.get('/api/teacher/todos/groups')
+}
+
+/**
+ * 创建协作群组
+ * @param {Object} data - 群组数据
+ * @param {string} data.group_name - 群组名称
+ * @param {Array} data.member_teacher_ids - 初始成员ID列表
+ */
+export function createGroup(data) {
+  return httpClient.post('/api/teacher/todos/groups', data)
+}
+
+/**
+ * 更新协作群组
+ * @param {number} groupId - 群组ID
+ * @param {Object} data - 更新数据
+ */
+export function updateGroup(groupId, data) {
+  return httpClient.put(`/api/teacher/todos/groups/${groupId}`, data)
+}
+
+/**
+ * 删除协作群组
+ * @param {number} groupId - 群组ID
+ */
+export function deleteGroup(groupId) {
+  return httpClient.delete(`/api/teacher/todos/groups/${groupId}`)
+}
+
+/**
+ * 添加群组成员
+ * @param {number} groupId - 群组ID
+ * @param {Array} teacherIds - 要添加的教师ID列表
+ */
+export function addGroupMembers(groupId, teacherIds) {
+  return httpClient.post(`/api/teacher/todos/groups/${groupId}/members`, { teacher_ids: teacherIds })
+}
+
+/**
+ * 移除群组成员
+ * @param {number} groupId - 群组ID
+ * @param {string} teacherId - 要移除的教师ID
+ */
+export function removeGroupMember(groupId, teacherId) {
+  return httpClient.delete(`/api/teacher/todos/groups/${groupId}/members/${teacherId}`)
+}

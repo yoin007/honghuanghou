@@ -59,6 +59,7 @@ DEFAULT_MENU_CONFIG = [
     {"key": "file-upload", "label": "文件上传", "route": "/file-upload", "group": "teacher", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 30},
     {"key": "my-files", "label": "我的文件", "route": "/my-files", "group": "teacher", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 40},
     {"key": "teacher-todo", "label": "我的待办", "route": "/teacher/todo", "group": "teacher", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 50},
+    {"key": "teacher-todo-group", "label": "协作群组", "route": "/teacher/todo-group", "group": "teacher", "roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "is_public": 0, "sort_order": 55},
     # 教务菜单
     {"key": "admin-files", "label": "文件管理", "route": "/admin-files", "group": "jiaowu", "roles": ["jiaowu", "admin"], "is_public": 0, "sort_order": 10},
     {"key": "admin-files-done", "label": "已查阅文件", "route": "/admin-files-done", "group": "jiaowu", "roles": ["jiaowu", "admin"], "is_public": 0, "sort_order": 20},

@@ -209,6 +209,79 @@ def _run_profile_generation_job(job_id: str, student_id: str) -> None:
         })
 
 
+def _run_profile_batch_generation_job(job_id: str) -> None:
+    job = PROFILE_GENERATION_JOBS.get(job_id)
+    if not job:
+        return
+    students = job.get('students') or []
+    semester_id = job.get('semester_id')
+    generated_by = job.get('generated_by')
+    job.update({
+        "status": "running",
+        "message": "正在批量生成学生画像",
+        "started_at": time.time(),
+    })
+    success_count = 0
+    errors = []
+    generated_profiles = []
+    try:
+        with get_moral_db() as db:
+            for index, student in enumerate(students, start=1):
+                job.update({
+                    "current": index,
+                    "current_student_id": student.get('student_id'),
+                    "current_student_name": student.get('name') or student.get('student_id'),
+                    "message": f"正在生成 {index}/{len(students)}",
+                })
+                try:
+                    result = generate_single_profile_internal(
+                        db,
+                        student['student_id'],
+                        semester_id,
+                        generated_by=generated_by,
+                    )
+                    success_count += 1
+                    if len(generated_profiles) < 20:
+                        generated_profiles.append(result)
+                except Exception as exc:
+                    error_msg = f"{student.get('student_id')}({student.get('name', '')}): {str(exc)}"
+                    errors.append(error_msg)
+                    logger.error("批量生成画像失败: %s", error_msg)
+                job.update({
+                    "success_count": success_count,
+                    "error_count": len(errors),
+                    "errors": errors[:10],
+                    "generated_profiles": generated_profiles,
+                })
+
+        job.update({
+            "status": "success" if not errors else "partial_success",
+            "message": f"批量生成完成：成功 {success_count} 个，失败 {len(errors)} 个",
+            "success_count": success_count,
+            "error_count": len(errors),
+            "errors": errors[:10],
+            "generated_profiles": generated_profiles,
+            "data": {
+                "success_count": success_count,
+                "error_count": len(errors),
+                "total_count": len(students),
+                "errors": errors[:10],
+                "generated_profiles": generated_profiles,
+            },
+            "finished_at": time.time(),
+        })
+    except Exception as exc:
+        logger.exception("学生画像批量生成任务失败: %s", exc)
+        job.update({
+            "status": "failed",
+            "message": str(exc) or "批量生成画像任务失败",
+            "success_count": success_count,
+            "error_count": len(errors) + 1,
+            "errors": (errors + [str(exc)])[:10],
+            "finished_at": time.time(),
+        })
+
+
 class DecimalEncoder(json.JSONEncoder):
     """自定义JSON编码器，处理Decimal类型"""
     def default(self, obj):
@@ -495,6 +568,14 @@ async def get_profile_generation_status(
             "student_id": job.get("student_id"),
             "status": job.get("status"),
             "message": job.get("message"),
+            "total_count": job.get("total_count"),
+            "success_count": job.get("success_count"),
+            "error_count": job.get("error_count"),
+            "current": job.get("current"),
+            "current_student_id": job.get("current_student_id"),
+            "current_student_name": job.get("current_student_name"),
+            "errors": job.get("errors") or [],
+            "generated_profiles": job.get("generated_profiles") or [],
             "data": job.get("data"),
         }
     }
@@ -617,6 +698,7 @@ def generate_single_profile_internal(db, student_id: str, semester_id: int, gene
 
 @router.post("/batch-generate", summary="批量生成学生画像")
 async def batch_generate_profiles(
+    background_tasks: BackgroundTasks,
     class_id: Optional[int] = Query(None),
     grade_id: Optional[int] = Query(None),
     request: Request = None,
@@ -624,6 +706,7 @@ async def batch_generate_profiles(
 ):
     """批量生成学生画像"""
     with get_moral_db() as db:
+        _cleanup_profile_jobs()
         can_generate_all = _has_scoped_permission(db, user, API_PROFILE_BATCH_GENERATE, 'student_profile')
         can_generate_own_class = _has_scoped_permission(db, user, API_PROFILE_BATCH_GENERATE, 'student_profile_own_class')
         if not can_generate_all and not can_generate_own_class:
@@ -671,34 +754,40 @@ async def batch_generate_profiles(
                 "data": {
                     "success_count": 0,
                     "error_count": 0,
+                    "total_count": 0,
                     "errors": []
                 }
             }
 
-        success_count = 0
-        errors = []
-        generated_profiles = []
-
-        for student in students:
-            try:
-                # 调用单人生成逻辑
-                result = generate_single_profile_internal(db, student['student_id'], semester_id, generated_by=user.username)
-                success_count += 1
-                generated_profiles.append(result)
-            except Exception as e:
-                error_msg = f"{student['student_id']}({student['name']}): {str(e)}"
-                errors.append(error_msg)
-                logger.error(f"批量生成画像失败: {error_msg}")
+        job_id = uuid.uuid4().hex
+        PROFILE_GENERATION_JOBS[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "message": "批量画像生成任务已提交",
+            "created_at": time.time(),
+            "generated_by": user.username,
+            "semester_id": semester_id,
+            "students": [dict(student) for student in students],
+            "total_count": len(students),
+            "success_count": 0,
+            "error_count": 0,
+            "current": 0,
+            "errors": [],
+            "generated_profiles": [],
+        }
+        background_tasks.add_task(_run_profile_batch_generation_job, job_id)
 
         return {
             "success": True,
-            "message": f"成功生成 {success_count} 个学生画像，失败 {len(errors)} 个",
+            "message": "批量画像生成任务已提交",
             "data": {
-                "success_count": success_count,
-                "error_count": len(errors),
+                "job_id": job_id,
+                "status": "queued",
                 "total_count": len(students),
-                "errors": errors[:10],
-                "generated_profiles": generated_profiles[:20]  # 返回前20个成功结果
+                "success_count": 0,
+                "error_count": 0,
+                "errors": [],
+                "generated_profiles": [],
             }
         }
 

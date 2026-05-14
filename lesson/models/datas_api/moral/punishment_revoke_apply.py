@@ -112,7 +112,7 @@ async def create_revoke_application(
             raise HTTPException(status_code=400, detail="该处分不允许申请撤销")
 
         # 检查学生是否在班主任可申请范围内
-        if not target_student_in_scope(db, user, application.student_id, API_REVOKE_APPLY_CREATE):
+        if not target_student_in_scope(db, user, API_REVOKE_APPLY_CREATE, punishment):
             raise HTTPException(status_code=403, detail="仅可为本班学生提交申请")
 
         # 检查是否已到期
@@ -381,7 +381,7 @@ async def reject_revoke_application(
         # 清除处分记录的关联申请ID（允许重新申请）
         db.execute(
             "UPDATE punishment_record SET revoke_application_id = NULL WHERE id = ?",
-            (application["punishment_id"])
+            (application["punishment_id"],)
         )
 
         # 记录操作日志

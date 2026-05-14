@@ -152,6 +152,13 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/punishments/update", "api_name": "更新处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
     {"api_path": "/api/moral/punishments/revoke", "api_name": "撤销处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
     {"api_path": "/api/moral/punishments/review", "api_name": "处分复核", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
+    {"api_path": "/api/moral/punishments/expiring", "api_name": "即将到期处分列表", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "GET", "resource_type": "punishment_record", "action_type": "view"},
+    {"api_path": "/api/moral/punishment-periods", "api_name": "处分期限配置列表", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "GET", "resource_type": "punishment_period", "action_type": "view"},
+    {"api_path": "/api/moral/punishment-periods/update", "api_name": "更新处分期限配置", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "PUT", "resource_type": "punishment_period", "action_type": "update"},
+    {"api_path": "/api/moral/punishment-revoke-applications", "api_name": "处分撤销申请列表", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "GET", "resource_type": "punishment_revoke_application", "action_type": "view"},
+    {"api_path": "/api/moral/punishment-revoke-applications/create", "api_name": "提交处分撤销申请", "api_group": "处分管理", "allowed_roles": ["admin", "cleader"], "min_level": 20, "http_method": "POST", "resource_type": "punishment_revoke_application", "action_type": "create"},
+    {"api_path": "/api/moral/punishment-revoke-applications/approve", "api_name": "审批通过处分撤销申请", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "POST", "resource_type": "punishment_revoke_application", "action_type": "review"},
+    {"api_path": "/api/moral/punishment-revoke-applications/reject", "api_name": "审批拒绝处分撤销申请", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "POST", "resource_type": "punishment_revoke_application", "action_type": "review"},
 
     # 集体事件
     {"api_path": "/api/moral/collective-events", "api_name": "集体事件管理", "api_group": "集体事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
@@ -195,6 +202,12 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/teacher/todos/occurrences/{occurrence_id}/complete", "api_name": "完成教师待办实例", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo", "action_type": "operate"},
     {"api_path": "/api/teacher/todos/occurrences/{occurrence_id}/reopen", "api_name": "恢复教师待办实例", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo", "action_type": "operate"},
     {"api_path": "/api/teacher/todos/upcoming", "api_name": "教师近期待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher_todo", "action_type": "view"},
+    # 教师协作群组
+    {"api_path": "/api/teacher/todos/groups", "api_name": "查询协作群组", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher_todo_group", "action_type": "view"},
+    {"api_path": "/api/teacher/todos/groups", "api_name": "创建协作群组", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "resource_type": "teacher_todo_group", "action_type": "create"},
+    {"api_path": "/api/teacher/todos/groups/{group_id}", "api_name": "更新删除协作群组", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "update"},
+    {"api_path": "/api/teacher/todos/groups/{group_id}/members", "api_name": "添加群组成员", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "operate"},
+    {"api_path": "/api/teacher/todos/groups/{group_id}/members/{teacher_id}", "api_name": "移除群组成员", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "operate"},
 
     # 学生管理
     {"api_path": "/api/moral/admin/students", "api_name": "获取学生列表", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
@@ -205,6 +218,8 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/grades", "api_name": "获取级号列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
     {"api_path": "/api/moral/admin/grades/create", "api_name": "创建级号", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
     {"api_path": "/api/moral/admin/grades/{grade_id}", "api_name": "更新级号", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern"},
+    {"api_path": "/api/moral/admin/grades/promote/preview", "api_name": "预览年级升迁", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/grades/promote/execute", "api_name": "执行年级升迁", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
     {"api_path": "/api/moral/admin/grades/archived", "api_name": "获取归档年级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
     {"api_path": "/api/moral/admin/classes", "api_name": "获取班级列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
     {"api_path": "/api/moral/admin/classes/create", "api_name": "创建班级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
@@ -217,6 +232,9 @@ DEFAULT_API_PERMISSIONS = [
 
     # 系统配置
     {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
+    {"api_path": "/api/moral/admin/logs", "api_name": "操作日志查询", "api_group": "系统配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "http_method": "GET", "resource_type": "operation_log", "action_type": "view"},
+    {"api_path": "/api/moral/ai-model-config", "api_name": "AI模型配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "ai_model_config", "action_type": "operate"},
+    {"api_path": "/api/moral/scheduler", "api_name": "定时任务调度器", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "scheduler", "action_type": "operate"},
     {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
     {"api_path": "/api/moral/menu-permission/list", "api_name": "获取菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
     {"api_path": "/api/moral/menu-permission/my-menu", "api_name": "获取当前用户菜单", "api_group": "菜单权限", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher", "student"], "min_level": 0, "action_type": "operate"},
@@ -234,6 +252,12 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/database/generate-token/{db_name}/{table_name}", "api_name": "生成清空确认令牌", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
     {"api_path": "/api/moral/admin/database/clear/{db_name}/{table_name}", "api_name": "清空数据库表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
     {"api_path": "/api/moral/admin/database/check-integrity", "api_name": "检查数据库完整性", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database-backup/config", "api_name": "数据库备份配置", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database-backup/manual", "api_name": "手动执行数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database-backup/history", "api_name": "数据库备份历史", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "view"},
+    {"api_path": "/api/moral/admin/database-backup/delete/{backup_id}", "api_name": "删除数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "delete"},
+    {"api_path": "/api/moral/admin/database-backup/download/{backup_id}", "api_name": "下载数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "export"},
+    {"api_path": "/api/moral/admin/database-backup/schedule", "api_name": "数据库定时备份配置", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
 
     # 生日提醒
     {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
@@ -246,6 +270,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/timeline/export/class/{class_id}", "api_name": "批量导出班级一生一册", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
 
     # 学生画像
+    {"api_path": "/api/moral/profiles", "api_name": "获取画像列表", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "GET", "resource_type": "student_profile", "action_type": "view"},
     {"api_path": "/api/moral/profiles/student/{student_id}", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
     {"api_path": "/api/moral/profiles/student/{student_id}/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
     {"api_path": "/api/moral/profiles/student/{student_id}/generate-async", "api_name": "异步生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
@@ -265,6 +290,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/escalation-rules/student/{student_id}/history", "api_name": "学生累进处罚历史", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/moral/escalation-rules/student/{student_id}/count", "api_name": "学生事件累计次数", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/moral/escalation-rules/student/{student_id}/progress", "api_name": "学生消极事件累计进度", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
+    {"api_path": "/api/moral/escalation-rules", "api_name": "累进规则管理", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "resource_type": "escalation_rule", "action_type": "operate"},
     {"api_path": "/api/moral/collective-events/student/{student_id}", "api_name": "学生集体事件得分汇总", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "student"], "min_level": 0, "match_type": "pattern"},
 
     # 评价查询
@@ -276,6 +302,7 @@ DEFAULT_API_PERMISSIONS = [
     # 学期末评价
     {"api_path": "/api/moral/semester-evaluations/generate", "api_name": "生成单学生学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/semester-evaluations/batch-generate", "api_name": "批量生成学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/semester-evaluations/batch-status/{job_id}", "api_name": "查询学期末评价批量生成状态", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/moral/semester-evaluations/list", "api_name": "查询学期末评价列表", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/semester-evaluations/{record_id}", "api_name": "查询学期末评价详情", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
 ]
@@ -349,6 +376,25 @@ DEFAULT_OPERATION_SCOPE_RULES = {
     "/api/moral/punishments/review": {
         "admin": ["all"],
         "xuefa": ["all"],
+    },
+    "/api/moral/punishment-periods/update": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/punishment-revoke-applications/approve": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/punishment-revoke-applications/reject": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/escalation-rules": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/scheduler": {
+        "admin": ["all"],
     },
     "/api/moral/collective-events/update": {
         "admin": ["all"],
@@ -581,6 +627,13 @@ DEFAULT_DATA_SCOPE_RULES = {
         "cleader": ["own_created"],
         "teacher": ["own_created"],
     },
+    "/api/moral/profiles": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
     "/api/moral/profiles/student/{student_id}": {
         "admin": ["all"],
         "jiaowu": ["all"],
@@ -705,6 +758,12 @@ DEFAULT_DATA_SCOPE_RULES = {
         "admin": ["all"],
         "xuefa": ["all"],
     },
+    "/api/moral/punishments/expiring": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
     "/api/moral/punishments/update": {
         "admin": ["all"],
         "xuefa": ["all"],
@@ -712,6 +771,20 @@ DEFAULT_DATA_SCOPE_RULES = {
     "/api/moral/punishments/revoke": {
         "admin": ["all"],
         "xuefa": ["all"],
+    },
+    "/api/moral/punishment-periods": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/punishment-periods/update": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/punishment-revoke-applications": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
     },
     "/api/moral/tasks/finish": {
         "admin": ["all"],
@@ -787,6 +860,43 @@ DEFAULT_DATA_SCOPE_RULES = {
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
     },
+    "/api/moral/semester-evaluations/batch-generate": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/semester-evaluations/list": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/admin/grades/promote/preview": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/admin/grades/promote/execute": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/admin/logs": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/ai-model-config": {
+        "admin": ["all"],
+    },
+    "/api/moral/scheduler": {
+        "admin": ["all"],
+    },
+    "/api/moral/escalation-rules": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
     "/api/dashboard/score-trend/student/{student_id}": {
         "admin": ["all"],
         "jiaowu": ["all"],
@@ -833,6 +943,11 @@ DEFAULT_TARGET_SCOPE_RULES = {
         "cleader": ["teaching_classes", "managed_classes"],
         "teacher": ["teaching_classes"],
     },
+    "/api/moral/daily-records/batch": {
+        "admin": ["all_students"],
+        "jiaowu": ["all_students"],
+        "xuefa": ["all_students"],
+    },
     "/api/moral/moment-records/create": {
         "admin": ["all_students"],
         "jiaowu": ["all_students"],
@@ -857,6 +972,16 @@ DEFAULT_TARGET_SCOPE_RULES = {
         "admin": ["all_students"],
         "xuefa": ["all_students"],
         "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/semester-evaluations/generate": {
+        "admin": ["all_students"],
+        "xuefa": ["all_students"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/punishment-revoke-applications/create": {
+        "admin": ["all_students"],
         "cleader": ["managed_classes"],
     },
 }
@@ -1083,8 +1208,8 @@ def _fix_incorrect_scope_rules(db) -> None:
                 """INSERT INTO api_permission_config
                    (api_path, api_name, api_group, allowed_roles, min_level, module_id,
                     http_method, match_type, policy_mode, is_active, enforce_backend,
-                    resource_type, action_type, operation_scope_rules)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'role_and_level', 1, 1, ?, ?, ?)""",
+                    resource_type, action_type, data_scope_rules, target_scope_rules, operation_scope_rules)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'role_and_level', 1, 1, ?, ?, ?, ?, ?)""",
                 (
                     default_config["api_path"],
                     default_config["api_name"],
@@ -1096,6 +1221,8 @@ def _fix_incorrect_scope_rules(db) -> None:
                     default_config.get("match_type", "exact"),
                     default_config.get("resource_type") or _infer_resource_type(default_config["api_path"]),
                     default_config.get("action_type") or _infer_action_type(default_config["api_path"], default_config.get("http_method", "*")),
+                    _json_dict_dump(DEFAULT_DATA_SCOPE_RULES.get(default_config["api_path"], {})),
+                    _json_dict_dump(DEFAULT_TARGET_SCOPE_RULES.get(default_config["api_path"], {})),
                     _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES.get(default_config["api_path"], {})),
                 ),
             )
@@ -1105,6 +1232,16 @@ def _fix_incorrect_scope_rules(db) -> None:
                    SET http_method = ?, match_type = ?,
                        resource_type = COALESCE(NULLIF(resource_type, ''), ?),
                        action_type = COALESCE(NULLIF(action_type, ''), ?),
+                       data_scope_rules = CASE
+                           WHEN data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}'
+                           THEN ?
+                           ELSE data_scope_rules
+                       END,
+                       target_scope_rules = CASE
+                           WHEN target_scope_rules IS NULL OR target_scope_rules = '' OR target_scope_rules = '{}'
+                           THEN ?
+                           ELSE target_scope_rules
+                       END,
                        operation_scope_rules = CASE
                            WHEN operation_scope_rules IS NULL OR operation_scope_rules = '' OR operation_scope_rules = '{}'
                            THEN ?
@@ -1116,6 +1253,8 @@ def _fix_incorrect_scope_rules(db) -> None:
                     default_config.get("match_type", "exact"),
                     default_config.get("resource_type") or _infer_resource_type(default_config["api_path"]),
                     default_config.get("action_type") or _infer_action_type(default_config["api_path"], default_config.get("http_method", "*")),
+                    _json_dict_dump(DEFAULT_DATA_SCOPE_RULES.get(default_config["api_path"], {})),
+                    _json_dict_dump(DEFAULT_TARGET_SCOPE_RULES.get(default_config["api_path"], {})),
                     _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES.get(default_config["api_path"], {})),
                     default_config["api_path"],
                 ),
@@ -1217,6 +1356,7 @@ def _fix_incorrect_scope_rules(db) -> None:
         "/api/moral/moment-records",
         "/api/moral/moment-records/update",
         "/api/moral/moment-records/delete",
+        "/api/moral/profiles",
         "/api/moral/profiles/student/{student_id}",
         "/api/moral/profiles/student/{student_id}/generate",
         "/api/moral/profiles/student/{student_id}/generate-async",
@@ -1330,6 +1470,8 @@ def _fix_incorrect_scope_rules(db) -> None:
 
     # 修复学生画像 API 的 allowed_roles（补齐 g_leader 和 cleader）
     profile_apis = [
+        "/api/moral/profiles",
+        "/api/moral/profiles/student/{student_id}",
         "/api/moral/profiles/student/{student_id}/generate",
         "/api/moral/profiles/student/{student_id}/generate-async",
         "/api/moral/profiles/batch-generate"

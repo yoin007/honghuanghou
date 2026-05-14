@@ -423,7 +423,7 @@ const formatSigned = (score) => {
 // 页面加载时检查 query 参数
 onMounted(async () => {
   await loadMyPermissions()
-  canGenerateProfile.value = hasApiPermissionSync('/api/moral/profiles/student/generate')
+  canGenerateProfile.value = hasApiPermissionSync('/api/moral/profiles/student/{student_id}/generate')
   // 加载班级列表
   try {
     const res = await getClasses()

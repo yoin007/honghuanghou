@@ -510,7 +510,7 @@ export function getStudentProfileGenerationStatus(jobId) {
 export function batchGenerateProfiles(params = {}) {
   return httpClient.post('/api/moral/profiles/batch-generate', null, {
     params,
-    timeout: 270000  // 批量生成耗时较长，略小于 proxy timeout 300s
+    timeout: 10000
   })
 }
 
@@ -1125,7 +1125,17 @@ export function generateSemesterEvaluation(studentId, semesterId = null, generat
 export function batchGenerateSemesterEvaluations(params) {
   return httpClient.post('/api/moral/semester-evaluations/batch-generate', null, {
     params,
-    timeout: 270000  // 批量生成耗时较长，略小于 proxy timeout 300s
+    timeout: 10000
+  })
+}
+
+/**
+ * 查询学期末评价批量生成状态
+ * @param {string} jobId - 任务ID
+ */
+export function getSemesterEvaluationBatchStatus(jobId) {
+  return httpClient.get(`/api/moral/semester-evaluations/batch-status/${jobId}`, {
+    timeout: 10000
   })
 }
 
@@ -1279,6 +1289,7 @@ export default {
   // 学期末评价
   generateSemesterEvaluation,
   batchGenerateSemesterEvaluations,
+  getSemesterEvaluationBatchStatus,
   getSemesterEvaluationList,
   getSemesterEvaluationDetail,
 

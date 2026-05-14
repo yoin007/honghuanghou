@@ -50,11 +50,21 @@ export const useApiPermissionStore = defineStore('apiPermission', () => {
 
     // 使用缓存检查
     if (apiPermissionsCache.value) {
-      return apiPermissionsCache.value.some(p => p.api_path === apiPath)
+      return apiPermissionsCache.value.some(p => apiPathMatches(p.api_path, apiPath))
     }
 
     // 无缓存时返回 false
     return false
+  }
+
+  const apiPathMatches = (configuredPath, requestedPath) => {
+    if (configuredPath === requestedPath) return true
+    const configParts = String(configuredPath || '').split('/').filter(Boolean)
+    const requestParts = String(requestedPath || '').split('/').filter(Boolean)
+    if (configParts.length !== requestParts.length) return false
+    return configParts.every((part, index) => {
+      return part === requestParts[index] || (part.startsWith('{') && part.endsWith('}'))
+    })
   }
 
   /**

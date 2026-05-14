@@ -428,7 +428,7 @@ const scoreClass = (score, signed = true) => {
 // 生命周期
 onMounted(async () => {
   await loadMyPermissions()
-  canViewProfile.value = hasApiPermissionSync('/api/moral/profiles/student')
+  canViewProfile.value = hasApiPermissionSync('/api/moral/profiles/student/{student_id}')
   await Promise.all([fetchClassList(), fetchSemesterList()])
   if (filterForm.class_id) {
     fetchEvaluation()

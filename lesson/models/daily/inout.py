@@ -40,7 +40,7 @@ class InOut:
             id INTEGER PRIMARY KEY,
             sid TEXT,
             style TEXT,
-            days TEXT,
+            days TEXT DEFAULT "1",
             status TEXT,
             recorder TEXT,
             guard TEXT DEFAULT "",
