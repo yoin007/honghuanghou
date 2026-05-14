@@ -593,6 +593,7 @@ def teacher_todo_reminder_task():
 
     MAX_REMINDERS = 3  # 最大提醒次数
     REMINDER_INTERVAL = 2  # 提醒间隔（分钟）
+    REMIND_BEFORE = 5  # 提前5分钟开始提醒
 
     with get_moral_db() as db:
         ensure_teacher_todo_schema(db)
@@ -615,15 +616,14 @@ def teacher_todo_reminder_task():
 
         for todo in remindables:
             scheduled_at = todo['scheduled_at']
-            remind_before = todo['remind_before_minutes'] or 30
 
-            # 计算 remind_time = scheduled_at - remind_before_minutes
+            # 固定提前5分钟开始提醒
             try:
                 scheduled_dt = datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M:%S")
             except:
                 scheduled_dt = datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M")
 
-            remind_time = scheduled_dt - timedelta(minutes=remind_before)
+            remind_time = scheduled_dt - timedelta(minutes=REMIND_BEFORE)
 
             # 判断是否应该发送提醒（当前时间 >= 提醒时间）
             if now < remind_time:
@@ -706,7 +706,7 @@ def teacher_todo_reminder_task():
                     f"标题：{title}\n"
                     f"时间：{date_str} {time_str}\n"
                     f"{todo['description'] or ''}\n\n"
-                    f"— 德育评价系统"
+                    f"— 数字天龙"
                 )
 
                 is_sent = 1
@@ -732,7 +732,7 @@ def teacher_todo_reminder_task():
                         remind_time.strftime("%Y-%m-%d %H:%M:%S"),
                         todo['todo_series_id'],
                         teacher_id,
-                        remind_before,
+                        REMIND_BEFORE,
                         remind_time.strftime("%Y-%m-%d %H:%M:%S"),
                         now.strftime("%Y-%m-%d %H:%M:%S"),
                         log_message,
