@@ -87,12 +87,21 @@ def birthday_reminder_task():
                 student_names = [s['name'] for s in class_student_list]
                 class_name = class_student_list[0]['class_name']
 
+                # 获取班主任名称作为署名
+                leader_names_str = class_student_list[0].get('leader_names', '')
+                leader_name = class_student_list[0].get('leader_name', '')
+                if leader_names_str:
+                    first_leader = leader_names_str.split(',')[0].strip()
+                    author = first_leader or "班主任"
+                else:
+                    author = leader_name or "班主任"
+
                 if len(student_names) == 1:
                     content = (
                         f"🎂 今日生日提醒\n\n"
                         f"亲爱的同学们，今天是 {student_names[0]} 同学的生日！\n"
                         f"让我们一起为 {student_names[0]} 送上祝福，祝生日快乐，学业进步！\n\n"
-                        f"— 德育评价系统\n"
+                        f"— {author}\n"
                         f"{datetime.now().strftime('%Y-%m-%d')}"
                     )
                 else:
@@ -101,21 +110,13 @@ def birthday_reminder_task():
                         f"🎂 今日生日提醒\n\n"
                         f"亲爱的同学们，今天是 {names_str} 同学的生日！\n"
                         f"让我们一起为他们送上祝福，祝生日快乐，学业进步！\n\n"
-                        f"— 德育评价系统\n"
+                        f"— {author}\n"
                         f"{datetime.now().strftime('%Y-%m-%d')}"
                     )
 
                 title = f"🎂 今日生日提醒"
 
                 try:
-                    # 支持多人班主任：使用第一个班主任姓名或 leader_name
-                    leader_names_str = class_student_list[0].get('leader_names', '')
-                    leader_name = class_student_list[0].get('leader_name', '')
-                    if leader_names_str:
-                        first_leader = leader_names_str.split(',')[0].strip()
-                        author = first_leader or "德育系统"
-                    else:
-                        author = leader_name or "德育系统"
                     hw.add_announcement(class_code, title, author, content, None)
                     logger.info(f"已发布班级公告：{class_name}，作者：{author}，学生：{student_names}")
                 except Exception as e:
