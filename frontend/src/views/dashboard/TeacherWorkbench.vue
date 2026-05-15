@@ -194,6 +194,7 @@ import { getUpcomingTodos } from '@/api/modules/teacherTodo'
 import { teacherApi } from '@/api/modules/teacher'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
+import { buildAdaptiveValueAxis } from '@/utils/charting'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -275,11 +276,18 @@ const avgDaily = computed(() => {
 const teacherTrendOption = computed(() => {
   const data = teacherTrendData.value
   if (!data.periods?.length) return null
+  const counts = [data.daily_count, data.moment_count, data.total_count]
   return {
     tooltip: { trigger: 'axis' },
     legend: { data: ['日常记录', '点滴记录', '总计'], top: 10 },
     xAxis: { type: 'category', data: data.labels },
-    yAxis: { type: 'value', name: '记录数' },
+    yAxis: buildAdaptiveValueAxis(counts, {
+      name: '记录数',
+      hardMin: 0,
+      includeZero: true,
+      integer: true,
+      minRange: 3
+    }),
     series: [
       { name: '日常记录', type: 'line', data: data.daily_count, smooth: true, itemStyle: { color: '#67e8f9' } },
       { name: '点滴记录', type: 'line', data: data.moment_count, smooth: true, itemStyle: { color: '#fbbf24' } },

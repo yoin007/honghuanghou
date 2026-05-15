@@ -42,6 +42,24 @@
         emptyText="暂无全校班级对比趋势数据"
         :loading="allClassTrendLoading"
       />
+      <div class="trend-header">
+        <h3>全校班级正负记录对比</h3>
+        <div class="trend-controls">
+          <el-date-picker
+            v-model="recordCompareDateRange"
+            type="daterange"
+            range-separator="-"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            value-format="YYYY-MM-DD"
+            size="small"
+            :clearable="true"
+            style="width: 240px"
+            @change="onRecordCompareDateChange"
+          />
+          <el-button size="small" @click="resetRecordCompareDate" :disabled="!recordCompareDateRange">重置</el-button>
+        </div>
+      </div>
       <DashboardChart
         title="全校班级正负记录对比"
         eyebrow="POSITIVE VS NEGATIVE"
@@ -189,7 +207,7 @@ import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.
 import DashboardTopNSelect from '@/components/dashboard/DashboardTopNSelect.vue'
 import { getMoralDashboardSummary, getAllClassesScoreTrend, getClassRecordCompare } from '@/api/modules/dashboard'
 import { getExpiringPunishments } from '@/api/modules/moral'
-import { basePieOption, baseHorizontalBarOption, baseLineOption, baseVerticalBarOption } from '@/utils/charting'
+import { basePieOption, baseHorizontalBarOption, baseLineOption, buildAdaptiveValueAxis } from '@/utils/charting'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
 const router = useRouter()
@@ -201,6 +219,7 @@ const allClassTrendData = ref({ periods: [], labels: [], classes: [] })
 const allClassTrendLoading = ref(false)
 const classRecordCompareData = ref({ classes: [] })
 const classRecordCompareLoading = ref(false)
+const recordCompareDateRange = ref(null)
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#22d3ee', '#a3e635', '#f59e0b', '#fb7185']
 const chartColors = ['#22d3ee', '#84cc16', '#f59e0b', '#fb7185', '#818cf8']
@@ -244,7 +263,11 @@ const dailyTrendOption = computed(() => baseLineOption({
   xAxisData: (summary.value.charts?.daily_record_trend || []).map(item => item.date?.slice(5)),
   seriesData: (summary.value.charts?.daily_record_trend || []).map(item => item.count),
   areaStyle: { color: 'rgba(34, 211, 238, 0.16)' },
-  color: ['#67e8f9']
+  color: ['#67e8f9'],
+  yAxis: buildAdaptiveValueAxis(
+    (summary.value.charts?.daily_record_trend || []).map(item => item.count),
+    { name: '记录数', includeZero: true, integer: true, minRange: 3 }
+  )
 }))
 
 const classRankOption = computed(() => {
@@ -287,13 +310,13 @@ const classRankOption = computed(() => {
       axisLabel: { rotate: 30, fontSize: 11 },
       axisTick: { alignWithLabel: true }
     },
-    yAxis: {
-      type: 'value',
+    yAxis: buildAdaptiveValueAxis(rows.map(item => item.avg_score), {
       name: '平均分',
-      min: 0,
-      max: 100,
+      hardMin: 0,
+      minRange: 4,
+      targetTicks: 5,
       splitLine: { lineStyle: { type: 'dashed', color: 'rgba(148,163,184,0.3)' } }
-    },
+    }),
     series: [{
       type: 'bar',
       data: rows.map(item => ({
@@ -379,13 +402,7 @@ const allClassTrendOption = computed(() => {
   const colors = ['#38bdf8', '#34d399', '#fbbf24', '#a78bfa', '#f472b6',
                   '#fb7185', '#22d3ee', '#84cc16', '#f59e0b', '#818cf8']
 
-  // 计算所有班级分数的最小值和最大值，动态调整纵轴区间（区分度优化）
-  const allScores = sortedClasses.flatMap(cls => cls.trend?.total_scores || [])
-  const validScores = allScores.filter(s => s > 0)
-  const minScore = validScores.length ? Math.min(...validScores) : 80
-  const maxScore = validScores.length ? Math.max(...validScores) : 100
-  const yAxisMin = Math.max(0, Math.floor((minScore - 5) / 5) * 5) // 向下取整到5的倍数
-  const yAxisMax = Math.min(100, Math.ceil((maxScore + 5) / 5) * 5) // 向上取整到5的倍数
+  const totalScores = sortedClasses.flatMap(cls => cls.trend?.total_scores || [])
 
   return {
     tooltip: { trigger: 'axis' },
@@ -404,10 +421,13 @@ const allClassTrendOption = computed(() => {
       axisLabel: { color: '#94a3b8' }
     },
     yAxis: {
-      type: 'value',
-      name: '德育总分',
-      min: yAxisMin, max: yAxisMax,
-      axisLabel: { color: '#94a3b8' }
+      ...buildAdaptiveValueAxis(totalScores, {
+        name: '德育总分',
+        hardMin: 0,
+        minRange: 4,
+        targetTicks: 5,
+        axisLabel: { color: '#94a3b8' }
+      })
     },
     series: sortedClasses.map((cls, idx) => ({
       name: cls.class_name,
@@ -432,11 +452,7 @@ const classRecordCompareOption = computed(() => {
     return aGrade * 1000 - bGrade * 1000 + a.class_code.localeCompare(b.class_code)
   })
 
-  // 计算最大值用于纵轴自适应
-  const maxPositive = Math.max(...sortedClasses.map(c => c.positive || 0), 1)
-  const maxNegative = Math.max(...sortedClasses.map(c => c.negative || 0), 1)
-  const maxValue = Math.max(maxPositive, maxNegative)
-  const yAxisMax = Math.ceil(maxValue / 10) * 10 + 10 // 向上取整到10的倍数再加10
+  const recordScores = sortedClasses.flatMap(c => [c.positive || 0, c.negative || 0])
 
   return {
     tooltip: {
@@ -455,11 +471,14 @@ const classRecordCompareOption = computed(() => {
       axisTick: { alignWithLabel: true }
     },
     yAxis: {
-      type: 'value',
-      name: '分值',
-      min: 0,
-      max: yAxisMax,
-      axisLabel: { color: '#94a3b8' }
+      ...buildAdaptiveValueAxis(recordScores, {
+        name: '分值',
+        hardMin: 0,
+        includeZero: true,
+        integer: true,
+        minRange: 5,
+        axisLabel: { color: '#94a3b8' }
+      })
     },
     series: [
       {
@@ -512,7 +531,12 @@ const onMoralTrendUnitChange = () => {
 const fetchClassRecordCompare = async () => {
   classRecordCompareLoading.value = true
   try {
-    const res = await getClassRecordCompare()
+    const params = {}
+    if (recordCompareDateRange.value && recordCompareDateRange.value.length === 2) {
+      params.start_date = recordCompareDateRange.value[0]
+      params.end_date = recordCompareDateRange.value[1]
+    }
+    const res = await getClassRecordCompare(params)
     if (res.success) {
       classRecordCompareData.value = res.data
     }
@@ -521,6 +545,15 @@ const fetchClassRecordCompare = async () => {
   } finally {
     classRecordCompareLoading.value = false
   }
+}
+
+const onRecordCompareDateChange = () => {
+  fetchClassRecordCompare()
+}
+
+const resetRecordCompareDate = () => {
+  recordCompareDateRange.value = null
+  fetchClassRecordCompare()
 }
 
 const fetchSummary = () => execute(
@@ -742,6 +775,12 @@ p {
   color: #f8fafc;
   font-size: 16px;
   font-weight: 600;
+}
+
+.trend-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .trend-controls :deep(.el-radio-button__inner) {

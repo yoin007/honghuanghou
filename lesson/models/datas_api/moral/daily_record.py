@@ -500,6 +500,7 @@ async def batch_create_daily_records(
         success_count = 0
         errors = []
         escalation_results = []  # 收集累进结果
+        affected_students = {}
 
         for i, record in enumerate(records):
             try:
@@ -547,6 +548,10 @@ async def batch_create_daily_records(
                 )
                 record_id = db.lastrowid()
                 success_count += 1
+                affected_students[record.student_id] = (
+                    student_info['class_id'],
+                    student_info['grade_id'],
+                )
 
                 # 检查累进处罚（仅对消极事件）
                 if event['event_type'] == 2:
@@ -572,6 +577,9 @@ async def batch_create_daily_records(
 
             except Exception as e:
                 errors.append(f"第{i+1}条：{str(e)}")
+
+        for student_id, (class_id, grade_id) in affected_students.items():
+            calculate_evaluation(db, student_id, semester_id, class_id, grade_id)
 
         message = f"成功创建 {success_count} 条记录"
         if escalation_results:

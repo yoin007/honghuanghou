@@ -242,7 +242,8 @@ def _build_empty_trend_response(unit: str) -> Dict:
 def _merge_trend_data(
     task_data: List[Dict],
     record_data: List[Dict],
-    unit: str
+    unit: str,
+    semester_start: str = None
 ) -> Dict:
     """合并任务得分和加减分记录趋势数据。
 
@@ -250,6 +251,7 @@ def _merge_trend_data(
         task_data: 任务得分趋势数据
         record_data: 加减分记录趋势数据
         unit: 聚合单位
+        semester_start: 学期开始日期，用于计算学期周数
 
     Returns:
         合并后的趋势数据
@@ -302,7 +304,7 @@ def _merge_trend_data(
     }
 
 
-def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data, punishment_data, base_score, unit, start_date, end_date):
+def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data, punishment_data, base_score, unit, semester_start, end_date):
     """合并德育总分各组成部分的累计变化趋势。
 
     Args:
@@ -313,14 +315,14 @@ def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data
         punishment_data: 处分扣分趋势
         base_score: 基础分（60分）
         unit: 聚合单位
-        start_date: 学期开始日期
+        semester_start: 学期开始日期
         end_date: 学期结束日期
 
     Returns:
-        累计德育总分趋势数据
+        累计德育总分趋势数据（只显示有数据的周期）
     """
-    # 合并所有周期
-    all_periods = set()
+    # 合并所有周期（使用传入的 all_periods 或自己收集）
+    collected_periods = set()
     maps = {
         'daily': {},
         'school': {},
@@ -331,31 +333,75 @@ def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data
 
     for row in daily_data:
         period = row.get('period', '')
-        all_periods.add(period)
+        collected_periods.add(period)
         maps['daily'][period] = row.get('score', 0) or 0
 
     for row in school_data:
         period = row.get('period', '')
-        all_periods.add(period)
+        collected_periods.add(period)
         maps['school'][period] = row.get('score', 0) or 0
 
     for row in task_data:
         period = row.get('period', '')
-        all_periods.add(period)
+        collected_periods.add(period)
         maps['task'][period] = row.get('score', 0) or 0
 
     for row in collective_data:
         period = row.get('period', '')
-        all_periods.add(period)
+        collected_periods.add(period)
         maps['collective'][period] = row.get('score', 0) or 0
 
     for row in punishment_data:
         period = row.get('period', '')
-        all_periods.add(period)
+        collected_periods.add(period)
         maps['punishment'][period] = row.get('score', 0) or 0
 
-    # 按周期排序
-    sorted_periods = sorted(all_periods)
+    # 使用实际有数据的周期（从第一个有数据周期开始）
+    if not collected_periods:
+        # 没有任何数据，返回基础分作为学期起点
+        return {
+            "periods": ["baseline"],
+            "labels": ["学期起点"],
+            "daily_scores": [0],
+            "school_scores": [0],
+            "task_scores": [0],
+            "collective_scores": [0],
+            "punishment_scores": [0],
+            "total_scores": [base_score],
+            "has_changes": False,
+        }
+
+    # 找到第一个有数据的周期，从该周期开始显示到当前周期
+    sorted_collected = sorted(collected_periods)
+    first_period = sorted_collected[0]
+
+    # 计算当前周期（当前日期对应的周/月）
+    from datetime import datetime
+    now = datetime.now()
+    if unit == 'week':
+        current_period = now.strftime('%Y-W%W')
+    else:
+        current_period = now.strftime('%Y-%m')
+
+    # 生成从第一个周期到当前周期的所有周期
+    import re
+    match = re.match(r'(\d{4})-W(\d{2})', first_period)
+    current_match = re.match(r'(\d{4})-W(\d{2})', current_period)
+
+    if match and current_match and unit == 'week':
+        year = int(match.group(1))
+        first_week = int(match.group(2))
+        current_year = int(current_match.group(1))
+        current_week = int(current_match.group(2))
+
+        # 生成从第一周到当前周的周期列表
+        all_periods_from_first = []
+        for w in range(first_week, current_week + 1):
+            all_periods_from_first.append(f'{year}-W{w:02d}')
+        sorted_periods = all_periods_from_first
+    else:
+        # 月度或其他格式，直接用收集的周期
+        sorted_periods = sorted_collected
 
     # 构建累计结果
     periods = []
@@ -367,7 +413,7 @@ def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data
     punishment_cumulative = []
     total_cumulative = []
 
-    # 累计值
+    # 累计值（实时计算，没有数据的周期用基础分）
     daily_sum = 0
     school_sum = 0
     task_sum = 0
@@ -379,38 +425,46 @@ def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data
             periods.append(period)
             labels.append(_format_period_label(period, unit, semester_start))
 
-            # 累计各分项
-            daily_sum += maps['daily'].get(period, 0)
-            school_sum += maps['school'].get(period, 0)
-            task_sum += maps['task'].get(period, 0)
-            collective_sum += maps['collective'].get(period, 0)
-            punishment_sum += maps['punishment'].get(period, 0)
+            # 检查该周期是否有任何数据
+            has_data = (
+                period in maps['daily'] or
+                period in maps['school'] or
+                period in maps['task'] or
+                period in maps['collective'] or
+                period in maps['punishment']
+            )
 
-            # 记录累计值
-            daily_cumulative.append(daily_sum)
-            school_cumulative.append(school_sum)
-            task_cumulative.append(task_sum)
-            collective_cumulative.append(collective_sum)
-            punishment_cumulative.append(punishment_sum)
+            if has_data:
+                # 有数据：正常累计
+                if period in maps['daily']:
+                    daily_sum += maps['daily'][period]
+                if period in maps['school']:
+                    school_sum += maps['school'][period]
+                if period in maps['task']:
+                    task_sum += maps['task'][period]
+                if period in maps['collective']:
+                    collective_sum += maps['collective'][period]
+                if period in maps['punishment']:
+                    punishment_sum += maps['punishment'][period]
 
-            # 计算累计德育总分
-            total_score = base_score + daily_sum + school_sum + task_sum + collective_sum - punishment_sum
-            total_cumulative.append(round(total_score, 1))
+                # 记录累计值
+                daily_cumulative.append(round(daily_sum, 2))
+                school_cumulative.append(round(school_sum, 2))
+                task_cumulative.append(round(task_sum, 2))
+                collective_cumulative.append(round(collective_sum, 2))
+                punishment_cumulative.append(round(punishment_sum, 2))
 
-    # 如果没有数据，返回基础分作为学期起点（而不是空结构）
-    if not periods:
-        # 德育分从基础分开始，显示起点让用户知道学生分数状态
-        return {
-            "periods": ["baseline"],
-            "labels": ["学期起点"],
-            "daily_scores": [0],
-            "school_scores": [0],
-            "task_scores": [0],
-            "collective_scores": [0],
-            "punishment_scores": [0],
-            "total_scores": [base_score],  # 基础分作为起点
-            "has_changes": False,  # 标记无变化记录
-        }
+                # 计算累计德育总分
+                total_score = base_score + daily_sum + school_sum + task_sum + collective_sum - punishment_sum
+                total_cumulative.append(round(total_score, 1))
+            else:
+                # 无数据：重置累计值，用基础分
+                daily_cumulative.append(0)
+                school_cumulative.append(0)
+                task_cumulative.append(0)
+                collective_cumulative.append(0)
+                punishment_cumulative.append(0)
+                total_cumulative.append(base_score)
 
     return {
         "periods": periods,
@@ -421,7 +475,7 @@ def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data
         "collective_scores": collective_cumulative,
         "punishment_scores": punishment_cumulative,
         "total_scores": total_cumulative,
-        "has_changes": True,  # 标记有变化记录
+        "has_changes": True,
     }
 
 
@@ -491,7 +545,7 @@ async def get_student_score_trend(
         end_date = semester.get('end_date')
         period_format = _get_period_format(unit)
 
-        # 德育总分累计变化趋势
+        # 德育总分累计变化趋势（只显示有数据的周期）
         # 1. 日常记录得分累计（正向/需改进）
         daily_data = db.query_all(
             f"""SELECT strftime('{period_format}', record_date) as period, SUM(score) as score
@@ -1177,6 +1231,8 @@ async def get_grade_classes_score_trend(
         # 为每个班级构建趋势数据
         class_trends = []
         all_periods = set()
+        # 临时存储每个班级的趋势数据，用于后续对齐
+        class_trend_map = {}
 
         for cls in classes:
             class_id = cls['class_id']
@@ -1195,18 +1251,51 @@ async def get_grade_classes_score_trend(
                 base_score, unit, student_count, start_date
             )
 
-            # 只收集有实际数据变化的周期（过滤 baseline 占位符）
+            # 收集该班级的周期数据
+            class_trend_map[class_id] = {
+                'periods': trend['periods'],
+                'total_scores': trend['total_scores'],
+                'base_score': base_score
+            }
+
+            # 收集所有周期
             for p in trend['periods']:
                 if p and p != "baseline":
                     all_periods.add(p)
 
-            # 所有班级都显示（空数据班级显示基础分）
+        # 统一周期排序
+        sorted_periods = sorted(all_periods)
+
+        # 对齐每个班级的数据到统一周期数组
+        for cls in classes:
+            class_id = cls['class_id']
+            trend_data = class_trend_map.get(class_id, {})
+            class_periods = trend_data.get('periods', [])
+            class_scores = trend_data.get('total_scores', [])
+            class_base = trend_data.get('base_score', base_score)
+
+            # 移除 baseline 占位符
+            clean_periods = [p for p in class_periods if p != 'baseline']
+            clean_scores = [s for p, s in zip(class_periods, class_scores) if p != 'baseline']
+
+            # 创建周期->分数映射
+            period_score_map = dict(zip(clean_periods, clean_scores))
+
+            # 对齐：有数据用实际分数，无数据用基础分
+            aligned_scores = []
+            for period in sorted_periods:
+                if period in period_score_map:
+                    aligned_scores.append(period_score_map[period])
+                else:
+                    # 该班级在这个周期没有数据，用基础分
+                    aligned_scores.append(class_base)
+
             class_trends.append({
                 "class_id": class_id,
                 "class_code": cls['class_code'],
                 "class_name": cls['class_name'],
                 "trend": {
-                    "total_scores": trend['total_scores']
+                    "total_scores": aligned_scores
                 }
             })
 
@@ -1368,6 +1457,8 @@ async def get_all_classes_score_trend(
         # 为每个班级构建趋势数据
         class_trends = []
         all_periods = set()
+        # 临时存储每个班级的趋势数据，用于后续对齐
+        class_trend_map = {}
 
         for cls in classes:
             class_id = cls['class_id']
@@ -1386,19 +1477,52 @@ async def get_all_classes_score_trend(
                 base_score, unit, student_count, start_date
             )
 
-            # 只收集有实际数据变化的周期（过滤 baseline 占位符）
+            # 收集该班级的周期数据
+            class_trend_map[class_id] = {
+                'periods': trend['periods'],
+                'total_scores': trend['total_scores'],
+                'base_score': base_score
+            }
+
+            # 收集所有周期
             for p in trend['periods']:
                 if p and p != "baseline":
                     all_periods.add(p)
 
-            # 所有班级都显示（空数据班级显示基础分）
+        # 统一周期排序
+        sorted_periods = sorted(all_periods)
+
+        # 对齐每个班级的数据到统一周期数组
+        for cls in classes:
+            class_id = cls['class_id']
+            trend_data = class_trend_map.get(class_id, {})
+            class_periods = trend_data.get('periods', [])
+            class_scores = trend_data.get('total_scores', [])
+            class_base = trend_data.get('base_score', base_score)
+
+            # 移除 baseline 占位符
+            clean_periods = [p for p in class_periods if p != 'baseline']
+            clean_scores = [s for p, s in zip(class_periods, class_scores) if p != 'baseline']
+
+            # 创建周期->分数映射
+            period_score_map = dict(zip(clean_periods, clean_scores))
+
+            # 对齐：有数据用实际分数，无数据用基础分
+            aligned_scores = []
+            for period in sorted_periods:
+                if period in period_score_map:
+                    aligned_scores.append(period_score_map[period])
+                else:
+                    # 该班级在这个周期没有数据，用基础分
+                    aligned_scores.append(class_base)
+
             class_trends.append({
                 "class_id": class_id,
                 "class_code": cls['class_code'],
                 "class_name": cls['class_name'],
                 "grade_name": cls['grade_name'],
                 "trend": {
-                    "total_scores": trend['total_scores']
+                    "total_scores": aligned_scores
                 }
             })
 
@@ -1422,6 +1546,8 @@ async def get_all_classes_score_trend(
 @router.get("/class-record-compare", summary="全校班级正负记录对比")
 async def get_class_record_compare(
     semester_id: Optional[int] = Query(None, description="学期ID，默认当前学期"),
+    start_date: Optional[str] = Query(None, description="开始日期，如2026-03-01"),
+    end_date: Optional[str] = Query(None, description="结束日期，如2026-03-31"),
     user: User = Depends(require_configured_api_permission(API_DASHBOARD_CLASS_RECORD_COMPARE, "GET", allow_missing=False)),
 ):
     """全校各班级正向和负向记录对比数据。
@@ -1430,7 +1556,9 @@ async def get_class_record_compare(
     负向记录：日常记录负向扣分 + 校级事件负向扣分 + 处分扣分
 
     Args:
-        semester_id: 学期ID
+        semester_id: 学期ID（用于获取默认时间范围）
+        start_date: 自定义开始日期（优先于学期默认）
+        end_date: 自定义结束日期（优先于学期默认）
         user: 当前用户
 
     Returns:
@@ -1445,17 +1573,18 @@ async def get_class_record_compare(
             own_permissions=[]
         )
 
-        # 获取学期信息
-        if not semester_id:
-            semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE status = 1")
-        else:
-            semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?", (semester_id,))
+        # 确定时间范围：优先使用自定义日期，否则使用学期默认
+        if not start_date or not end_date:
+            if not semester_id:
+                semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE status = 1")
+            else:
+                semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?", (semester_id,))
 
-        if not semester:
-            return {"success": True, "data": {"classes": [], "updated_at": _now_text()}}
+            if not semester:
+                return {"success": True, "data": {"classes": [], "updated_at": _now_text()}}
 
-        start_date = semester.get('start_date')
-        end_date = semester.get('end_date')
+            start_date = start_date or semester.get('start_date')
+            end_date = end_date or semester.get('end_date')
 
         # 获取班级列表（权限过滤）
         if scope.get('can_all'):

@@ -149,7 +149,7 @@ import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.
 import { getClassDashboardSummary, getClassScoreTrend, getStudentScoreTrend } from '@/api/modules/dashboard'
 import { getClasses, getStudents } from '@/api/modules/moral'
 import { useAuthStore } from '@/stores/auth'
-import { basePieOption } from '@/utils/charting'
+import { basePieOption, buildAdaptiveValueAxis } from '@/utils/charting'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
 const router = useRouter()
@@ -207,6 +207,13 @@ const classTrendOption = computed(() => {
   // 无变化记录时显示基础分 + 提示
   const hasChanges = data.has_changes !== false
   const subtitleText = hasChanges ? '' : `班级德育平均分保持在基础分 ${data.total_scores?.[0] || 80} 分`
+  const componentScores = [
+    data.daily_scores,
+    data.school_scores,
+    data.task_scores,
+    data.collective_scores,
+    data.punishment_scores
+  ]
 
   return {
     title: {
@@ -218,14 +225,32 @@ const classTrendOption = computed(() => {
     tooltip: { trigger: 'axis' },
     legend: { data: ['德育总分', '日常记录', '校级事件', '任务完成', '集体活动', '处分扣分'], top: subtitleText ? 28 : 10 },
     xAxis: { type: 'category', data: data.labels },
-    yAxis: { type: 'value', name: '平均得分', min: 0, max: 100 },
+    grid: { left: 48, right: 56, top: subtitleText ? 72 : 56, bottom: 32 },
+    yAxis: [
+      buildAdaptiveValueAxis(data.total_scores, {
+        name: '总分',
+        hardMin: 0,
+        minRange: 4,
+        targetTicks: 5
+      }),
+      buildAdaptiveValueAxis(componentScores, {
+        name: '分项',
+        hardMin: 0,
+        includeZero: true,
+        minRange: 4,
+        targetTicks: 4,
+        splitLine: { show: false },
+        axisLabel: { color: '#64748b' },
+        extra: { position: 'right' }
+      })
+    ],
     series: [
       { name: '德育总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#38bdf8' }, lineStyle: { width: 3 } },
-      { name: '日常记录', type: 'line', data: data.daily_scores, smooth: true, itemStyle: { color: '#34d399' } },
-      { name: '校级事件', type: 'line', data: data.school_scores, smooth: true, itemStyle: { color: '#fbbf24' } },
-      { name: '任务完成', type: 'line', data: data.task_scores, smooth: true, itemStyle: { color: '#a78bfa' } },
-      { name: '集体活动', type: 'line', data: data.collective_scores, smooth: true, itemStyle: { color: '#f472b6' } },
-      { name: '处分扣分', type: 'line', data: data.punishment_scores, smooth: true, itemStyle: { color: '#fb7185' } }
+      { name: '日常记录', type: 'line', yAxisIndex: 1, data: data.daily_scores, smooth: true, itemStyle: { color: '#34d399' } },
+      { name: '校级事件', type: 'line', yAxisIndex: 1, data: data.school_scores, smooth: true, itemStyle: { color: '#fbbf24' } },
+      { name: '任务完成', type: 'line', yAxisIndex: 1, data: data.task_scores, smooth: true, itemStyle: { color: '#a78bfa' } },
+      { name: '集体活动', type: 'line', yAxisIndex: 1, data: data.collective_scores, smooth: true, itemStyle: { color: '#f472b6' } },
+      { name: '处分扣分', type: 'line', yAxisIndex: 1, data: data.punishment_scores, smooth: true, itemStyle: { color: '#fb7185' } }
     ]
   }
 })
@@ -237,6 +262,13 @@ const studentTrendOption = computed(() => {
   // 无变化记录时显示基础分 + 提示
   const hasChanges = data.has_changes !== false
   const subtitleText = hasChanges ? '' : `学生德育总分保持在基础分 ${data.total_scores?.[0] || 80} 分`
+  const componentScores = [
+    data.daily_scores,
+    data.school_scores,
+    data.task_scores,
+    data.collective_scores,
+    data.punishment_scores
+  ]
 
   return {
     title: {
@@ -248,14 +280,32 @@ const studentTrendOption = computed(() => {
     tooltip: { trigger: 'axis' },
     legend: { data: ['德育总分', '日常记录', '校级事件', '任务完成', '集体活动', '处分扣分'], top: subtitleText ? 28 : 10 },
     xAxis: { type: 'category', data: data.labels },
-    yAxis: { type: 'value', name: '累计得分', min: 0, max: 100 },
+    grid: { left: 48, right: 56, top: subtitleText ? 72 : 56, bottom: 32 },
+    yAxis: [
+      buildAdaptiveValueAxis(data.total_scores, {
+        name: '总分',
+        hardMin: 0,
+        minRange: 4,
+        targetTicks: 5
+      }),
+      buildAdaptiveValueAxis(componentScores, {
+        name: '分项',
+        hardMin: 0,
+        includeZero: true,
+        minRange: 4,
+        targetTicks: 4,
+        splitLine: { show: false },
+        axisLabel: { color: '#64748b' },
+        extra: { position: 'right' }
+      })
+    ],
     series: [
       { name: '德育总分', type: 'line', data: data.total_scores, smooth: true, itemStyle: { color: '#38bdf8' }, lineStyle: { width: 3 } },
-      { name: '日常记录', type: 'line', data: data.daily_scores, smooth: true, itemStyle: { color: '#34d399' } },
-      { name: '校级事件', type: 'line', data: data.school_scores, smooth: true, itemStyle: { color: '#fbbf24' } },
-      { name: '任务完成', type: 'line', data: data.task_scores, smooth: true, itemStyle: { color: '#a78bfa' } },
-      { name: '集体活动', type: 'line', data: data.collective_scores, smooth: true, itemStyle: { color: '#f472b6' } },
-      { name: '处分扣分', type: 'line', data: data.punishment_scores, smooth: true, itemStyle: { color: '#fb7185' } }
+      { name: '日常记录', type: 'line', yAxisIndex: 1, data: data.daily_scores, smooth: true, itemStyle: { color: '#34d399' } },
+      { name: '校级事件', type: 'line', yAxisIndex: 1, data: data.school_scores, smooth: true, itemStyle: { color: '#fbbf24' } },
+      { name: '任务完成', type: 'line', yAxisIndex: 1, data: data.task_scores, smooth: true, itemStyle: { color: '#a78bfa' } },
+      { name: '集体活动', type: 'line', yAxisIndex: 1, data: data.collective_scores, smooth: true, itemStyle: { color: '#f472b6' } },
+      { name: '处分扣分', type: 'line', yAxisIndex: 1, data: data.punishment_scores, smooth: true, itemStyle: { color: '#fb7185' } }
     ]
   }
 })

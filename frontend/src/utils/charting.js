@@ -21,6 +21,106 @@ export const axisLineColor = 'rgba(148, 163, 184, 0.35)'
 export const labelColor = '#e2e8f0'
 export const pieBorderColor = '#07111f'
 
+const toFiniteNumbers = (values) => {
+  const source = Array.isArray(values) ? values.flat(Infinity) : [values]
+  return source
+    .map(value => Number(value))
+    .filter(value => Number.isFinite(value))
+}
+
+const roundAxisNumber = (value) => {
+  if (!Number.isFinite(value)) return value
+  if (Math.abs(value) >= 10) return Math.round(value * 10) / 10
+  return Math.round(value * 100) / 100
+}
+
+const niceStep = (rawStep, integer = false) => {
+  if (!Number.isFinite(rawStep) || rawStep <= 0) return integer ? 1 : 1
+  const exponent = Math.floor(Math.log10(rawStep))
+  const magnitude = 10 ** exponent
+  const residual = rawStep / magnitude
+  const niceResidual = residual <= 1
+    ? 1
+    : residual <= 2
+      ? 2
+      : residual <= 2.5
+        ? 2.5
+        : residual <= 5
+          ? 5
+          : 10
+  const step = niceResidual * magnitude
+  return integer ? Math.max(1, Math.ceil(step)) : step
+}
+
+/**
+ * 根据当前数据生成更细的数值轴，避免分数差距被 0-100 轴压扁。
+ */
+export function buildAdaptiveValueAxis(values, options = {}) {
+  const {
+    name = '',
+    targetTicks = 5,
+    minRange = 4,
+    paddingRatio = 0.18,
+    hardMin = null,
+    hardMax = null,
+    includeZero = false,
+    integer = false,
+    axisLabel = {},
+    splitLine = {},
+    extra = {}
+  } = options
+
+  const nums = toFiniteNumbers(values)
+  const baseAxis = {
+    type: 'value',
+    name,
+    axisLabel: { color: axisValueColor, ...axisLabel },
+    splitLine: { lineStyle: { color: splitLineColor }, ...splitLine },
+    ...extra
+  }
+
+  if (!nums.length) return baseAxis
+
+  let min = Math.min(...nums)
+  let max = Math.max(...nums)
+  if (includeZero) min = Math.min(min, 0)
+
+  const originalRange = Math.max(max - min, 0)
+  const range = Math.max(originalRange, minRange)
+  const padding = range * paddingRatio
+  let axisMin = min - padding
+  let axisMax = max + padding
+
+  if (originalRange === 0) {
+    axisMin = min - range / 2
+    axisMax = max + range / 2
+  }
+
+  const step = niceStep((axisMax - axisMin) / targetTicks, integer)
+  axisMin = Math.floor(axisMin / step) * step
+  axisMax = Math.ceil(axisMax / step) * step
+
+  if (integer) {
+    axisMin = Math.floor(axisMin)
+    axisMax = Math.ceil(axisMax)
+  }
+
+  if (hardMin !== null) axisMin = Math.max(hardMin, axisMin)
+  if (hardMax !== null) axisMax = Math.min(hardMax, axisMax)
+
+  if (axisMin >= axisMax) {
+    axisMin = hardMin !== null ? hardMin : axisMin - step
+    axisMax = hardMax !== null ? hardMax : axisMax + step
+  }
+
+  return {
+    ...baseAxis,
+    min: roundAxisNumber(axisMin),
+    max: roundAxisNumber(axisMax),
+    interval: roundAxisNumber(step)
+  }
+}
+
 /**
  * 生成饼图基础配置（不含业务 data）
  * @param {Object} overrides - 覆盖项（如 color, radius）
@@ -56,7 +156,8 @@ export function baseHorizontalBarOption(overrides = {}) {
     xAxis: {
       type: 'value',
       axisLabel: { color: axisValueColor },
-      splitLine: { lineStyle: { color: splitLineColor } }
+      splitLine: { lineStyle: { color: splitLineColor } },
+      ...(overrides.xAxis || {})
     },
     yAxis: {
       type: 'category',
@@ -94,7 +195,8 @@ export function baseVerticalBarOption(overrides = {}) {
     yAxis: {
       type: 'value',
       axisLabel: { color: axisValueColor },
-      splitLine: { lineStyle: { color: splitLineColor } }
+      splitLine: { lineStyle: { color: splitLineColor } },
+      ...(overrides.yAxis || {})
     },
     series: [{
       type: 'bar',
@@ -125,7 +227,8 @@ export function baseLineOption(overrides = {}) {
     yAxis: {
       type: 'value',
       axisLabel: { color: axisValueColor },
-      splitLine: { lineStyle: { color: splitLineColor } }
+      splitLine: { lineStyle: { color: splitLineColor } },
+      ...(overrides.yAxis || {})
     },
     series: [{
       type: 'line',
