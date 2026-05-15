@@ -42,6 +42,14 @@
         emptyText="暂无全校班级对比趋势数据"
         :loading="allClassTrendLoading"
       />
+      <DashboardChart
+        title="全校班级正负记录对比"
+        eyebrow="POSITIVE VS NEGATIVE"
+        :option="classRecordCompareOption"
+        :empty="!classRecordCompareData.classes?.length"
+        emptyText="暂无班级正负记录对比数据"
+        :loading="classRecordCompareLoading"
+      />
     </section>
 
     <section class="chart-grid">
@@ -179,7 +187,7 @@ import DashboardHero from '@/components/dashboard/DashboardHero.vue'
 import DashboardMetricGrid from '@/components/dashboard/DashboardMetricGrid.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
 import DashboardTopNSelect from '@/components/dashboard/DashboardTopNSelect.vue'
-import { getMoralDashboardSummary, getAllClassesScoreTrend } from '@/api/modules/dashboard'
+import { getMoralDashboardSummary, getAllClassesScoreTrend, getClassRecordCompare } from '@/api/modules/dashboard'
 import { getExpiringPunishments } from '@/api/modules/moral'
 import { basePieOption, baseHorizontalBarOption, baseLineOption, baseVerticalBarOption } from '@/utils/charting'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
@@ -191,6 +199,8 @@ const topN = ref(50) // 默认50，获取全部班级对比
 const moralTrendUnit = ref('week')
 const allClassTrendData = ref({ periods: [], labels: [], classes: [] })
 const allClassTrendLoading = ref(false)
+const classRecordCompareData = ref({ classes: [] })
+const classRecordCompareLoading = ref(false)
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#22d3ee', '#a3e635', '#f59e0b', '#fb7185']
 const chartColors = ['#22d3ee', '#84cc16', '#f59e0b', '#fb7185', '#818cf8']
@@ -410,6 +420,66 @@ const allClassTrendOption = computed(() => {
   }
 })
 
+const classRecordCompareOption = computed(() => {
+  const data = classRecordCompareData.value
+  if (!data.classes?.length) return null
+
+  // 按班级排序（年级优先）
+  const sortedClasses = [...(data.classes || [])].sort((a, b) => {
+    const gradeOrder = { '高一年级': 1, '高二年级': 2, '高三年级': 3 }
+    const aGrade = gradeOrder[a.grade_name] || 0
+    const bGrade = gradeOrder[b.grade_name] || 0
+    return aGrade * 1000 - bGrade * 1000 + a.class_code.localeCompare(b.class_code)
+  })
+
+  // 计算最大值用于纵轴自适应
+  const maxPositive = Math.max(...sortedClasses.map(c => c.positive || 0), 1)
+  const maxNegative = Math.max(...sortedClasses.map(c => c.negative || 0), 1)
+  const maxValue = Math.max(maxPositive, maxNegative)
+  const yAxisMax = Math.ceil(maxValue / 10) * 10 + 10 // 向上取整到10的倍数再加10
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' }
+    },
+    legend: {
+      data: ['正向记录', '负向记录'],
+      top: 10
+    },
+    grid: { left: 48, right: 24, top: 56, bottom: 80 },
+    xAxis: {
+      type: 'category',
+      data: sortedClasses.map(c => c.class_name),
+      axisLabel: { color: '#94a3b8', rotate: 30, fontSize: 11 },
+      axisTick: { alignWithLabel: true }
+    },
+    yAxis: {
+      type: 'value',
+      name: '分值',
+      min: 0,
+      max: yAxisMax,
+      axisLabel: { color: '#94a3b8' }
+    },
+    series: [
+      {
+        name: '正向记录',
+        type: 'bar',
+        data: sortedClasses.map(c => c.positive),
+        itemStyle: { color: '#22d3ee', borderRadius: [4, 4, 0, 0] },
+        barWidth: 16
+      },
+      {
+        name: '负向记录',
+        type: 'bar',
+        data: sortedClasses.map(c => c.negative),
+        itemStyle: { color: '#fb7185', borderRadius: [4, 4, 0, 0] },
+        barWidth: 16
+      }
+    ]
+  }
+})
+
 const fetchExpiringPunishments = async () => {
   try {
     const res = await getExpiringPunishments({ days: 7, page_size: 10 })
@@ -439,6 +509,20 @@ const onMoralTrendUnitChange = () => {
   fetchAllClassTrend()
 }
 
+const fetchClassRecordCompare = async () => {
+  classRecordCompareLoading.value = true
+  try {
+    const res = await getClassRecordCompare()
+    if (res.success) {
+      classRecordCompareData.value = res.data
+    }
+  } catch (e) {
+    console.error('获取班级正负记录对比失败:', e)
+  } finally {
+    classRecordCompareLoading.value = false
+  }
+}
+
 const fetchSummary = () => execute(
   () => getMoralDashboardSummary({ top_n: topN.value }),
   data => { summary.value = data }
@@ -448,6 +532,7 @@ onMounted(() => {
   fetchSummary()
   fetchExpiringPunishments()
   fetchAllClassTrend()
+  fetchClassRecordCompare()
 })
 </script>
 

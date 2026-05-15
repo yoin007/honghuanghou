@@ -44,12 +44,13 @@ def _get_period_format(unit: str) -> str:
     return '%Y-W%W'
 
 
-def _format_period_label(period: str, unit: str) -> str:
+def _format_period_label(period: str, unit: str, semester_start: str = None) -> str:
     """格式化周期显示标签。
 
     Args:
         period: strftime 返回的周期字符串
         unit: 'week' 或 'month'
+        semester_start: 学期开始日期（如 '2026-02-20'），用于计算学期周数
 
     Returns:
         可读的周期标签，如 '第1周' 或 '2026年1月'
@@ -59,12 +60,37 @@ def _format_period_label(period: str, unit: str) -> str:
         return f'{year}年{int(month)}月'
     else:
         year, week = period.split('-W')
+        # 转换为学期周数（如果提供了学期开始日期）
+        if semester_start:
+            from datetime import datetime, timedelta
+            try:
+                # 计算年度周数对应的日期范围
+                year_int = int(year)
+                week_int = int(week)
+                # 年度第 week_int 周的第一天（周一）
+                # SQLite %W 是 00-53，周日为一周开始，但周一计算
+                jan1 = datetime(year_int, 1, 1)
+                # 找到第一周的周一
+                first_monday = jan1 + timedelta(days=(7 - jan1.weekday()) % 7)
+                week_start = first_monday + timedelta(weeks=week_int - 1)
+
+                # 计算学期开始日期
+                semester_start_dt = datetime.strptime(semester_start, '%Y-%m-%d')
+
+                # 计算学期周数
+                days_diff = (week_start - semester_start_dt).days
+                semester_week = (days_diff // 7) + 1
+
+                if semester_week > 0:
+                    return f'第{semester_week}周'
+            except:
+                pass
         return f'{year}年第{int(week)}周'
 
 
 def _merge_class_moral_trend(
     daily_data, school_data, task_data, collective_data, punishment_data,
-    base_score, unit, student_count
+    base_score, unit, student_count, semester_start=None
 ):
     """合并班级德育总分各组成部分的平均变化趋势（累计）。
 
@@ -78,6 +104,8 @@ def _merge_class_moral_trend(
         punishment_data: 处分扣分总得分趋势
         base_score: 基础分
         unit: 聚合单位
+        student_count: 班级学生数
+        semester_start: 学期开始日期，用于计算学期周数
         student_count: 班级学生数
 
     Returns:
@@ -142,7 +170,7 @@ def _merge_class_moral_trend(
     for period in sorted_periods:
         if period:
             periods.append(period)
-            labels.append(_format_period_label(period, unit))
+            labels.append(_format_period_label(period, unit, semester_start))
 
             # 累计各分项平均分
             daily_sum += maps['daily'].get(period, 0)
@@ -258,7 +286,7 @@ def _merge_trend_data(
     for period in sorted_periods:
         if period:
             periods.append(period)
-            labels.append(_format_period_label(period, unit))
+            labels.append(_format_period_label(period, unit, semester_start))
             ts = task_map.get(period, 0)
             rs = record_map.get(period, 0)
             task_scores.append(ts)
@@ -349,7 +377,7 @@ def _merge_moral_score_trend(daily_data, school_data, task_data, collective_data
     for period in sorted_periods:
         if period:
             periods.append(period)
-            labels.append(_format_period_label(period, unit))
+            labels.append(_format_period_label(period, unit, semester_start))
 
             # 累计各分项
             daily_sum += maps['daily'].get(period, 0)
@@ -681,7 +709,7 @@ async def get_class_score_trend(
         trend_data = _merge_class_moral_trend(
             daily_data or [], school_data or [], task_data or [],
             collective_data or [], punishment_data or [],
-            base_score, unit, student_count
+            base_score, unit, student_count, semester.get('start_date') if semester else None
         )
 
     return {
@@ -857,7 +885,7 @@ async def get_grade_score_trend(
         trend_data = _merge_class_moral_trend(
             daily_data or [], school_data or [], task_data or [],
             collective_data or [], punishment_data or [],
-            base_score, unit, student_count
+            base_score, unit, student_count, semester.get('start_date') if semester else None
         )
 
     return {
@@ -1005,6 +1033,7 @@ async def get_teacher_record_trend(
 # 新增 API 常量
 API_DASHBOARD_GRADE_CLASSES_TREND = "/api/dashboard/score-trend/grade/{grade_id}/classes"
 API_DASHBOARD_ALL_CLASSES_TREND = "/api/dashboard/score-trend/all-classes"
+API_DASHBOARD_CLASS_RECORD_COMPARE = "/api/dashboard/class-record-compare"
 
 
 @router.get("/score-trend/grade/{grade_id}/classes", summary="年级班级对比趋势")
@@ -1163,7 +1192,7 @@ async def get_grade_classes_score_trend(
             # 合并趋势
             trend = _merge_class_moral_trend(
                 cls_daily, cls_school, cls_task, cls_collective, cls_punishment,
-                base_score, unit, student_count
+                base_score, unit, student_count, start_date
             )
 
             # 只收集有实际数据变化的周期（过滤 baseline 占位符）
@@ -1183,7 +1212,8 @@ async def get_grade_classes_score_trend(
 
         # 统一周期排序
         sorted_periods = sorted(all_periods)
-        labels = [_format_period_label(p, unit) for p in sorted_periods]
+        semester_start_date = semester.get('start_date') if semester else None
+        labels = [_format_period_label(p, unit, semester_start_date) for p in sorted_periods]
 
     return {
         "success": True,
@@ -1353,7 +1383,7 @@ async def get_all_classes_score_trend(
             # 合并趋势
             trend = _merge_class_moral_trend(
                 cls_daily, cls_school, cls_task, cls_collective, cls_punishment,
-                base_score, unit, student_count
+                base_score, unit, student_count, start_date
             )
 
             # 只收集有实际数据变化的周期（过滤 baseline 占位符）
@@ -1373,7 +1403,8 @@ async def get_all_classes_score_trend(
             })
 
         sorted_periods = sorted(all_periods)
-        labels = [_format_period_label(p, unit) for p in sorted_periods]
+        semester_start_date = semester.get('start_date') if semester else None
+        labels = [_format_period_label(p, unit, semester_start_date) for p in sorted_periods]
 
     return {
         "success": True,
@@ -1383,6 +1414,201 @@ async def get_all_classes_score_trend(
             "labels": labels,
             "classes": class_trends,
             "class_count": len(class_trends),
+            "updated_at": _now_text(),
+        },
+    }
+
+
+@router.get("/class-record-compare", summary="全校班级正负记录对比")
+async def get_class_record_compare(
+    semester_id: Optional[int] = Query(None, description="学期ID，默认当前学期"),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_CLASS_RECORD_COMPARE, "GET", allow_missing=False)),
+):
+    """全校各班级正向和负向记录对比数据。
+
+    正向记录：日常记录正向得分 + 校级事件正向得分 + 任务完成得分 + 集体活动得分
+    负向记录：日常记录负向扣分 + 校级事件负向扣分 + 处分扣分
+
+    Args:
+        semester_id: 学期ID
+        user: 当前用户
+
+    Returns:
+        各班级正负记录对比数据，按班级排序
+    """
+    with get_moral_db() as db:
+        # 权限检查
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_CLASS_RECORD_COMPARE,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
+
+        # 获取学期信息
+        if not semester_id:
+            semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE status = 1")
+        else:
+            semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?", (semester_id,))
+
+        if not semester:
+            return {"success": True, "data": {"classes": [], "updated_at": _now_text()}}
+
+        start_date = semester.get('start_date')
+        end_date = semester.get('end_date')
+
+        # 获取班级列表（权限过滤）
+        if scope.get('can_all'):
+            classes = db.query_all(
+                """SELECT c.class_id, c.class_code, c.class_name, c.grade_id, g.grade_name
+                   FROM class c
+                   JOIN grade g ON c.grade_id = g.grade_id
+                   WHERE c.is_active = 1
+                   ORDER BY g.grade_id, c.class_code"""
+            )
+        else:
+            my_grade_ids = scope.get('my_grade_ids', [])
+            if my_grade_ids:
+                grade_ids_str = ','.join(map(str, my_grade_ids))
+                classes = db.query_all(
+                    f"""SELECT c.class_id, c.class_code, c.class_name, c.grade_id, g.grade_name
+                        FROM class c
+                        JOIN grade g ON c.grade_id = g.grade_id
+                        WHERE c.is_active = 1 AND c.grade_id IN ({grade_ids_str})
+                        ORDER BY g.grade_id, c.class_code"""
+                )
+            else:
+                return {"success": True, "data": {"classes": [], "updated_at": _now_text()}}
+
+        if not classes:
+            return {"success": True, "data": {"classes": [], "updated_at": _now_text()}}
+
+        class_ids = [c['class_id'] for c in classes]
+        class_ids_str = ','.join(map(str, class_ids))
+
+        # 正向记录：日常记录正向得分
+        daily_positive = db.query_all(
+            f"""SELECT class_id, SUM(score) as total_score
+                FROM student_daily_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0 AND score > 0
+                AND record_date >= ? AND record_date <= ?
+                GROUP BY class_id""",
+            (start_date, end_date)
+        )
+
+        # 正向记录：校级事件正向得分
+        school_positive = db.query_all(
+            f"""SELECT class_id, SUM(score) as total_score
+                FROM student_school_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0 AND score > 0
+                AND get_date >= ? AND get_date <= ?
+                GROUP BY class_id""",
+            (start_date, end_date)
+        )
+
+        # 正向记录：任务完成得分
+        task_finish = db.query_all(
+            f"""SELECT s.class_id, SUM(stf.current_score) as total_score
+                FROM student_task_finish stf
+                JOIN student s ON stf.student_id = s.student_id
+                WHERE s.class_id IN ({class_ids_str}) AND stf.status = 1
+                AND stf.finish_date >= ? AND stf.finish_date <= ?
+                GROUP BY s.class_id""",
+            (start_date, end_date)
+        )
+
+        # 正向记录：集体活动得分
+        collective_positive = db.query_all(
+            f"""SELECT ced.class_id, SUM(ced.score_assigned) as total_score
+                FROM collective_event_distribution ced
+                JOIN collective_event ce ON ced.event_id = ce.event_id
+                WHERE ced.class_id IN ({class_ids_str}) AND ced.is_participant = 1 AND ce.score > 0
+                AND ce.event_date >= ? AND ce.event_date <= ?
+                GROUP BY ced.class_id""",
+            (start_date, end_date)
+        )
+
+        # 负向记录：日常记录负向扣分（取绝对值）
+        daily_negative = db.query_all(
+            f"""SELECT class_id, SUM(ABS(score)) as total_score
+                FROM student_daily_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0 AND score < 0
+                AND record_date >= ? AND record_date <= ?
+                GROUP BY class_id""",
+            (start_date, end_date)
+        )
+
+        # 负向记录：校级事件负向扣分（取绝对值）
+        school_negative = db.query_all(
+            f"""SELECT class_id, SUM(ABS(score)) as total_score
+                FROM student_school_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0 AND score < 0
+                AND get_date >= ? AND get_date <= ?
+                GROUP BY class_id""",
+            (start_date, end_date)
+        )
+
+        # 负向记录：处分扣分
+        punishment_deduct = db.query_all(
+            f"""SELECT class_id, SUM(ABS(score_deduct)) as total_score
+                FROM punishment_record
+                WHERE class_id IN ({class_ids_str}) AND is_revoked = 0
+                AND punishment_date >= ? AND punishment_date <= ?
+                GROUP BY class_id""",
+            (start_date, end_date)
+        )
+
+        # 负向记录：集体违纪扣分（取绝对值）
+        collective_negative = db.query_all(
+            f"""SELECT ced.class_id, SUM(ABS(ced.score_assigned)) as total_score
+                FROM collective_event_distribution ced
+                JOIN collective_event ce ON ced.event_id = ce.event_id
+                WHERE ced.class_id IN ({class_ids_str}) AND ced.is_participant = 1 AND ce.score < 0
+                AND ce.event_date >= ? AND ce.event_date <= ?
+                GROUP BY ced.class_id""",
+            (start_date, end_date)
+        )
+
+        # 合并各班级数据
+        class_compare = []
+        for cls in classes:
+            class_id = cls['class_id']
+
+            # 计算正向得分
+            positive = sum([
+                (r.get('total_score', 0) or 0) for r in daily_positive if r['class_id'] == class_id
+            ]) + sum([
+                (r.get('total_score', 0) or 0) for r in school_positive if r['class_id'] == class_id
+            ]) + sum([
+                (r.get('total_score', 0) or 0) for r in task_finish if r['class_id'] == class_id
+            ]) + sum([
+                (r.get('total_score', 0) or 0) for r in collective_positive if r['class_id'] == class_id
+            ])
+
+            # 计算负向扣分
+            negative = sum([
+                (r.get('total_score', 0) or 0) for r in daily_negative if r['class_id'] == class_id
+            ]) + sum([
+                (r.get('total_score', 0) or 0) for r in school_negative if r['class_id'] == class_id
+            ]) + sum([
+                (r.get('total_score', 0) or 0) for r in punishment_deduct if r['class_id'] == class_id
+            ]) + sum([
+                (r.get('total_score', 0) or 0) for r in collective_negative if r['class_id'] == class_id
+            ])
+
+            class_compare.append({
+                "class_id": class_id,
+                "class_code": cls['class_code'],
+                "class_name": cls['class_name'],
+                "grade_name": cls['grade_name'],
+                "positive": round(positive, 1),
+                "negative": round(negative, 1),
+            })
+
+    return {
+        "success": True,
+        "data": {
+            "classes": class_compare,
             "updated_at": _now_text(),
         },
     }

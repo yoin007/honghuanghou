@@ -194,6 +194,9 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/dashboard/score-trend/student/{student_id}", "api_name": "学生个人得分趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/dashboard/score-trend/class/{class_id}", "api_name": "班级平均得分趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/dashboard/score-trend/grade/{grade_id}", "api_name": "年级平均得分趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20, "match_type": "pattern"},
+    {"api_path": "/api/dashboard/score-trend/grade/{grade_id}/classes", "api_name": "年级班级对比趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20, "match_type": "pattern"},
+    {"api_path": "/api/dashboard/score-trend/all-classes", "api_name": "全校班级对比趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20},
+    {"api_path": "/api/dashboard/class-record-compare", "api_name": "全校班级正负记录对比", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20},
     {"api_path": "/api/dashboard/teacher-record-trend", "api_name": "教师德育记录趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
 
     # 教师待办
@@ -229,6 +232,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/school-years/create", "api_name": "创建学年", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
     {"api_path": "/api/moral/admin/semesters", "api_name": "获取学期列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
     {"api_path": "/api/moral/admin/semesters/create", "api_name": "创建学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/semesters/{semester_id}", "api_name": "更新学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "action_type": "operate"},
     {"api_path": "/api/moral/admin/semesters/{semester_id}/set-current", "api_name": "设置当前学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "action_type": "operate"},
 
     # 系统配置
@@ -915,6 +919,24 @@ DEFAULT_DATA_SCOPE_RULES = {
         "cleader": ["managed_classes"],
     },
     "/api/dashboard/score-trend/grade/{grade_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+    },
+    "/api/dashboard/score-trend/grade/{grade_id}/classes": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+    },
+    "/api/dashboard/score-trend/all-classes": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+    },
+    "/api/dashboard/class-record-compare": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],

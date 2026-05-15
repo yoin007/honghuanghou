@@ -941,6 +941,13 @@ export function createSemester(data) {
 }
 
 /**
+ * 更新学期
+ */
+export function updateSemester(semesterId, data) {
+  return httpClient.put(`/api/moral/admin/semesters/${semesterId}`, data)
+}
+
+/**
  * 设置当前学期
  */
 export function setCurrentSemester(semesterId) {
@@ -1292,6 +1299,7 @@ export default {
   createSchoolYear,
   getSemesters,
   createSemester,
+  updateSemester,
   setCurrentSemester,
   getStudents,
   createStudent,

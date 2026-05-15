@@ -114,6 +114,7 @@ API_SCHOOL_YEARS = "/api/moral/admin/school-years"
 API_SCHOOL_YEAR_CREATE = "/api/moral/admin/school-years/create"
 API_SEMESTERS = "/api/moral/admin/semesters"
 API_SEMESTER_CREATE = "/api/moral/admin/semesters/create"
+API_SEMESTER_UPDATE = "/api/moral/admin/semesters/{semester_id}"
 API_SEMESTER_SET_CURRENT = "/api/moral/admin/semesters/{semester_id}/set-current"
 API_LOGS = "/api/moral/admin/logs"
 API_CONFIG = "/api/moral/admin/config"
@@ -224,6 +225,13 @@ class SemesterCreate(BaseModel):
     semester_name: str = Field(..., description="学期名称，如：2025-2026上")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
+
+
+class SemesterUpdate(BaseModel):
+    """更新学期"""
+    start_date: Optional[date] = Field(None, description="开始日期")
+    end_date: Optional[date] = Field(None, description="结束日期")
+    semester_name: Optional[str] = Field(None, description="学期名称")
 
 
 # =============================================================================
@@ -1017,6 +1025,68 @@ async def create_semester(
         )
 
         return {"success": True, "message": "学期创建成功", "data": {"semester_id": semester_id}}
+
+
+@router.put("/semesters/{semester_id}", summary="更新学期")
+async def update_semester(
+    semester_id: int,
+    semester_update: SemesterUpdate,
+    request: Request,
+    user: User = Depends(require_configured_api_permission(API_SEMESTER_UPDATE, allow_missing=False))
+):
+    """更新学期信息（起始时间、结束时间、名称）"""
+    with get_moral_db() as db:
+        # 检查学期是否存在
+        semester = db.query_one(
+            "SELECT * FROM semester WHERE semester_id = ?",
+            (semester_id,)
+        )
+        if not semester:
+            raise HTTPException(404, "学期不存在")
+
+        # 构建更新字段
+        update_fields = []
+        update_values = []
+        old_data = {}
+
+        if semester_update.start_date is not None:
+            update_fields.append("start_date = ?")
+            update_values.append(semester_update.start_date)
+            old_data['start_date'] = semester['start_date']
+
+        if semester_update.end_date is not None:
+            update_fields.append("end_date = ?")
+            update_values.append(semester_update.end_date)
+            old_data['end_date'] = semester['end_date']
+
+        if semester_update.semester_name is not None:
+            update_fields.append("semester_name = ?")
+            update_values.append(semester_update.semester_name)
+            old_data['semester_name'] = semester['semester_name']
+
+        if not update_fields:
+            return {"success": True, "message": "无更新内容"}
+
+        # 执行更新
+        update_values.append(semester_id)
+        db.execute(
+            f"UPDATE semester SET {', '.join(update_fields)} WHERE semester_id = ?",
+            tuple(update_values)
+        )
+
+        # 记录操作日志
+        log_operation(
+            db, user.username, user.role, 'UPDATE', 'semester', semester_id,
+            old_data=old_data,
+            new_data={
+                'start_date': semester_update.start_date,
+                'end_date': semester_update.end_date,
+                'semester_name': semester_update.semester_name
+            },
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {"success": True, "message": "学期更新成功"}
 
 
 @router.post("/semesters/{semester_id}/set-current", summary="设置当前学期")

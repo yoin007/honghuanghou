@@ -49,6 +49,11 @@
             <el-table-column prop="score" label="分值" width="80" />
             <el-table-column prop="start_date" label="开始日期" width="120" />
             <el-table-column prop="end_date" label="结束日期" width="120" />
+            <el-table-column label="创建人" width="100">
+              <template #default="{ row }">
+                {{ row.created_by || '-' }}
+              </template>
+            </el-table-column>
             <el-table-column label="状态" width="80">
               <template #default="{ row }">
                 <el-tag :type="row.is_active === 1 ? 'success' : 'info'">

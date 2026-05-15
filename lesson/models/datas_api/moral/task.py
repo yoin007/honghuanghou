@@ -146,10 +146,10 @@ async def create_moral_task(
         db.execute(
             """INSERT INTO grade_moral_task
             (grade_id, task_name, task_desc, score, task_type, start_date, end_date,
-             deadline_type, can_carryover, is_required)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             deadline_type, can_carryover, is_required, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (task.grade_id, task.task_name, task.description, task.score, task.task_type or 1,
-             task.start_date, task.end_date, deadline_type, task.can_carryover or 1, 1)
+             task.start_date, task.end_date, deadline_type, task.can_carryover or 1, 1, user.username)
         )
 
         task_id = db.lastrowid()
@@ -603,9 +603,9 @@ async def batch_import_moral_tasks(
 
                 db.execute(
                     """INSERT INTO grade_moral_task
-                    (grade_id, task_name, task_desc, score, deadline_type, is_required, is_active)
-                    VALUES (?, ?, ?, ?, ?, ?, 1)""",
-                    (grade_id, item.task_name, item.task_desc or "", item.score, deadline_type, is_required)
+                    (grade_id, task_name, task_desc, score, deadline_type, is_required, is_active, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, ?)""",
+                    (grade_id, item.task_name, item.task_desc or "", item.score, deadline_type, is_required, user.username)
                 )
                 success_count += 1
 

@@ -58,6 +58,11 @@
         </el-table-column>
         <el-table-column prop="participant_count" label="参与人数" width="100" />
         <el-table-column prop="event_date" label="事件日期" width="120" />
+        <el-table-column label="创建人" width="100">
+          <template #default="{ row }">
+            {{ row.created_by || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">

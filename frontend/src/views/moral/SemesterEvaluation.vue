@@ -117,6 +117,11 @@
             {{ formatDateTime(row.generated_at) }}
           </template>
         </el-table-column>
+        <el-table-column label="生成人" width="100">
+          <template #default="{ row }">
+            {{ row.generated_by || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="ai_generated_at" label="AI总结" width="80">
           <template #default="{ row }">
             <el-tag v-if="row.ai_generated_at" type="success" size="small">已生成</el-tag>

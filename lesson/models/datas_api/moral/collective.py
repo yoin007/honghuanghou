@@ -216,10 +216,10 @@ async def create_collective_event(
         # 创建集体事件
         db.execute(
             """INSERT INTO collective_event
-            (event_name, event_type, semester_id, event_date, class_id, score, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (event_name, event_type, semester_id, event_date, class_id, score, description, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (event.event_name, event.event_type, semester_id, event.event_date,
-             event.class_id, event.score, event.description)
+             event.class_id, event.score, event.description, user.username)
         )
 
         event_id = db.lastrowid()
@@ -235,9 +235,9 @@ async def create_collective_event(
         for student in students:
             db.execute(
                 """INSERT INTO collective_event_distribution
-                (event_id, student_id, class_id, score_assigned, is_participant, remark)
-                VALUES (?, ?, ?, ?, 1, NULL)""",
-                (event_id, student['student_id'], student['class_id'], event.score)
+                (event_id, student_id, class_id, score_assigned, is_participant, remark, recorder)
+                VALUES (?, ?, ?, ?, 1, NULL, ?)""",
+                (event_id, student['student_id'], student['class_id'], event.score, user.username)
             )
 
         from .evaluation import calculate_evaluation

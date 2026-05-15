@@ -491,6 +491,8 @@ async def _update_schedule(l: Lesson, title: str, temp_file: str, new_name: str,
     # 如果是微调模式，在替换文件前保存旧课表副本
     old_schedule_copy = None
     if diff_flag:
+        # 清空内存缓存，强制从磁盘读取最新数据（避免缓存和磁盘不同步）
+        l.cache_datas.pop(schedule_key, None)
         old_schedule = l.get_cache_data(schedule_key)
         if old_schedule is not None and not old_schedule.empty:
             old_schedule_copy = old_schedule.copy()  # 创建副本，避免后续被修改

@@ -64,6 +64,10 @@ export const dashboardApi = {
 
   getAllClassesScoreTrend(params = {}) {
     return httpClient.get('/api/dashboard/score-trend/all-classes', { params })
+  },
+
+  getClassRecordCompare(params = {}) {
+    return httpClient.get('/api/dashboard/class-record-compare', { params })
   }
 }
 
@@ -83,5 +87,6 @@ export const getGradeScoreTrend = dashboardApi.getGradeScoreTrend
 export const getTeacherRecordTrend = dashboardApi.getTeacherRecordTrend
 export const getGradeClassesScoreTrend = dashboardApi.getGradeClassesScoreTrend
 export const getAllClassesScoreTrend = dashboardApi.getAllClassesScoreTrend
+export const getClassRecordCompare = dashboardApi.getClassRecordCompare
 
 export default dashboardApi

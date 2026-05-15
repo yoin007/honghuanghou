@@ -59,6 +59,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="event_date" label="日期" width="120" />
+        <el-table-column label="记录人" width="100">
+          <template #default="{ row }">
+            {{ row.recorder || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">

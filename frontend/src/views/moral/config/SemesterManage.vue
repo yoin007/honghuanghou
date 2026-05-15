@@ -27,8 +27,9 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
             <el-button
               v-if="!row.is_current"
               link
@@ -105,13 +106,44 @@
         <el-button type="primary" @click="handleSemesterSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 编辑学期对话框 -->
+    <el-dialog v-model="editDialogVisible" title="编辑学期" width="450px">
+      <el-form :model="editForm" :rules="editRules" ref="editFormRef" label-width="100px">
+        <el-form-item label="学期名称">
+          <el-input v-model="editForm.semester_name" disabled />
+        </el-form-item>
+        <el-form-item label="开始日期" prop="start_date">
+          <el-date-picker
+            v-model="editForm.start_date"
+            type="date"
+            placeholder="选择开始日期"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="结束日期" prop="end_date">
+          <el-date-picker
+            v-model="editForm.end_date"
+            type="date"
+            placeholder="选择结束日期"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleEditSubmit">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getSchoolYears, createSchoolYear, getSemesters, createSemester, setCurrentSemester } from '@/api/modules/moral'
+import { getSchoolYears, createSchoolYear, getSemesters, createSemester, updateSemester, setCurrentSemester } from '@/api/modules/moral'
 
 const loading = ref(false)
 const semesterList = ref([])
@@ -140,6 +172,19 @@ const semesterForm = reactive({
 const semesterRules = {
   school_year_id: [{ required: true, message: '请选择所属学年', trigger: 'change' }],
   semester_type: [{ required: true, message: '请选择学期类型', trigger: 'change' }],
+  start_date: [{ required: true, message: '请选择开始日期', trigger: 'change' }],
+  end_date: [{ required: true, message: '请选择结束日期', trigger: 'change' }]
+}
+
+const editDialogVisible = ref(false)
+const editFormRef = ref(null)
+const editForm = reactive({
+  semester_id: null,
+  semester_name: '',
+  start_date: '',
+  end_date: ''
+})
+const editRules = {
   start_date: [{ required: true, message: '请选择开始日期', trigger: 'change' }],
   end_date: [{ required: true, message: '请选择结束日期', trigger: 'change' }]
 }
@@ -249,6 +294,33 @@ const handleSetCurrent = async (row) => {
     }
   } catch (error) {
     if (error !== 'cancel') console.error('设置失败:', error)
+  }
+}
+
+const handleEdit = (row) => {
+  Object.assign(editForm, {
+    semester_id: row.semester_id,
+    semester_name: row.semester_name,
+    start_date: row.start_date,
+    end_date: row.end_date
+  })
+  editDialogVisible.value = true
+}
+
+const handleEditSubmit = async () => {
+  try {
+    await editFormRef.value.validate()
+    const res = await updateSemester(editForm.semester_id, {
+      start_date: editForm.start_date,
+      end_date: editForm.end_date
+    })
+    if (res.success) {
+      ElMessage.success('学期更新成功')
+      editDialogVisible.value = false
+      fetchSemesters()
+    }
+  } catch (error) {
+    console.error('更新失败:', error)
   }
 }
 

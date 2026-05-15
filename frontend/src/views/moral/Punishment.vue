@@ -59,6 +59,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="punishment_date" label="处分日期" width="120" />
+        <el-table-column label="记录人" width="100">
+          <template #default="{ row }">
+            {{ row.recorder || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="expire_date" label="到期日期" width="120">
           <template #default="{ row }">
             <span v-if="row.expire_date">{{ row.expire_date }}</span>
