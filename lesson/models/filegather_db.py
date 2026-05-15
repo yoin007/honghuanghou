@@ -96,20 +96,20 @@ class FileGatherDB:
         """
         self.db_path = db_path or FILEGATHER_DB
 
-        # 从 moral_config 读取存储路径配置
-        config_uploads_dir = _get_config_value('filegather_upload_dir')
-        config_done_dir = _get_config_value('filegather_done_dir')
+        # 从 moral_config 读取存储路径配置（单一配置项）
+        config_storage_dir = _get_config_value('filegather_storage_dir')
 
-        # 优先使用配置值，否则使用默认路径
+        # 优先使用传入参数，否则使用配置值，最后使用默认路径
         if storage_root:
             self.storage_root = storage_root
-            self.uploads_dir = os.path.join(self.storage_root, "uploads")
-            self.done_dir = os.path.join(self.storage_root, "done")
+        elif config_storage_dir:
+            self.storage_root = config_storage_dir
         else:
             self.storage_root = DEFAULT_STORAGE_ROOT
-            # 优先使用配置中的路径
-            self.uploads_dir = config_uploads_dir or os.path.join(DEFAULT_STORAGE_ROOT, "uploads")
-            self.done_dir = config_done_dir or os.path.join(DEFAULT_STORAGE_ROOT, "done")
+
+        # 基于根目录创建子目录
+        self.uploads_dir = os.path.join(self.storage_root, "uploads")
+        self.done_dir = os.path.join(self.storage_root, "done")
 
         # 确保目录存在
         self._ensure_dirs()
@@ -124,6 +124,23 @@ class FileGatherDB:
             yield conn
         finally:
             conn.close()
+
+    def _resolve_path(self, stored_path: str) -> str:
+        """
+        将相对路径转换为完整物理路径
+
+        Args:
+            stored_path: 相对路径（如 uploads/202605/xxx.pdf 或 done/202605/xxx.pdf）
+
+        Returns:
+            完整物理路径
+        """
+        # 如果已经是绝对路径且路径有效，直接返回
+        if os.path.isabs(stored_path) and os.path.exists(stored_path):
+            return stored_path
+
+        # 否则拼接 storage_root
+        return os.path.join(self.storage_root, stored_path)
 
     def _ensure_dirs(self) -> None:
         """确保存储目录和数据库目录存在"""
@@ -204,7 +221,7 @@ class FileGatherDB:
             file_content: 文件内容
 
         Returns:
-            存储路径
+            相对存储路径（uploads/month/filename 格式）
         """
         import uuid
 
@@ -222,7 +239,8 @@ class FileGatherDB:
             f.write(file_content)
 
         logger.info(f"File saved: {stored_path}")
-        return stored_path
+        # 返回相对路径（uploads/month/stored_name）
+        return os.path.join("uploads", month, stored_name)
 
     def insert_file(
         self,
@@ -352,7 +370,7 @@ class FileGatherDB:
         if not file_info:
             raise ValueError("文件不存在")
 
-        src_path = file_info["stored_path"]
+        src_path = self._resolve_path(file_info["stored_path"])
         if not os.path.exists(src_path):
             raise FileNotFoundError("源文件不存在")
 
@@ -360,18 +378,22 @@ class FileGatherDB:
         target_dir = os.path.join(self.done_dir, month)
         os.makedirs(target_dir, exist_ok=True)
 
-        target_path = os.path.join(target_dir, os.path.basename(src_path))
+        target_name = os.path.basename(src_path)
+        target_path = os.path.join(target_dir, target_name)
         shutil.move(src_path, target_path)
+
+        # 保存相对路径
+        relative_path = os.path.join("done", month, target_name)
 
         with self._get_connection() as conn:
             conn.execute(
                 "UPDATE files SET status = ?, stored_path = ?, done_at = ? WHERE id = ?",
-                ("是", target_path, datetime.now(timezone.utc).isoformat(), file_id),
+                ("是", relative_path, datetime.now(timezone.utc).isoformat(), file_id),
             )
             conn.commit()
 
         logger.info(f"File marked as done: id={file_id}")
-        return {"id": file_id, "stored_path": target_path, "status": "是"}
+        return {"id": file_id, "stored_path": relative_path, "status": "是"}
 
     def update_status(self, file_id: int, status: str) -> bool:
         """

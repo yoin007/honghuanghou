@@ -312,9 +312,19 @@ async def admin_download_file(
     if not file_info:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件不存在")
 
-    path = file_info["stored_path"]
+    relative_path = file_info["stored_path"]
     name = file_info["original_name"]
     file_status = file_info["status"]
+
+    # 转换为物理路径
+    path = db._resolve_path(relative_path)
+
+    # 调试日志：打印路径拼接信息
+    logger.info(f"[FileGather Download] file_id={file_id}")
+    logger.info(f"[FileGather Download] relative_path={relative_path}")
+    logger.info(f"[FileGather Download] storage_root={db.storage_root}")
+    logger.info(f"[FileGather Download] resolved_path={path}")
+    logger.info(f"[FileGather Download] file_exists={os.path.isfile(path)}")
 
     # 如果文件状态是"否"，更新为"打印中"
     if file_status == "否":

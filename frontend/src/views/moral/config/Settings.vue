@@ -74,14 +74,9 @@
 
         <el-divider content-position="left">文件存储配置</el-divider>
 
-        <el-form-item label="上传文件目录">
-          <el-input v-model="configForm.filegather_upload_dir" placeholder="如: /data/filegather/uploads" style="width: 400px" />
-          <span class="hint">教师上传文件的保存目录（绝对路径）</span>
-        </el-form-item>
-
-        <el-form-item label="已完成文件目录">
-          <el-input v-model="configForm.filegather_done_dir" placeholder="如: /data/filegather/done" style="width: 400px" />
-          <span class="hint">教务处理完成后文件的归档目录</span>
+        <el-form-item label="文件存储目录">
+          <el-input v-model="configForm.filegather_storage_dir" placeholder="如: /data/filegather" style="width: 400px" />
+          <span class="hint">文件收集系统根目录（自动创建 uploads 和 done 子目录）</span>
         </el-form-item>
 
         <el-divider content-position="left">升年级管理</el-divider>
@@ -141,8 +136,7 @@ const configForm = reactive({
     { action: 'demerit', name: '记过', level: '三级' },
     { action: 'observation', name: '留校查看', level: '四级' }
   ],
-  filegather_upload_dir: '',
-  filegather_done_dir: ''
+  filegather_storage_dir: ''
 })
 const configKeys = new Set(Object.keys(configForm))
 

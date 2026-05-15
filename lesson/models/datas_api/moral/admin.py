@@ -1733,8 +1733,7 @@ class ConfigUpdate(BaseModel):
     daily_record_roles: Optional[str] = Field(None, description="日常记录角色（逗号分隔）")
     student_profile_roles: Optional[str] = Field(None, description="学生画像角色（逗号分隔）")
     ai_consultation_roles: Optional[str] = Field(None, description="AI诊疗角色（逗号分隔）")
-    filegather_upload_dir: Optional[str] = Field(None, description="文件上传保存目录")
-    filegather_done_dir: Optional[str] = Field(None, description="已完成文件归档目录")
+    filegather_storage_dir: Optional[str] = Field(None, description="文件收集系统存储根目录（自动创建 uploads 和 done 子目录）")
 
     @field_validator("punishment_types", mode="before")
     @classmethod
