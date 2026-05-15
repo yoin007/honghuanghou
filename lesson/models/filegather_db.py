@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
-from utils.db_config import FILEGATHER_DB
+from utils.db_config import FILEGATHER_DB, MORAL_DB
 
 
 def _get_sqlite_connection():
@@ -34,6 +34,32 @@ ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "doc", "docx", "xlsx", "xls", "ppt",
 
 # 最大文件大小 (50MB)
 MAX_FILE_SIZE = 50 * 1024 * 1024
+
+
+def _get_config_value(config_key: str, default_value: str = None) -> Optional[str]:
+    """从 moral_config 表读取配置值。
+
+    Args:
+        config_key: 配置键名
+        default_value: 默认值
+
+    Returns:
+        配置值或默认值
+    """
+    try:
+        conn = _get_sqlite_connection()(MORAL_DB)
+        cursor = conn.execute(
+            "SELECT config_value FROM moral_config WHERE config_key = ?",
+            (config_key,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return row[0] if isinstance(row, (tuple, list)) else row['config_value']
+        return default_value
+    except Exception as e:
+        logger.warning(f"读取配置 {config_key} 失败: {e}")
+        return default_value
 
 
 def _parse_upload_datetime(value: str) -> Optional[datetime]:
@@ -66,12 +92,24 @@ class FileGatherDB:
 
         Args:
             db_path: 数据库文件路径
-            storage_root: 存储根目录
+            storage_root: 存储根目录（如果未提供，从 moral_config 读取）
         """
         self.db_path = db_path or FILEGATHER_DB
-        self.storage_root = storage_root or DEFAULT_STORAGE_ROOT
-        self.uploads_dir = os.path.join(self.storage_root, "uploads")
-        self.done_dir = os.path.join(self.storage_root, "done")
+
+        # 从 moral_config 读取存储路径配置
+        config_uploads_dir = _get_config_value('filegather_upload_dir')
+        config_done_dir = _get_config_value('filegather_done_dir')
+
+        # 优先使用配置值，否则使用默认路径
+        if storage_root:
+            self.storage_root = storage_root
+            self.uploads_dir = os.path.join(self.storage_root, "uploads")
+            self.done_dir = os.path.join(self.storage_root, "done")
+        else:
+            self.storage_root = DEFAULT_STORAGE_ROOT
+            # 优先使用配置中的路径
+            self.uploads_dir = config_uploads_dir or os.path.join(DEFAULT_STORAGE_ROOT, "uploads")
+            self.done_dir = config_done_dir or os.path.join(DEFAULT_STORAGE_ROOT, "done")
 
         # 确保目录存在
         self._ensure_dirs()

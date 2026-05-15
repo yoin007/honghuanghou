@@ -1724,6 +1724,8 @@ class ConfigUpdate(BaseModel):
     birthday_reminder_days: Optional[int] = Field(None, description="生日提前提醒天数", ge=1, le=30)
     semester_start_month: Optional[int] = Field(None, description="学期开始月份", ge=1, le=12)
     punishment_types: Optional[List[dict]] = Field(None, description="处罚类型配置")
+    filegather_upload_dir: Optional[str] = Field(None, description="文件上传保存目录")
+    filegather_done_dir: Optional[str] = Field(None, description="已完成文件归档目录")
 
 
 @router.put("/config", summary="更新系统配置")
