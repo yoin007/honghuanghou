@@ -80,6 +80,7 @@ def countdown_day(month, day):
 def gk_countdown():
     """
     高考倒计时，每天一句英语
+    同时发布到各班级公告，署名：数字天龙
     :return:
     """
     year = datetime.datetime.now().year
@@ -98,9 +99,39 @@ def gk_countdown():
 
     msg = f"{tips}"
     msg = msg + "\n" + gk_tips + "\n" + zk_tips
+
+    # 发送微信消息
     for r in Config().get_config("gk_remind", "lesson.yaml"):
         send_text(msg, r)
         time.sleep(1)
+
+    # 发布到各班级公告
+    from models.lesson.homework import Homework
+    from models.datas_api.moral.base import get_moral_db
+    from config.log import LogConfig
+
+    log = LogConfig().get_logger()
+    title = "📅 高考倒计时提醒"
+    author = "数字天龙"
+    content = msg + f"\n\n— {author}\n{datetime.datetime.now().strftime('%Y-%m-%d')}"
+
+    try:
+        with get_moral_db() as db:
+            classes = db.query_all(
+                """SELECT class_code FROM class WHERE is_active = 1"""
+            )
+            class_codes = [c['class_code'] for c in classes]
+
+        with Homework() as hw:
+            for class_code in class_codes:
+                try:
+                    hw.add_announcement(class_code, title, author, content, None)
+                except Exception as e:
+                    log.error(f"发布公告失败（{class_code}）：{e}")
+
+        log.info(f"已发布高考倒计时公告到 {len(class_codes)} 个班级")
+    except Exception as e:
+        log.error(f"发布班级公告失败: {e}")
 
 
 def ju_pai(words):
