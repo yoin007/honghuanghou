@@ -68,6 +68,14 @@ def get_periods_cached():
     return _cached_periods
 
 
+def clear_schedule_module_cache():
+    """清除课表模块的惰性缓存，供外部刷新调用"""
+    global _cached_schedule_data, _cached_teachers_data, _cached_periods
+    _cached_schedule_data = None
+    _cached_teachers_data = None
+    _cached_periods = None
+
+
 # ============================================================
 # 路由：课表和班级相关接口
 # ============================================================

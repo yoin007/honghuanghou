@@ -364,7 +364,7 @@ async def list_profiles(
         """
         total = db.query_value(count_query, tuple(params) if params else None) or 0
 
-        # 分页查询
+        # 分页查询 - 使用子查询获取每个学生的最新画像
         offset = (page - 1) * page_size
         list_query = f"""
             SELECT
@@ -381,11 +381,15 @@ async def list_profiles(
                 sp.social_score,
                 sp.growth_score
             FROM student s
-            JOIN student_profile sp ON s.student_id = sp.student_id
+            JOIN (
+                SELECT student_id, MAX(generated_at) as max_generated_at
+                FROM student_profile
+                GROUP BY student_id
+            ) latest ON s.student_id = latest.student_id
+            JOIN student_profile sp ON s.student_id = sp.student_id AND sp.generated_at = latest.max_generated_at
             LEFT JOIN class c ON s.class_id = c.class_id
             LEFT JOIN grade g ON s.grade_id = g.grade_id
             WHERE {' AND '.join(conditions)}
-            GROUP BY s.student_id
             ORDER BY sp.generated_at DESC
             LIMIT ? OFFSET ?
         """

@@ -23,6 +23,27 @@
       title="德育运行态势"
     />
 
+    <!-- 全校班级对比趋势图 -->
+    <section class="trend-section">
+      <div class="trend-header">
+        <h3>全校班级得分对比趋势</h3>
+        <div class="trend-controls">
+          <el-radio-group v-model="moralTrendUnit" size="small" @change="onMoralTrendUnitChange">
+            <el-radio-button label="week">按周</el-radio-button>
+            <el-radio-button label="month">按月</el-radio-button>
+          </el-radio-group>
+        </div>
+      </div>
+      <DashboardChart
+        title="全校班级德育总分变化"
+        eyebrow="ALL CLASS TREND"
+        :option="allClassTrendOption"
+        :empty="!allClassTrendData.periods?.length"
+        emptyText="暂无全校班级对比趋势数据"
+        :loading="allClassTrendLoading"
+      />
+    </section>
+
     <section class="chart-grid">
       <DashboardChart
         title="德育分数段分布"
@@ -158,7 +179,7 @@ import DashboardHero from '@/components/dashboard/DashboardHero.vue'
 import DashboardMetricGrid from '@/components/dashboard/DashboardMetricGrid.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
 import DashboardTopNSelect from '@/components/dashboard/DashboardTopNSelect.vue'
-import { getMoralDashboardSummary } from '@/api/modules/dashboard'
+import { getMoralDashboardSummary, getAllClassesScoreTrend } from '@/api/modules/dashboard'
 import { getExpiringPunishments } from '@/api/modules/moral'
 import { basePieOption, baseHorizontalBarOption, baseLineOption, baseVerticalBarOption } from '@/utils/charting'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
@@ -167,6 +188,9 @@ const router = useRouter()
 const summary = ref({ cards: [], charts: {}, tables: {} })
 const expiringPunishments = ref({ expiring_soon: [], already_expired: [] })
 const topN = ref(50) // 默认50，获取全部班级对比
+const moralTrendUnit = ref('week')
+const allClassTrendData = ref({ periods: [], labels: [], classes: [] })
+const allClassTrendLoading = ref(false)
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#22d3ee', '#a3e635', '#f59e0b', '#fb7185']
 const chartColors = ['#22d3ee', '#84cc16', '#f59e0b', '#fb7185', '#818cf8']
@@ -190,15 +214,14 @@ const classScoreRows = computed(() => summary.value.charts?.class_score_rank || 
 const expiredPunishments = computed(() => expiringPunishments.value.already_expired || [])
 const expiringSoonPunishments = computed(() => expiringPunishments.value.expiring_soon || [])
 
-const scoreDistributionOption = computed(() => baseVerticalBarOption({
-  xAxisData: (summary.value.charts?.score_distribution || []).map(item => item.name),
-  seriesData: (summary.value.charts?.score_distribution || []).map(item => item.value),
-  tooltipTrigger: 'item',
-  color: chartColors,
-  itemStyle: {
-    borderRadius: [8, 8, 0, 0],
-    color: params => chartColors[params.dataIndex % chartColors.length]
-  }
+const scoreDistributionOption = computed(() => basePieOption({
+  color: ['#22d3ee', '#84cc16', '#f59e0b', '#fb7185', '#818cf8'],
+  radius: ['40%', '68%'],
+  center: ['50%', '42%'],
+  data: (summary.value.charts?.score_distribution || []).map(item => ({
+    name: item.name,
+    value: item.value
+  }))
 }))
 
 const eventMixOption = computed(() => basePieOption({
@@ -330,6 +353,63 @@ const teacherRecordOption = computed(() => {
   })
 })
 
+const allClassTrendOption = computed(() => {
+  const data = allClassTrendData.value
+  if (!data.periods?.length) return null
+
+  // 按 grade_id + class_code 排序（年级优先）
+  const sortedClasses = [...(data.classes || [])].sort((a, b) => {
+    const gradeOrder = { '高一年级': 1, '高二年级': 2, '高三年级': 3 }
+    const aGrade = gradeOrder[a.grade_name] || 0
+    const bGrade = gradeOrder[b.grade_name] || 0
+    return aGrade * 1000 - bGrade * 1000 + a.class_code.localeCompare(b.class_code)
+  })
+
+  // 预定义颜色数组
+  const colors = ['#38bdf8', '#34d399', '#fbbf24', '#a78bfa', '#f472b6',
+                  '#fb7185', '#22d3ee', '#84cc16', '#f59e0b', '#818cf8']
+
+  // 计算所有班级分数的最小值和最大值，动态调整纵轴区间（区分度优化）
+  const allScores = sortedClasses.flatMap(cls => cls.trend?.total_scores || [])
+  const validScores = allScores.filter(s => s > 0)
+  const minScore = validScores.length ? Math.min(...validScores) : 80
+  const maxScore = validScores.length ? Math.max(...validScores) : 100
+  const yAxisMin = Math.max(0, Math.floor((minScore - 5) / 5) * 5) // 向下取整到5的倍数
+  const yAxisMax = Math.min(100, Math.ceil((maxScore + 5) / 5) * 5) // 向上取整到5的倍数
+
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: {
+      data: sortedClasses.map(c => c.class_name),
+      type: 'scroll',
+      top: 10,
+      height: 28,
+      pageIconSize: 12,
+      pageButtonItemGap: 5
+    },
+    grid: { left: 48, right: 24, top: 56, bottom: 32 },
+    xAxis: {
+      type: 'category',
+      data: data.labels,
+      axisLabel: { color: '#94a3b8' }
+    },
+    yAxis: {
+      type: 'value',
+      name: '德育总分',
+      min: yAxisMin, max: yAxisMax,
+      axisLabel: { color: '#94a3b8' }
+    },
+    series: sortedClasses.map((cls, idx) => ({
+      name: cls.class_name,
+      type: 'line',
+      smooth: true,
+      data: cls.trend?.total_scores || [],
+      itemStyle: { color: colors[idx % colors.length] },
+      lineStyle: { width: 2 }
+    }))
+  }
+})
+
 const fetchExpiringPunishments = async () => {
   try {
     const res = await getExpiringPunishments({ days: 7, page_size: 10 })
@@ -341,6 +421,24 @@ const fetchExpiringPunishments = async () => {
   }
 }
 
+const fetchAllClassTrend = async () => {
+  allClassTrendLoading.value = true
+  try {
+    const res = await getAllClassesScoreTrend({ unit: moralTrendUnit.value })
+    if (res.success) {
+      allClassTrendData.value = res.data
+    }
+  } catch (e) {
+    console.error('获取全校班级趋势失败:', e)
+  } finally {
+    allClassTrendLoading.value = false
+  }
+}
+
+const onMoralTrendUnitChange = () => {
+  fetchAllClassTrend()
+}
+
 const fetchSummary = () => execute(
   () => getMoralDashboardSummary({ top_n: topN.value }),
   data => { summary.value = data }
@@ -349,6 +447,7 @@ const fetchSummary = () => execute(
 onMounted(() => {
   fetchSummary()
   fetchExpiringPunishments()
+  fetchAllClassTrend()
 })
 </script>
 
@@ -534,5 +633,41 @@ p {
 .expire-date {
   font-size: 12px;
   color: #94a3b8;
+}
+
+/* ===== 全校班级趋势区块 ===== */
+.trend-section {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(12, 26, 48, 0.94), rgba(7, 15, 30, 0.9)),
+    radial-gradient(circle at 8% 10%, rgba(34, 211, 238, 0.18), transparent 42%);
+}
+
+.trend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.trend-header h3 {
+  color: #f8fafc;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.trend-controls :deep(.el-radio-button__inner) {
+  background: rgba(15, 23, 42, 0.74);
+  border-color: rgba(34, 211, 238, 0.32);
+  color: #e2e8f0;
+}
+
+.trend-controls :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: #22d3ee;
+  border-color: #22d3ee;
+  color: #fff;
 }
 </style>

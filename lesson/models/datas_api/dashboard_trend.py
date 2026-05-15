@@ -1000,3 +1000,389 @@ async def get_teacher_record_trend(
             "updated_at": _now_text(),
         },
     }
+
+
+# 新增 API 常量
+API_DASHBOARD_GRADE_CLASSES_TREND = "/api/dashboard/score-trend/grade/{grade_id}/classes"
+API_DASHBOARD_ALL_CLASSES_TREND = "/api/dashboard/score-trend/all-classes"
+
+
+@router.get("/score-trend/grade/{grade_id}/classes", summary="年级班级对比趋势")
+async def get_grade_classes_score_trend(
+    grade_id: str,
+    unit: str = Query('week', description="聚合单位：week 或 month"),
+    semester_id: Optional[int] = Query(None, description="学期ID，默认当前学期"),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_GRADE_CLASSES_TREND, "GET", allow_missing=False)),
+):
+    """年级下各班级德育总分对比趋势图数据。
+
+    按班级 class_code 排序，返回每个班级在各周期的德育总分变化。
+
+    Args:
+        grade_id: 年级ID或年级名称（如高一）
+        unit: 聚合单位
+        semester_id: 学期ID
+        user: 当前用户
+
+    Returns:
+        各班级趋势数据，按 class_code 排序
+    """
+    with get_moral_db() as db:
+        # 年级名称映射
+        grade_names = {"高一": "高一年级", "高二": "高二年级", "高三": "高三年级"}
+        grade_name = grade_names.get(grade_id, grade_id)
+
+        # 获取年级ID
+        grade_row = db.query_one(
+            "SELECT grade_id, grade_name FROM grade WHERE grade_name = ? OR grade_name = ? OR grade_id = ?",
+            (grade_name, grade_id + "年级", grade_id)
+        )
+        grade_id_int = grade_row["grade_id"] if grade_row else None
+
+        if not grade_id_int:
+            raise HTTPException(status_code=404, detail="年级不存在")
+
+        # 权限检查
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_GRADE_CLASSES_TREND,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
+        if not scope.get('can_all'):
+            managed_grade_ids = set(scope.get('my_grade_ids', []))
+            if grade_id_int not in managed_grade_ids:
+                raise HTTPException(status_code=403, detail="只能查看授权范围内的年级")
+
+        # 获取年级下所有班级，按 class_code 排序
+        classes = db.query_all(
+            "SELECT class_id, class_code, class_name, grade_id FROM class WHERE is_active = 1 AND grade_id = ? ORDER BY class_code",
+            (grade_id_int,)
+        )
+
+        if not classes:
+            raise HTTPException(status_code=404, detail="年级下无班级")
+
+        # 获取学期信息
+        if not semester_id:
+            semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE status = 1")
+        else:
+            semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?", (semester_id,))
+
+        if not semester:
+            return {"success": True, "data": {"periods": [], "labels": [], "classes": [], "unit": unit}}
+
+        start_date = semester.get('start_date')
+        end_date = semester.get('end_date')
+        period_format = _get_period_format(unit)
+
+        # 基础分
+        base_score_config = db.query_value(
+            "SELECT config_value FROM moral_config WHERE config_key = 'evaluation_base_score'"
+        )
+        base_score = float(base_score_config or 80)
+
+        # 批量查询所有班级的趋势数据
+        class_ids = [c['class_id'] for c in classes]
+        class_ids_str = ','.join(map(str, class_ids))
+
+        # 批量查询各分项趋势
+        # 1. 日常记录
+        daily_data = db.query_all(
+            f"""SELECT class_id, strftime('{period_format}', record_date) as period, SUM(score) as total_score
+                FROM student_daily_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0
+                AND record_date >= ? AND record_date <= ?
+                GROUP BY class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        # 2. 校级事件
+        school_data = db.query_all(
+            f"""SELECT class_id, strftime('{period_format}', get_date) as period, SUM(score) as total_score
+                FROM student_school_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0
+                AND get_date >= ? AND get_date <= ?
+                GROUP BY class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        # 3. 任务完成
+        task_data = db.query_all(
+            f"""SELECT s.class_id, strftime('{period_format}', stf.finish_date) as period, SUM(stf.current_score) as total_score
+                FROM student_task_finish stf
+                JOIN student s ON stf.student_id = s.student_id
+                WHERE s.class_id IN ({class_ids_str}) AND stf.status = 1
+                AND stf.finish_date >= ? AND stf.finish_date <= ?
+                GROUP BY s.class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        # 4. 集体活动
+        collective_data = db.query_all(
+            f"""SELECT ced.class_id, strftime('{period_format}', ce.event_date) as period, SUM(ced.score_assigned) as total_score
+                FROM collective_event_distribution ced
+                JOIN collective_event ce ON ced.event_id = ce.event_id
+                WHERE ced.class_id IN ({class_ids_str}) AND ced.is_participant = 1
+                AND ce.event_date >= ? AND ce.event_date <= ?
+                GROUP BY ced.class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        # 5. 处分扣分
+        punishment_data = db.query_all(
+            f"""SELECT class_id, strftime('{period_format}', punishment_date) as period, SUM(ABS(score_deduct)) as total_score
+                FROM punishment_record
+                WHERE class_id IN ({class_ids_str}) AND is_revoked = 0
+                AND punishment_date >= ? AND punishment_date <= ?
+                GROUP BY class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        # 班级学生数
+        class_student_counts = {}
+        for c in classes:
+            count = db.query_value("SELECT COUNT(*) FROM student WHERE class_id = ?", (c['class_id'],)) or 1
+            class_student_counts[c['class_id']] = count
+
+        # 为每个班级构建趋势数据
+        class_trends = []
+        all_periods = set()
+
+        for cls in classes:
+            class_id = cls['class_id']
+            student_count = class_student_counts[class_id]
+
+            # 过滤该班级的数据
+            cls_daily = [r for r in daily_data if r['class_id'] == class_id]
+            cls_school = [r for r in school_data if r['class_id'] == class_id]
+            cls_task = [r for r in task_data if r['class_id'] == class_id]
+            cls_collective = [r for r in collective_data if r['class_id'] == class_id]
+            cls_punishment = [r for r in punishment_data if r['class_id'] == class_id]
+
+            # 合并趋势
+            trend = _merge_class_moral_trend(
+                cls_daily, cls_school, cls_task, cls_collective, cls_punishment,
+                base_score, unit, student_count
+            )
+
+            # 只收集有实际数据变化的周期（过滤 baseline 占位符）
+            for p in trend['periods']:
+                if p and p != "baseline":
+                    all_periods.add(p)
+
+            # 所有班级都显示（空数据班级显示基础分）
+            class_trends.append({
+                "class_id": class_id,
+                "class_code": cls['class_code'],
+                "class_name": cls['class_name'],
+                "trend": {
+                    "total_scores": trend['total_scores']
+                }
+            })
+
+        # 统一周期排序
+        sorted_periods = sorted(all_periods)
+        labels = [_format_period_label(p, unit) for p in sorted_periods]
+
+    return {
+        "success": True,
+        "data": {
+            "grade_id": grade_id_int,
+            "grade_name": grade_row.get('grade_name'),
+            "unit": unit,
+            "periods": sorted_periods,
+            "labels": labels,
+            "classes": class_trends,
+            "updated_at": _now_text(),
+        },
+    }
+
+
+@router.get("/score-trend/all-classes", summary="全校班级对比趋势")
+async def get_all_classes_score_trend(
+    unit: str = Query('week', description="聚合单位：week 或 month"),
+    semester_id: Optional[int] = Query(None, description="学期ID，默认当前学期"),
+    top_n: int = Query(50, ge=1, le=100, description="返回班级数量限制"),
+    user: User = Depends(require_configured_api_permission(API_DASHBOARD_ALL_CLASSES_TREND, "GET", allow_missing=False)),
+):
+    """全校各班级德育总分对比趋势图数据。
+
+    按 grade_id + class_code 排序，返回每个班级在各周期的德育总分变化。
+
+    Args:
+        unit: 聚合单位
+        semester_id: 学期ID
+        top_n: 班级数量限制
+        user: 当前用户
+
+    Returns:
+        全校班级趋势数据，按年级+班级排序
+    """
+    with get_moral_db() as db:
+        # 权限检查
+        scope = get_record_data_scope(
+            db, user, API_DASHBOARD_ALL_CLASSES_TREND,
+            all_permissions=['report_view_all'],
+            own_class_permissions=['report_view_own_class'],
+            own_permissions=[]
+        )
+
+        # 获取班级列表（权限过滤）
+        if scope.get('can_all'):
+            classes = db.query_all(
+                """SELECT c.class_id, c.class_code, c.class_name, c.grade_id, g.grade_name
+                   FROM class c
+                   JOIN grade g ON c.grade_id = g.grade_id
+                   WHERE c.is_active = 1
+                   ORDER BY g.grade_id, c.class_code
+                   LIMIT ?""",
+                (top_n,)
+            )
+        else:
+            # 年级主任只能查看本年级班级
+            my_grade_ids = scope.get('my_grade_ids', [])
+            if my_grade_ids:
+                grade_ids_str = ','.join(map(str, my_grade_ids))
+                classes = db.query_all(
+                    f"""SELECT c.class_id, c.class_code, c.class_name, c.grade_id, g.grade_name
+                        FROM class c
+                        JOIN grade g ON c.grade_id = g.grade_id
+                        WHERE c.is_active = 1 AND c.grade_id IN ({grade_ids_str})
+                        ORDER BY g.grade_id, c.class_code
+                        LIMIT {top_n}"""
+                )
+            else:
+                raise HTTPException(status_code=403, detail="无全校班级数据权限")
+
+        if not classes:
+            return {"success": True, "data": {"periods": [], "labels": [], "classes": [], "unit": unit}}
+
+        # 获取学期信息
+        if not semester_id:
+            semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE status = 1")
+        else:
+            semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?", (semester_id,))
+
+        if not semester:
+            return {"success": True, "data": {"periods": [], "labels": [], "classes": [], "unit": unit}}
+
+        start_date = semester.get('start_date')
+        end_date = semester.get('end_date')
+        period_format = _get_period_format(unit)
+
+        # 基础分
+        base_score_config = db.query_value(
+            "SELECT config_value FROM moral_config WHERE config_key = 'evaluation_base_score'"
+        )
+        base_score = float(base_score_config or 80)
+
+        # 批量查询所有班级的趋势数据
+        class_ids = [c['class_id'] for c in classes]
+        class_ids_str = ','.join(map(str, class_ids))
+
+        # 批量查询各分项趋势
+        daily_data = db.query_all(
+            f"""SELECT class_id, strftime('{period_format}', record_date) as period, SUM(score) as total_score
+                FROM student_daily_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0
+                AND record_date >= ? AND record_date <= ?
+                GROUP BY class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        school_data = db.query_all(
+            f"""SELECT class_id, strftime('{period_format}', get_date) as period, SUM(score) as total_score
+                FROM student_school_record
+                WHERE class_id IN ({class_ids_str}) AND is_deleted = 0
+                AND get_date >= ? AND get_date <= ?
+                GROUP BY class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        task_data = db.query_all(
+            f"""SELECT s.class_id, strftime('{period_format}', stf.finish_date) as period, SUM(stf.current_score) as total_score
+                FROM student_task_finish stf
+                JOIN student s ON stf.student_id = s.student_id
+                WHERE s.class_id IN ({class_ids_str}) AND stf.status = 1
+                AND stf.finish_date >= ? AND stf.finish_date <= ?
+                GROUP BY s.class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        collective_data = db.query_all(
+            f"""SELECT ced.class_id, strftime('{period_format}', ce.event_date) as period, SUM(ced.score_assigned) as total_score
+                FROM collective_event_distribution ced
+                JOIN collective_event ce ON ced.event_id = ce.event_id
+                WHERE ced.class_id IN ({class_ids_str}) AND ced.is_participant = 1
+                AND ce.event_date >= ? AND ce.event_date <= ?
+                GROUP BY ced.class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        punishment_data = db.query_all(
+            f"""SELECT class_id, strftime('{period_format}', punishment_date) as period, SUM(ABS(score_deduct)) as total_score
+                FROM punishment_record
+                WHERE class_id IN ({class_ids_str}) AND is_revoked = 0
+                AND punishment_date >= ? AND punishment_date <= ?
+                GROUP BY class_id, period ORDER BY period""",
+            (start_date, end_date)
+        )
+
+        # 班级学生数
+        class_student_counts = {}
+        for c in classes:
+            count = db.query_value("SELECT COUNT(*) FROM student WHERE class_id = ?", (c['class_id'],)) or 1
+            class_student_counts[c['class_id']] = count
+
+        # 为每个班级构建趋势数据
+        class_trends = []
+        all_periods = set()
+
+        for cls in classes:
+            class_id = cls['class_id']
+            student_count = class_student_counts[class_id]
+
+            # 过滤该班级的数据
+            cls_daily = [r for r in daily_data if r['class_id'] == class_id]
+            cls_school = [r for r in school_data if r['class_id'] == class_id]
+            cls_task = [r for r in task_data if r['class_id'] == class_id]
+            cls_collective = [r for r in collective_data if r['class_id'] == class_id]
+            cls_punishment = [r for r in punishment_data if r['class_id'] == class_id]
+
+            # 合并趋势
+            trend = _merge_class_moral_trend(
+                cls_daily, cls_school, cls_task, cls_collective, cls_punishment,
+                base_score, unit, student_count
+            )
+
+            # 只收集有实际数据变化的周期（过滤 baseline 占位符）
+            for p in trend['periods']:
+                if p and p != "baseline":
+                    all_periods.add(p)
+
+            # 所有班级都显示（空数据班级显示基础分）
+            class_trends.append({
+                "class_id": class_id,
+                "class_code": cls['class_code'],
+                "class_name": cls['class_name'],
+                "grade_name": cls['grade_name'],
+                "trend": {
+                    "total_scores": trend['total_scores']
+                }
+            })
+
+        sorted_periods = sorted(all_periods)
+        labels = [_format_period_label(p, unit) for p in sorted_periods]
+
+    return {
+        "success": True,
+        "data": {
+            "unit": unit,
+            "periods": sorted_periods,
+            "labels": labels,
+            "classes": class_trends,
+            "class_count": len(class_trends),
+            "updated_at": _now_text(),
+        },
+    }

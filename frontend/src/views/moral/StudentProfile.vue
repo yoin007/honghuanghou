@@ -12,7 +12,7 @@
           <el-input v-model="filterForm.student_id" placeholder="输入学号" clearable />
         </el-form-item>
         <el-form-item label="班级" v-if="viewMode === 'list'">
-          <el-select v-model="filterForm.class_id" placeholder="全部班级" clearable @change="handleListSearch">
+          <el-select v-model="filterForm.class_id" placeholder="全部班级" clearable @change="handleListSearch" style="width: 180px">
             <el-option v-for="c in classList" :key="c.class_id" :label="c.class_name" :value="c.class_id" />
           </el-select>
         </el-form-item>

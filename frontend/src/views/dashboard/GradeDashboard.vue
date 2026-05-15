@@ -35,6 +35,27 @@
       />
     </section>
 
+    <!-- 班级对比趋势图 -->
+    <section class="trend-section">
+      <div class="trend-header">
+        <h3>班级得分对比趋势</h3>
+        <div class="trend-controls">
+          <el-radio-group v-model="trendUnit" size="small" @change="onTrendUnitChange">
+            <el-radio-button label="week">按周</el-radio-button>
+            <el-radio-button label="month">按月</el-radio-button>
+          </el-radio-group>
+        </div>
+      </div>
+      <DashboardChart
+        title="班级德育总分变化"
+        eyebrow="CLASS TREND"
+        :option="gradeClassTrendOption"
+        :empty="!gradeClassTrendData.periods?.length"
+        emptyText="暂无班级对比趋势数据"
+        :loading="classTrendLoading"
+      />
+    </section>
+
     <!-- 年级得分趋势图 -->
     <section class="trend-section">
       <div class="trend-header">
@@ -150,7 +171,7 @@ import DashboardTimeChip from '@/components/dashboard/DashboardTimeChip.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
-import { fetchGradeDashboardSummary, fetchGradeList, getGradeScoreTrend, getStudentScoreTrend } from '@/api/modules/dashboard'
+import { fetchGradeDashboardSummary, fetchGradeList, getGradeScoreTrend, getStudentScoreTrend, getGradeClassesScoreTrend } from '@/api/modules/dashboard'
 import { getStudents } from '@/api/modules/moral'
 
 const router = useRouter()
@@ -165,7 +186,9 @@ const selectedStudentId = ref(null)
 const trendUnit = ref('week')
 const gradeTrendData = ref({ periods: [], labels: [], daily_scores: [], school_scores: [], task_scores: [], collective_scores: [], punishment_scores: [], total_scores: [] })
 const studentTrendData = ref({ periods: [], labels: [], daily_scores: [], school_scores: [], task_scores: [], collective_scores: [], punishment_scores: [], total_scores: [] })
+const gradeClassTrendData = ref({ periods: [], labels: [], classes: [] })
 const trendLoading = ref(false)
+const classTrendLoading = ref(false)
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#E6A23C', '#67C23A', '#409EFF', '#F56C6C', '#909399', '#E6A23C', '#409EFF', '#67C23A']
 
@@ -201,16 +224,47 @@ function formatBirthday(birthday) {
 const classComparisonOption = computed(() => {
   const data = summary.value.charts?.class_comparison || []
   if (!data.length) return {}
+
+  // 按班级名称排序：高一1班 < 高一2班 < 高二1班...
+  const sorted = [...data].sort((a, b) => {
+    const parseClass = (name) => {
+      const gradeMatch = name.match(/高?([一二三])/)
+      const numMatch = name.match(/(\d+)班/)
+      const gradeOrder = { '一': 1, '二': 2, '三': 3 }
+      return {
+        grade: gradeOrder[gradeMatch?.[1]] || 0,
+        num: parseInt(numMatch?.[1]) || 0
+      }
+    }
+    const aInfo = parseClass(a.class_name)
+    const bInfo = parseClass(b.class_name)
+    return aInfo.grade * 100 + aInfo.num - (bInfo.grade * 100 + bInfo.num)
+  })
+
   return {
-    tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: data.map(d => d.class_name) },
-    yAxis: { type: 'value' },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const d = params[0]
+        const item = sorted[d.dataIndex]
+        return `${d.name}<br/>平均分: ${d.value}<br/>学生数: ${item?.student_count || '-'}`
+      }
+    },
+    xAxis: { type: 'category', data: sorted.map(d => d.class_name), axisLabel: { rotate: 30, fontSize: 11 } },
+    yAxis: { type: 'value', name: '平均分', min: 0, max: 100 },
     series: [
       {
         name: '平均德育分',
         type: 'bar',
-        data: data.map(d => d.avg_score),
-        itemStyle: { color: '#409EFF' }
+        data: sorted.map(d => ({
+          value: d.avg_score,
+          itemStyle: {
+            color: d.avg_score >= 80 ? '#22c55e' : d.avg_score >= 60 ? '#3b82f6' : '#ef4444',
+            borderRadius: [6, 6, 0, 0]
+          }
+        })),
+        barWidth: 24,
+        label: { show: true, position: 'top', formatter: '{c}', fontSize: 11, color: '#94a3b8' }
       }
     ]
   }
@@ -293,6 +347,59 @@ const studentTrendOption = computed(() => {
   }
 })
 
+const gradeClassTrendOption = computed(() => {
+  const data = gradeClassTrendData.value
+  if (!data.periods?.length) return null
+
+  // 按 class_code 排序班级
+  const sortedClasses = [...(data.classes || [])].sort((a, b) =>
+    a.class_code.localeCompare(b.class_code)
+  )
+
+  // 预定义颜色数组
+  const colors = ['#38bdf8', '#34d399', '#fbbf24', '#a78bfa', '#f472b6',
+                  '#fb7185', '#22d3ee', '#84cc16', '#f59e0b', '#818cf8']
+
+  // 计算所有班级分数的最小值和最大值，动态调整纵轴区间（区分度优化）
+  const allScores = sortedClasses.flatMap(cls => cls.trend?.total_scores || [])
+  const validScores = allScores.filter(s => s > 0)
+  const minScore = validScores.length ? Math.min(...validScores) : 80
+  const maxScore = validScores.length ? Math.max(...validScores) : 100
+  const yAxisMin = Math.max(0, Math.floor((minScore - 5) / 5) * 5)
+  const yAxisMax = Math.min(100, Math.ceil((maxScore + 5) / 5) * 5)
+
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: {
+      data: sortedClasses.map(c => c.class_name),
+      type: 'scroll',
+      top: 10,
+      height: 28,
+      pageButtonItemGap: 5
+    },
+    grid: { left: 48, right: 24, top: 56, bottom: 32 },
+    xAxis: {
+      type: 'category',
+      data: data.labels,
+      axisLabel: { color: '#94a3b8' }
+    },
+    yAxis: {
+      type: 'value',
+      name: '德育总分',
+      min: yAxisMin, max: yAxisMax,
+      axisLabel: { color: '#94a3b8' }
+    },
+    series: sortedClasses.map((cls, idx) => ({
+      name: cls.class_name,
+      type: 'line',
+      smooth: true,
+      data: cls.trend?.total_scores || [],
+      itemStyle: { color: colors[idx % colors.length] },
+      lineStyle: { width: 2 }
+    }))
+  }
+})
+
 function go(card) {
   if (card?.route) {
     router.push(card.route)
@@ -318,6 +425,7 @@ function onGradeChange(gradeId) {
   fetchSummary()
   fetchGradeStudentList()
   fetchGradeTrend()
+  fetchGradeClassesTrend()
 }
 
 const fetchGradeStudentList = async () => {
@@ -349,6 +457,21 @@ const fetchGradeTrend = async () => {
   }
 }
 
+const fetchGradeClassesTrend = async () => {
+  if (!selectedGradeId.value) return
+  classTrendLoading.value = true
+  try {
+    const res = await getGradeClassesScoreTrend(selectedGradeId.value, { unit: trendUnit.value })
+    if (res.success) {
+      gradeClassTrendData.value = res.data
+    }
+  } catch (e) {
+    console.error('获取班级对比趋势失败:', e)
+  } finally {
+    classTrendLoading.value = false
+  }
+}
+
 const fetchStudentTrend = async () => {
   if (!selectedStudentId.value) {
     studentTrendData.value = { periods: [], labels: [], daily_scores: [], school_scores: [], task_scores: [], collective_scores: [], punishment_scores: [], total_scores: [] }
@@ -369,6 +492,7 @@ const fetchStudentTrend = async () => {
 
 const onTrendUnitChange = () => {
   fetchGradeTrend()
+  fetchGradeClassesTrend()
   fetchStudentTrend()
 }
 
@@ -388,6 +512,7 @@ async function loadGradeList() {
         fetchSummary()
         fetchGradeStudentList()
         fetchGradeTrend()
+        fetchGradeClassesTrend()
       }
     }
   } catch (e) {

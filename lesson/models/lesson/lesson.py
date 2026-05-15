@@ -26,6 +26,7 @@ from models.lesson.schedule_notifier import ScheduleNotifier
 from models.lesson.schedule_repository import ScheduleRepository
 from models.lesson.schedule_service import ScheduleService
 from models.lesson.teacher_directory import TeacherDirectory
+from utils.cache import cache
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -260,7 +261,14 @@ class Lesson:
             "next_schedule": self.next_schedule,
             "today_schedule": self.today_schedule,
         }
-        log.info(f"缓存已刷新")
+        # 清除相关 Redis 缓存，确保 API 返回最新数据
+        cache.clear_pattern("api:schedule:*")
+        cache.clear_pattern("api:todays:*")
+        cache.delete("api:class_codes")
+        # 清除课表模块的惰性缓存
+        from models.datas_api.legacy_schedule import clear_schedule_module_cache
+        clear_schedule_module_cache()
+        log.info(f"缓存已刷新（内存 + Redis + 模块惰性缓存）")
         return 1
 
     def get_cache_data(self,key):

@@ -55,6 +55,15 @@ export const dashboardApi = {
 
   getTeacherRecordTrend(params = {}) {
     return httpClient.get('/api/dashboard/teacher-record-trend', { params })
+  },
+
+  // 班级对比趋势 API
+  getGradeClassesScoreTrend(gradeId, params = {}) {
+    return httpClient.get(`/api/dashboard/score-trend/grade/${gradeId}/classes`, { params })
+  },
+
+  getAllClassesScoreTrend(params = {}) {
+    return httpClient.get('/api/dashboard/score-trend/all-classes', { params })
   }
 }
 
@@ -72,5 +81,7 @@ export const getStudentScoreTrend = dashboardApi.getStudentScoreTrend
 export const getClassScoreTrend = dashboardApi.getClassScoreTrend
 export const getGradeScoreTrend = dashboardApi.getGradeScoreTrend
 export const getTeacherRecordTrend = dashboardApi.getTeacherRecordTrend
+export const getGradeClassesScoreTrend = dashboardApi.getGradeClassesScoreTrend
+export const getAllClassesScoreTrend = dashboardApi.getAllClassesScoreTrend
 
 export default dashboardApi
