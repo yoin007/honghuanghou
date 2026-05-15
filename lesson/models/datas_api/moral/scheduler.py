@@ -585,7 +585,7 @@ def teacher_todo_reminder_task():
     4. 若次数=3且仍pending，标记为逾期
     5. 记录提醒日志
     """
-    logger.info("执行教师待办提醒任务")
+    # logger.info("执行教师待办提醒任务")
 
     from .base import get_moral_db
     from models.datas_api.teacher_todo import ensure_teacher_todo_schema, ensure_future_occurrences

@@ -74,7 +74,7 @@ CLEARABLE_TABLES = {
         ("teacher_todo_reminder_log", "待办提醒日志"),
         ("teacher_todo_group_member", "群组成员"),
         ("semester_evaluation_record", "学期末评价记录"),
-        ("moral_evaluation", "德育评价"),
+        # ("moral_evaluation", "德育评价"),
     ],
     "task.db": [("tasks", "任务记录")],
     "messages.db": [("messages", "微信消息")],

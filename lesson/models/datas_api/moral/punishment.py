@@ -289,6 +289,15 @@ async def create_punishment(
             ip_address=request.client.host if request.client else None
         )
 
+        from .evaluation import calculate_evaluation
+        calculate_evaluation(
+            db,
+            punishment.student_id,
+            semester_id,
+            student_info['class_id'],
+            student_info['grade_id'],
+        )
+
         return {"success": True, "message": "处分记录创建成功", "data": {"id": record_id}}
 
 
@@ -332,6 +341,15 @@ async def update_punishment(
             db, user.username, user.role, 'UPDATE', 'punishment_record',
             record_id, old_record['semester_id'],
             ip_address=request.client.host if request.client else None
+        )
+
+        from .evaluation import calculate_evaluation
+        calculate_evaluation(
+            db,
+            old_record['student_id'],
+            old_record['semester_id'],
+            old_record.get('class_id'),
+            old_record.get('grade_id'),
         )
 
         return {"success": True, "message": "处分记录更新成功"}
