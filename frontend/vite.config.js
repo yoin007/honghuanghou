@@ -24,7 +24,7 @@ export default defineConfig(({ mode }) => {
       }
     },
     optimizeDeps: {
-      include: ['xlsx']
+      include: ['exceljs']
     },
     build: {
       chunkSizeWarningLimit: 1000, // element-plus 是全局 UI 依赖，ECharts 已按需注册
@@ -41,8 +41,8 @@ export default defineConfig(({ mode }) => {
             if (/[\\/]node_modules[\\/](echarts|zrender)[\\/]/.test(id)) {
               return 'echarts'
             }
-            if (/[\\/]node_modules[\\/]xlsx[\\/]/.test(id)) {
-              return 'xlsx'
+            if (/[\\/]node_modules[\\/]exceljs[\\/]/.test(id)) {
+              return 'exceljs'
             }
             if (/[\\/]node_modules[\\/]axios[\\/]/.test(id)) {
               return 'http-utils'

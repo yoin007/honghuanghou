@@ -1,3 +1,5 @@
+import ExcelJS from 'exceljs'
+
 /**
  * 文件收集工具函数
  *
@@ -67,6 +69,75 @@ export const downloadCSV = (csvContent, filename) => {
 export const downloadExcel = (data, filename) => {
   const blob = new Blob([data])
   downloadBlob(blob, filename)
+}
+
+const normalizeExcelFilename = (filename) => (
+  filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`
+)
+
+const toExcelValue = (value) => {
+  if (value == null) return ''
+  return value
+}
+
+/**
+ * 将表格数据导出为 Excel 文件。
+ *
+ * @param {object} options
+ * @param {string} options.filename - 下载文件名
+ * @param {string} [options.sheetName] - 工作表名称
+ * @param {Array<string|{header:string,key:string,width?:number}>} options.columns - 表头配置
+ * @param {Array<object|Array>} options.rows - 数据行
+ * @param {string} [options.title] - 可选标题
+ * @param {Array<Array>} [options.summaryRows] - 可选汇总行
+ */
+export const downloadRowsAsExcel = async ({
+  filename,
+  sheetName = '数据',
+  columns,
+  rows,
+  title = '',
+  summaryRows = []
+}) => {
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet(sheetName)
+  const normalizedColumns = columns.map(column => (
+    typeof column === 'string' ? { header: column, key: column } : column
+  ))
+
+  if (title) {
+    const titleRow = worksheet.addRow([title])
+    titleRow.font = { bold: true, size: 14 }
+    worksheet.mergeCells(1, 1, 1, Math.max(normalizedColumns.length, 1))
+    worksheet.addRow([])
+  }
+
+  summaryRows.forEach(row => worksheet.addRow(row.map(toExcelValue)))
+  if (summaryRows.length > 0) worksheet.addRow([])
+
+  const headerRow = worksheet.addRow(normalizedColumns.map(column => column.header))
+  headerRow.font = { bold: true }
+  headerRow.eachCell(cell => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFEAF2FF' }
+    }
+  })
+
+  rows.forEach(row => {
+    worksheet.addRow(normalizedColumns.map((column, index) => {
+      if (Array.isArray(row)) return toExcelValue(row[index])
+      return toExcelValue(row[column.key])
+    }))
+  })
+
+  normalizedColumns.forEach((column, index) => {
+    worksheet.getColumn(index + 1).width = column.width || Math.max(String(column.header).length + 4, 12)
+  })
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  downloadExcel(buffer, normalizeExcelFilename(filename))
 }
 
 /**

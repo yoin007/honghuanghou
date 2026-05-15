@@ -204,6 +204,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useApiPermission } from '@/composables/useApiPermission'
+import { downloadRowsAsExcel } from '@/utils/filegather'
 import {
   getClasses,
   getSemesters,
@@ -319,27 +320,34 @@ const handleExport = async () => {
     const className = classList.value.find(c => c.class_id === filterForm.class_id)?.class_name || '班级'
     const semesterName = semesterList.value.find(s => s.semester_id === filterForm.semester_id)?.semester_name || '学期'
 
-    // 构建 CSV 内容
-    let csvContent = `德育评价报表 - ${className} - ${semesterName}\n\n`
-    csvContent += `班级人数: ${stats.total_count || exportData.length}\n`
-    csvContent += `平均分: ${(stats.avg_score || 0).toFixed(1)}\n`
-    csvContent += `优秀人数: ${stats.excellent_count || 0}\n`
-    csvContent += `不合格人数: ${stats.fail_count || 0}\n\n`
-    csvContent += '排名,学号,姓名,总分,等级\n'
-
     // 按分数排序
     const sortedData = [...exportData].sort((a, b) => (b.total_score || 0) - (a.total_score || 0))
-    sortedData.forEach((row, index) => {
-      csvContent += `${index + 1},${row.student_id},${row.student_name},${row.total_score?.toFixed(1) || ''},${row.level || ''}\n`
-    })
 
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `德育评价报表_${className}_${semesterName}.csv`
-    link.click()
-    window.URL.revokeObjectURL(url)
+    await downloadRowsAsExcel({
+      filename: `德育评价报表_${className}_${semesterName}`,
+      sheetName: '德育评价报表',
+      title: `德育评价报表 - ${className} - ${semesterName}`,
+      summaryRows: [
+        ['班级人数', stats.total_count || exportData.length],
+        ['平均分', (stats.avg_score || 0).toFixed(1)],
+        ['优秀人数', stats.excellent_count || 0],
+        ['不合格人数', stats.fail_count || 0]
+      ],
+      columns: [
+        { header: '排名', key: 'rank', width: 10 },
+        { header: '学号', key: 'student_id', width: 16 },
+        { header: '姓名', key: 'student_name', width: 12 },
+        { header: '总分', key: 'total_score', width: 10 },
+        { header: '等级', key: 'level', width: 10 }
+      ],
+      rows: sortedData.map((row, index) => ({
+        rank: index + 1,
+        student_id: row.student_id,
+        student_name: row.student_name,
+        total_score: row.total_score?.toFixed(1) || '',
+        level: row.level || ''
+      }))
+    })
     ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
   } catch (error) {
     console.error('导出失败:', error)

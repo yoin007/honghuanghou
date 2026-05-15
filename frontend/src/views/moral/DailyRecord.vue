@@ -183,6 +183,7 @@ import {
   getStudents
 } from '@/api/modules/moral'
 import { getGMT8TimeString } from '@/utils/time'
+import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
 import MoralScopeTabs from '@/components/MoralScopeTabs.vue'
 
@@ -481,18 +482,25 @@ const handleExport = async () => {
     }
 
     const exportData = res.data.items
-    let csvContent = '学号,姓名,班级,事件,类型,分值,时间,备注\n'
-    exportData.forEach(row => {
-      csvContent += `${row.student_id},${row.student_name},${row.class_name},${row.event_name},${row.event_type === 1 ? '积极' : '消极'},${row.score},${row.record_date},${row.remark || ''}\n`
+    await downloadRowsAsExcel({
+      filename: `日常表现记录_${new Date().toISOString().slice(0, 10)}`,
+      sheetName: '日常表现记录',
+      columns: [
+        { header: '学号', key: 'student_id', width: 16 },
+        { header: '姓名', key: 'student_name', width: 12 },
+        { header: '班级', key: 'class_name', width: 16 },
+        { header: '事件', key: 'event_name', width: 24 },
+        { header: '类型', key: 'event_type_name', width: 10 },
+        { header: '分值', key: 'score', width: 10 },
+        { header: '时间', key: 'record_date', width: 18 },
+        { header: '备注', key: 'remark', width: 30 }
+      ],
+      rows: exportData.map(row => ({
+        ...row,
+        event_type_name: row.event_type === 1 ? '积极' : '消极',
+        remark: row.remark || ''
+      }))
     })
-
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `日常表现记录_${new Date().toISOString().slice(0,10)}.csv`
-    link.click()
-    window.URL.revokeObjectURL(url)
     ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
   } catch (error) {
     console.error('导出失败:', error)

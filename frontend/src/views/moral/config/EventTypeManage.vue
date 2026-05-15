@@ -235,6 +235,7 @@ import {
   deleteSchoolEventType,
   batchImportSchoolEventTypes
 } from '@/api/modules/moral'
+import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
 
 // API权限
@@ -521,35 +522,51 @@ const downloadTemplate = async (type) => {
 }
 
 // 导出事件类型
-const handleExport = (type) => {
+const handleExport = async (type) => {
   const data = type === 'daily' ? dailyTypes.value : schoolTypes.value
   if (!data || data.length === 0) {
     ElMessage.warning('暂无数据可导出')
     return
   }
 
-  // 构建CSV内容
-  let csvContent = ''
   if (type === 'daily') {
-    csvContent = '事件名称,事件类型,分值,描述,状态\n'
-    data.forEach(row => {
-      csvContent += `${row.event_name},${row.event_type === 1 ? '积极' : '消极'},${row.score},${row.description || ''},${row.is_active ? '启用' : '禁用'}\n`
+    await downloadRowsAsExcel({
+      filename: '日常事件类型',
+      sheetName: '日常事件类型',
+      columns: [
+        { header: '事件名称', key: 'event_name', width: 24 },
+        { header: '事件类型', key: 'event_type_name', width: 12 },
+        { header: '分值', key: 'score', width: 10 },
+        { header: '描述', key: 'description', width: 30 },
+        { header: '状态', key: 'status_name', width: 10 }
+      ],
+      rows: data.map(row => ({
+        ...row,
+        event_type_name: row.event_type === 1 ? '积极' : '消极',
+        description: row.description || '',
+        status_name: row.is_active ? '启用' : '禁用'
+      }))
     })
   } else {
-    csvContent = '事件名称,事件类型,事件级别,分值,描述,状态\n'
-    data.forEach(row => {
-      csvContent += `${row.event_name},${row.event_type === 1 ? '荣誉' : '处分'},${row.event_level},${row.score},${row.description || ''},${row.is_active ? '启用' : '禁用'}\n`
+    await downloadRowsAsExcel({
+      filename: '校级事件类型',
+      sheetName: '校级事件类型',
+      columns: [
+        { header: '事件名称', key: 'event_name', width: 24 },
+        { header: '事件类型', key: 'event_type_name', width: 12 },
+        { header: '事件级别', key: 'event_level', width: 12 },
+        { header: '分值', key: 'score', width: 10 },
+        { header: '描述', key: 'description', width: 30 },
+        { header: '状态', key: 'status_name', width: 10 }
+      ],
+      rows: data.map(row => ({
+        ...row,
+        event_type_name: row.event_type === 1 ? '荣誉' : '处分',
+        description: row.description || '',
+        status_name: row.is_active ? '启用' : '禁用'
+      }))
     })
   }
-
-  // 创建下载链接
-  const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = type === 'daily' ? '日常事件类型.csv' : '校级事件类型.csv'
-  link.click()
-  window.URL.revokeObjectURL(url)
   ElMessage.success('导出成功')
 }
 

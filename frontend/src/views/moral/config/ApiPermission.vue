@@ -483,6 +483,7 @@ import {
   applyApiPermissionTemplate,
   auditApiPermissions
 } from '@/api/modules/moral'
+import { downloadRowsAsExcel } from '@/utils/filegather'
 
 const loading = ref(false)
 const initLoading = ref(false)
@@ -1183,32 +1184,32 @@ const locateAuditItem = async (row) => {
   if (target) permissionTableRef.value?.setCurrentRow?.(target)
 }
 
-const escapeCsv = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`
-
-const exportAuditReport = () => {
+const exportAuditReport = async () => {
   const summary = auditReport.value.summary || {}
-  const rows = [
-    ['巡检总数', summary.total || 0],
-    ['风险数量', summary.risky || 0],
-    ['正常数量', summary.healthy || 0],
-    [],
-    ['API名称', 'API路径', '模块', '动作', '风险项'],
-    ...(auditReport.value.items || []).map(item => [
-      item.api_name || '',
-      item.api_path || '',
-      item.module_name || '',
-      getActionName(item.action_type),
-      (item.risk_flags || []).join('；')
-    ])
-  ]
-  const csv = rows.map(row => row.map(escapeCsv).join(',')).join('\n')
-  const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `api-permission-audit-${new Date().toISOString().slice(0, 10)}.csv`
-  link.click()
-  URL.revokeObjectURL(url)
+  await downloadRowsAsExcel({
+    filename: `api-permission-audit-${new Date().toISOString().slice(0, 10)}`,
+    sheetName: '权限审计',
+    title: 'API 权限审计报告',
+    summaryRows: [
+      ['巡检总数', summary.total || 0],
+      ['风险数量', summary.risky || 0],
+      ['正常数量', summary.healthy || 0]
+    ],
+    columns: [
+      { header: 'API名称', key: 'api_name', width: 24 },
+      { header: 'API路径', key: 'api_path', width: 42 },
+      { header: '模块', key: 'module_name', width: 18 },
+      { header: '动作', key: 'action_type_name', width: 10 },
+      { header: '风险项', key: 'risk_flags', width: 36 }
+    ],
+    rows: (auditReport.value.items || []).map(item => ({
+      api_name: item.api_name || '',
+      api_path: item.api_path || '',
+      module_name: item.module_name || '',
+      action_type_name: getActionName(item.action_type),
+      risk_flags: (item.risk_flags || []).join('；')
+    }))
+  })
 }
 
 const resetModuleForm = () => {

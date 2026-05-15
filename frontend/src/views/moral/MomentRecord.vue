@@ -148,6 +148,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMomentRecords, createMomentRecord, updateMomentRecord, deleteMomentRecord, getClasses, getStudents } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
+import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
 import MoralScopeTabs from '@/components/MoralScopeTabs.vue'
 
@@ -376,18 +377,23 @@ const handleExport = async () => {
     }
 
     const exportData = res.data.items
-    let csvContent = '学号,姓名,班级,记录类型,标题,内容,日期\n'
-    exportData.forEach(row => {
-      csvContent += `${row.student_id},${row.student_name},${row.class_name},${row.record_type},${row.title || ''},${row.content},${row.record_date}\n`
+    await downloadRowsAsExcel({
+      filename: `点滴记录_${new Date().toISOString().slice(0, 10)}`,
+      sheetName: '点滴记录',
+      columns: [
+        { header: '学号', key: 'student_id', width: 16 },
+        { header: '姓名', key: 'student_name', width: 12 },
+        { header: '班级', key: 'class_name', width: 16 },
+        { header: '记录类型', key: 'record_type', width: 12 },
+        { header: '标题', key: 'title', width: 24 },
+        { header: '内容', key: 'content', width: 40 },
+        { header: '日期', key: 'record_date', width: 14 }
+      ],
+      rows: exportData.map(row => ({
+        ...row,
+        title: row.title || ''
+      }))
     })
-
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `点滴记录_${new Date().toISOString().slice(0,10)}.csv`
-    link.click()
-    window.URL.revokeObjectURL(url)
     ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
   } catch (error) {
     console.error('导出失败:', error)

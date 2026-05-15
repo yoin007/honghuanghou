@@ -188,7 +188,8 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { getGrades, getClasses, getStudents, createStudent, updateStudent, updateStudentStatus, batchCreateStudents } from '@/api/modules/moral'
-import { read, utils, writeFile } from 'xlsx'
+import ExcelJS from 'exceljs'
+import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
 
 // API权限检查
@@ -415,6 +416,57 @@ const handleFileChange = (file) => {
   importFile.value = file.raw
 }
 
+const getCellValue = (cell) => {
+  const value = cell?.value
+  if (value == null) return ''
+  if (value instanceof Date) return value.toISOString().slice(0, 10)
+  if (typeof value === 'object') {
+    if (value.text) return value.text
+    if (value.result != null) return value.result
+    if (Array.isArray(value.richText)) return value.richText.map(part => part.text || '').join('')
+    if (value.hyperlink && value.text) return value.text
+  }
+  return value
+}
+
+const normalizeHeader = (value) => String(value || '').trim()
+
+const parseStudentRows = async (file) => {
+  const workbook = new ExcelJS.Workbook()
+  const data = await file.arrayBuffer()
+  await workbook.xlsx.load(data)
+  const worksheet = workbook.worksheets[0]
+  if (!worksheet) return []
+
+  const headerMap = {}
+  worksheet.getRow(1).eachCell((cell, colNumber) => {
+    const header = normalizeHeader(getCellValue(cell))
+    if (header) headerMap[header] = colNumber
+  })
+
+  const valueOf = (row, names) => {
+    for (const name of names) {
+      const col = headerMap[name]
+      if (col) return getCellValue(row.getCell(col))
+    }
+    return ''
+  }
+
+  const rows = []
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return
+    rows.push({
+      student_id: String(valueOf(row, ['学号', 'student_id']) || '').trim(),
+      name: String(valueOf(row, ['姓名', 'name']) || '').trim(),
+      gender: String(valueOf(row, ['性别', 'gender']) || '男').trim(),
+      class_name: String(valueOf(row, ['班级', '班级名称', 'class_name']) || '').trim(),
+      birthday: valueOf(row, ['生日', 'birthday']) || null
+    })
+  })
+
+  return rows
+}
+
 const handleImportSubmit = async () => {
   if (!importFile.value) {
     ElMessage.warning('请先选择文件')
@@ -422,12 +474,7 @@ const handleImportSubmit = async () => {
   }
   importLoading.value = true
   try {
-    // 读取 Excel 文件
-    const data = await importFile.value.arrayBuffer()
-    const workbook = read(data, { type: 'array' })
-    const sheetName = workbook.SheetNames[0]
-    const worksheet = workbook.Sheets[sheetName]
-    const jsonData = utils.sheet_to_json(worksheet)
+    const jsonData = await parseStudentRows(importFile.value)
 
     if (jsonData.length === 0) {
       ElMessage.warning('文件中没有数据')
@@ -437,11 +484,11 @@ const handleImportSubmit = async () => {
 
     // 转换数据格式
     const students = jsonData.map(row => ({
-      student_id: String(row['学号'] || row['student_id'] || ''),
-      name: String(row['姓名'] || row['name'] || ''),
-      gender: row['性别'] || row['gender'] || '男',
-      class_name: String(row['班级'] || row['班级名称'] || row['class_name'] || ''),
-      birthday: row['生日'] || row['birthday'] || null
+      student_id: row.student_id,
+      name: row.name,
+      gender: row.gender || '男',
+      class_name: row.class_name,
+      birthday: row.birthday
     })).filter(s => s.student_id && s.name && s.class_name)
 
     if (students.length === 0) {
@@ -510,18 +557,33 @@ const handleExport = async () => {
     }
 
     const exportData = res.data.items
-    let csvContent = '学号,姓名,性别,生日,宿舍,床号,班级,级号,状态,入学时间\n'
-    exportData.forEach(row => {
-      csvContent += `${row.student_id},${row.name},${row.gender || ''},${row.birthday || ''},${row.roomid || ''},${row.rpid || ''},${row.class_name || ''},${row.grade_name || ''},${row.status || ''},${row.created_at || ''}\n`
+    await downloadRowsAsExcel({
+      filename: `学生数据_${new Date().toISOString().slice(0, 10)}`,
+      sheetName: '学生数据',
+      columns: [
+        { header: '学号', key: 'student_id', width: 16 },
+        { header: '姓名', key: 'name', width: 12 },
+        { header: '性别', key: 'gender', width: 8 },
+        { header: '生日', key: 'birthday', width: 14 },
+        { header: '宿舍', key: 'roomid', width: 14 },
+        { header: '床号', key: 'rpid', width: 14 },
+        { header: '班级', key: 'class_name', width: 16 },
+        { header: '级号', key: 'grade_name', width: 14 },
+        { header: '状态', key: 'status', width: 10 },
+        { header: '入学时间', key: 'created_at', width: 20 }
+      ],
+      rows: exportData.map(row => ({
+        ...row,
+        gender: row.gender || '',
+        birthday: row.birthday || '',
+        roomid: row.roomid || '',
+        rpid: row.rpid || '',
+        class_name: row.class_name || '',
+        grade_name: row.grade_name || '',
+        status: row.status || '',
+        created_at: row.created_at || ''
+      }))
     })
-
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `学生数据_${new Date().toISOString().slice(0,10)}.csv`
-    link.click()
-    window.URL.revokeObjectURL(url)
     ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
   } catch (error) {
     console.error('导出失败:', error)
@@ -530,24 +592,23 @@ const handleExport = async () => {
 }
 
 // 下载导入模板
-const downloadTemplate = () => {
-  const template = `学号,姓名,性别,生日,宿舍,床号,班级
-20250101,张三,男,2008-05-15,宿舍A101,1号床,高一1班
-20250102,李四,女,2008-03-20,宿舍A102,2号床,高一1班
-20250103,王五,男,2008-07-10,宿舍B101,1号床,高一2班
-
-说明：
-- 学号、姓名、班级为必填字段
-- 性别默认为男，生日、宿舍、床号可选
-- 班级名称需与系统中已有的班级名称完全匹配`
-
-  const blob = new Blob(['\ufeff' + template], { type: 'text/csv;charset=utf-8' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = '学生导入模板.csv'
-  link.click()
-  window.URL.revokeObjectURL(url)
+const downloadTemplate = async () => {
+  await downloadRowsAsExcel({
+    filename: '学生导入模板',
+    sheetName: '学生导入模板',
+    columns: [
+      { header: '学号', key: 'student_id', width: 16 },
+      { header: '姓名', key: 'name', width: 12 },
+      { header: '性别', key: 'gender', width: 8 },
+      { header: '生日', key: 'birthday', width: 14 },
+      { header: '班级', key: 'class_name', width: 16 }
+    ],
+    rows: [
+      { student_id: '20250101', name: '张三', gender: '男', birthday: '2008-05-15', class_name: '高一1班' },
+      { student_id: '20250102', name: '李四', gender: '女', birthday: '2008-03-20', class_name: '高一1班' },
+      { student_id: '20250103', name: '王五', gender: '男', birthday: '2008-07-10', class_name: '高一2班' }
+    ]
+  })
   ElMessage.success('模板下载成功')
 }
 </script>

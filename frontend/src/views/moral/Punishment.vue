@@ -346,6 +346,7 @@ import {
   getPunishmentPeriods
 } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
+import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
 import { useRouter } from 'vue-router'
 
@@ -810,18 +811,27 @@ const handleExport = async () => {
     }
 
     const exportData = res.data.items
-    let csvContent = '学号,姓名,班级,处分类型,处分原因,处分日期,状态,撤销日期,德育扣分\n'
-    exportData.forEach(row => {
-      csvContent += `${row.student_id},${row.student_name},${row.class_name},${row.punishment_type},${row.punishment_reason},${row.punishment_date},${row.status === 1 ? '生效中' : '已撤销'},${row.revoke_date || ''},${row.score_deduct || ''}\n`
+    await downloadRowsAsExcel({
+      filename: `处分记录_${new Date().toISOString().slice(0, 10)}`,
+      sheetName: '处分记录',
+      columns: [
+        { header: '学号', key: 'student_id', width: 16 },
+        { header: '姓名', key: 'student_name', width: 12 },
+        { header: '班级', key: 'class_name', width: 16 },
+        { header: '处分类型', key: 'punishment_type', width: 14 },
+        { header: '处分原因', key: 'punishment_reason', width: 30 },
+        { header: '处分日期', key: 'punishment_date', width: 14 },
+        { header: '状态', key: 'status_name', width: 12 },
+        { header: '撤销日期', key: 'revoke_date', width: 14 },
+        { header: '德育扣分', key: 'score_deduct', width: 12 }
+      ],
+      rows: exportData.map(row => ({
+        ...row,
+        status_name: row.status === 1 ? '生效中' : '已撤销',
+        revoke_date: row.revoke_date || '',
+        score_deduct: row.score_deduct || ''
+      }))
     })
-
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `处分记录_${new Date().toISOString().slice(0,10)}.csv`
-    link.click()
-    window.URL.revokeObjectURL(url)
     ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
   } catch (error) {
     console.error('导出失败:', error)
