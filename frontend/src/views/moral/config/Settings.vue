@@ -38,38 +38,6 @@
           <span class="hint">提前多少天提醒班主任</span>
         </el-form-item>
 
-        <el-divider content-position="left">权限配置</el-divider>
-
-        <el-form-item label="日常记录角色">
-          <el-select v-model="configForm.daily_record_roles" multiple placeholder="选择可录入日常记录的角色">
-            <el-option label="教师" value="teacher" />
-            <el-option label="班主任" value="cleader" />
-            <el-option label="年级主任" value="g_leader" />
-            <el-option label="学发部" value="xuefa" />
-            <el-option label="教务处" value="jiaowu" />
-            <el-option label="管理员" value="admin" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="学生画像角色">
-          <el-select v-model="configForm.student_profile_roles" multiple placeholder="选择可生成学生画像的角色">
-            <el-option label="班主任" value="cleader" />
-            <el-option label="年级主任" value="g_leader" />
-            <el-option label="学发部" value="xuefa" />
-            <el-option label="教务处" value="jiaowu" />
-            <el-option label="管理员" value="admin" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="AI诊疗角色">
-          <el-select v-model="configForm.ai_consultation_roles" multiple placeholder="选择可使用AI诊疗的角色">
-            <el-option label="班主任" value="cleader" />
-            <el-option label="年级主任" value="g_leader" />
-            <el-option label="学发部" value="xuefa" />
-            <el-option label="管理员" value="admin" />
-          </el-select>
-        </el-form-item>
-
         <el-divider content-position="left">处罚类型配置</el-divider>
 
         <el-form-item label="处罚类型列表">
@@ -166,9 +134,6 @@ const configForm = reactive({
   evaluation_good_line: 75,
   evaluation_pass_line: 60,
   birthday_reminder_days: 3,
-  daily_record_roles: ['teacher', 'cleader', 'g_leader'],
-  student_profile_roles: ['admin', 'jiaowu', 'xuefa', 'g_leader', 'cleader'],
-  ai_consultation_roles: ['admin', 'xuefa', 'g_leader', 'cleader'],
   punishment_types: [
     { action: 'warning', name: '警告', level: null },
     { action: 'serious_warning', name: '严重警告', level: '一级' },
@@ -179,6 +144,7 @@ const configForm = reactive({
   filegather_upload_dir: '',
   filegather_done_dir: ''
 })
+const configKeys = new Set(Object.keys(configForm))
 
 const fetchConfig = async () => {
   loading.value = true
@@ -187,6 +153,7 @@ const fetchConfig = async () => {
     if (res.success && res.data) {
       // 处理 roles 字段（字符串转数组）
       Object.keys(res.data).forEach(key => {
+        if (!configKeys.has(key)) return
         if (key.endsWith('_roles') && typeof res.data[key] === 'string') {
           configForm[key] = res.data[key].split(',')
         } else if (key === 'punishment_types' && typeof res.data[key] === 'string') {
@@ -216,9 +183,6 @@ const handleSave = async () => {
     Object.keys(configForm).forEach(key => {
       if (key.endsWith('_roles') && Array.isArray(configForm[key])) {
         submitData[key] = configForm[key].join(',')
-      } else if (key === 'punishment_types' && Array.isArray(configForm[key])) {
-        // 处理 punishment_types（数组转JSON字符串）
-        submitData[key] = JSON.stringify(configForm[key])
       } else {
         submitData[key] = configForm[key]
       }

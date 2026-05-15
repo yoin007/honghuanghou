@@ -5,12 +5,13 @@
 提供级号、学年、学期等系统配置的管理功能
 """
 
+import json
 import logging
 from datetime import date, datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from .api_permission import require_configured_api_permission
 from .base import (
@@ -1719,13 +1720,31 @@ async def get_system_config(
 
 class ConfigUpdate(BaseModel):
     """更新系统配置"""
+    model_config = ConfigDict(extra='allow')
+
     evaluation_base_score: Optional[int] = Field(None, description="评价基础分", ge=0, le=200)
+    evaluation_excellent_line: Optional[int] = Field(None, description="优秀分数线", ge=0, le=100)
+    evaluation_good_line: Optional[int] = Field(None, description="良好分数线", ge=0, le=100)
+    evaluation_pass_line: Optional[int] = Field(None, description="及格分数线", ge=0, le=100)
     evaluation_weights: Optional[dict] = Field(None, description="评价权重配置")
     birthday_reminder_days: Optional[int] = Field(None, description="生日提前提醒天数", ge=1, le=30)
     semester_start_month: Optional[int] = Field(None, description="学期开始月份", ge=1, le=12)
     punishment_types: Optional[List[dict]] = Field(None, description="处罚类型配置")
+    daily_record_roles: Optional[str] = Field(None, description="日常记录角色（逗号分隔）")
+    student_profile_roles: Optional[str] = Field(None, description="学生画像角色（逗号分隔）")
+    ai_consultation_roles: Optional[str] = Field(None, description="AI诊疗角色（逗号分隔）")
     filegather_upload_dir: Optional[str] = Field(None, description="文件上传保存目录")
     filegather_done_dir: Optional[str] = Field(None, description="已完成文件归档目录")
+
+    @field_validator("punishment_types", mode="before")
+    @classmethod
+    def parse_punishment_types(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return []
+            return json.loads(value)
+        return value
 
 
 @router.put("/config", summary="更新系统配置")
@@ -1739,8 +1758,6 @@ async def update_system_config(
 
     权限要求：admin/jiaowu
     """
-    import json
-
     with get_moral_db() as db:
         update_data = config.dict(exclude_unset=True)
 
