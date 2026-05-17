@@ -242,13 +242,15 @@
         </template>
           </el-tab-pane>
           <el-tab-pane label="范围配置" name="scope">
+        <!-- 学生资源域：显示学生范围配置 -->
+        <template v-if="isStudentResource">
         <el-form-item label="快捷配置">
           <el-button @click="applyScopePreset">套用常用矩阵</el-button>
           <div class="scope-help">按 API 动作自动填入推荐范围：查看=自己创建/管理班级/管理年级/全校，新增=任教班级/管理范围/全校，编辑删除=自己创建/全校。</div>
         </el-form-item>
         <el-form-item label="数据范围">
           <div class="scope-editor">
-            <div v-for="role in scopeRoleOptions" :key="`data-${role.value}`" class="scope-row">
+            <div v-for="role in scopeRoleOptions" :key="'data-' + role.value" class="scope-row">
               <span class="scope-role">{{ role.label }}</span>
               <el-checkbox-group v-model="dataScopeEditor[role.value]">
                 <el-checkbox v-for="item in dataScopeOptions" :key="item.value" :label="item.value">
@@ -258,12 +260,12 @@
             </div>
           </div>
           <div class="scope-help">
-            控制查询、编辑、删除时能操作哪些已有记录。查看接口可给班主任勾选“自己创建 + 管理班级”，编辑/删除接口通常只勾选“自己创建”；学发、教发和管理员勾选“全校”。
+            控制查询、编辑、删除时能操作哪些已有记录。查看接口可给班主任勾选"自己创建 + 管理班级"，编辑/删除接口通常只勾选"自己创建"；学发、教发和管理员勾选"全校"。
           </div>
         </el-form-item>
         <el-form-item label="目标范围">
           <div class="scope-editor">
-            <div v-for="role in scopeRoleOptions" :key="`target-${role.value}`" class="scope-row">
+            <div v-for="role in scopeRoleOptions" :key="'target-' + role.value" class="scope-row">
               <span class="scope-role">{{ role.label }}</span>
               <el-checkbox-group v-model="targetScopeEditor[role.value]">
                 <el-checkbox v-for="item in targetScopeOptions" :key="item.value" :label="item.value">
@@ -278,7 +280,7 @@
         </el-form-item>
         <el-form-item label="动作范围">
           <div class="scope-editor">
-            <div v-for="role in scopeRoleOptions" :key="`operation-${role.value}`" class="scope-row">
+            <div v-for="role in scopeRoleOptions" :key="'operation-' + role.value" class="scope-row">
               <span class="scope-role">{{ role.label }}</span>
               <el-checkbox-group v-model="operationScopeEditor[role.value]">
                 <el-checkbox v-for="item in dataScopeOptions" :key="item.value" :label="item.value">
@@ -288,9 +290,70 @@
             </div>
           </div>
           <div class="scope-help">
-            控制编辑、删除、复核、关闭等动作能落到哪些已有记录。日常记录类通常是教师、班主任、年级主任仅“自己创建”，学发、教发、管理员为“全校”。
+            控制编辑、删除、复核、关闭等动作能落到哪些已有记录。日常记录类通常是教师、班主任、年级主任仅"自己创建"，学发、教发、管理员为"全校"。
           </div>
         </el-form-item>
+        </template>
+        <!-- 系统资源域：不显示学生范围，显示提示 -->
+        <template v-else-if="isSystemResource">
+        <el-alert
+          title="系统资源不涉及业务数据范围"
+          type="info"
+          show-icon
+          :closable="false"
+          class="policy-alert"
+        >
+          <template #default>
+            此 API 属于系统管理类资源（如数据库备份、配置管理等），仅控制调用角色和最低等级，不涉及学生、班级、年级等业务数据范围。
+          </template>
+        </el-alert>
+        </template>
+        <!-- 教师资源域：显示教师协作范围 -->
+        <template v-else>
+        <el-form-item label="可见范围">
+          <div class="scope-editor">
+            <div v-for="role in scopeRoleOptions" :key="'data-' + role.value" class="scope-row">
+              <span class="scope-role">{{ role.label }}</span>
+              <el-checkbox-group v-model="dataScopeEditor[role.value]">
+                <el-checkbox label="own_created">自己创建</el-checkbox>
+                <el-checkbox label="assigned_to_me">分配给我</el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
+          <div class="scope-help">
+            控制教师能看到哪些待办或群组。教师通常勾选"自己创建 + 分配给我"，管理员可勾选全部。
+          </div>
+        </el-form-item>
+        <el-form-item label="协作范围">
+          <div class="scope-editor">
+            <div v-for="role in scopeRoleOptions" :key="'target-' + role.value" class="scope-row">
+              <span class="scope-role">{{ role.label }}</span>
+              <el-checkbox-group v-model="targetScopeEditor[role.value]">
+                <el-checkbox label="selected_teachers">指定教师</el-checkbox>
+                <el-checkbox label="my_groups">我的协作群组</el-checkbox>
+                <el-checkbox v-if="role.value === 'admin'" label="all_teachers">全校教师</el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
+          <div class="scope-help">
+            控制创建待办或群组时能选择哪些协作对象。非管理员仅可选"指定教师 + 我的协作群组"。
+          </div>
+        </el-form-item>
+        <el-form-item label="操作范围">
+          <div class="scope-editor">
+            <div v-for="role in scopeRoleOptions" :key="'operation-' + role.value" class="scope-row">
+              <span class="scope-role">{{ role.label }}</span>
+              <el-checkbox-group v-model="operationScopeEditor[role.value]">
+                <el-checkbox label="own_created">自己创建</el-checkbox>
+                <el-checkbox v-if="form.action_type !== 'update' && form.action_type !== 'delete'" label="assigned_to_me">分配给我</el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
+          <div class="scope-help">
+            控制编辑、删除、完成待办等操作的权限。编辑/删除仅限"自己创建"，完成/恢复可包含"分配给我"。
+          </div>
+        </el-form-item>
+        </template>
           </el-tab-pane>
           <el-tab-pane label="预览校验" name="preview">
         <el-form-item label="权限预览">
@@ -356,7 +419,7 @@
           </el-checkbox-group>
         </el-form-item>
         <el-form-item label="说明">
-          <div class="scope-help">将为所选 API 写入独立角色配置，并取消“继承模块权限”。范围规则不会自动改写，保存后可用“批量校验”复核。</div>
+          <div class="scope-help">将为所选 API 写入独立角色配置，并取消"继承模块权限"。范围规则不会自动改写，保存后可用"批量校验"复核。</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -475,6 +538,7 @@ import {
   initApiPermissions,
   syncDefaultScopeRules,
   getApiPermissionModules,
+  getApiPermissionResourceTypes,
   createApiPermissionModule,
   updateApiPermissionModule,
   applyApiPermissionModule,
@@ -493,6 +557,7 @@ const submitLoading = ref(false)
 const moduleSubmitLoading = ref(false)
 const permissions = ref([])
 const modules = ref([])
+const resourceTypes = ref([])
 const selectedModuleId = ref(null)
 const selectedRows = ref([])
 const templates = ref([])
@@ -588,7 +653,7 @@ const targetScopeOptions = [
   { value: 'managed_grades', label: '管理年级' },
   { value: 'all_students', label: '全校学生' }
 ]
-const resourceOptions = [
+const fallbackResourceOptions = [
   { value: 'daily_record', label: '日常表现记录' },
   { value: 'moment_record', label: '点滴记录' },
   { value: 'school_record', label: '校级事件' },
@@ -599,8 +664,37 @@ const resourceOptions = [
   { value: 'student_profile', label: '学生画像' },
   { value: 'consultation', label: 'AI诊疗' },
   { value: 'score_trend', label: '得分趋势' },
-  { value: 'dashboard', label: '驾驶舱' }
+  { value: 'dashboard', label: '驾驶舱' },
+  { value: 'teacher_todo', label: '教师待办' },
+  { value: 'teacher_todo_group', label: '协作群组' },
+  { value: 'database_backup', label: '数据库备份' },
+  { value: 'database_admin', label: '数据库管理' },
+  { value: 'api_permission', label: 'API权限管理' },
+  { value: 'menu_permission', label: '菜单权限' },
+  { value: 'system_config', label: '系统配置' },
+  { value: 'operation_log', label: '操作日志' },
+  { value: 'scheduler', label: '定时调度' },
+  { value: 'ai_model_config', label: 'AI模型配置' }
 ]
+const resourceOptions = computed(() => {
+  const fromBackend = resourceTypes.value
+    .filter(item => item.is_active !== 0)
+    .map(item => ({ value: item.resource_type, label: item.resource_name }))
+  const merged = [...fromBackend, ...fallbackResourceOptions]
+  return Array.from(new Map(merged.map(item => [item.value, item])).values())
+})
+const fallbackResourceMeta = {
+  teacher_todo: { resource_name: '教师待办', resource_domain: 'teacher_owned', scope_schema: 'teacher_todo_scope' },
+  teacher_todo_group: { resource_name: '协作群组', resource_domain: 'teacher_owned', scope_schema: 'teacher_group_scope' },
+  database_backup: { resource_name: '数据库备份', resource_domain: 'system_admin', scope_schema: 'system_action_scope' },
+  database_admin: { resource_name: '数据库管理', resource_domain: 'system_admin', scope_schema: 'system_action_scope' },
+  api_permission: { resource_name: 'API权限管理', resource_domain: 'system_admin', scope_schema: 'system_action_scope' },
+  menu_permission: { resource_name: '菜单权限', resource_domain: 'system_admin', scope_schema: 'system_action_scope' },
+  system_config: { resource_name: '系统配置', resource_domain: 'system_admin', scope_schema: 'system_action_scope' },
+  operation_log: { resource_name: '操作日志', resource_domain: 'system_admin', scope_schema: 'system_action_scope' },
+  scheduler: { resource_name: '定时调度', resource_domain: 'system_admin', scope_schema: 'system_action_scope' },
+  ai_model_config: { resource_name: 'AI模型配置', resource_domain: 'system_admin', scope_schema: 'system_action_scope' }
+}
 const actionOptions = [
   { value: 'view', label: '查看' },
   { value: 'create', label: '创建' },
@@ -611,8 +705,53 @@ const actionOptions = [
   { value: 'operate', label: '操作' }
 ]
 
-const dataScopeLabelMap = Object.fromEntries(dataScopeOptions.map(item => [item.value, item.label]))
-const targetScopeLabelMap = Object.fromEntries(targetScopeOptions.map(item => [item.value, item.label]))
+// 资源类型映射表（从后端获取）
+const resourceTypeMap = computed(() => {
+  const map = { ...fallbackResourceMeta }
+  for (const item of resourceTypes.value) {
+    map[item.resource_type] = {
+      resource_name: item.resource_name,
+      resource_domain: item.resource_domain,
+      scope_schema: item.scope_schema
+    }
+  }
+  return map
+})
+
+// 当前表单资源的 scope_schema
+const currentScopeSchema = computed(() => {
+  const meta = resourceTypeMap.value[form.resource_type]
+  return meta?.scope_schema || 'student_scope'
+})
+
+// 是否为学生资源域（需要显示学生范围配置）
+const isStudentResource = computed(() => {
+  return currentScopeSchema.value === 'student_scope'
+})
+
+// 是否为系统资源域（不显示学生范围配置）
+const isSystemResource = computed(() => {
+  return currentScopeSchema.value === 'system_action_scope'
+})
+
+const teacherScopeLabelMap = {
+  own_created: '自己创建',
+  assigned_to_me: '分配给我',
+  selected_teachers: '指定教师',
+  my_groups: '我的协作群组',
+  all_teachers: '全校教师'
+}
+const systemScopeLabelMap = {
+  view_config: '查看配置',
+  update_config: '修改配置',
+  execute: '执行',
+  view_history: '查看历史',
+  download: '下载',
+  delete: '删除',
+  manage: '管理'
+}
+const dataScopeLabelMap = { ...Object.fromEntries(dataScopeOptions.map(item => [item.value, item.label])), ...teacherScopeLabelMap, ...systemScopeLabelMap }
+const targetScopeLabelMap = { ...Object.fromEntries(targetScopeOptions.map(item => [item.value, item.label])), ...teacherScopeLabelMap, ...systemScopeLabelMap }
 
 const policyOptions = [
   { value: 'role_and_level', label: '角色和等级同时满足' },
@@ -624,7 +763,7 @@ const policyOptions = [
 const roleNames = Object.fromEntries(roleOptions.map(item => [item.value, item.label]))
 const policyNames = Object.fromEntries(policyOptions.map(item => [item.value, item.label]))
 const matchNames = { exact: '精确', prefix: '前缀', pattern: '参数' }
-const resourceNames = Object.fromEntries(resourceOptions.map(item => [item.value, item.label]))
+const resourceNames = computed(() => Object.fromEntries(resourceOptions.value.map(item => [item.value, item.label])))
 const actionNames = Object.fromEntries(actionOptions.map(item => [item.value, item.label]))
 const expectedPublicApiPaths = new Set(['/api/token'])
 
@@ -710,7 +849,7 @@ const formatScopeSummary = (rules = {}, labelMap = {}) => {
 
 const getPolicyName = (policy) => policy === 'public' ? '公开' : (policyNames[policy] || policy)
 const getMatchName = (matchType) => matchNames[matchType] || '精确'
-const getResourceName = (resourceType) => resourceNames[resourceType] || '未标注'
+const getResourceName = (resourceType) => resourceNames.value[resourceType] || '未标注'
 const getActionName = (actionType) => actionNames[actionType] || '未标注'
 
 const normalizeScopeRules = (rules = {}) => {
@@ -817,16 +956,54 @@ const formValidationIssues = computed(() => {
   const targetRules = dumpScopeEditor(targetScopeEditor)
   const operationRules = dumpScopeEditor(operationScopeEditor)
   if (path.includes('{') && path.includes('}') && form.match_type !== 'pattern') {
-    issues.push('动态路径建议使用“参数模式”')
+    issues.push('动态路径建议使用"参数模式"')
   }
   if (form.enforce_backend === 0) issues.push('当前 API 未参与后端统一鉴权')
   if (form.is_public === 1 && !expectedPublicApiPaths.has(path)) issues.push('当前 API 被配置为公开访问')
+
+  const allowedRoles = new Set(form.allowed_roles || [])
+
+  if (isSystemResource.value) {
+    if (!allowedRoles.has('admin')) issues.push('系统资源应至少允许管理员')
+    const nonAdminRoles = [...allowedRoles].filter(role => role !== 'admin')
+    if (nonAdminRoles.length && !path.includes('/menu-permission/my-menu')) {
+      issues.push(`系统资源存在非管理员角色：${nonAdminRoles.map(role => roleNames[role] || role).join('、')}`)
+    }
+    if ((form.min_level || 0) < 100 && !path.includes('/menu-permission/my-menu')) {
+      issues.push('系统资源最低等级建议为 100')
+    }
+    if (Object.keys(dataRules).length || Object.keys(targetRules).length) {
+      issues.push('系统资源不应配置学生或教师业务范围')
+    }
+    return issues
+  }
+
+  if (!isStudentResource.value) {
+    const studentScopes = new Set(['teaching_classes', 'managed_classes', 'managed_grades', 'all_students'])
+    for (const [label, rules] of [['数据范围', dataRules], ['目标范围', targetRules], ['动作范围', operationRules]]) {
+      for (const scopes of Object.values(rules)) {
+        if ((scopes || []).some(scope => studentScopes.has(scope))) issues.push(`${label}包含学生范围，不适用于教师资源`)
+      }
+    }
+    if (action === 'view' && !Object.keys(dataRules).length) issues.push('教师资源查看类 API 未配置可见范围')
+    if (action === 'create' && !Object.keys(targetRules).length) issues.push('教师资源创建类 API 未配置协作范围')
+    if (['update', 'delete', 'operate'].includes(action) && !Object.keys(operationRules).length) issues.push('教师资源操作类 API 未配置操作范围')
+    for (const [role, scopes] of Object.entries(targetRules)) {
+      if (role !== 'admin' && (scopes || []).includes('all_teachers')) issues.push('非管理员不应配置全校教师范围')
+    }
+    if (['update', 'delete'].includes(action)) {
+      for (const [role, scopes] of Object.entries(operationRules)) {
+        if ((scopes || []).includes('assigned_to_me')) issues.push(`${roleNames[role] || role} 编辑/删除不应包含“分配给我”`)
+      }
+    }
+    return issues
+  }
+
   if (action === 'view' && !Object.keys(dataRules).length) issues.push('查看类 API 未配置数据范围')
   if (action === 'create' && !Object.keys(targetRules).length) issues.push('创建类 API 未配置目标范围')
   if (['update', 'delete', 'review', 'export'].includes(action) && !Object.keys(operationRules).length) {
     issues.push('动作类 API 未配置动作范围')
   }
-  const allowedRoles = new Set(form.allowed_roles || [])
   const scopeGroups = [
     ['数据范围', dataRules],
     ['目标范围', targetRules],
@@ -873,6 +1050,15 @@ const fetchModules = async () => {
   }
 }
 
+const fetchResourceTypes = async () => {
+  try {
+    const res = await getApiPermissionResourceTypes()
+    if (res.success) resourceTypes.value = res.data || []
+  } catch (error) {
+    console.error('获取资源类型失败:', error)
+  }
+}
+
 const fetchTemplates = async () => {
   try {
     const res = await getApiPermissionTemplates()
@@ -887,6 +1073,7 @@ const fetchTemplates = async () => {
 
 const refreshAll = async () => {
   await fetchModules()
+  await fetchResourceTypes()
   await fetchPermissions()
   await fetchTemplates()
 }
@@ -936,7 +1123,7 @@ const handleSyncScopeRules = async () => {
   let force = 0
   try {
     await ElMessageBox.confirm(
-      '将代码中的默认数据范围规则同步到数据库。\n\n点击“强制覆盖”会覆盖所有已有范围配置；点击“仅补齐”只更新空配置。',
+      '将代码中的默认数据范围规则同步到数据库。\n\n点击"强制覆盖"会覆盖所有已有范围配置；点击"仅补齐"只更新空配置。',
       '同步范围规则',
       {
         type: 'warning',
@@ -1053,27 +1240,30 @@ const handleDelete = async (row) => {
   }
 }
 
-const apiPayload = () => ({
-  api_path: form.api_path,
-  api_name: form.api_name,
-  api_group: form.api_group,
-  module_id: form.module_id,
-  http_method: form.http_method,
-  match_type: form.match_type,
-  allowed_roles: form.allowed_roles,
-  min_level: form.min_level,
-  policy_mode: form.policy_mode,
-  inherit_from_module: form.inherit_from_module,
-  is_public: form.is_public,
-  enforce_backend: form.enforce_backend,
-  resource_type: form.resource_type,
-  action_type: form.action_type,
-  data_scope_rules: dumpScopeEditor(dataScopeEditor),
-  target_scope_rules: dumpScopeEditor(targetScopeEditor),
-  operation_scope_rules: dumpScopeEditor(operationScopeEditor),
-  description: form.description,
-  is_active: form.is_active
-})
+const apiPayload = () => {
+  const systemResource = isSystemResource.value
+  return {
+    api_path: form.api_path,
+    api_name: form.api_name,
+    api_group: form.api_group,
+    module_id: form.module_id,
+    http_method: form.http_method,
+    match_type: form.match_type,
+    allowed_roles: form.allowed_roles,
+    min_level: form.min_level,
+    policy_mode: form.policy_mode,
+    inherit_from_module: form.inherit_from_module,
+    is_public: form.is_public,
+    enforce_backend: form.enforce_backend,
+    resource_type: form.resource_type,
+    action_type: form.action_type,
+    data_scope_rules: systemResource ? {} : dumpScopeEditor(dataScopeEditor),
+    target_scope_rules: systemResource ? {} : dumpScopeEditor(targetScopeEditor),
+    operation_scope_rules: dumpScopeEditor(operationScopeEditor),
+    description: form.description,
+    is_active: form.is_active
+  }
+}
 
 const handleSubmit = async () => {
   try {

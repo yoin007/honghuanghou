@@ -710,6 +710,13 @@ export function getApiPermissionModules() {
 }
 
 /**
+ * 获取资源类型列表
+ */
+export function getApiPermissionResourceTypes() {
+  return httpClient.get('/api/moral/api-permissions/resource-types')
+}
+
+/**
  * 创建API权限模块
  */
 export function createApiPermissionModule(data) {
@@ -1356,6 +1363,7 @@ export default {
   getApiPermissions,
   createApiPermission,
   getApiPermissionModules,
+  getApiPermissionResourceTypes,
   createApiPermissionModule,
   updateApiPermissionModule,
   applyApiPermissionModule,

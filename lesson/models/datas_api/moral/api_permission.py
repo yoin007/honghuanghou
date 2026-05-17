@@ -35,6 +35,10 @@ EXPECTED_PUBLIC_API_PATHS = {
     "/api/token",
 }
 
+SYSTEM_RESOURCE_NON_ADMIN_PATHS = {
+    "/api/moral/menu-permission/my-menu",
+}
+
 
 # =============================================================================
 # Pydantic 模型
@@ -207,8 +211,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/teacher/todos/occurrences/{occurrence_id}/reopen", "api_name": "恢复教师待办实例", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo", "action_type": "operate"},
     {"api_path": "/api/teacher/todos/upcoming", "api_name": "教师近期待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher_todo", "action_type": "view"},
     # 教师协作群组
-    {"api_path": "/api/teacher/todos/groups", "api_name": "查询协作群组", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher_todo_group", "action_type": "view"},
-    {"api_path": "/api/teacher/todos/groups", "api_name": "创建协作群组", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "resource_type": "teacher_todo_group", "action_type": "create"},
+    {"api_path": "/api/teacher/todos/groups", "api_name": "协作群组列表和创建", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "*", "resource_type": "teacher_todo_group", "action_type": "operate"},
     {"api_path": "/api/teacher/todos/groups/{group_id}", "api_name": "更新删除协作群组", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "update"},
     {"api_path": "/api/teacher/todos/groups/{group_id}/members", "api_name": "添加群组成员", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "operate"},
     {"api_path": "/api/teacher/todos/groups/{group_id}/members/{teacher_id}", "api_name": "移除群组成员", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "operate"},
@@ -236,33 +239,33 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/semesters/{semester_id}/set-current", "api_name": "设置当前学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "action_type": "operate"},
 
     # 系统配置
-    {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
+    {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "system_config", "action_type": "operate"},
     {"api_path": "/api/moral/admin/logs", "api_name": "操作日志查询", "api_group": "系统配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "http_method": "GET", "resource_type": "operation_log", "action_type": "view"},
     {"api_path": "/api/moral/ai-model-config", "api_name": "AI模型配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "ai_model_config", "action_type": "operate"},
     {"api_path": "/api/moral/scheduler", "api_name": "定时任务调度器", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "scheduler", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100},
-    {"api_path": "/api/moral/menu-permission/list", "api_name": "获取菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/my-menu", "api_name": "获取当前用户菜单", "api_group": "菜单权限", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher", "student"], "min_level": 0, "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/groups", "api_name": "获取菜单分组", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/roles", "api_name": "获取菜单角色", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/create", "api_name": "创建菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/{menu_key}", "api_name": "修改菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/batch", "api_name": "批量更新菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/batch-by-group", "api_name": "按分组更新菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/init", "api_name": "初始化菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/reset", "api_name": "重置菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/list", "api_name": "获取数据库列表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/tables/{db_name}", "api_name": "获取数据库表列表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/protected-tables", "api_name": "获取受保护表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/generate-token/{db_name}/{table_name}", "api_name": "生成清空确认令牌", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/clear/{db_name}/{table_name}", "api_name": "清空数据库表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/check-integrity", "api_name": "检查数据库完整性", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database-backup/config", "api_name": "数据库备份配置", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database-backup/manual", "api_name": "手动执行数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database-backup/history", "api_name": "数据库备份历史", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "view"},
-    {"api_path": "/api/moral/admin/database-backup/delete/{backup_id}", "api_name": "删除数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "delete"},
-    {"api_path": "/api/moral/admin/database-backup/download/{backup_id}", "api_name": "下载数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "action_type": "export"},
-    {"api_path": "/api/moral/admin/database-backup/schedule", "api_name": "数据库定时备份配置", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "action_type": "operate"},
+    {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "api_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/list", "api_name": "获取菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/my-menu", "api_name": "获取当前用户菜单", "api_group": "菜单权限", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher", "student"], "min_level": 0, "resource_type": "menu_permission", "action_type": "view"},
+    {"api_path": "/api/moral/menu-permission/groups", "api_name": "获取菜单分组", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/roles", "api_name": "获取菜单角色", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/create", "api_name": "创建菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/{menu_key}", "api_name": "修改菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "menu_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/batch", "api_name": "批量更新菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/batch-by-group", "api_name": "按分组更新菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/init", "api_name": "初始化菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/menu-permission/reset", "api_name": "重置菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/list", "api_name": "获取数据库列表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_admin", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/tables/{db_name}", "api_name": "获取数据库表列表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_admin", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/protected-tables", "api_name": "获取受保护表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_admin", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/generate-token/{db_name}/{table_name}", "api_name": "生成清空确认令牌", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_admin", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database/clear/{db_name}/{table_name}", "api_name": "清空数据库表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_admin", "action_type": "delete"},
+    {"api_path": "/api/moral/admin/database/check-integrity", "api_name": "检查数据库完整性", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_admin", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database-backup/config", "api_name": "数据库备份配置", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database-backup/manual", "api_name": "手动执行数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database-backup/history", "api_name": "数据库备份历史", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "view"},
+    {"api_path": "/api/moral/admin/database-backup/delete/{backup_id}", "api_name": "删除数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "delete"},
+    {"api_path": "/api/moral/admin/database-backup/download/{backup_id}", "api_name": "下载数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "export"},
+    {"api_path": "/api/moral/admin/database-backup/schedule", "api_name": "数据库定时备份配置", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
 
     # 生日提醒
     {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
@@ -477,6 +480,38 @@ DEFAULT_OPERATION_SCOPE_RULES = {
         "cleader": ["own_created", "assigned_to_me"],
         "teacher": ["own_created", "assigned_to_me"],
     },
+    "/api/teacher/todos/groups": {
+        "admin": ["own_created"],
+        "jiaowu": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/teacher/todos/groups/{group_id}": {
+        "admin": ["own_created"],
+        "jiaowu": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/teacher/todos/groups/{group_id}/members": {
+        "admin": ["own_created"],
+        "jiaowu": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
+    "/api/teacher/todos/groups/{group_id}/members/{teacher_id}": {
+        "admin": ["own_created"],
+        "jiaowu": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
+    },
 }
 
 PERMISSION_TEMPLATES = {
@@ -542,6 +577,7 @@ PERMISSION_TEMPLATES = {
 
 def _infer_resource_type(api_path: str) -> str:
     mapping = [
+        # 学生资源域 (student_bound)
         ("/api/moral/daily-records", "daily_record"),
         ("/api/moral/moment-records", "moment_record"),
         ("/api/moral/school-records", "school_record"),
@@ -551,9 +587,20 @@ def _infer_resource_type(api_path: str) -> str:
         ("/api/moral/timeline", "student_lifebook"),
         ("/api/moral/profiles", "student_profile"),
         ("/api/moral/consultations", "consultation"),
-        ("/api/teacher/todos", "teacher_todo"),
         ("/api/dashboard/score-trend", "score_trend"),
         ("/api/dashboard", "dashboard"),
+        # 教师资源域 (teacher_owned)
+        ("/api/teacher/todos/groups", "teacher_todo_group"),
+        ("/api/teacher/todos", "teacher_todo"),
+        # 系统资源域 (system_admin)
+        ("/api/moral/admin/database-backup", "database_backup"),
+        ("/api/moral/admin/database", "database_admin"),
+        ("/api/moral/admin/api-permissions", "api_permission"),
+        ("/api/moral/menu-permission", "menu_permission"),
+        ("/api/moral/admin/config", "system_config"),
+        ("/api/moral/admin/logs", "operation_log"),
+        ("/api/moral/scheduler", "scheduler"),
+        ("/api/moral/ai-model-config", "ai_model_config"),
     ]
     for prefix, resource in mapping:
         if api_path.startswith(prefix):
@@ -958,6 +1005,14 @@ DEFAULT_DATA_SCOPE_RULES = {
         "cleader": ["own_created", "assigned_to_me"],
         "teacher": ["own_created", "assigned_to_me"],
     },
+    "/api/teacher/todos/groups": {
+        "admin": ["own_created", "assigned_to_me"],
+        "jiaowu": ["own_created", "assigned_to_me"],
+        "xuefa": ["own_created", "assigned_to_me"],
+        "g_leader": ["own_created", "assigned_to_me"],
+        "cleader": ["own_created", "assigned_to_me"],
+        "teacher": ["own_created", "assigned_to_me"],
+    },
 }
 
 DEFAULT_TARGET_SCOPE_RULES = {
@@ -1009,6 +1064,23 @@ DEFAULT_TARGET_SCOPE_RULES = {
     "/api/moral/punishment-revoke-applications/create": {
         "admin": ["all_students"],
         "cleader": ["managed_classes"],
+    },
+    # 教师待办目标范围（教师资源域）
+    "/api/teacher/todos/create": {
+        "admin": ["selected_teachers", "my_groups", "all_teachers"],
+        "jiaowu": ["selected_teachers", "my_groups"],
+        "xuefa": ["selected_teachers", "my_groups"],
+        "g_leader": ["selected_teachers", "my_groups"],
+        "cleader": ["selected_teachers", "my_groups"],
+        "teacher": ["selected_teachers", "my_groups"],
+    },
+    "/api/teacher/todos/groups": {
+        "admin": ["selected_teachers"],
+        "jiaowu": ["selected_teachers"],
+        "xuefa": ["selected_teachers"],
+        "g_leader": ["selected_teachers"],
+        "cleader": ["selected_teachers"],
+        "teacher": ["selected_teachers"],
     },
 }
 
@@ -1089,6 +1161,22 @@ def ensure_record_scope_schema(db) -> None:
 def ensure_api_permission_schema(db) -> None:
     """兼容式补齐API权限模块表和扩展列。"""
     ensure_record_scope_schema(db)
+
+    # 新增：资源类型元数据表
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS api_permission_resource_type (
+            resource_type TEXT PRIMARY KEY,
+            resource_name TEXT NOT NULL,
+            resource_domain TEXT NOT NULL,
+            scope_schema TEXT NOT NULL,
+            description TEXT,
+            is_active INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0
+        )
+        """
+    )
+
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS api_permission_module (
@@ -1170,6 +1258,9 @@ def ensure_api_permission_schema(db) -> None:
         )
 
     _backfill_default_scope_rules(db)
+    _sync_resource_type_metadata(db)
+    _cleanup_obsolete_resource_domain_defaults(db)
+    _normalize_resource_domain_scope_rules(db)
 
 
 def _backfill_default_scope_rules(db) -> None:
@@ -1206,6 +1297,125 @@ def _backfill_default_scope_rules(db) -> None:
     # 修复 teacher 的错误目标范围：从 all_students 改为 teaching_classes
     # 同时补齐 g_leader 的范围规则
     _fix_incorrect_scope_rules(db)
+
+
+DEFAULT_RESOURCE_TYPES = [
+    # 学生资源域 (student_bound)
+    {"resource_type": "daily_record", "resource_name": "日常表现记录", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 1},
+    {"resource_type": "moment_record", "resource_name": "点滴记录", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 2},
+    {"resource_type": "school_record", "resource_name": "校级事件", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 3},
+    {"resource_type": "punishment_record", "resource_name": "处分记录", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 4},
+    {"resource_type": "punishment_period", "resource_name": "处分期限配置", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 5},
+    {"resource_type": "punishment_revoke_application", "resource_name": "处分撤销申请", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 6},
+    {"resource_type": "moral_task", "resource_name": "德育任务", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 7},
+    {"resource_type": "collective_event", "resource_name": "集体事件", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 8},
+    {"resource_type": "student_lifebook", "resource_name": "一生一册", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 9},
+    {"resource_type": "student_profile", "resource_name": "学生画像", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 10},
+    {"resource_type": "score_trend", "resource_name": "得分趋势", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 11},
+    {"resource_type": "dashboard", "resource_name": "数据驾驶舱", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 12},
+    {"resource_type": "consultation", "resource_name": "AI诊疗", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 13},
+    {"resource_type": "escalation_rule", "resource_name": "累进规则", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 14},
+    # 教师资源域 (teacher_owned)
+    {"resource_type": "teacher_todo", "resource_name": "教师待办", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 20},
+    {"resource_type": "teacher_todo_group", "resource_name": "协作群组", "resource_domain": "teacher_owned", "scope_schema": "teacher_group_scope", "sort_order": 21},
+    # 系统资源域 (system_admin)
+    {"resource_type": "database_backup", "resource_name": "数据库备份", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 30},
+    {"resource_type": "database_admin", "resource_name": "数据库管理", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 31},
+    {"resource_type": "api_permission", "resource_name": "API权限管理", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 32},
+    {"resource_type": "menu_permission", "resource_name": "菜单权限", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 33},
+    {"resource_type": "system_config", "resource_name": "系统配置", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 34},
+    {"resource_type": "operation_log", "resource_name": "操作日志", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 35},
+    {"resource_type": "scheduler", "resource_name": "定时调度", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 36},
+    {"resource_type": "ai_model_config", "resource_name": "AI模型配置", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 37},
+]
+
+
+def _sync_resource_type_metadata(db) -> None:
+    """同步资源类型元数据到数据库"""
+    for meta in DEFAULT_RESOURCE_TYPES:
+        existing = db.query_one(
+            "SELECT resource_type FROM api_permission_resource_type WHERE resource_type = ?",
+            (meta["resource_type"],)
+        )
+        if not existing:
+            db.execute(
+                """INSERT INTO api_permission_resource_type
+                   (resource_type, resource_name, resource_domain, scope_schema, description, is_active, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    meta["resource_type"],
+                    meta["resource_name"],
+                    meta["resource_domain"],
+                    meta["scope_schema"],
+                    meta.get("description", ""),
+                    1,
+                    meta["sort_order"],
+                )
+            )
+    logger.info("Resource type metadata synced")
+
+
+def _cleanup_obsolete_resource_domain_defaults(db) -> None:
+    """清理早期资源域改造中生成过的非真实路由配置。"""
+    obsolete_paths = [
+        "/api/teacher/todos/{series_id}/update",
+        "/api/teacher/todos/{series_id}/delete",
+        "/api/teacher/todos/{series_id}/complete",
+        "/api/teacher/todos/{series_id}/reopen",
+        "/api/teacher/todos/groups/create",
+        "/api/teacher/todos/groups/{group_id}/update",
+        "/api/teacher/todos/groups/{group_id}/delete",
+        "/api/moral/admin/config/update",
+        "/api/moral/admin/database-backup",
+        "/api/moral/admin/database-backup/config/update",
+        "/api/moral/admin/database-backup/download/{filename}",
+        "/api/moral/admin/database-backup/delete/{filename}",
+        "/api/moral/admin/database",
+    ]
+    for path in obsolete_paths:
+        db.execute(
+            "DELETE FROM api_permission_config WHERE api_path = ?",
+            (path,),
+        )
+
+
+def _normalize_resource_domain_scope_rules(db) -> None:
+    """按资源域清理不适用的历史范围规则，避免非学生资源被学生范围误报。"""
+    configs = db.query_all(
+        "SELECT id, api_path, resource_type, data_scope_rules, target_scope_rules FROM api_permission_config"
+    )
+    student_scopes = {"teaching_classes", "managed_classes", "managed_grades", "all_students"}
+    for config in configs:
+        resource_type = config.get("resource_type") or _infer_resource_type(config.get("api_path") or "")
+        resource_domain = _get_resource_domain(resource_type)
+        if resource_domain == "system_admin":
+            db.execute(
+                "UPDATE api_permission_config SET data_scope_rules = '{}', target_scope_rules = '{}' WHERE id = ?",
+                (config["id"],),
+            )
+            continue
+        if resource_domain != "teacher_owned":
+            continue
+
+        changed = False
+        data_rules = _json_dict(config.get("data_scope_rules"))
+        target_rules = _json_dict(config.get("target_scope_rules"))
+        for rules in (data_rules, target_rules):
+            for role, scopes in list(rules.items()):
+                filtered = [scope for scope in scopes if scope not in student_scopes]
+                if filtered != scopes:
+                    changed = True
+                if filtered:
+                    rules[role] = filtered
+                else:
+                    rules.pop(role, None)
+        if changed:
+            db.execute(
+                """UPDATE api_permission_config
+                   SET data_scope_rules = ?, target_scope_rules = ?
+                   WHERE id = ?""",
+                (_json_dict_dump(data_rules), _json_dict_dump(target_rules), config["id"]),
+            )
 
 
 def _fix_incorrect_scope_rules(db) -> None:
@@ -2050,13 +2260,74 @@ def _parse_config_row(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _permission_risk_flags(config: Dict[str, Any]) -> List[str]:
+    """按资源域区分的风险检查"""
     risks: List[str] = []
     action_type = config.get("action_type") or ""
     api_path = config.get("api_path") or ""
     allowed_roles = set(_json_list(config.get("allowed_roles")))
+    min_level = int(config.get("min_level") or 0)
     data_rules = config.get("data_scope_rules") or {}
     target_rules = config.get("target_scope_rules") or {}
     operation_rules = config.get("operation_scope_rules") or {}
+    resource_type = config.get("resource_type") or ""
+
+    # 确定资源域和范围 schema
+    resource_domain = _get_resource_domain(resource_type)
+    scope_schema = _get_scope_schema(resource_type)
+
+    # ========== 系统资源域风险检查 (system_admin) ==========
+    if resource_domain == "system_admin":
+        # 系统管理资源默认只允许 admin；少数运行时接口通过白名单豁免。
+        non_admin_roles = sorted(role for role in allowed_roles if role != "admin")
+        if "admin" not in allowed_roles:
+            risks.append("系统资源应至少允许 admin 角色")
+        if non_admin_roles and api_path not in SYSTEM_RESOURCE_NON_ADMIN_PATHS:
+            risks.append(f"系统资源存在非管理员角色：{'、'.join(non_admin_roles)}")
+        if min_level < 100 and api_path not in SYSTEM_RESOURCE_NON_ADMIN_PATHS:
+            risks.append("系统资源最低等级应 ≥ 100")
+        # 检查是否误用了学生范围
+        student_scope_keywords = ["teaching_classes", "managed_classes", "managed_grades", "all_students", "all", "own_created"]
+        for rules_name, rules in {"data_scope_rules": data_rules, "target_scope_rules": target_rules}.items():
+            for role, scopes in (rules or {}).items():
+                for scope in scopes:
+                    if scope in student_scope_keywords:
+                        risks.append(f"系统资源不应配置学生范围：{rules_name} 包含 {scope}")
+        # 公开 API 或未参与鉴权
+        if int(config.get("is_public") or 0) == 1:
+            risks.append("系统资源不应设置为公开接口")
+        if int(config.get("enforce_backend") or 0) == 0:
+            risks.append("系统资源必须参与后端统一鉴权")
+        return risks
+
+    # ========== 教师资源域风险检查 (teacher_owned) ==========
+    if resource_domain == "teacher_owned":
+        # 检查是否误用了学生范围
+        student_scope_keywords = ["teaching_classes", "managed_classes", "managed_grades", "all_students"]
+        for rules_name, rules in {"data_scope_rules": data_rules, "target_scope_rules": target_rules}.items():
+            for role, scopes in (rules or {}).items():
+                for scope in scopes:
+                    if scope in student_scope_keywords:
+                        risks.append(f"教师资源不应配置学生范围：{rules_name} 包含 {scope}")
+        # 教师待办特定风险
+        if scope_schema == "teacher_todo_scope":
+            # 查询待办应包含 own_created 或 assigned_to_me
+            if action_type == "view" and data_rules:
+                for role, scopes in data_rules.items():
+                    if "own_created" not in scopes and "assigned_to_me" not in scopes:
+                        risks.append(f"{role} 查询待办应包含 own_created 或 assigned_to_me")
+            # 编辑/删除不应包含 assigned_to_me
+            if action_type in {"update", "delete"} and operation_rules:
+                for role, scopes in operation_rules.items():
+                    if "assigned_to_me" in scopes:
+                        risks.append(f"{role} 编辑/删除待办不应包含 assigned_to_me（仅限自己创建）")
+            # all_teachers 只应给 admin
+            for rules_name, rules in {"目标范围": target_rules, "动作范围": operation_rules}.items():
+                for role, scopes in (rules or {}).items():
+                    if "all_teachers" in scopes and role != "admin":
+                        risks.append(f"非 admin 角色不应配置 all_teachers")
+        return risks
+
+    # ========== 学生资源域风险检查 (student_bound) - 原有逻辑 ==========
     role_scope_expectations = {
         "view": data_rules,
         "create": target_rules,
@@ -2091,6 +2362,22 @@ def _permission_risk_flags(config: Dict[str, Any]) -> List[str]:
         if missing_roles:
             risks.append(f"允许角色缺少对应范围：{'、'.join(missing_roles)}")
     return risks
+
+
+def _get_resource_domain(resource_type: str) -> str:
+    """根据资源类型获取资源域"""
+    for meta in DEFAULT_RESOURCE_TYPES:
+        if meta["resource_type"] == resource_type:
+            return meta["resource_domain"]
+    return "student_bound"  # 默认为学生资源域
+
+
+def _get_scope_schema(resource_type: str) -> str:
+    """根据资源类型获取范围 schema"""
+    for meta in DEFAULT_RESOURCE_TYPES:
+        if meta["resource_type"] == resource_type:
+            return meta["scope_schema"]
+    return "student_scope"  # 默认为学生范围
 
 
 def _build_permission_audit(configs: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -2153,6 +2440,20 @@ def require_admin(user: User = Depends(get_current_user)):
     if not is_admin_user(user):
         raise HTTPException(403, "仅管理员可访问")
     return user
+
+
+@router.get("/resource-types", summary="获取资源类型列表")
+async def get_resource_types(user: User = Depends(require_admin)):
+    """获取资源类型元数据列表（按资源域分组）"""
+    with get_moral_db() as db:
+        ensure_api_permission_schema(db)
+        types = db.query_all(
+            """SELECT resource_type, resource_name, resource_domain, scope_schema, description, is_active, sort_order
+               FROM api_permission_resource_type
+               WHERE is_active = 1
+               ORDER BY sort_order"""
+        )
+        return {"success": True, "data": types}
 
 
 @router.get("", summary="获取API权限配置列表")
