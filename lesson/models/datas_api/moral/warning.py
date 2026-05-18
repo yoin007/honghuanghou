@@ -15,6 +15,7 @@ from .base import (
     get_moral_db,
     get_record_data_scope,
     append_record_scope_condition,
+    record_in_scope,
 )
 from .api_permission import require_configured_api_permission
 from models.datas_api.auth import User
@@ -160,13 +161,8 @@ async def mark_warning_read(
             own_permissions=['moral_record_input', 'moral_record_view_own'],
         )
 
-        if view_scope == "own_class":
-            teacher_class = db.query_one(
-                "SELECT class_id FROM teacher WHERE username = ? AND status = 1",
-                (user.username,)
-            )
-            if not teacher_class or teacher_class["class_id"] != warning["class_id"]:
-                raise HTTPException(403, "只能操作本班学生的预警")
+        if not record_in_scope(warning, view_scope, username=user.username):
+            raise HTTPException(403, "只能操作授权范围内的预警")
 
         db.execute(
             "UPDATE warning_log SET is_read = 1 WHERE id = ?",
@@ -194,17 +190,19 @@ async def mark_all_warnings_read(
             own_permissions=['moral_record_input', 'moral_record_view_own'],
         )
 
-        if view_scope == "own_class":
-            teacher_class = db.query_one(
-                "SELECT class_id FROM teacher WHERE username = ? AND status = 1",
-                (user.username,)
+        if not view_scope.get("can_all"):
+            student_conditions = []
+            student_params = []
+            append_record_scope_condition(
+                student_conditions,
+                student_params,
+                view_scope,
+                table_alias="s",
+                username=user.username,
             )
-            if teacher_class:
-                conditions.append("student_id IN (SELECT student_id FROM student WHERE class_id = ?)")
-                params.append(teacher_class["class_id"])
-        elif view_scope == "own":
-            conditions.append("student_id IN (SELECT student_id FROM student WHERE username = ?)")
-            params.append(user.username)
+            student_where = " AND ".join(student_conditions) if student_conditions else "1 = 0"
+            conditions.append(f"student_id IN (SELECT s.student_id FROM student s WHERE {student_where})")
+            params.extend(student_params)
 
         where_clause = " AND ".join(conditions)
         db.execute(f"UPDATE warning_log SET is_read = 1 WHERE {where_clause}", params)

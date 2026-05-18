@@ -214,6 +214,9 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/dashboard/class-record-compare", "api_name": "全校班级正负记录对比", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20},
     {"api_path": "/api/dashboard/teacher-record-trend", "api_name": "教师德育记录趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
 
+    # 德育预警
+    {"api_path": "/api/moral/warnings", "api_name": "德育预警列表与已读状态", "api_group": "德育预警", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "*", "resource_type": "warning_log", "action_type": "operate"},
+
     # 教师待办
     {"api_path": "/api/teacher/todos", "api_name": "查询教师待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher_todo", "action_type": "view"},
     {"api_path": "/api/teacher/todos/create", "api_name": "创建教师待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "resource_type": "teacher_todo", "action_type": "create"},
@@ -431,6 +434,13 @@ DEFAULT_OPERATION_SCOPE_RULES = {
         "admin": ["all"],
         "xuefa": ["all"],
     },
+    "/api/moral/warnings": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
     "/api/moral/punishment-periods/update": {
         "admin": ["all"],
         "xuefa": ["all"],
@@ -630,6 +640,7 @@ def _infer_resource_type(api_path: str) -> str:
         ("/api/moral/timeline", "student_lifebook"),
         ("/api/moral/profiles", "student_profile"),
         ("/api/moral/consultations", "consultation"),
+        ("/api/moral/warnings", "warning_log"),
         ("/api/leave-records", "leave_record"),
         ("/api/cleader-classes", "leave_record"),
         ("/api/del_delay", "leave_record"),
@@ -866,6 +877,13 @@ DEFAULT_DATA_SCOPE_RULES = {
     },
     "/api/moral/punishments/expiring": {
         "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/warnings": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
@@ -1551,6 +1569,7 @@ DEFAULT_RESOURCE_TYPES = [
     {"resource_type": "consultation", "resource_name": "AI诊疗", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 13},
     {"resource_type": "escalation_rule", "resource_name": "累进规则", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 14},
     {"resource_type": "leave_record", "resource_name": "旧版请假销假", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 15},
+    {"resource_type": "warning_log", "resource_name": "德育预警", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 16},
     # 教师资源域 (teacher_owned)
     {"resource_type": "teacher", "resource_name": "教师管理", "resource_domain": "teacher_owned", "scope_schema": "teacher_scope", "sort_order": 18},
     {"resource_type": "filegather", "resource_name": "文件收集", "resource_domain": "teacher_owned", "scope_schema": "filegather_scope", "sort_order": 19},

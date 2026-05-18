@@ -583,7 +583,7 @@ const classRecordCompareOption = computed(() => {
     },
     yAxis: {
       ...buildAdaptiveValueAxis(recordScores, {
-        name: '分值',
+        name: '记录条数',
         hardMin: 0,
         includeZero: true,
         integer: true,

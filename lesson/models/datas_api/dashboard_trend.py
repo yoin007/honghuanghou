@@ -1624,9 +1624,9 @@ async def get_class_record_compare(
         class_ids = [c['class_id'] for c in classes]
         class_ids_str = ','.join(map(str, class_ids))
 
-        # 正向记录：日常记录正向得分
+        # 正向记录：日常记录正向条数
         daily_positive = db.query_all(
-            f"""SELECT class_id, SUM(score) as total_score
+            f"""SELECT class_id, COUNT(*) as count
                 FROM student_daily_record
                 WHERE class_id IN ({class_ids_str}) AND is_deleted = 0 AND score > 0
                 AND record_date >= ? AND record_date <= ?
@@ -1634,9 +1634,9 @@ async def get_class_record_compare(
             (start_date, end_date)
         )
 
-        # 正向记录：校级事件正向得分
+        # 正向记录：校级事件正向条数
         school_positive = db.query_all(
-            f"""SELECT class_id, SUM(score) as total_score
+            f"""SELECT class_id, COUNT(*) as count
                 FROM student_school_record
                 WHERE class_id IN ({class_ids_str}) AND is_deleted = 0 AND score > 0
                 AND get_date >= ? AND get_date <= ?
@@ -1644,9 +1644,9 @@ async def get_class_record_compare(
             (start_date, end_date)
         )
 
-        # 正向记录：任务完成得分
+        # 正向记录：任务完成条数
         task_finish = db.query_all(
-            f"""SELECT s.class_id, SUM(stf.current_score) as total_score
+            f"""SELECT s.class_id, COUNT(*) as count
                 FROM student_task_finish stf
                 JOIN student s ON stf.student_id = s.student_id
                 WHERE s.class_id IN ({class_ids_str}) AND stf.status = 1
@@ -1655,9 +1655,9 @@ async def get_class_record_compare(
             (start_date, end_date)
         )
 
-        # 正向记录：集体活动得分
+        # 正向记录：集体活动条数
         collective_positive = db.query_all(
-            f"""SELECT ced.class_id, SUM(ced.score_assigned) as total_score
+            f"""SELECT ced.class_id, COUNT(*) as count
                 FROM collective_event_distribution ced
                 JOIN collective_event ce ON ced.event_id = ce.event_id
                 WHERE ced.class_id IN ({class_ids_str}) AND ced.is_participant = 1 AND ce.score > 0
@@ -1666,9 +1666,9 @@ async def get_class_record_compare(
             (start_date, end_date)
         )
 
-        # 负向记录：日常记录负向扣分（取绝对值）
+        # 负向记录：日常记录负向条数
         daily_negative = db.query_all(
-            f"""SELECT class_id, SUM(ABS(score)) as total_score
+            f"""SELECT class_id, COUNT(*) as count
                 FROM student_daily_record
                 WHERE class_id IN ({class_ids_str}) AND is_deleted = 0 AND score < 0
                 AND record_date >= ? AND record_date <= ?
@@ -1676,9 +1676,9 @@ async def get_class_record_compare(
             (start_date, end_date)
         )
 
-        # 负向记录：校级事件负向扣分（取绝对值）
+        # 负向记录：校级事件负向条数
         school_negative = db.query_all(
-            f"""SELECT class_id, SUM(ABS(score)) as total_score
+            f"""SELECT class_id, COUNT(*) as count
                 FROM student_school_record
                 WHERE class_id IN ({class_ids_str}) AND is_deleted = 0 AND score < 0
                 AND get_date >= ? AND get_date <= ?
@@ -1686,9 +1686,9 @@ async def get_class_record_compare(
             (start_date, end_date)
         )
 
-        # 负向记录：处分扣分
+        # 负向记录：处分条数
         punishment_deduct = db.query_all(
-            f"""SELECT class_id, SUM(ABS(score_deduct)) as total_score
+            f"""SELECT class_id, COUNT(*) as count
                 FROM punishment_record
                 WHERE class_id IN ({class_ids_str}) AND is_revoked = 0
                 AND punishment_date >= ? AND punishment_date <= ?
@@ -1696,9 +1696,9 @@ async def get_class_record_compare(
             (start_date, end_date)
         )
 
-        # 负向记录：集体违纪扣分（取绝对值）
+        # 负向记录：集体违纪条数
         collective_negative = db.query_all(
-            f"""SELECT ced.class_id, SUM(ABS(ced.score_assigned)) as total_score
+            f"""SELECT ced.class_id, COUNT(*) as count
                 FROM collective_event_distribution ced
                 JOIN collective_event ce ON ced.event_id = ce.event_id
                 WHERE ced.class_id IN ({class_ids_str}) AND ced.is_participant = 1 AND ce.score < 0
@@ -1712,26 +1712,26 @@ async def get_class_record_compare(
         for cls in classes:
             class_id = cls['class_id']
 
-            # 计算正向得分
+            # 计算正向条数
             positive = sum([
-                (r.get('total_score', 0) or 0) for r in daily_positive if r['class_id'] == class_id
+                (r.get('count', 0) or 0) for r in daily_positive if r['class_id'] == class_id
             ]) + sum([
-                (r.get('total_score', 0) or 0) for r in school_positive if r['class_id'] == class_id
+                (r.get('count', 0) or 0) for r in school_positive if r['class_id'] == class_id
             ]) + sum([
-                (r.get('total_score', 0) or 0) for r in task_finish if r['class_id'] == class_id
+                (r.get('count', 0) or 0) for r in task_finish if r['class_id'] == class_id
             ]) + sum([
-                (r.get('total_score', 0) or 0) for r in collective_positive if r['class_id'] == class_id
+                (r.get('count', 0) or 0) for r in collective_positive if r['class_id'] == class_id
             ])
 
-            # 计算负向扣分
+            # 计算负向条数
             negative = sum([
-                (r.get('total_score', 0) or 0) for r in daily_negative if r['class_id'] == class_id
+                (r.get('count', 0) or 0) for r in daily_negative if r['class_id'] == class_id
             ]) + sum([
-                (r.get('total_score', 0) or 0) for r in school_negative if r['class_id'] == class_id
+                (r.get('count', 0) or 0) for r in school_negative if r['class_id'] == class_id
             ]) + sum([
-                (r.get('total_score', 0) or 0) for r in punishment_deduct if r['class_id'] == class_id
+                (r.get('count', 0) or 0) for r in punishment_deduct if r['class_id'] == class_id
             ]) + sum([
-                (r.get('total_score', 0) or 0) for r in collective_negative if r['class_id'] == class_id
+                (r.get('count', 0) or 0) for r in collective_negative if r['class_id'] == class_id
             ])
 
             class_compare.append({
@@ -1739,8 +1739,8 @@ async def get_class_record_compare(
                 "class_code": cls['class_code'],
                 "class_name": cls['class_name'],
                 "grade_name": cls['grade_name'],
-                "positive": round(positive, 1),
-                "negative": round(negative, 1),
+                "positive": positive,
+                "negative": negative,
             })
 
     return {
