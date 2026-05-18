@@ -96,12 +96,12 @@ def daily_record_trend(
 
     rows = safe_query_all(
         db,
-        f"""SELECT dr.record_date, COUNT(*) AS count
+        f"""SELECT DATE(dr.record_date) as record_date, COUNT(*) AS count
             FROM student_daily_record dr
             JOIN student s ON dr.student_id = s.student_id
             WHERE dr.is_deleted = 0 AND dr.record_date >= ? AND dr.record_date <= ? AND {where_clause}
-            GROUP BY dr.record_date
-            ORDER BY dr.record_date ASC""",
+            GROUP BY DATE(dr.record_date)
+            ORDER BY DATE(dr.record_date) ASC""",
         (start.isoformat(), end.isoformat(), *params),
     )
     counts = {str(row.get("record_date"))[:10]: int(row.get("count") or 0) for row in rows}

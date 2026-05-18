@@ -254,8 +254,8 @@ DEFAULT_API_PERMISSIONS = [
 
     # 系统配置
     {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "system_config", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/logs", "api_name": "操作日志查询", "api_group": "系统配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "http_method": "GET", "resource_type": "operation_log", "action_type": "view"},
-    {"api_path": "/api/moral/ai-model-config", "api_name": "AI模型配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "ai_model_config", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/logs", "api_name": "获取操作日志", "api_group": "系统管理", "allowed_roles": ["admin", "xuefa", "jiaowu"], "min_level": 40, "http_method": "GET", "resource_type": "operation_log", "action_type": "view"},
+    {"api_path": "/api/moral/ai-model-config", "api_name": "大模型配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "ai_model_config", "action_type": "operate"},
     {"api_path": "/api/moral/scheduler", "api_name": "定时任务调度器", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "scheduler", "action_type": "operate"},
     {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "api_permission", "action_type": "operate"},
     {"api_path": "/api/moral/menu-permission/list", "api_name": "获取菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
@@ -274,12 +274,12 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/database/generate-token/{db_name}/{table_name}", "api_name": "生成清空确认令牌", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_admin", "action_type": "operate"},
     {"api_path": "/api/moral/admin/database/clear/{db_name}/{table_name}", "api_name": "清空数据库表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_admin", "action_type": "delete"},
     {"api_path": "/api/moral/admin/database/check-integrity", "api_name": "检查数据库完整性", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_admin", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database-backup/config", "api_name": "数据库备份配置", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database-backup/manual", "api_name": "手动执行数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database-backup/history", "api_name": "数据库备份历史", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "view"},
-    {"api_path": "/api/moral/admin/database-backup/delete/{backup_id}", "api_name": "删除数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "delete"},
-    {"api_path": "/api/moral/admin/database-backup/download/{backup_id}", "api_name": "下载数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "export"},
-    {"api_path": "/api/moral/admin/database-backup/schedule", "api_name": "数据库定时备份配置", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database-backup/config", "api_name": "备份配置管理", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database-backup/manual", "api_name": "手动执行备份", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/database-backup/history", "api_name": "备份历史列表", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "view"},
+    {"api_path": "/api/moral/admin/database-backup/delete/{backup_id}", "api_name": "删除备份文件", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "delete"},
+    {"api_path": "/api/moral/admin/database-backup/download/{backup_id}", "api_name": "下载备份文件", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "export"},
+    {"api_path": "/api/moral/admin/database-backup/schedule", "api_name": "定时备份配置", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
 
     # 教师管理（同一路径存在 GET/POST，使用 *，写操作保留模块内 admin 判断）
     {"api_path": "/api/teachers", "api_name": "教师列表和创建", "api_group": "教师管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "*", "resource_type": "teacher", "action_type": "operate"},
@@ -440,6 +440,12 @@ DEFAULT_OPERATION_SCOPE_RULES = {
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
+    },
+    "/api/moral/scheduler": {
+        "admin": ["all"],
+    },
+    "/api/moral/admin/database-backup/history": {
+        "admin": ["all"],
     },
     "/api/moral/punishment-periods/update": {
         "admin": ["all"],
@@ -1002,11 +1008,6 @@ DEFAULT_DATA_SCOPE_RULES = {
         "xuefa": ["all"],
     },
     "/api/moral/admin/grades/promote/execute": {
-        "admin": ["all"],
-        "jiaowu": ["all"],
-        "xuefa": ["all"],
-    },
-    "/api/moral/admin/logs": {
         "admin": ["all"],
         "jiaowu": ["all"],
         "xuefa": ["all"],
@@ -2312,6 +2313,24 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
         if api_path == "/api/del_delay/{id}":
             normalized_roles = ["cleader", "xuefa", "admin"]
         min_level = int(rule.get("min_level") or 0)
+        current_legacy_defaults = {
+            "/api/current-classes": (["teacher", "admin"], 10),
+            "/api/teacher-schedule/{teacher_name}": (["teacher", "admin"], 10),
+            "/api/teacher-schedule-nextweek/{teacher_name}": (["teacher", "admin"], 10),
+            "/api/teachers": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+            "/api/export_dailies/": (["xuefa", "admin", "g_leader", "cleader", "jiaowu", "teacher"], 10),
+            "/api/cleader-classes/": (["cleader", "xuefa", "admin", "g_leader"], 0),
+            "/api/upload-schedule": (["jiaowu", "admin"], 10),
+            "/api/homework/": (["teacher", "admin"], 10),
+            "/api/homework/{hw_id}": (["teacher", "admin"], 10),
+            "/api/homework/batch": (["teacher", "admin"], 10),
+            "/api/announcement/": (["teacher", "admin"], 10),
+            "/api/announcement/{ann_id}": (["teacher", "admin"], 10),
+            "/api/students/export/{class_code}": (["cleader", "xuefa", "admin", "g_leader"], 0),
+            "/api/del_delay/{id}": (["cleader", "xuefa", "admin"], 10),
+        }
+        if api_path in current_legacy_defaults:
+            normalized_roles, min_level = current_legacy_defaults[api_path]
         match_type = "pattern" if "{" in raw_path and "}" in raw_path else "exact"
         api_name = f"旧版接口 {raw_path}"
         method_overrides = {
