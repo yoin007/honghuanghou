@@ -10,7 +10,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User, is_admin_user
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.lesson.homework import Homework
 from utils.operation_log import operation_logger
 
@@ -91,9 +92,9 @@ async def get_homework(class_code: str):
     return homework_by_type
 
 
-@router.post("/homework/", dependencies=[Depends(get_current_user)])
-async def create_homework(homework: HomeworkForm, current_user: User = Depends(get_current_user)):
-    """发布作业（需要登录）"""
+@router.post("/homework/")
+async def create_homework(homework: HomeworkForm, current_user: User = Depends(require_configured_api_permission("/api/homework/", "POST", allow_missing=False))):
+    """发布作业（统一鉴权已完成角色校验）"""
     if not current_user:
         raise HTTPException(status_code=401, detail="请先登录")
 
@@ -139,12 +140,17 @@ async def create_homework(homework: HomeworkForm, current_user: User = Depends(g
 
 
 @router.delete("/homework/batch")
-async def delete_homework_batch(homework_ids: HomeworkIds):
-    """批量删除作业"""
+async def delete_homework_batch(homework_ids: HomeworkIds, current_user: User = Depends(require_configured_api_permission("/api/homework/batch", "DELETE", allow_missing=False))):
+    """批量删除作业（管理员可删全部，教师只能删自己发布的）"""
     try:
         deleted_count = 0
         with Homework() as n:
             for hw_id in homework_ids.ids:
+                existing = n.get_homework_by_id(hw_id)
+                if not existing or existing.get("deleted", 0) == 1:
+                    continue
+                if not is_admin_user(current_user) and existing.get("teacher") != current_user.username:
+                    raise HTTPException(status_code=403, detail="无权限删除他人发布的作业")
                 n.delete_homework(hw_id)
                 deleted_count += 1
 
@@ -171,8 +177,8 @@ async def delete_homework_batch(homework_ids: HomeworkIds):
 
 
 @router.put("/homework/{hw_id}")
-async def update_homework(hw_id: int, homework: HomeworkUpdateForm, current_user: dict = None):
-    """修改作业"""
+async def update_homework(hw_id: int, homework: HomeworkUpdateForm, current_user: User = Depends(require_configured_api_permission("/api/homework/{hw_id}", "PUT", allow_missing=False))):
+    """修改作业（统一鉴权已完成角色校验，保留本人判断）"""
     try:
         with Homework() as n:
             existing = n.get_homework_by_id(hw_id)
@@ -182,8 +188,9 @@ async def update_homework(hw_id: int, homework: HomeworkUpdateForm, current_user
             if existing.get("deleted", 0) == 1:
                 raise HTTPException(status_code=404, detail="作业不存在")
 
-            if current_user and current_user.get("role") != "admin":
-                if existing.get("teacher") != current_user.get("sub"):
+            # 本人判断保留：非 admin 只能改自己发布的
+            if current_user and not is_admin_user(current_user):
+                if existing.get("teacher") != current_user.username:
                     raise HTTPException(status_code=403, detail="无权限修改他人发布的作业")
 
             n.update_homework(
@@ -202,8 +209,8 @@ async def update_homework(hw_id: int, homework: HomeworkUpdateForm, current_user
 
 
 @router.delete("/homework/{hw_id}")
-async def delete_homework(hw_id: int, current_user: dict = None):
-    """删除作业"""
+async def delete_homework(hw_id: int, current_user: User = Depends(require_configured_api_permission("/api/homework/{hw_id}", "DELETE", allow_missing=False))):
+    """删除作业（统一鉴权已完成角色校验，保留本人判断）"""
     try:
         with Homework() as n:
             existing = n.get_homework_by_id(hw_id)
@@ -213,8 +220,9 @@ async def delete_homework(hw_id: int, current_user: dict = None):
             if existing.get("deleted", 0) == 1:
                 raise HTTPException(status_code=404, detail="作业不存在")
 
-            if current_user and current_user.get("role") != "admin":
-                if existing.get("teacher") != current_user.get("sub"):
+            # 本人判断保留：非 admin 只能删自己发布的
+            if current_user and not is_admin_user(current_user):
+                if existing.get("teacher") != current_user.username:
                     raise HTTPException(status_code=403, detail="无权限删除他人发布的作业")
 
             n.delete_homework(hw_id)
@@ -238,14 +246,14 @@ async def get_class_announcements(class_code: str):
 
 
 @router.post("/announcement/")
-async def create_announcement(announcement: AnnouncementForm):
-    """发布公告"""
+async def create_announcement(announcement: AnnouncementForm, current_user: User = Depends(require_configured_api_permission("/api/announcement/", "POST", allow_missing=False))):
+    """发布公告（统一鉴权已完成角色校验）"""
     try:
         with Homework() as n:
             n.add_announcement(
                 class_code=announcement.classCode,
                 title=announcement.title,
-                author=announcement.author,
+                author=current_user.username,
                 content=announcement.content,
                 wxid=""
             )
@@ -256,16 +264,17 @@ async def create_announcement(announcement: AnnouncementForm):
 
 
 @router.put("/announcement/{ann_id}")
-async def update_announcement(ann_id: int, announcement: AnnouncementUpdateForm, current_user: dict = None):
-    """修改公告"""
+async def update_announcement(ann_id: int, announcement: AnnouncementUpdateForm, current_user: User = Depends(require_configured_api_permission("/api/announcement/{ann_id}", "PUT", allow_missing=False))):
+    """修改公告（统一鉴权已完成角色校验，保留本人判断）"""
     try:
         with Homework() as n:
             existing = n.get_announcement_by_id(ann_id)
             if not existing:
                 raise HTTPException(status_code=404, detail="公告不存在")
 
-            if current_user and current_user.get("role") != "admin":
-                if existing.get("author") != current_user.get("sub"):
+            # 本人判断保留：非 admin 只能改自己发布的
+            if current_user and not is_admin_user(current_user):
+                if existing.get("author") != current_user.username:
                     raise HTTPException(status_code=403, detail="无权限修改他人发布的公告")
 
             n.update_announcement(
@@ -281,16 +290,17 @@ async def update_announcement(ann_id: int, announcement: AnnouncementUpdateForm,
 
 
 @router.delete("/announcement/{ann_id}")
-async def delete_announcement(ann_id: int, current_user: dict = None):
-    """删除公告"""
+async def delete_announcement(ann_id: int, current_user: User = Depends(require_configured_api_permission("/api/announcement/{ann_id}", "DELETE", allow_missing=False))):
+    """删除公告（统一鉴权已完成角色校验，保留本人判断）"""
     try:
         with Homework() as n:
             existing = n.get_announcement_by_id(ann_id)
             if not existing:
                 raise HTTPException(status_code=404, detail="公告不存在")
 
-            if current_user and current_user.get("role") != "admin":
-                if existing.get("author") != current_user.get("sub"):
+            # 本人判断保留：非 admin 只能删自己发布的
+            if current_user and not is_admin_user(current_user):
+                if existing.get("author") != current_user.username:
                     raise HTTPException(status_code=403, detail="无权限删除他人发布的公告")
 
             n.delete_announcement(ann_id)

@@ -33,6 +33,17 @@ router = APIRouter(prefix="/api-permissions", tags=["API权限管理"])
 
 EXPECTED_PUBLIC_API_PATHS = {
     "/api/token",
+    # 旧版课表/作业公开查询入口，需显式登记为公开。
+    "/api/class-codes/",
+    "/api/schedule/{class_name}",
+    "/api/todays",
+    "/api/schedules",
+    "/api/periods",
+    "/api/homework/{class_code}",
+    "/api/announcements/{class_code}",
+    "/api/messages/{class_code}",
+    "/api/insert_delay/",
+    "/api/delay_infos/{classCode}",
 }
 
 SYSTEM_RESOURCE_NON_ADMIN_PATHS = {
@@ -266,6 +277,38 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/database-backup/delete/{backup_id}", "api_name": "删除数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "delete"},
     {"api_path": "/api/moral/admin/database-backup/download/{backup_id}", "api_name": "下载数据库备份", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "export"},
     {"api_path": "/api/moral/admin/database-backup/schedule", "api_name": "数据库定时备份配置", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
+
+    # 教师管理（同一路径存在 GET/POST，使用 *，写操作保留模块内 admin 判断）
+    {"api_path": "/api/teachers", "api_name": "教师列表和创建", "api_group": "教师管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "*", "resource_type": "teacher", "action_type": "operate"},
+    {"api_path": "/api/teachers/{username}", "api_name": "更新删除教师", "api_group": "教师管理", "allowed_roles": ["admin"], "min_level": 100, "http_method": "*", "match_type": "pattern", "resource_type": "teacher", "action_type": "update"},
+    {"api_path": "/api/teachers/{teacher_id}/teaching-classes", "api_name": "教师任教班级维护", "api_group": "教师管理", "allowed_roles": ["admin"], "min_level": 100, "http_method": "*", "match_type": "pattern", "resource_type": "teacher", "action_type": "update"},
+    {"api_path": "/api/teachers/init-teaching-classes", "api_name": "初始化教师任教班级", "api_group": "教师管理", "allowed_roles": ["admin"], "min_level": 100, "http_method": "POST", "resource_type": "teacher", "action_type": "update"},
+    {"api_path": "/api/teachers/change-password", "api_name": "教师修改自己的密码", "api_group": "教师管理", "allowed_roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu"], "min_level": 10, "http_method": "POST", "resource_type": "teacher", "action_type": "update"},
+
+    # 文件收集
+    {"api_path": "/api/filegather/upload", "api_name": "上传文件", "api_group": "文件收集", "allowed_roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "min_level": 10, "http_method": "POST", "resource_type": "filegather", "action_type": "create"},
+    {"api_path": "/api/filegather/my-files", "api_name": "我的文件列表", "api_group": "文件收集", "allowed_roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
+    {"api_path": "/api/filegather/my-files/{file_id}", "api_name": "删除我的文件", "api_group": "文件收集", "allowed_roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "min_level": 10, "http_method": "DELETE", "match_type": "pattern", "resource_type": "filegather", "action_type": "delete"},
+    {"api_path": "/api/filegather/admin/files", "api_name": "待处理文件列表", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
+    {"api_path": "/api/filegather/admin/done-files", "api_name": "已完成文件列表", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
+    {"api_path": "/api/filegather/admin/mark-done/{file_id}", "api_name": "标记文件完成", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "filegather", "action_type": "update"},
+    {"api_path": "/api/filegather/admin/download/{file_id}", "api_name": "下载文件", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "filegather", "action_type": "export"},
+    {"api_path": "/api/filegather/admin/statistics", "api_name": "文件统计", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
+    {"api_path": "/api/filegather/admin/months", "api_name": "文件月份列表", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
+
+    # 监考安排（同一路径存在多方法，统一使用 *，角色统一为教务/管理员）
+    {"api_path": "/api/invigilation/teachers", "api_name": "监考教师列表", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "invigilation", "action_type": "view"},
+    {"api_path": "/api/invigilation/projects", "api_name": "考试项目列表和创建", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "*", "resource_type": "invigilation", "action_type": "operate"},
+    {"api_path": "/api/invigilation/projects/{project_id}", "api_name": "考试项目详情更新删除", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "*", "match_type": "pattern", "resource_type": "invigilation", "action_type": "operate"},
+    {"api_path": "/api/invigilation/projects/{project_id}/slots", "api_name": "监考安排列表和保存", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "*", "match_type": "pattern", "resource_type": "invigilation", "action_type": "operate"},
+    {"api_path": "/api/invigilation/projects/{project_id}/slots/swap-teachers", "api_name": "交换监考教师", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "invigilation", "action_type": "update"},
+    {"api_path": "/api/invigilation/projects/{project_id}/changes", "api_name": "监考变更预览", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "invigilation", "action_type": "view"},
+    {"api_path": "/api/invigilation/projects/{project_id}/notify", "api_name": "发送监考通知", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "invigilation", "action_type": "update"},
+    {"api_path": "/api/invigilation/projects/{project_id}/notification-logs", "api_name": "监考通知日志", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "invigilation", "action_type": "view"},
+    {"api_path": "/api/invigilation/template", "api_name": "下载监考模板", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "invigilation", "action_type": "export"},
+    {"api_path": "/api/invigilation/projects/{project_id}/import", "api_name": "导入监考安排", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "invigilation", "action_type": "create"},
+    {"api_path": "/api/invigilation/projects/{project_id}/export", "api_name": "导出监考安排", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "invigilation", "action_type": "export"},
+    {"api_path": "/api/invigilation/projects/{project_id}/report", "api_name": "导出监考工作量报表", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "invigilation", "action_type": "export"},
 
     # 生日提醒
     {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
@@ -587,9 +630,17 @@ def _infer_resource_type(api_path: str) -> str:
         ("/api/moral/timeline", "student_lifebook"),
         ("/api/moral/profiles", "student_profile"),
         ("/api/moral/consultations", "consultation"),
+        ("/api/leave-records", "leave_record"),
+        ("/api/cleader-classes", "leave_record"),
+        ("/api/del_delay", "leave_record"),
         ("/api/dashboard/score-trend", "score_trend"),
         ("/api/dashboard", "dashboard"),
         # 教师资源域 (teacher_owned)
+        ("/api/current-classes", "lesson_schedule"),
+        ("/api/teacher-schedule", "lesson_schedule"),
+        ("/api/upload-schedule", "lesson_schedule"),
+        ("/api/homework", "legacy_homework"),
+        ("/api/announcement", "legacy_homework"),
         ("/api/teacher/todos/groups", "teacher_todo_group"),
         ("/api/teacher/todos", "teacher_todo"),
         # 系统资源域 (system_admin)
@@ -1006,12 +1057,12 @@ DEFAULT_DATA_SCOPE_RULES = {
         "teacher": ["own_created", "assigned_to_me"],
     },
     "/api/teacher/todos/groups": {
-        "admin": ["own_created", "assigned_to_me"],
-        "jiaowu": ["own_created", "assigned_to_me"],
-        "xuefa": ["own_created", "assigned_to_me"],
-        "g_leader": ["own_created", "assigned_to_me"],
-        "cleader": ["own_created", "assigned_to_me"],
-        "teacher": ["own_created", "assigned_to_me"],
+        "admin": ["own_created"],
+        "jiaowu": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+        "teacher": ["own_created"],
     },
 }
 
@@ -1083,6 +1134,189 @@ DEFAULT_TARGET_SCOPE_RULES = {
         "teacher": ["selected_teachers"],
     },
 }
+
+TEACHER_RESOURCE_SCOPE_SCHEMAS = {
+    "teacher_scope": {
+        "valid_scopes": {"self", "teacher_directory", "all_teachers"},
+        "privileged_scopes": {"all_teachers": {"admin"}},
+    },
+    "filegather_scope": {
+        "valid_scopes": {"own_uploaded", "all_files"},
+        # 文件收集的全量管理可按学校分工给教务、学发或管理员。
+        "privileged_scopes": {"all_files": {"admin", "jiaowu", "xuefa"}},
+    },
+    "invigilation_scope": {
+        "valid_scopes": {"all_projects"},
+        "privileged_scopes": {"all_projects": {"admin", "jiaowu"}},
+    },
+    "teacher_todo_scope": {
+        "valid_scopes": {"own_created", "assigned_to_me", "selected_teachers", "my_groups", "all_teachers"},
+        "privileged_scopes": {"all_teachers": {"admin"}},
+    },
+    "teacher_group_scope": {
+        "valid_scopes": {"own_created", "selected_teachers", "my_groups", "all_teachers"},
+        "privileged_scopes": {"all_teachers": {"admin"}},
+    },
+    "lesson_schedule_scope": {
+        "valid_scopes": {"self_schedule", "current_classes", "all_schedules"},
+        "privileged_scopes": {"all_schedules": {"admin", "jiaowu"}},
+    },
+    "legacy_homework_scope": {
+        "valid_scopes": {"own_created", "all_homework"},
+        "privileged_scopes": {"all_homework": {"admin"}},
+    },
+}
+
+
+DEFAULT_DATA_SCOPE_RULES.update({
+    "/api/current-classes": {
+        "teacher": ["current_classes"],
+        "admin": ["all_schedules"],
+    },
+    "/api/teacher-schedule/{teacher_name}": {
+        "teacher": ["self_schedule"],
+        "admin": ["all_schedules"],
+    },
+    "/api/teacher-schedule-nextweek/{teacher_name}": {
+        "teacher": ["self_schedule"],
+        "admin": ["all_schedules"],
+    },
+    "/api/cleader-classes/": {
+        "cleader": ["managed_classes"],
+        "g_leader": ["managed_grades"],
+        "xuefa": ["all"],
+        "admin": ["all"],
+    },
+    "/api/leave-records/": {
+        "cleader": ["managed_classes"],
+        "g_leader": ["managed_grades"],
+        "xuefa": ["all"],
+        "admin": ["all"],
+    },
+    "/api/homework/{hw_id}": {
+        "teacher": ["own_created"],
+        "admin": ["all_homework"],
+    },
+    "/api/announcement/{ann_id}": {
+        "teacher": ["own_created"],
+        "admin": ["all_homework"],
+    },
+    "/api/teachers": {
+        "admin": ["teacher_directory"],
+        "jiaowu": ["teacher_directory"],
+        "xuefa": ["teacher_directory"],
+        "g_leader": ["teacher_directory"],
+        "cleader": ["teacher_directory"],
+        "teacher": ["teacher_directory"],
+    },
+    "/api/filegather/my-files": {
+        "admin": ["own_uploaded"],
+        "jiaowu": ["own_uploaded"],
+        "xuefa": ["own_uploaded"],
+        "g_leader": ["own_uploaded"],
+        "cleader": ["own_uploaded"],
+        "teacher": ["own_uploaded"],
+    },
+    "/api/filegather/admin/files": {"jiaowu": ["all_files"], "admin": ["all_files"]},
+    "/api/filegather/admin/done-files": {"jiaowu": ["all_files"], "admin": ["all_files"]},
+    "/api/filegather/admin/statistics": {"jiaowu": ["all_files"], "admin": ["all_files"]},
+    "/api/filegather/admin/months": {"jiaowu": ["all_files"], "admin": ["all_files"]},
+    "/api/invigilation/teachers": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}/slots": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}/changes": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}/notification-logs": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+})
+
+DEFAULT_TARGET_SCOPE_RULES.update({
+    "/api/leave-records/": {
+        "cleader": ["managed_classes"],
+        "g_leader": ["managed_grades"],
+        "xuefa": ["all_students"],
+        "admin": ["all_students"],
+    },
+    "/api/homework/": {
+        "teacher": ["own_created"],
+        "admin": ["all_homework"],
+    },
+    "/api/announcement/": {
+        "teacher": ["own_created"],
+        "admin": ["all_homework"],
+    },
+    "/api/teachers": {"admin": ["all_teachers"]},
+    "/api/filegather/upload": {
+        "admin": ["own_uploaded"],
+        "jiaowu": ["own_uploaded"],
+        "xuefa": ["own_uploaded"],
+        "g_leader": ["own_uploaded"],
+        "cleader": ["own_uploaded"],
+        "teacher": ["own_uploaded"],
+    },
+    "/api/invigilation/projects/{project_id}/import": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+})
+
+DEFAULT_OPERATION_SCOPE_RULES.update({
+    "/api/upload-schedule": {"jiaowu": ["all_schedules"], "admin": ["all_schedules"]},
+    "/api/del_delay/{id}": {
+        "cleader": ["managed_classes"],
+        "xuefa": ["all"],
+        "admin": ["all"],
+    },
+    "/api/leave-records/": {
+        "cleader": ["managed_classes"],
+        "g_leader": ["managed_grades"],
+        "xuefa": ["all"],
+        "admin": ["all"],
+    },
+    "/api/leave-records/{record_id}/consume": {
+        "cleader": ["managed_classes"],
+        "g_leader": ["managed_grades"],
+        "xuefa": ["all"],
+        "admin": ["all"],
+    },
+    "/api/homework/batch": {
+        "teacher": ["own_created"],
+        "admin": ["all_homework"],
+    },
+    "/api/homework/{hw_id}": {
+        "teacher": ["own_created"],
+        "admin": ["all_homework"],
+    },
+    "/api/announcement/{ann_id}": {
+        "teacher": ["own_created"],
+        "admin": ["all_homework"],
+    },
+    "/api/teachers": {"admin": ["all_teachers"]},
+    "/api/teachers/{username}": {"admin": ["all_teachers"]},
+    "/api/teachers/{teacher_id}/teaching-classes": {"admin": ["all_teachers"]},
+    "/api/teachers/init-teaching-classes": {"admin": ["all_teachers"]},
+    "/api/teachers/change-password": {
+        "teacher": ["self"],
+        "cleader": ["self"],
+        "g_leader": ["self"],
+        "xuefa": ["self"],
+        "jiaowu": ["self"],
+    },
+    "/api/filegather/my-files/{file_id}": {
+        "admin": ["own_uploaded"],
+        "jiaowu": ["own_uploaded"],
+        "xuefa": ["own_uploaded"],
+        "g_leader": ["own_uploaded"],
+        "cleader": ["own_uploaded"],
+        "teacher": ["own_uploaded"],
+    },
+    "/api/filegather/admin/mark-done/{file_id}": {"jiaowu": ["all_files"], "admin": ["all_files"]},
+    "/api/filegather/admin/download/{file_id}": {"jiaowu": ["all_files"], "admin": ["all_files"]},
+    "/api/invigilation/projects": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}/slots": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}/slots/swap-teachers": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}/notify": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/template": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}/export": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+    "/api/invigilation/projects/{project_id}/report": {"jiaowu": ["all_projects"], "admin": ["all_projects"]},
+})
 
 
 def _json_list(value: Any) -> List[str]:
@@ -1261,6 +1495,7 @@ def ensure_api_permission_schema(db) -> None:
     _sync_resource_type_metadata(db)
     _cleanup_obsolete_resource_domain_defaults(db)
     _normalize_resource_domain_scope_rules(db)
+    _normalize_legacy_migrated_permissions(db)
 
 
 def _backfill_default_scope_rules(db) -> None:
@@ -1315,9 +1550,15 @@ DEFAULT_RESOURCE_TYPES = [
     {"resource_type": "dashboard", "resource_name": "数据驾驶舱", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 12},
     {"resource_type": "consultation", "resource_name": "AI诊疗", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 13},
     {"resource_type": "escalation_rule", "resource_name": "累进规则", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 14},
+    {"resource_type": "leave_record", "resource_name": "旧版请假销假", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 15},
     # 教师资源域 (teacher_owned)
+    {"resource_type": "teacher", "resource_name": "教师管理", "resource_domain": "teacher_owned", "scope_schema": "teacher_scope", "sort_order": 18},
+    {"resource_type": "filegather", "resource_name": "文件收集", "resource_domain": "teacher_owned", "scope_schema": "filegather_scope", "sort_order": 19},
     {"resource_type": "teacher_todo", "resource_name": "教师待办", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 20},
     {"resource_type": "teacher_todo_group", "resource_name": "协作群组", "resource_domain": "teacher_owned", "scope_schema": "teacher_group_scope", "sort_order": 21},
+    {"resource_type": "invigilation", "resource_name": "监考安排", "resource_domain": "teacher_owned", "scope_schema": "invigilation_scope", "sort_order": 22},
+    {"resource_type": "lesson_schedule", "resource_name": "旧版课表", "resource_domain": "teacher_owned", "scope_schema": "lesson_schedule_scope", "sort_order": 23},
+    {"resource_type": "legacy_homework", "resource_name": "旧版作业公告", "resource_domain": "teacher_owned", "scope_schema": "legacy_homework_scope", "sort_order": 24},
     # 系统资源域 (system_admin)
     {"resource_type": "database_backup", "resource_name": "数据库备份", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 30},
     {"resource_type": "database_admin", "resource_name": "数据库管理", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 31},
@@ -1352,6 +1593,19 @@ def _sync_resource_type_metadata(db) -> None:
                     meta["sort_order"],
                 )
             )
+        else:
+            db.execute(
+                """UPDATE api_permission_resource_type
+                   SET resource_name = ?, resource_domain = ?, scope_schema = ?, sort_order = ?, is_active = 1
+                   WHERE resource_type = ?""",
+                (
+                    meta["resource_name"],
+                    meta["resource_domain"],
+                    meta["scope_schema"],
+                    meta["sort_order"],
+                    meta["resource_type"],
+                ),
+            )
     logger.info("Resource type metadata synced")
 
 
@@ -1371,6 +1625,7 @@ def _cleanup_obsolete_resource_domain_defaults(db) -> None:
         "/api/moral/admin/database-backup/download/{filename}",
         "/api/moral/admin/database-backup/delete/{filename}",
         "/api/moral/admin/database",
+        "/api/moral/evaluations/class",
     ]
     for path in obsolete_paths:
         db.execute(
@@ -1382,7 +1637,7 @@ def _cleanup_obsolete_resource_domain_defaults(db) -> None:
 def _normalize_resource_domain_scope_rules(db) -> None:
     """按资源域清理不适用的历史范围规则，避免非学生资源被学生范围误报。"""
     configs = db.query_all(
-        "SELECT id, api_path, resource_type, data_scope_rules, target_scope_rules FROM api_permission_config"
+        "SELECT id, api_path, resource_type, data_scope_rules, target_scope_rules, operation_scope_rules FROM api_permission_config"
     )
     student_scopes = {"teaching_classes", "managed_classes", "managed_grades", "all_students"}
     for config in configs:
@@ -1398,30 +1653,163 @@ def _normalize_resource_domain_scope_rules(db) -> None:
             continue
 
         changed = False
+        api_path = config.get("api_path") or ""
+        scope_schema = _get_scope_schema(resource_type)
+        valid_scopes = TEACHER_RESOURCE_SCOPE_SCHEMAS.get(scope_schema, {}).get("valid_scopes") or set()
         data_rules = _json_dict(config.get("data_scope_rules"))
         target_rules = _json_dict(config.get("target_scope_rules"))
-        for rules in (data_rules, target_rules):
+        operation_rules = _json_dict(config.get("operation_scope_rules"))
+        default_groups = {
+            "data": DEFAULT_DATA_SCOPE_RULES.get(api_path, {}),
+            "target": DEFAULT_TARGET_SCOPE_RULES.get(api_path, {}),
+            "operation": DEFAULT_OPERATION_SCOPE_RULES.get(api_path, {}),
+        }
+        for group_name, rules in (("data", data_rules), ("target", target_rules), ("operation", operation_rules)):
+            group_had_invalid_scope = False
+            group_has_extra_role = False
             for role, scopes in list(rules.items()):
-                filtered = [scope for scope in scopes if scope not in student_scopes]
+                if role not in _json_list(config.get("allowed_roles")):
+                    group_has_extra_role = True
+                    changed = True
+                filtered = [
+                    scope
+                    for scope in scopes
+                    if scope not in student_scopes and (not valid_scopes or scope in valid_scopes)
+                ]
                 if filtered != scopes:
+                    group_had_invalid_scope = True
                     changed = True
                 if filtered:
                     rules[role] = filtered
                 else:
                     rules.pop(role, None)
+            if (group_had_invalid_scope or group_has_extra_role) and default_groups[group_name]:
+                rules.clear()
+                rules.update(default_groups[group_name])
         if changed:
             db.execute(
                 """UPDATE api_permission_config
-                   SET data_scope_rules = ?, target_scope_rules = ?
+                   SET data_scope_rules = ?, target_scope_rules = ?, operation_scope_rules = ?
                    WHERE id = ?""",
-                (_json_dict_dump(data_rules), _json_dict_dump(target_rules), config["id"]),
+                (
+                    _json_dict_dump(data_rules),
+                    _json_dict_dump(target_rules),
+                    _json_dict_dump(operation_rules),
+                    config["id"],
+                ),
+            )
+
+
+def _normalize_legacy_migrated_permissions(db) -> None:
+    """修正早期迁移残留的枚举/方法配置。
+
+    注意：这里不能持续覆盖 allowed_roles/min_level，否则会让前端权限配置
+    看起来可编辑、实际每次 schema ensure 后又被代码改回默认值。
+    默认角色只在缺失配置插入时生效；已有配置以数据库为准。
+    """
+    db.execute(
+        "UPDATE api_permission_config SET action_type = 'view' WHERE action_type = 'read'"
+    )
+    scope_aliases = {"g_leader_grade": "managed_grades", "grade_students": "managed_grades", "own_class": "managed_classes"}
+    for config in db.query_all(
+        "SELECT id, data_scope_rules, target_scope_rules, operation_scope_rules FROM api_permission_config"
+    ):
+        updates = {}
+        for column in ("data_scope_rules", "target_scope_rules", "operation_scope_rules"):
+            rules = _json_dict(config.get(column))
+            changed = False
+            for role, scopes in list(rules.items()):
+                normalized = [scope_aliases.get(scope, scope) for scope in scopes]
+                deduped = list(dict.fromkeys(normalized))
+                if deduped != scopes:
+                    rules[role] = deduped
+                    changed = True
+            if changed:
+                updates[column] = _json_dict_dump(rules)
+        if updates:
+            set_clause = ", ".join([f"{column} = ?" for column in updates])
+            db.execute(
+                f"UPDATE api_permission_config SET {set_clause} WHERE id = ?",
+                tuple(updates.values()) + (config["id"],),
+            )
+    method_overrides = {
+        "/api/teachers": "*",
+        "/api/invigilation/projects": "*",
+        "/api/invigilation/projects/{project_id}": "*",
+        "/api/invigilation/projects/{project_id}/slots": "*",
+        "/api/current-classes": "GET",
+        "/api/teacher-schedule/{teacher_name}": "GET",
+        "/api/teacher-schedule-nextweek/{teacher_name}": "GET",
+        "/api/upload-schedule": "POST",
+        "/api/homework/": "POST",
+        "/api/homework/batch": "DELETE",
+        "/api/homework/{hw_id}": "*",
+        "/api/announcement/": "POST",
+        "/api/announcement/{ann_id}": "*",
+        "/api/cleader-classes/": "GET",
+        "/api/leave-records/": "*",
+        "/api/leave-records/{record_id}/consume": "POST",
+        "/api/del_delay/{id}": "GET",
+    }
+    for path, method in method_overrides.items():
+        db.execute(
+            "UPDATE api_permission_config SET http_method = ? WHERE api_path = ? AND http_method != ?",
+            (method, path, method),
+        )
+    metadata_defaults = {
+        "/api/teachers": ("teacher", "operate"),
+        "/api/teachers/change-password": ("teacher", "update"),
+        "/api/invigilation/projects": ("invigilation", "operate"),
+        "/api/invigilation/projects/{project_id}": ("invigilation", "operate"),
+        "/api/invigilation/projects/{project_id}/slots": ("invigilation", "operate"),
+        "/api/current-classes": ("lesson_schedule", "view"),
+        "/api/teacher-schedule/{teacher_name}": ("lesson_schedule", "view"),
+        "/api/teacher-schedule-nextweek/{teacher_name}": ("lesson_schedule", "view"),
+        "/api/upload-schedule": ("lesson_schedule", "update"),
+        "/api/homework/": ("legacy_homework", "create"),
+        "/api/homework/batch": ("legacy_homework", "delete"),
+        "/api/homework/{hw_id}": ("legacy_homework", "operate"),
+        "/api/announcement/": ("legacy_homework", "create"),
+        "/api/announcement/{ann_id}": ("legacy_homework", "operate"),
+        "/api/cleader-classes/": ("leave_record", "view"),
+        "/api/leave-records/": ("leave_record", "operate"),
+        "/api/leave-records/{record_id}/consume": ("leave_record", "update"),
+        "/api/del_delay/{id}": ("leave_record", "delete"),
+    }
+    for path, (resource_type, action_type) in metadata_defaults.items():
+        db.execute(
+            """UPDATE api_permission_config
+               SET resource_type = CASE WHEN resource_type IS NULL OR resource_type = '' THEN ? ELSE resource_type END,
+                   action_type = CASE WHEN action_type IS NULL OR action_type = '' THEN ? ELSE action_type END
+               WHERE api_path = ?""",
+            (resource_type, action_type, path),
+        )
+    legacy_role_repairs = {
+        "/api/del_delay/{id}": {
+            "from": {"teacher", "cleader", "xuefa", "admin"},
+            "to": ["cleader", "xuefa", "admin"],
+        },
+        "/api/upload-schedule": {
+            "from": {"jiaofa", "admin"},
+            "to": ["jiaowu", "admin"],
+        },
+    }
+    for path, repair in legacy_role_repairs.items():
+        config = db.query_one("SELECT allowed_roles FROM api_permission_config WHERE api_path = ?", (path,))
+        if not config:
+            continue
+        existing_roles = set(_json_list(config.get("allowed_roles")))
+        if existing_roles == repair["from"]:
+            db.execute(
+                "UPDATE api_permission_config SET allowed_roles = ? WHERE api_path = ?",
+                (_json_dump(repair["to"]), path),
             )
 
 
 def _fix_incorrect_scope_rules(db) -> None:
     """修复已知的范围规则错误：
     - target_scope: teacher: all_students → teaching_classes
-    - target_scope: 新增 g_leader: g_leader_grade
+    - target_scope: 新增 g_leader: managed_grades
     - data_scope: 新增 g_leader 规则（针对日常记录、点滴记录、学生管理等API）
     - allowed_roles: 新增 g_leader 角色
     """
@@ -1577,7 +1965,7 @@ def _fix_incorrect_scope_rules(db) -> None:
 
         # 补齐 g_leader 的范围
         if "g_leader" not in rules:
-            rules["g_leader"] = ["g_leader_grade"]
+            rules["g_leader"] = ["managed_grades"]
 
         db.execute(
             "UPDATE api_permission_config SET target_scope_rules = ? WHERE api_path = ?",
@@ -1620,7 +2008,7 @@ def _fix_incorrect_scope_rules(db) -> None:
             continue
 
         # 学生管理 API 不应该有 own_created（学生表无创建者字段）
-        # 正确规则：g_leader 只需 g_leader_grade
+        # 正确规则：g_leader 只需 managed_grades
         student_apis = [
             "/api/moral/admin/students",
             "/api/moral/admin/students/create",
@@ -1634,20 +2022,20 @@ def _fix_incorrect_scope_rules(db) -> None:
         elif api_path in student_apis:
             # 学生 API：检查是否有错误的 own_created
             g_leader_rules = rules.get("g_leader", [])
-            if "own_created" in g_leader_rules:
-                # 移除 own_created，保留 g_leader_grade
-                rules["g_leader"] = ["g_leader_grade"]
+            if "own_created" in g_leader_rules or "g_leader_grade" in g_leader_rules:
+                # 移除历史别名，保留 managed_grades
+                rules["g_leader"] = ["managed_grades"]
                 needs_fix = True
 
         if needs_fix:
             if "g_leader" not in rules:
                 # 根据API类型设置合适的范围
                 if api_path in student_apis:
-                    rules["g_leader"] = ["g_leader_grade"]
+                    rules["g_leader"] = ["managed_grades"]
                 elif api_path.endswith("/update") or api_path.endswith("/delete"):
                     rules["g_leader"] = ["own_created"]
                 else:
-                    rules["g_leader"] = ["own_created", "g_leader_grade"]
+                    rules["g_leader"] = ["own_created", "managed_grades"]
 
             db.execute(
                 "UPDATE api_permission_config SET data_scope_rules = ? WHERE api_path = ?",
@@ -1855,10 +2243,52 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
         api_path = raw_path if raw_path.startswith("/api/") else f"/api{raw_path}"
         allowed_roles = rule.get("allowed_roles") or []
         is_public = 1 if rule.get("jwt_required") is False or "all" in allowed_roles else 0
-        normalized_roles = [role for role in allowed_roles if role != "all"]
+        role_aliases = {"jiaofa": "jiaowu"}
+        normalized_roles = [
+            role_aliases.get(role, role)
+            for role in allowed_roles
+            if role != "all"
+        ]
+        if api_path == "/api/del_delay/{id}":
+            normalized_roles = ["cleader", "xuefa", "admin"]
         min_level = int(rule.get("min_level") or 0)
         match_type = "pattern" if "{" in raw_path and "}" in raw_path else "exact"
         api_name = f"旧版接口 {raw_path}"
+        method_overrides = {
+            "/api/current-classes": "GET",
+            "/api/teacher-schedule/{teacher_name}": "GET",
+            "/api/teacher-schedule-nextweek/{teacher_name}": "GET",
+            "/api/upload-schedule": "POST",
+            "/api/homework/": "POST",
+            "/api/homework/batch": "DELETE",
+            "/api/homework/{hw_id}": "*",
+            "/api/announcement/": "POST",
+            "/api/announcement/{ann_id}": "*",
+            "/api/cleader-classes/": "GET",
+            "/api/leave-records/": "*",
+            "/api/leave-records/{record_id}/consume": "POST",
+            "/api/del_delay/{id}": "GET",
+        }
+        metadata_defaults = {
+            "/api/current-classes": ("lesson_schedule", "view"),
+            "/api/teacher-schedule/{teacher_name}": ("lesson_schedule", "view"),
+            "/api/teacher-schedule-nextweek/{teacher_name}": ("lesson_schedule", "view"),
+            "/api/upload-schedule": ("lesson_schedule", "update"),
+            "/api/homework/": ("legacy_homework", "create"),
+            "/api/homework/batch": ("legacy_homework", "delete"),
+            "/api/homework/{hw_id}": ("legacy_homework", "operate"),
+            "/api/announcement/": ("legacy_homework", "create"),
+            "/api/announcement/{ann_id}": ("legacy_homework", "operate"),
+            "/api/cleader-classes/": ("leave_record", "view"),
+            "/api/leave-records/": ("leave_record", "operate"),
+            "/api/leave-records/{record_id}/consume": ("leave_record", "update"),
+            "/api/del_delay/{id}": ("leave_record", "delete"),
+        }
+        http_method = method_overrides.get(api_path, "*")
+        resource_type, action_type = metadata_defaults.get(
+            api_path,
+            (_infer_resource_type(api_path), _infer_action_type(api_path, http_method)),
+        )
 
         existing = db.query_one("SELECT id FROM api_permission_config WHERE api_path = ?", (api_path,))
         if existing:
@@ -1868,10 +2298,15 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
                        api_group = CASE WHEN api_group = '' THEN ? ELSE api_group END,
                        allowed_roles = ?,
                        min_level = ?,
-                       http_method = COALESCE(http_method, '*'),
+                       http_method = ?,
                        match_type = ?,
                        policy_mode = COALESCE(policy_mode, 'role_and_level'),
                        is_public = ?,
+                       resource_type = CASE WHEN resource_type IS NULL OR resource_type = '' THEN ? ELSE resource_type END,
+                       action_type = CASE WHEN action_type IS NULL OR action_type = '' THEN ? ELSE action_type END,
+                       data_scope_rules = CASE WHEN data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}' THEN ? ELSE data_scope_rules END,
+                       target_scope_rules = CASE WHEN target_scope_rules IS NULL OR target_scope_rules = '' OR target_scope_rules = '{}' THEN ? ELSE target_scope_rules END,
+                       operation_scope_rules = CASE WHEN operation_scope_rules IS NULL OR operation_scope_rules = '' OR operation_scope_rules = '{}' THEN ? ELSE operation_scope_rules END,
                        updated_at = datetime('now', 'localtime')
                    WHERE id = ?""",
                 (
@@ -1879,8 +2314,14 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
                     "旧版教务接口",
                     _json_dump(normalized_roles),
                     min_level,
+                    http_method,
                     match_type,
                     is_public,
+                    resource_type,
+                    action_type,
+                    _json_dict_dump(DEFAULT_DATA_SCOPE_RULES.get(api_path, {})),
+                    _json_dict_dump(DEFAULT_TARGET_SCOPE_RULES.get(api_path, {})),
+                    _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES.get(api_path, {})),
                     existing["id"],
                 ),
             )
@@ -1890,8 +2331,9 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
         db.execute(
             """INSERT INTO api_permission_config
             (api_path, api_name, api_group, allowed_roles, min_level, module_id,
-             http_method, match_type, policy_mode, is_public, enforce_backend, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             http_method, match_type, policy_mode, is_public, enforce_backend, description,
+             resource_type, action_type, data_scope_rules, target_scope_rules, operation_scope_rules)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 api_path,
                 api_name,
@@ -1899,12 +2341,17 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
                 _json_dump(normalized_roles),
                 min_level,
                 module_id,
-                "*",
+                http_method,
                 match_type,
                 "role_and_level",
                 is_public,
                 1,
                 "由 lesson/config/api_level.yaml 同步",
+                resource_type,
+                action_type,
+                _json_dict_dump(DEFAULT_DATA_SCOPE_RULES.get(api_path, {})),
+                _json_dict_dump(DEFAULT_TARGET_SCOPE_RULES.get(api_path, {})),
+                _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES.get(api_path, {})),
             ),
         )
         created += 1
@@ -2308,6 +2755,37 @@ def _permission_risk_flags(config: Dict[str, Any]) -> List[str]:
                 for scope in scopes:
                     if scope in student_scope_keywords:
                         risks.append(f"教师资源不应配置学生范围：{rules_name} 包含 {scope}")
+        schema_config = TEACHER_RESOURCE_SCOPE_SCHEMAS.get(scope_schema, {})
+        valid_scopes = schema_config.get("valid_scopes") or set()
+        privileged_scopes = schema_config.get("privileged_scopes") or {}
+        for rules_label, rules in {
+            "数据范围": data_rules,
+            "目标范围": target_rules,
+            "动作范围": operation_rules,
+        }.items():
+            extra_roles = sorted(set((rules or {}).keys()) - allowed_roles)
+            if extra_roles:
+                risks.append(f"{rules_label}存在未授权角色：{'、'.join(extra_roles)}")
+            for role, scopes in (rules or {}).items():
+                for scope in scopes:
+                    if valid_scopes and scope not in valid_scopes:
+                        risks.append(f"{rules_label}包含不适用于当前资源的范围：{scope}")
+                    allowed_scope_roles = privileged_scopes.get(scope)
+                    if allowed_scope_roles and role not in allowed_scope_roles:
+                        risks.append(f"{role} 不应配置 {scope}")
+        role_scope_expectations = {
+            "view": data_rules,
+            "create": target_rules,
+            "update": operation_rules,
+            "delete": operation_rules,
+            "review": operation_rules,
+            "export": operation_rules,
+        }
+        expected_rules = role_scope_expectations.get(action_type)
+        if expected_rules is not None and expected_rules:
+            missing_roles = sorted(allowed_roles - set(expected_rules.keys()))
+            if missing_roles:
+                risks.append(f"允许角色缺少对应范围：{'、'.join(missing_roles)}")
         # 教师待办特定风险
         if scope_schema == "teacher_todo_scope":
             # 查询待办应包含 own_created 或 assigned_to_me

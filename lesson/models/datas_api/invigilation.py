@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 import io
 
 from models.datas_api.auth import User, get_current_user, is_admin_user
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from utils.db_config import INVIGILATION_DB
 from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
 from sendqueue import send_text
@@ -102,10 +103,15 @@ def get_invigilation_db():
 
 
 def require_jiaowu(user: User = Depends(get_current_user)) -> User:
-    """检查教务权限"""
+    """检查教务权限（保留旧判断，统一鉴权后可逐步移除）"""
     if not is_admin_user(user) and 'jiaowu' not in (user.role or '').split('/'):
         raise HTTPException(403, "需要教务或管理员权限")
     return user
+
+
+def require_invigilation_permission(api_path: str, http_method: str = "*"):
+    """监考模块统一鉴权依赖"""
+    return require_configured_api_permission(api_path, http_method, allow_missing=False)
 
 
 # =============================================================================
@@ -113,7 +119,7 @@ def require_jiaowu(user: User = Depends(get_current_user)) -> User:
 # =============================================================================
 
 @router.get("/teachers", summary="获取教师列表")
-async def get_teachers_for_invigilation(user: User = Depends(require_jiaowu)):
+async def get_teachers_for_invigilation(user: User = Depends(require_invigilation_permission("/api/invigilation/teachers", "GET"))):
     """获取教师列表用于监考安排"""
     with SQLiteMoralDatabase() as moral_db:
         teachers_data = moral_db.query_all(
@@ -132,7 +138,7 @@ async def get_teachers_for_invigilation(user: User = Depends(require_jiaowu)):
 @router.get("/projects", summary="获取考试项目列表")
 async def get_exam_projects(
     status: Optional[str] = Query(None),
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects", "GET"))
 ):
     """获取考试项目列表"""
     with get_invigilation_db() as db:
@@ -162,7 +168,7 @@ async def get_exam_projects(
 @router.post("/projects", summary="创建考试项目")
 async def create_exam_project(
     project: ExamProjectCreate,
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects", "POST"))
 ):
     """创建考试项目"""
     with get_invigilation_db() as db:
@@ -193,7 +199,7 @@ async def create_exam_project(
 @router.get("/projects/{project_id}", summary="获取考试项目详情")
 async def get_exam_project(
     project_id: int,
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}", "GET"))
 ):
     """获取考试项目详情"""
     with get_invigilation_db() as db:
@@ -233,7 +239,7 @@ async def get_exam_project(
 async def update_exam_project(
     project_id: int,
     project: ExamProjectUpdate,
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}", "PUT"))
 ):
     """更新考试项目基础信息"""
     with get_invigilation_db() as db:
@@ -286,7 +292,7 @@ async def update_exam_project(
 @router.delete("/projects/{project_id}", summary="删除考试项目")
 async def delete_exam_project(
     project_id: int,
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}", "DELETE"))
 ):
     """删除考试项目及相关数据（真删除）"""
     with get_invigilation_db() as db:
@@ -321,7 +327,7 @@ async def get_invigilation_slots(
     grade_id: Optional[int] = Query(None),
     exam_date: Optional[str] = Query(None),
     teacher_name: Optional[str] = Query(None),
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/slots", "GET"))
 ):
     """获取项目的监考安排列表"""
     with get_invigilation_db() as db:
@@ -359,7 +365,7 @@ async def get_invigilation_slots(
 async def save_invigilation_slots(
     project_id: int,
     batch: InvigilationSlotsBatch,
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/slots", "PUT"))
 ):
     """批量保存监考安排（覆盖模式）"""
     with get_invigilation_db() as db:
@@ -434,7 +440,7 @@ async def swap_teachers(
     project_id: int,
     slot_id_1: int = Query(...),
     slot_id_2: int = Query(...),
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/slots/swap-teachers", "POST"))
 ):
     """交换两条安排的监考老师"""
     with get_invigilation_db() as db:
@@ -477,7 +483,7 @@ async def swap_teachers(
 async def get_changes_preview(
     project_id: int,
     subjects: Optional[str] = Query(None, description="筛选学科，逗号分隔"),
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/changes", "GET"))
 ):
     """获取监考安排变更预览（对比上次通知版本）"""
     with get_invigilation_db() as db:
@@ -679,7 +685,7 @@ async def get_changes_preview(
 @router.post("/projects/{project_id}/notify", summary="发送监考通知")
 async def send_notifications(
     project_id: int,
-    user: User = Depends(require_jiaowu),
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/notify", "POST")),
     request: NotifyRequestV2 = Body(default=NotifyRequestV2())
 ):
     """发送监考通知给老师（支持学科筛选和变更检测）"""
@@ -1001,7 +1007,7 @@ async def send_notifications(
 @router.get("/projects/{project_id}/notification-logs", summary="获取通知日志")
 async def get_notification_logs(
     project_id: int,
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/notification-logs", "GET"))
 ):
     """获取项目的通知日志"""
     with get_invigilation_db() as db:
@@ -1023,7 +1029,7 @@ async def get_notification_logs(
 # =============================================================================
 
 @router.get("/template", summary="下载导入模板")
-async def download_template(user: User = Depends(require_jiaowu)):
+async def download_template(user: User = Depends(require_invigilation_permission("/api/invigilation/template", "GET"))):
     """下载监考安排导入模板（横向布局）"""
     import pandas as pd
 
@@ -1058,7 +1064,7 @@ async def download_template(user: User = Depends(require_jiaowu)):
 async def import_invigilation(
     project_id: int,
     file: UploadFile = File(...),
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/import", "POST"))
 ):
     """导入监考安排 Excel"""
     import pandas as pd
@@ -1300,7 +1306,7 @@ async def import_invigilation(
 @router.get("/projects/{project_id}/export", summary="导出监考安排")
 async def export_invigilation(
     project_id: int,
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/export", "GET"))
 ):
     """导出监考安排 Excel（横向布局，同一学科不同考场横向排列）"""
     import pandas as pd
@@ -1401,7 +1407,7 @@ async def export_invigilation(
 @router.get("/projects/{project_id}/report", summary="导出监考工作量报表")
 async def export_workload_report(
     project_id: int,
-    user: User = Depends(require_jiaowu)
+    user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/report", "GET"))
 ):
     """
     导出监考工作量报表

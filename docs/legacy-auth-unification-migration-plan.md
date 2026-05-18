@@ -19,6 +19,60 @@
 5. 前端菜单、按钮、后端 API 权限保持一致。
 6. 微信鉴权 `member.py/check_permission` 保留，不纳入本轮统一 JWT 鉴权替换。
 
+## 1.1 当前实现审阅结果（2026-05-17）
+
+本轮已对代码实现与本文档进行对照审阅，并修复了 Phase 1 的配置闭环问题。
+
+| 阶段 | 当前状态 | 结论 |
+| --- | --- | --- |
+| Phase 0 盘点 | 已完成第一轮盘点 | `docs/phase0-auth-migration-inventory.md` 已更新为当前状态 |
+| Phase 1 教师管理 | 已接入统一鉴权 | 后端使用 `require_configured_api_permission(..., allow_missing=False)`；默认配置已补入 `DEFAULT_API_PERMISSIONS` |
+| Phase 1 文件收集 | 已接入统一鉴权 | 教师端保留本人文件校验，管理端由数据库配置控制 `jiaowu/admin` |
+| Phase 1 监考安排 | 已接入统一鉴权 | 全部监考接口由数据库配置控制 `jiaowu/admin` |
+| Phase 2 旧版请假 | 已完成入口迁移 | 后台接口已使用 `require_configured_api_permission(..., allow_missing=False)`；班级/年级对象级判断保留 |
+| Phase 3 旧版作业 | 已完成入口迁移并修正对象级漏洞 | 写接口已接入统一鉴权；编辑、删除、批量删除按发布人校验；公告作者改为当前登录用户 |
+| Phase 4 旧版课表 | 已完成入口迁移 | 维护类接口已接入统一鉴权；公开查询接口显式登记为公开 |
+| Phase 5 moral 辅助接口 | 持续治理 | 已迁移模块需要继续通过权限风险扫描验证 |
+| Phase 6 收口 | 已完成本轮审计 | 旧版相关契约测试通过，权限风险扫描为 0 |
+
+### 已修复项
+
+1. 为教师管理、文件收集、监考安排补齐数据库默认权限配置，避免新环境依赖人工同步。
+2. 为 `teacher`、`filegather`、`invigilation` 补齐资源类型元数据，使前端权限配置页能够按非学生资源展示。
+3. 修正早期迁移残留的 `action_type='read'`，统一为现有动作枚举 `view`。
+4. 修正同一路径多方法接口的默认配置。当前 `api_permission_config.api_path` 是唯一键，无法为同一路径的 GET/POST/PUT/DELETE 各建一条配置，因此 `/api/teachers`、`/api/invigilation/projects`、`/api/invigilation/projects/{project_id}`、`/api/invigilation/projects/{project_id}/slots` 使用 `http_method='*'`。写操作仍保留模块内业务判断，例如教师创建仍由 `is_admin_user` 二次限制。
+5. 兼容修复只处理历史枚举和结构性方法问题，不持续覆盖 `allowed_roles`、`min_level` 等可在前端修改的数据库配置。
+6. 前端 `moral/config/api-permission` 已补齐这三个资源类型的兜底展示配置。
+
+### 非学生资源范围模型
+
+教师管理、文件收集、监考安排不应套用学生范围（任教班级、管理班级、管理年级、全校学生）。它们按资源对象归属来配置：
+
+| 资源类型 | 范围 schema | 数据范围 | 目标范围 | 动作范围 |
+| --- | --- | --- | --- | --- |
+| 教师管理 `teacher` | `teacher_scope` | `teacher_directory` 教师通讯录、`self` 本人、`all_teachers` 全校教师 | `self`、`all_teachers` | `self`、`all_teachers` |
+| 文件收集 `filegather` | `filegather_scope` | `own_uploaded` 自己上传、`all_files` 全部文件 | `own_uploaded` | `own_uploaded`、`all_files` |
+| 监考安排 `invigilation` | `invigilation_scope` | `all_projects` 全部监考项目 | `all_projects` | `all_projects` |
+| 教师待办 `teacher_todo` | `teacher_todo_scope` | `own_created` 自己创建、`assigned_to_me` 分配给我 | `selected_teachers`、`my_groups`、`all_teachers` | `own_created`、`assigned_to_me` |
+| 协作群组 `teacher_todo_group` | `teacher_group_scope` | `own_created` 自己创建 | `selected_teachers`、`my_groups`、`all_teachers` | `own_created` |
+
+文件收集示例：
+
+1. 教师上传文件：目标范围是 `own_uploaded`，记录归属当前登录教师。
+2. 教师查看/删除“我的文件”：数据/动作范围是 `own_uploaded`，后端仍通过文件记录的 `username` 做对象级校验。
+3. 管理端查看、下载、标记完成：数据/动作范围是 `all_files`。当前默认允许角色是 `jiaowu/admin`；如果学校业务改为学发负责，可在前端把允许角色改为 `xuefa/admin`，并给 `xuefa` 配置 `all_files`。
+
+这个模型的原则是：API 入口权限决定“能不能调用”，范围配置表达“能操作哪一类对象”，对象级代码继续做最终记录归属校验。
+
+### 本轮收口修正
+
+1. 旧版作业、公告写接口已接入统一鉴权。
+2. `/api/homework/batch` 已补对象级校验：管理员可删全部，教师只能删自己发布的作业。
+3. 公告创建不再信任前端 `author`，统一写入当前登录用户，保证后续编辑/删除的“自己发布”判断可靠。
+4. 旧版课表个人下周课表的管理员判断改为 `is_admin_user`，支持多角色用户。
+5. 旧版公开查询入口加入预期公开白名单，权限巡检不再把这些接口误判为风险。
+6. `api_level.yaml` 同步时修正 `jiaofa -> jiaowu` 角色别名，并移除 `/api/del_delay/{id}` 中实际业务不允许的 `teacher` 角色。
+
 ## 2. 迁移原则
 
 ### 2.1 先配置，后切入口
@@ -133,6 +187,8 @@ require_configured_api_permission(API_PATH, "GET", allow_missing=False)
 
 这一阶段迁移低风险、规则清晰的模块。
 
+> 实现状态：已完成入口统一鉴权和默认配置补齐。后续只需要补自动化测试和按实际业务继续细化对象级范围。
+
 ## 5.1 教师管理
 
 ### 5.1.1 范围
@@ -154,7 +210,14 @@ require_configured_api_permission(API_PATH, "GET", allow_missing=False)
 
 ### 5.1.2 默认策略
 
-管理类接口：
+当前实现说明：
+
+- `/api/teachers` 同时承载 GET 列表和 POST 创建。由于当前权限表按 `api_path` 唯一约束存储，默认配置使用 `http_method='*'` 并允许教师相关角色访问入口。
+- POST 创建教师仍保留 `is_admin_user` 业务判断，普通教师即使通过 API 入口鉴权，也会在业务层被拒绝。
+- `include_all=1` 仍由代码内 `is_admin_user` 限制，普通教师只能获取正式教师列表。
+- 如需做到 GET/POST 完全分离配置，后续应把表唯一约束升级为 `(api_path, http_method)`。
+
+管理写接口：
 
 ```json
 {
@@ -194,6 +257,8 @@ require_configured_api_permission(API_PATH, "GET", allow_missing=False)
 - 普通教师不能创建、更新、删除教师。
 - 普通教师只能修改自己的密码。
 - 后端测试覆盖 admin 与非 admin 场景。
+
+当前已满足前三项；自动化测试仍需补齐。
 
 ## 5.2 文件收集
 
@@ -272,6 +337,8 @@ require_configured_api_permission(API_PATH, "GET", allow_missing=False)
 - 教务/管理员能查看、下载、标记全部文件。
 - 非教务不能访问管理端文件接口。
 
+当前入口鉴权已切换到数据库配置；“自己文件”仍由 `FileGatherDB` 查询和删除逻辑保护。
+
 ## 5.3 监考安排
 
 ### 5.3.1 范围
@@ -322,6 +389,8 @@ require_configured_api_permission(API_PATH, "GET", allow_missing=False)
 - 教务/管理员可以操作全部监考安排。
 - 非教务不能进入监考安排管理接口。
 - 监考驾驶舱权限不被误改。
+
+当前入口鉴权已切换到数据库配置。由于监考安排没有学生/班级/年级范围，本阶段按系统/教师资源域处理，不展示学生数据范围配置。
 
 ## 6. Phase 2：旧版请假
 
@@ -398,6 +467,8 @@ require_configured_api_permission(API_PATH, "GET", allow_missing=False)
 - 公开提交入口行为不变。
 - 无权限用户不能直接调用后台接口绕过前端。
 
+当前状态：已完成入口统一迁移。代码使用 `require_configured_api_permission(..., allow_missing=False)`，并保留班主任、年级主任、学发、管理员的对象级范围判断。
+
 ## 7. Phase 3：旧版作业
 
 ### 7.1 范围
@@ -470,6 +541,8 @@ require_configured_api_permission(API_PATH, "GET", allow_missing=False)
 - 未登录不能发布、修改、删除。
 - 教师只能改/删自己发布的作业和公告。
 - 管理员可改/删全部。
+
+当前状态：已完成入口统一迁移。作业、公告写接口已接入统一鉴权；编辑、删除、批量删除保留“自己发布 / 管理员全量”的对象级判断。
 
 ## 8. Phase 4：旧版课表
 
@@ -547,6 +620,8 @@ require_configured_api_permission(API_PATH, "GET", allow_missing=False)
 - 普通教师不能查看其他教师个人课表。
 - 教务/管理员可查看所有教师课表。
 
+当前状态：已完成入口统一迁移。公开课表查询保持公开并显式登记；上传课表、当前课堂、教师课表接口已接入统一鉴权；教师下周课表保留本人/管理员对象级判断。
+
 ## 9. Phase 5：moral 辅助接口巡检
 
 ### 9.1 分类
@@ -610,6 +685,22 @@ moral 辅助接口按以下类型处理：
 - 后端测试全量通过。
 - 前端核心页面手工测试通过。
 
+### 10.3 2026-05-17 收口复核
+
+本轮复核按“API 实际处理的数据对象”重新校准旧模块配置：
+
+- 旧版课表：新增 `lesson_schedule` 资源类型，区分本人课表、当前上课班级、全部课表；`/api/teacher-schedule/{teacher_name}` 已补对象级限制，教师只能看本人课表，管理员可看全部。
+- 旧版作业/公告：新增 `legacy_homework` 资源类型，受保护的发布、编辑、删除接口按“自己创建 / 全部作业公告”配置；公开班级查看接口仍作为预期公开接口处理。
+- 旧版请假/销假：新增 `leave_record` 资源类型，请假列表、提交、销假、删除延时记录按管理班级、管理年级、全校范围配置。
+- 旧版 YAML 同步逻辑现在同步结构化元数据：`http_method`、`resource_type`、`action_type`、数据范围、目标范围、动作范围，避免同步后回到“路径有权限、数据范围为空”的状态。
+- 清理历史范围别名：`g_leader_grade`、`grade_students` 统一归一为 `managed_grades`，`own_class` 统一归一为 `managed_classes`。
+
+验证结果：
+
+- 权限审计：`total=237, risky=0, healthy=237`。
+- 后端回归：`lesson/tests/test_datas_api_legacy_homework_contract.py`、`lesson/tests/test_datas_api_legacy_attendance_contract.py`、`lesson/tests/test_datas_api_legacy_schedule_contract.py`、`lesson/tests/test_datas_api_legacy_permissions_contract.py` 共 43 个用例通过。
+- 前端构建：`npm run build` 通过。
+
 ## 11. 推荐实施顺序
 
 建议按 7 天节奏实施：
@@ -648,4 +739,3 @@ moral 辅助接口按以下类型处理：
 5. 微信鉴权 `member.py/check_permission` 保留，不纳入本轮替换。
 6. 每个阶段完成后运行对应测试和权限审计。
 7. 不要删除旧业务判断，除非已有测试证明统一范围逻辑完全等价。
-

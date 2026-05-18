@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from models.datas_api.auth import User, get_current_user, is_admin_user
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.filegather_db import FileGatherDB, MAX_FILE_SIZE
 from sendqueue import send_text
 from models.lesson.lesson import Lesson
@@ -69,7 +70,7 @@ async def upload_file(
     copies: int = Form(...),
     use_date: str = Form(...),
     note: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/filegather/upload", "POST", allow_missing=False)),
 ):
     """
     上传文件
@@ -166,7 +167,7 @@ async def upload_file(
 @router.get("/my-files", summary="获取我的文件", description="获取当前用户上传的文件列表")
 async def get_my_files(
     month: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/filegather/my-files", "GET", allow_missing=False)),
 ):
     """
     获取我的文件列表
@@ -182,7 +183,7 @@ async def get_my_files(
 @router.delete("/my-files/{file_id}", summary="删除文件", description="删除自己上传的文件")
 async def delete_my_file(
     file_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/filegather/my-files/{file_id}", "DELETE", allow_missing=False)),
 ):
     """
     删除文件
@@ -203,14 +204,9 @@ async def delete_my_file(
 
 @router.get("/admin/files", summary="待处理文件列表", description="获取待处理的文件列表")
 async def admin_get_pending_files(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/filegather/admin/files", "GET", allow_missing=False)),
 ):
-    """获取待处理文件列表（需要教务或管理员权限）"""
-    if not is_jiaowu_user(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要教务权限"
-        )
+    """获取待处理文件列表（统一鉴权已校验 jiaowu/admin 角色）"""
 
     items = db.query_files(status=["否", "打印中"])
     return {"items": items}
@@ -219,18 +215,9 @@ async def admin_get_pending_files(
 @router.get("/admin/done-files", summary="已完成文件列表", description="获取已完成的文件列表")
 async def admin_get_done_files(
     month: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/filegather/admin/done-files", "GET", allow_missing=False)),
 ):
-    """
-    获取已完成文件列表（需要教务或管理员权限）
-
-    - **month**: 月份筛选 (YYYYMM格式，可选)
-    """
-    if not is_jiaowu_user(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要教务权限"
-        )
+    """获取已完成文件列表（统一鉴权已校验 jiaowu/admin 角色）"""
 
     m = month.strip() if isinstance(month, str) and month.strip() else datetime.utcnow().strftime("%Y%m")
     items = db.query_files(status="是", month=m)
@@ -240,18 +227,9 @@ async def admin_get_done_files(
 @router.post("/admin/mark-done/{file_id}", summary="标记完成", description="标记文件为已完成")
 async def admin_mark_done(
     file_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/filegather/admin/mark-done/{file_id}", "POST", allow_missing=False)),
 ):
-    """
-    标记文件为已完成（需要教务或管理员权限）
-
-    - **file_id**: 文件ID
-    """
-    if not is_jiaowu_user(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要教务权限"
-        )
+    """标记文件为已完成（统一鉴权已校验 jiaowu/admin 角色）"""
 
     try:
         # 获取文件信息（在标记完成前）
@@ -295,18 +273,9 @@ async def admin_mark_done(
 @router.get("/admin/download/{file_id}", summary="下载文件", description="下载指定文件")
 async def admin_download_file(
     file_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/filegather/admin/download/{file_id}", "GET", allow_missing=False)),
 ):
-    """
-    下载文件（需要教务或管理员权限）
-
-    - **file_id**: 文件ID
-    """
-    if not is_jiaowu_user(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要教务权限"
-        )
+    """下载文件（统一鉴权已校验 jiaowu/admin 角色）"""
 
     file_info = db.get_file_by_id(file_id)
     if not file_info:
@@ -343,18 +312,9 @@ async def admin_download_file(
 @router.get("/admin/statistics", summary="统计信息", description="获取文件统计信息")
 async def admin_get_statistics(
     month: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/filegather/admin/statistics", "GET", allow_missing=False)),
 ):
-    """
-    获取统计信息（需要教务或管理员权限）
-
-    - **month**: 月份筛选 (YYYYMM格式，可选)
-    """
-    if not is_jiaowu_user(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要教务权限"
-        )
+    """获取统计信息（统一鉴权已校验 jiaowu/admin 角色）"""
 
     stats = db.get_statistics(month)
     return stats
@@ -362,14 +322,9 @@ async def admin_get_statistics(
 
 @router.get("/admin/months", summary="获取月份列表", description="获取所有有文件的月份")
 async def admin_get_months(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/filegather/admin/months", "GET", allow_missing=False)),
 ):
-    """获取月份列表（需要教务或管理员权限）"""
-    if not is_jiaowu_user(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要教务权限"
-        )
+    """获取月份列表（统一鉴权已校验 jiaowu/admin 角色）"""
 
     months = db.get_months()
     return {"months": months}

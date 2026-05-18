@@ -308,50 +308,46 @@
           </template>
         </el-alert>
         </template>
-        <!-- 教师资源域：显示教师协作范围 -->
+        <!-- 教师资源域：按资源类型显示对应范围 -->
         <template v-else>
         <el-form-item label="可见范围">
           <div class="scope-editor">
             <div v-for="role in scopeRoleOptions" :key="'data-' + role.value" class="scope-row">
               <span class="scope-role">{{ role.label }}</span>
               <el-checkbox-group v-model="dataScopeEditor[role.value]">
-                <el-checkbox label="own_created">自己创建</el-checkbox>
-                <el-checkbox label="assigned_to_me">分配给我</el-checkbox>
+                <el-checkbox v-for="item in currentTeacherScopeConfig.dataOptions" :key="item.value" :label="item.value">
+                  {{ item.label }}
+                </el-checkbox>
               </el-checkbox-group>
             </div>
           </div>
-          <div class="scope-help">
-            控制教师能看到哪些待办或群组。教师通常勾选"自己创建 + 分配给我"，管理员可勾选全部。
-          </div>
+          <div class="scope-help">{{ currentTeacherScopeConfig.dataHelp }}</div>
         </el-form-item>
-        <el-form-item label="协作范围">
+        <el-form-item :label="currentTeacherScopeConfig.targetLabel">
           <div class="scope-editor">
             <div v-for="role in scopeRoleOptions" :key="'target-' + role.value" class="scope-row">
               <span class="scope-role">{{ role.label }}</span>
               <el-checkbox-group v-model="targetScopeEditor[role.value]">
-                <el-checkbox label="selected_teachers">指定教师</el-checkbox>
-                <el-checkbox label="my_groups">我的协作群组</el-checkbox>
-                <el-checkbox v-if="role.value === 'admin'" label="all_teachers">全校教师</el-checkbox>
+                <el-checkbox v-for="item in currentTeacherScopeConfig.targetOptions" :key="item.value" :label="item.value">
+                  {{ item.label }}
+                </el-checkbox>
               </el-checkbox-group>
             </div>
           </div>
-          <div class="scope-help">
-            控制创建待办或群组时能选择哪些协作对象。非管理员仅可选"指定教师 + 我的协作群组"。
-          </div>
+          <div class="scope-help">{{ currentTeacherScopeConfig.targetHelp }}</div>
         </el-form-item>
         <el-form-item label="操作范围">
           <div class="scope-editor">
             <div v-for="role in scopeRoleOptions" :key="'operation-' + role.value" class="scope-row">
               <span class="scope-role">{{ role.label }}</span>
               <el-checkbox-group v-model="operationScopeEditor[role.value]">
-                <el-checkbox label="own_created">自己创建</el-checkbox>
-                <el-checkbox v-if="form.action_type !== 'update' && form.action_type !== 'delete'" label="assigned_to_me">分配给我</el-checkbox>
+                <el-checkbox v-for="item in currentTeacherScopeConfig.operationOptions" :key="item.value" :label="item.value">
+                  {{ item.label }}
+                </el-checkbox>
               </el-checkbox-group>
             </div>
           </div>
-          <div class="scope-help">
-            控制编辑、删除、完成待办等操作的权限。编辑/删除仅限"自己创建"，完成/恢复可包含"分配给我"。
-          </div>
+          <div class="scope-help">{{ currentTeacherScopeConfig.operationHelp }}</div>
         </el-form-item>
         </template>
           </el-tab-pane>
@@ -665,6 +661,11 @@ const fallbackResourceOptions = [
   { value: 'consultation', label: 'AI诊疗' },
   { value: 'score_trend', label: '得分趋势' },
   { value: 'dashboard', label: '驾驶舱' },
+  { value: 'teacher', label: '教师管理' },
+  { value: 'filegather', label: '文件收集' },
+  { value: 'invigilation', label: '监考安排' },
+  { value: 'lesson_schedule', label: '旧版课表' },
+  { value: 'legacy_homework', label: '旧版作业公告' },
   { value: 'teacher_todo', label: '教师待办' },
   { value: 'teacher_todo_group', label: '协作群组' },
   { value: 'database_backup', label: '数据库备份' },
@@ -684,6 +685,11 @@ const resourceOptions = computed(() => {
   return Array.from(new Map(merged.map(item => [item.value, item])).values())
 })
 const fallbackResourceMeta = {
+  teacher: { resource_name: '教师管理', resource_domain: 'teacher_owned', scope_schema: 'teacher_scope' },
+  filegather: { resource_name: '文件收集', resource_domain: 'teacher_owned', scope_schema: 'filegather_scope' },
+  invigilation: { resource_name: '监考安排', resource_domain: 'teacher_owned', scope_schema: 'invigilation_scope' },
+  lesson_schedule: { resource_name: '旧版课表', resource_domain: 'teacher_owned', scope_schema: 'lesson_schedule_scope' },
+  legacy_homework: { resource_name: '旧版作业公告', resource_domain: 'teacher_owned', scope_schema: 'legacy_homework_scope' },
   teacher_todo: { resource_name: '教师待办', resource_domain: 'teacher_owned', scope_schema: 'teacher_todo_scope' },
   teacher_todo_group: { resource_name: '协作群组', resource_domain: 'teacher_owned', scope_schema: 'teacher_group_scope' },
   database_backup: { resource_name: '数据库备份', resource_domain: 'system_admin', scope_schema: 'system_action_scope' },
@@ -734,12 +740,98 @@ const isSystemResource = computed(() => {
   return currentScopeSchema.value === 'system_action_scope'
 })
 
+const option = (value, label) => ({ value, label })
+const teacherResourceScopeConfigs = {
+  teacher_scope: {
+    dataOptions: [option('teacher_directory', '教师通讯录'), option('self', '本人'), option('all_teachers', '全校教师')],
+    targetOptions: [option('self', '本人'), option('all_teachers', '全校教师')],
+    operationOptions: [option('self', '本人'), option('all_teachers', '全校教师')],
+    targetLabel: '目标范围',
+    dataHelp: '控制能查看哪些教师账号资料。普通教师通常只需要教师通讯录；管理员可查看和维护全校教师。',
+    targetHelp: '控制创建或维护教师账号时能作用到哪些教师对象。教师管理写操作通常只给管理员勾选全校教师。',
+    operationHelp: '控制修改密码、编辑教师资料、任教班级维护等动作范围。改密是本人，教师资料维护是全校教师。',
+    privilegedScopes: { all_teachers: ['admin'] }
+  },
+  filegather_scope: {
+    dataOptions: [option('own_uploaded', '自己上传'), option('all_files', '全部文件')],
+    targetOptions: [option('own_uploaded', '自己上传')],
+    operationOptions: [option('own_uploaded', '自己上传'), option('all_files', '全部文件')],
+    targetLabel: '上传范围',
+    dataHelp: '控制能查看哪些上传文件。教师端通常是自己上传；管理端是全部文件。',
+    targetHelp: '控制上传文件归属。教师上传只能生成自己名下的文件记录。',
+    operationHelp: '控制删除、下载、标记完成等动作能作用到哪些文件。教师删除自己上传，管理角色可处理全部文件。',
+    privilegedScopes: { all_files: ['admin', 'jiaowu', 'xuefa'] }
+  },
+  invigilation_scope: {
+    dataOptions: [option('all_projects', '全部监考项目')],
+    targetOptions: [option('all_projects', '全部监考项目')],
+    operationOptions: [option('all_projects', '全部监考项目')],
+    targetLabel: '项目范围',
+    dataHelp: '监考安排当前不按学生、班级、年级拆分，教务或管理员查看全部监考项目。',
+    targetHelp: '控制创建、导入监考项目或安排时的项目范围。',
+    operationHelp: '控制更新、删除、导出、通知等动作能作用到哪些监考项目。',
+    privilegedScopes: { all_projects: ['admin', 'jiaowu'] }
+  },
+  lesson_schedule_scope: {
+    dataOptions: [option('self_schedule', '本人课表'), option('current_classes', '当前上课班级'), option('all_schedules', '全部课表')],
+    targetOptions: [option('all_schedules', '全部课表')],
+    operationOptions: [option('all_schedules', '全部课表')],
+    targetLabel: '课表范围',
+    dataHelp: '控制能查看哪些课表数据。本周/下周教师课表通常是本人；当前上课班级接口返回当前全校上课状态。',
+    targetHelp: '控制上传或更新课表时能作用到的课表范围。',
+    operationHelp: '控制上传、刷新课表等操作范围，通常只给教务或管理员全部课表。',
+    privilegedScopes: { all_schedules: ['admin', 'jiaowu'] }
+  },
+  legacy_homework_scope: {
+    dataOptions: [option('own_created', '自己创建'), option('all_homework', '全部作业公告')],
+    targetOptions: [option('own_created', '自己创建'), option('all_homework', '全部作业公告')],
+    operationOptions: [option('own_created', '自己创建'), option('all_homework', '全部作业公告')],
+    targetLabel: '发布范围',
+    dataHelp: '控制旧版作业/公告记录可见范围。公开班级查看接口不在此处限制，受保护接口主要按创建人收口。',
+    targetHelp: '控制发布作业/公告时生成的记录归属。教师发布后默认只拥有自己创建的记录。',
+    operationHelp: '控制编辑、删除作业/公告的记录范围。教师只能操作自己创建，管理员可操作全部。',
+    privilegedScopes: { all_homework: ['admin'] }
+  },
+  teacher_todo_scope: {
+    dataOptions: [option('own_created', '自己创建'), option('assigned_to_me', '分配给我')],
+    targetOptions: [option('selected_teachers', '指定教师'), option('my_groups', '我的协作群组'), option('all_teachers', '全校教师')],
+    operationOptions: [option('own_created', '自己创建'), option('assigned_to_me', '分配给我')],
+    targetLabel: '协作范围',
+    dataHelp: '控制教师能看到哪些待办。通常勾选自己创建和分配给我。',
+    targetHelp: '控制创建待办时能选择哪些协作对象。全校教师通常只给管理员。',
+    operationHelp: '控制编辑、删除、完成待办等操作。编辑/删除通常仅自己创建，完成/恢复可包含分配给我。',
+    privilegedScopes: { all_teachers: ['admin'] }
+  },
+  teacher_group_scope: {
+    dataOptions: [option('own_created', '自己创建')],
+    targetOptions: [option('selected_teachers', '指定教师'), option('my_groups', '我的协作群组'), option('all_teachers', '全校教师')],
+    operationOptions: [option('own_created', '自己创建')],
+    targetLabel: '成员范围',
+    dataHelp: '控制能查看哪些协作群组。群组通常仅自己创建可见。',
+    targetHelp: '控制群组中能添加哪些教师。全校教师通常只给管理员。',
+    operationHelp: '控制编辑、删除群组以及维护成员的范围，通常仅自己创建。',
+    privilegedScopes: { all_teachers: ['admin'] }
+  }
+}
+const currentTeacherScopeConfig = computed(() => (
+  teacherResourceScopeConfigs[currentScopeSchema.value] || teacherResourceScopeConfigs.teacher_todo_scope
+))
+
 const teacherScopeLabelMap = {
+  self: '本人',
+  teacher_directory: '教师通讯录',
+  all_teachers: '全校教师',
+  own_uploaded: '自己上传',
+  all_files: '全部文件',
+  all_projects: '全部监考项目',
+  self_schedule: '本人课表',
+  current_classes: '当前上课班级',
+  all_schedules: '全部课表',
+  all_homework: '全部作业公告',
   own_created: '自己创建',
   assigned_to_me: '分配给我',
   selected_teachers: '指定教师',
-  my_groups: '我的协作群组',
-  all_teachers: '全校教师'
+  my_groups: '我的协作群组'
 }
 const systemScopeLabelMap = {
   view_config: '查看配置',
@@ -765,7 +857,19 @@ const policyNames = Object.fromEntries(policyOptions.map(item => [item.value, it
 const matchNames = { exact: '精确', prefix: '前缀', pattern: '参数' }
 const resourceNames = computed(() => Object.fromEntries(resourceOptions.value.map(item => [item.value, item.label])))
 const actionNames = Object.fromEntries(actionOptions.map(item => [item.value, item.label]))
-const expectedPublicApiPaths = new Set(['/api/token'])
+const expectedPublicApiPaths = new Set([
+  '/api/token',
+  '/api/class-codes/',
+  '/api/schedule/{class_name}',
+  '/api/todays',
+  '/api/schedules',
+  '/api/periods',
+  '/api/homework/{class_code}',
+  '/api/announcements/{class_code}',
+  '/api/messages/{class_code}',
+  '/api/insert_delay/',
+  '/api/delay_infos/{classCode}'
+])
 
 const form = reactive({
   id: null,
@@ -980,21 +1084,37 @@ const formValidationIssues = computed(() => {
 
   if (!isStudentResource.value) {
     const studentScopes = new Set(['teaching_classes', 'managed_classes', 'managed_grades', 'all_students'])
+    const validTeacherScopes = new Set([
+      ...currentTeacherScopeConfig.value.dataOptions.map(item => item.value),
+      ...currentTeacherScopeConfig.value.targetOptions.map(item => item.value),
+      ...currentTeacherScopeConfig.value.operationOptions.map(item => item.value)
+    ])
+    const privilegedScopes = currentTeacherScopeConfig.value.privilegedScopes || {}
     for (const [label, rules] of [['数据范围', dataRules], ['目标范围', targetRules], ['动作范围', operationRules]]) {
-      for (const scopes of Object.values(rules)) {
+      for (const [role, scopes] of Object.entries(rules)) {
         if ((scopes || []).some(scope => studentScopes.has(scope))) issues.push(`${label}包含学生范围，不适用于教师资源`)
+        for (const scope of scopes || []) {
+          if (!validTeacherScopes.has(scope)) issues.push(`${label}包含不适用于当前资源的范围：${teacherScopeLabelMap[scope] || scope}`)
+          const allowedScopeRoles = privilegedScopes[scope]
+          if (allowedScopeRoles && !allowedScopeRoles.includes(role)) {
+            issues.push(`${roleNames[role] || role} 不应配置“${teacherScopeLabelMap[scope] || scope}”`)
+          }
+        }
       }
     }
     if (action === 'view' && !Object.keys(dataRules).length) issues.push('教师资源查看类 API 未配置可见范围')
-    if (action === 'create' && !Object.keys(targetRules).length) issues.push('教师资源创建类 API 未配置协作范围')
+    if (action === 'create' && !Object.keys(targetRules).length) issues.push('教师资源创建类 API 未配置目标范围')
     if (['update', 'delete', 'operate'].includes(action) && !Object.keys(operationRules).length) issues.push('教师资源操作类 API 未配置操作范围')
-    for (const [role, scopes] of Object.entries(targetRules)) {
-      if (role !== 'admin' && (scopes || []).includes('all_teachers')) issues.push('非管理员不应配置全校教师范围')
-    }
     if (['update', 'delete'].includes(action)) {
       for (const [role, scopes] of Object.entries(operationRules)) {
-        if ((scopes || []).includes('assigned_to_me')) issues.push(`${roleNames[role] || role} 编辑/删除不应包含“分配给我”`)
+        if (currentScopeSchema.value === 'teacher_todo_scope' && (scopes || []).includes('assigned_to_me')) {
+          issues.push(`${roleNames[role] || role} 编辑/删除不应包含“分配给我”`)
+        }
       }
+    }
+    for (const [label, rules] of [['数据范围', dataRules], ['目标范围', targetRules], ['动作范围', operationRules]]) {
+      const extraRoles = Object.keys(rules).filter(role => !allowedRoles.has(role))
+      if (extraRoles.length) issues.push(`${label}存在未授权角色：${extraRoles.map(role => roleNames[role] || role).join('、')}`)
     }
     return issues
   }

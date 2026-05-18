@@ -17,7 +17,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from config.config import Config
 from models.lesson.lesson import Lesson
-from models.datas_api.auth import User, get_current_user
+from models.datas_api.auth import User, is_admin_user
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.datas_api.legacy_common import check_legacy_api_permission
 from utils.cache import cache
 from utils.operation_log import operation_logger
@@ -231,9 +232,9 @@ async def get_periods():
     return {"periods": get_periods_cached()}
 
 
-@router.get("/current-classes", dependencies=[Depends(check_legacy_api_permission)])
-async def get_current_classes():
-    """获取当前所有班级正在上的课程"""
+@router.get("/current-classes")
+async def get_current_classes(user: User = Depends(require_configured_api_permission("/api/current-classes", "GET", allow_missing=False))):
+    """获取当前所有班级正在上的课程（统一鉴权已完成角色校验）"""
     schedule_data = get_schedule_data_cached()
     periods = get_periods_cached()
     teachers_data = get_teachers_data_cached()
@@ -297,9 +298,12 @@ async def get_current_classes():
     return {"current_classes": current_classes}
 
 
-@router.get("/teacher-schedule/{teacher_name}", dependencies=[Depends(check_legacy_api_permission)])
-async def get_teacher_schedule(teacher_name: str):
-    """获取指定教师的课表"""
+@router.get("/teacher-schedule/{teacher_name}")
+async def get_teacher_schedule(teacher_name: str, user: User = Depends(require_configured_api_permission("/api/teacher-schedule/{teacher_name}", "GET", allow_missing=False))):
+    """获取指定教师的本周课表（教师仅本人，管理员可查看全部）。"""
+    if not is_admin_user(user) and user.username != teacher_name:
+        raise HTTPException(status_code=403, detail="无权查看其他教师的课表")
+
     teachers_data = get_teachers_data_cached()
     periods = get_periods_cached()
 
@@ -334,10 +338,10 @@ async def get_teacher_schedule(teacher_name: str):
 
 
 @router.get("/teacher-schedule-nextweek/{teacher_name}")
-async def get_teacher_schedule_nextweek(teacher_name: str, current_user: User = Depends(get_current_user)):
-    """获取指定教师的下周课表"""
+async def get_teacher_schedule_nextweek(teacher_name: str, current_user: User = Depends(require_configured_api_permission("/api/teacher-schedule-nextweek/{teacher_name}", "GET", allow_missing=False))):
+    """获取指定教师的下周课表（统一鉴权已完成角色校验，保留本人判断）"""
     # 权限检查
-    if current_user.role != "admin" and current_user.username != teacher_name:
+    if not is_admin_user(current_user) and current_user.username != teacher_name:
         raise HTTPException(status_code=403, detail="无权查看其他教师的课表")
 
     teachers_data = get_teachers_data_cached()
@@ -373,9 +377,9 @@ async def get_teacher_schedule_nextweek(teacher_name: str, current_user: User = 
     return {"schedule": teacher_schedule}
 
 
-@router.post("/upload-schedule", dependencies=[Depends(check_legacy_api_permission)])
-async def upload_schedule(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
-    """上传课表文件并触发自动更新"""
+@router.post("/upload-schedule")
+async def upload_schedule(file: UploadFile = File(...), current_user: User = Depends(require_configured_api_permission("/api/upload-schedule", "POST", allow_missing=False))):
+    """上传课表文件（统一鉴权已完成教务/管理员校验）"""
     if not file.filename.endswith('.xlsx'):
         raise HTTPException(status_code=400, detail="只允许上传 .xlsx 格式的文件")
 

@@ -38,22 +38,23 @@ class TestAttendanceRoutesContract:
         # del_delay 路由单独计数
         assert len(attendance_module.router.routes) == 7
 
-    def test_del_delay_has_get_current_user_dependency(self):
-        """/del_delay/{id} 仍保留 get_current_user 依赖"""
+    def test_del_delay_has_unified_permission_dependency(self):
+        """/del_delay/{id} 已接入统一鉴权依赖"""
         for route in attendance_module.router.routes:
             path = getattr(route, "path", "")
             if path != "/del_delay/{id}":
                 continue
-            # 检查是否有 get_current_user 依赖
+            # 统一鉴权后检查 require_configured_api_permission 生成的 check 依赖
             dependency_names = set()
             for dep in route.dependant.dependencies:
                 dep_func = getattr(dep, "call", None)
                 if dep_func:
                     dependency_names.add(dep_func.__name__)
-            assert "get_current_user" in dependency_names
+            # 统一鉴权依赖生成名为 check 的内部函数
+            assert "check" in dependency_names
 
     def test_leave_records_routes_have_check_api_permission(self):
-        """leave-records 相关路由包含 check_api_permission 依赖"""
+        """leave-records 相关路由已接入统一鉴权依赖"""
         permission_required_paths = {
             "/cleader-classes/",
             "/leave-records/",
@@ -64,14 +65,14 @@ class TestAttendanceRoutesContract:
             path = getattr(route, "path", "")
             if path not in permission_required_paths:
                 continue
-            # 检查是否有 check_api_permission 依赖
+            # 统一鉴权后检查 require_configured_api_permission 生成的 check 依赖
             dependency_names = set()
             for dep in route.dependant.dependencies:
                 dep_func = getattr(dep, "call", None)
                 if dep_func:
                     dependency_names.add(dep_func.__name__)
-            # check_api_permission 是 async 函数，检查名称
-            assert "check_api_permission" in dependency_names
+            # 统一鉴权依赖生成名为 check 的内部函数
+            assert "check" in dependency_names
 
     def test_check_api_permission_accepts_fastapi_request(self):
         """权限依赖必须接收 FastAPI Request 注入，而不是查询参数。"""

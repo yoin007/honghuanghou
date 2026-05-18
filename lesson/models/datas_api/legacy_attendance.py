@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from models.daily.inout import InOut
 from models.datas_api.auth import User, get_current_user
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.datas_api.legacy_common import check_api_permission
 from models.datas_api.legacy_students import StudentInfoRequest, get_stu_dict
 from models.lesson.lesson import Lesson
@@ -176,8 +177,8 @@ async def get_delay_infos(classCode: str):
 
 
 @router.get("/del_delay/{id}")
-async def del_delay(id: int, current_user: User = Depends(get_current_user)):
-    """删除学生延时记录"""
+async def del_delay(id: int, current_user: User = Depends(require_configured_api_permission("/api/del_delay/{id}", "GET", allow_missing=False))):
+    """删除延时记录（统一鉴权已完成角色校验，保留班级范围判断）"""
     # 获取延时记录的班级信息
     with InOut() as i:
         recorder = i.get_recorder(id)
@@ -210,9 +211,9 @@ async def del_delay(id: int, current_user: User = Depends(get_current_user)):
 # Routes: Leave Records (请假)
 # ============================================================
 
-@router.get("/cleader-classes/", dependencies=[Depends(check_api_permission)])
-async def get_cleader_classes(current_user: User = Depends(get_current_user)):
-    """获取班主任负责的班级列表"""
+@router.get("/cleader-classes/")
+async def get_cleader_classes(current_user: User = Depends(require_configured_api_permission("/api/cleader-classes/", "GET", allow_missing=False))):
+    """获取班主任负责的班级列表（统一鉴权已完成角色校验，保留范围判断）"""
     _ensure_leave_permission(current_user)
 
     # 学发部或管理员可以看到所有班级
@@ -250,11 +251,11 @@ async def get_cleader_classes(current_user: User = Depends(get_current_user)):
     return {"classes": [], "class_codes": []}
 
 
-@router.post("/leave-records/", dependencies=[Depends(check_api_permission)], summary="提交请假记录", description="提交学生请假/外出记录")
+@router.post("/leave-records/", summary="提交请假记录", description="提交学生请假/外出记录")
 async def insert_leave_records(
-    request: LeaveRecordRequest, current_user: User = Depends(get_current_user)
+    request: LeaveRecordRequest, current_user: User = Depends(require_configured_api_permission("/api/leave-records/", "POST", allow_missing=False))
 ):
-    """提交请假记录"""
+    """提交请假记录（统一鉴权已完成角色校验，保留班级范围判断）"""
     _ensure_leave_permission(current_user)
     if not request.names:
         raise HTTPException(status_code=400, detail="请至少选择一名学生")
@@ -286,14 +287,14 @@ async def insert_leave_records(
     return {"inout_ids": record_ids, "status": "已提交"}
 
 
-@router.get("/leave-records/", dependencies=[Depends(check_api_permission)])
+@router.get("/leave-records/")
 async def get_leave_records(
     page: int = 1,
     page_size: int = 10,
     class_code: str = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/leave-records/", "GET", allow_missing=False)),
 ):
-    """获取请假记录列表"""
+    """获取请假记录列表（统一鉴权已完成角色校验，保留班级/年级范围判断）"""
     _ensure_leave_permission(current_user)
     if page < 1 or page_size < 1:
         raise HTTPException(status_code=400, detail="分页参数不合法")
@@ -389,11 +390,11 @@ async def get_leave_records(
     return {"total": total, "page": page, "page_size": page_size, "records": records}
 
 
-@router.post("/leave-records/{record_id}/consume", dependencies=[Depends(check_api_permission)])
+@router.post("/leave-records/{record_id}/consume")
 async def consume_leave_record(
-    record_id: int, current_user: User = Depends(get_current_user)
+    record_id: int, current_user: User = Depends(require_configured_api_permission("/api/leave-records/{record_id}/consume", "POST", allow_missing=False))
 ):
-    """销假（消耗请假记录）"""
+    """销假（统一鉴权已完成角色校验，保留班级/年级范围判断）"""
     _ensure_leave_permission(current_user)
     l = Lesson()
     manage_all = _can_manage_all_classes(current_user)

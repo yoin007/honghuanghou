@@ -57,13 +57,14 @@ class TestScheduleRoutesContract:
             path = getattr(route, "path", "")
             if path not in permission_required_paths:
                 continue
-            # 检查是否有 check_legacy_api_permission 依赖
+            # 统一鉴权后检查 require_configured_api_permission 生成的 check 依赖
             dependency_names = set()
             for dep in route.dependant.dependencies:
                 dep_func = getattr(dep, "call", None)
                 if dep_func:
                     dependency_names.add(dep_func.__name__)
-            assert "check_legacy_api_permission" in dependency_names
+            # 统一鉴权依赖生成名为 check 的内部函数
+            assert "check" in dependency_names
 
     def test_schedule_routes_without_permission_do_not_have_dependency(self):
         """公开的 schedule 路由不包含权限依赖"""

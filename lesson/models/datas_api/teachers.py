@@ -15,6 +15,7 @@ from models.datas_api.auth import (
     verify_password_compat,
     is_admin_user
 )
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from utils.teacher_db import (
     create_teacher_record,
     update_teacher_record,
@@ -124,7 +125,7 @@ def _ensure_teaching_class_table(db):
 @router.get("", summary="获取教师列表")
 async def get_teachers(
     include_all: int = Query(0, description="管理员维护用：1=返回 teacher 表全部身份记录"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_configured_api_permission("/api/teachers", "GET", allow_missing=False)),
 ):
     """获取教师列表。默认只返回可登录系统的正式教师。"""
     if include_all:
@@ -171,7 +172,7 @@ async def get_teachers(
 @router.post("", summary="创建教师")
 async def create_teacher(
     teacher: TeacherCreate,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/teachers", "POST", allow_missing=False))
 ):
     """创建新教师（需要管理员权限）"""
     if not is_admin_user(current_user):
@@ -209,7 +210,7 @@ async def create_teacher(
 async def update_teacher(
     username: str,
     teacher: TeacherUpdate,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/teachers/{username}", "PUT", allow_missing=False))
 ):
     """更新教师信息"""
     if not is_admin_user(current_user):
@@ -257,7 +258,7 @@ async def update_teacher(
 @router.delete("/{username}", summary="删除教师")
 async def delete_teacher(
     username: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/teachers/{username}", "DELETE", allow_missing=False))
 ):
     """删除教师"""
     if not is_admin_user(current_user):
@@ -281,7 +282,7 @@ async def delete_teacher(
 @router.get("/{teacher_id}/teaching-classes", summary="获取教师任教班级")
 async def get_teacher_teaching_classes(
     teacher_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/teachers/{teacher_id}/teaching-classes", "GET", allow_missing=False))
 ):
     """获取教师任教班级关系（管理员维护权限）。"""
     if not is_admin_user(current_user):
@@ -317,7 +318,7 @@ async def get_teacher_teaching_classes(
 async def update_teacher_teaching_classes(
     teacher_id: str,
     payload: TeachingClassUpdate,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/teachers/{teacher_id}/teaching-classes", "PUT", allow_missing=False))
 ):
     """全量更新教师任教班级关系。"""
     if not is_admin_user(current_user):
@@ -366,7 +367,7 @@ async def update_teacher_teaching_classes(
 
 @router.post("/init-teaching-classes", summary="初始化所有教师任教班级")
 async def init_all_teaching_classes(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/teachers/init-teaching-classes", "POST", allow_missing=False))
 ):
     """根据最近一个月的课表数据，批量更新所有教师的任教班级。
 
@@ -544,9 +545,10 @@ async def init_all_teaching_classes(
 @router.post("/change-password", summary="修改密码")
 async def teacher_change_password(
     request: PasswordChangeRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/teachers/change-password", "POST", allow_missing=False))
 ):
-    """教师修改自己的密码"""
+    """教师修改自己的密码（统一鉴权 + 本人校验）"""
+    # 统一鉴权已完成角色和等级校验，此处保留"本人操作"业务判断
     if is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="管理员请使用管理员接口修改密码")
 

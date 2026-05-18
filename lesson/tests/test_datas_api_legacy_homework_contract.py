@@ -41,34 +41,32 @@ class TestHomeworkRoutesContract:
         # plus routes directly in datas_api_legacy.py
         assert len(homework_module.router.routes) == 10
 
-    def test_routes_with_login_dependency(self):
-        """需要登录的路由包含 get_current_user 依赖"""
-        # /homework/ POST route has get_current_user dependency
-        login_required_paths = {
+    def test_routes_with_unified_permission_dependency(self):
+        """需要登录的路由包含统一鉴权依赖"""
+        permission_required_paths = {
             "/homework/",
+            "/homework/batch",
+            "/homework/{hw_id}",
+            "/announcement/",
+            "/announcement/{ann_id}",
         }
 
         for route in homework_module.router.routes:
             path = getattr(route, "path", "")
-            if path not in login_required_paths:
+            if path not in permission_required_paths:
                 continue
-            # 检查是否有 get_current_user 依赖
             dependency_names = set()
             for dep in route.dependant.dependencies:
                 dep_func = getattr(dep, "call", None)
                 if dep_func:
                     dependency_names.add(dep_func.__name__)
-            assert "get_current_user" in dependency_names
+            assert "check" in dependency_names
 
     def test_routes_without_login_dependency(self):
         """公开的 homework 路由不包含登录依赖"""
         public_paths = {
             "/homework/{class_code}",
-            "/homework/batch",
-            "/homework/{hw_id}",
             "/announcements/{class_code}",
-            "/announcement/",
-            "/announcement/{ann_id}",
             "/messages/{class_code}",
         }
 
