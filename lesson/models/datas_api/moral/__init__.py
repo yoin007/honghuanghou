@@ -60,6 +60,7 @@ from .database_backup import router as database_backup_router
 from .menu_permission import router as menu_permission_router
 from .ai_model_config import router as ai_model_config_router
 from .semester_evaluation import router as semester_evaluation_router
+from .warning import router as warning_router
 
 from fastapi import APIRouter
 from fastapi import Depends
@@ -170,6 +171,7 @@ router.include_router(database_backup_router)
 router.include_router(menu_permission_router)
 router.include_router(ai_model_config_router)
 router.include_router(semester_evaluation_router)
+router.include_router(warning_router)
 
 __all__ = [
     'router',

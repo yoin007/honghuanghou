@@ -3,6 +3,27 @@
   <ErrorState v-else-if="errorState" :type="errorState" :show-retry="errorState === 'error'" @retry="fetchSummary" />
   <ForbiddenState v-else-if="forbidden" />
   <div v-else class="command-dashboard moral-theme">
+    <section class="global-filter-section">
+      <div class="global-filter-header">
+        <span class="filter-label">数据时间范围</span>
+        <div class="filter-controls">
+          <el-date-picker
+            v-model="globalDateRange"
+            type="daterange"
+            range-separator="-"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            value-format="YYYY-MM-DD"
+            size="small"
+            :clearable="true"
+            style="width: 260px"
+            @change="onGlobalDateChange"
+          />
+          <el-button size="small" @click="resetGlobalDate" :disabled="!globalDateRange">重置</el-button>
+        </div>
+      </div>
+    </section>
+
     <DashboardHero
       kicker="Moral Intelligence"
       title="德育驾驶舱"
@@ -12,7 +33,7 @@
         <span>平均德育分</span>
         <strong>{{ avgScore }}</strong>
       </div>
-      <DashboardTopNSelect v-model="topN" @change="fetchSummary" />
+      <DashboardTopNSelect v-model="topN" @change="onTopNChange" />
     </DashboardHero>
 
     <DashboardMetricGrid :cards="summary.cards" :accents="accents" @click="go" />
@@ -42,24 +63,6 @@
         emptyText="暂无全校班级对比趋势数据"
         :loading="allClassTrendLoading"
       />
-      <div class="trend-header">
-        <h3>全校班级正负记录对比</h3>
-        <div class="trend-controls">
-          <el-date-picker
-            v-model="recordCompareDateRange"
-            type="daterange"
-            range-separator="-"
-            start-placeholder="开始"
-            end-placeholder="结束"
-            value-format="YYYY-MM-DD"
-            size="small"
-            :clearable="true"
-            style="width: 240px"
-            @change="onRecordCompareDateChange"
-          />
-          <el-button size="small" @click="resetRecordCompareDate" :disabled="!recordCompareDateRange">重置</el-button>
-        </div>
-      </div>
       <DashboardChart
         title="全校班级正负记录对比"
         eyebrow="POSITIVE VS NEGATIVE"
@@ -70,57 +73,91 @@
       />
     </section>
 
-    <section class="chart-grid">
-      <DashboardChart
-        title="德育分数段分布"
-        eyebrow="SCORE BAND"
-        :option="scoreDistributionOption"
-        :empty="isEmpty(summary.charts?.score_distribution)"
-        emptyText="当前无德育分数分布数据"
-      />
-      <DashboardChart
-        title="日常表现正负占比"
-        eyebrow="EVENT MIX"
-        :option="eventMixOption"
-        :empty="isEmpty(summary.charts?.daily_event_mix)"
-        emptyText="当前无日常表现记录"
-      />
-      <DashboardChart
-        title="近 14 天日常记录趋势"
-        eyebrow="14 DAY TREND"
-        :option="dailyTrendOption"
-        :empty="isEmpty(summary.charts?.daily_record_trend, 'count')"
-        emptyText="近 14 天暂无日常记录数据"
-      />
-      <div class="class-score-chart-wrapper">
-        <DashboardChart
-          title="班级得分对比"
-          eyebrow="CLASS SCORES"
-          :option="classRankOption"
-          :empty="isEmpty(classScoreRows, 'avg_score')"
-          emptyText="当前无班级德育分数据"
-        />
-        <div class="score-legend">
-          <span class="legend-item excellent">80+优秀</span>
-          <span class="legend-item good">70-79良好</span>
-          <span class="legend-item pass">60-69及格</span>
-          <span class="legend-item fail">&lt;60不及格</span>
+    <section class="chart-section">
+      <div class="chart-section-header">
+        <div>
+          <span>RANGE ANALYSIS</span>
+          <h3>区间统计</h3>
         </div>
+        <small>{{ selectedRangeLabel }}</small>
       </div>
-      <DashboardChart
-        title="请假人数班级分布"
-        eyebrow="LEAVE BY CLASS"
-        :option="leaveByClassOption"
-        :empty="isEmpty(summary.charts?.leave_by_class)"
-        emptyText="当前无请假数据"
-      />
-      <DashboardChart
-        :title="`教师德育记录分布 Top${effectiveTopN}`"
-        eyebrow="TEACHER RECORDS"
-        :option="teacherRecordOption"
-        :empty="isEmpty(summary.charts?.teacher_record_distribution)"
-        emptyText="当前无教师德育记录数据"
-      />
+      <div class="chart-grid">
+        <DashboardChart
+          title="日常表现正负占比"
+          eyebrow="EVENT MIX"
+          :option="eventMixOption"
+          :empty="isEmpty(summary.charts?.daily_event_mix)"
+          emptyText="当前无日常表现记录"
+        >
+          <template #action>
+            <el-tooltip content="查看各类事件分布占比" placement="top">
+              <el-button
+                class="chart-icon-button"
+                circle
+                size="small"
+                :icon="PieChart"
+                :disabled="isEmpty(summary.charts?.daily_event_distribution)"
+                @click="eventDistributionVisible = true"
+              />
+            </el-tooltip>
+          </template>
+        </DashboardChart>
+        <DashboardChart
+          :title="dailyTrendTitle"
+          eyebrow="DAILY TREND"
+          :option="dailyTrendOption"
+          :empty="isEmpty(summary.charts?.daily_record_trend, 'count')"
+          emptyText="当前区间暂无日常记录数据"
+        />
+        <DashboardChart
+          :title="`教师德育记录分布 Top${effectiveTopN}`"
+          eyebrow="TEACHER RECORDS"
+          :option="teacherRecordOption"
+          :empty="isEmpty(summary.charts?.teacher_record_distribution)"
+          emptyText="当前区间无教师德育记录数据"
+        />
+      </div>
+    </section>
+
+    <section class="chart-section">
+      <div class="chart-section-header">
+        <div>
+          <span>CURRENT SNAPSHOT</span>
+          <h3>当前状态</h3>
+        </div>
+        <small>不随时间段筛选变化</small>
+      </div>
+      <div class="chart-grid">
+        <DashboardChart
+          title="德育分数段分布"
+          eyebrow="SCORE BAND"
+          :option="scoreDistributionOption"
+          :empty="isEmpty(summary.charts?.score_distribution)"
+          emptyText="当前无德育分数分布数据"
+        />
+        <div class="class-score-chart-wrapper">
+          <DashboardChart
+            title="班级得分对比"
+            eyebrow="CLASS SCORES"
+            :option="classRankOption"
+            :empty="isEmpty(classScoreRows, 'avg_score')"
+            emptyText="当前无班级德育分数据"
+          />
+          <div class="score-legend">
+            <span class="legend-item excellent">80+优秀</span>
+            <span class="legend-item good">70-79良好</span>
+            <span class="legend-item pass">60-69及格</span>
+            <span class="legend-item fail">&lt;60不及格</span>
+          </div>
+        </div>
+        <DashboardChart
+          title="请假人数班级分布"
+          eyebrow="LEAVE BY CLASS"
+          :option="leaveByClassOption"
+          :empty="isEmpty(summary.charts?.leave_by_class)"
+          emptyText="当前无请假数据"
+        />
+      </div>
     </section>
 
     <DashboardPanelSection class="risk-panel" variant="danger" eyebrow="ATTENTION LIST" :title="`低分学生 Top${effectiveTopN}`">
@@ -181,6 +218,27 @@
       </div>
     </DashboardPanelSection>
 
+    <DashboardPanelSection
+      v-if="warnings.length"
+      class="warning-panel"
+      variant="danger"
+      eyebrow="WARNING ALERT"
+      title="德育预警"
+    >
+      <div class="warning-list">
+        <div v-for="warning in warnings" :key="warning.id" class="warning-row" @click="handleWarningClick(warning)">
+          <div class="warning-info">
+            <strong>{{ warning.student_name }}</strong>
+            <span>{{ warning.class_name }} · {{ warning.warning_level === 'warning' ? '一般预警' : '严重预警' }}</span>
+          </div>
+          <div class="warning-meta">
+            <span class="warning-date">{{ warning.created_at?.slice(0, 10) }}</span>
+            <el-tag type="danger" size="small">未读</el-tag>
+          </div>
+        </div>
+      </div>
+    </DashboardPanelSection>
+
     <DashboardLeaveList
       :students="leaveStudents"
       mode="moral"
@@ -188,6 +246,22 @@
       title="当前请假学生"
       empty-text="当前可见范围内无请假学生，出勤正常。"
     />
+
+    <el-dialog
+      v-model="eventDistributionVisible"
+      title="日常表现各类事件分布占比"
+      width="720px"
+      class="event-distribution-dialog"
+      append-to-body
+    >
+      <DashboardChart
+        title="事件分布占比"
+        eyebrow="EVENT DISTRIBUTION"
+        :option="eventDistributionOption"
+        :empty="isEmpty(summary.charts?.daily_event_distribution)"
+        emptyText="当前无事件分布数据"
+      />
+    </el-dialog>
   </div>
 </template>
 
@@ -205,21 +279,24 @@ import DashboardHero from '@/components/dashboard/DashboardHero.vue'
 import DashboardMetricGrid from '@/components/dashboard/DashboardMetricGrid.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
 import DashboardTopNSelect from '@/components/dashboard/DashboardTopNSelect.vue'
+import { PieChart } from '@element-plus/icons-vue'
 import { getMoralDashboardSummary, getAllClassesScoreTrend, getClassRecordCompare } from '@/api/modules/dashboard'
-import { getExpiringPunishments } from '@/api/modules/moral'
+import { getExpiringPunishments, getWarnings, markWarningRead } from '@/api/modules/moral'
 import { basePieOption, baseHorizontalBarOption, baseLineOption, buildAdaptiveValueAxis } from '@/utils/charting'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
 const router = useRouter()
 const summary = ref({ cards: [], charts: {}, tables: {} })
 const expiringPunishments = ref({ expiring_soon: [], already_expired: [] })
+const warnings = ref([])
 const topN = ref(50) // 默认50，获取全部班级对比
 const moralTrendUnit = ref('week')
 const allClassTrendData = ref({ periods: [], labels: [], classes: [] })
 const allClassTrendLoading = ref(false)
 const classRecordCompareData = ref({ classes: [] })
 const classRecordCompareLoading = ref(false)
-const recordCompareDateRange = ref(null)
+const globalDateRange = ref(null)
+const eventDistributionVisible = ref(false)
 const { loading, errorState, forbidden, execute } = useDashboardRequest()
 const accents = ['#22d3ee', '#a3e635', '#f59e0b', '#fb7185']
 const chartColors = ['#22d3ee', '#84cc16', '#f59e0b', '#fb7185', '#818cf8']
@@ -258,6 +335,40 @@ const eventMixOption = computed(() => basePieOption({
   radius: ['46%', '70%'],
   data: summary.value.charts?.daily_event_mix || []
 }))
+
+const eventDistributionOption = computed(() => {
+  const data = summary.value.charts?.daily_event_distribution || []
+  if (!data.length) return null
+
+  const positiveColors = ['#22d3ee', '#38bdf8', '#67e8f9', '#a5f3fc', '#cffafe']
+  const negativeColors = ['#fb7185', '#f472b6', '#fda4af', '#fecdd3', '#fee2e2']
+  let positiveIndex = 0
+  let negativeIndex = 0
+
+  return basePieOption({
+    radius: ['38%', '66%'],
+    center: ['50%', '42%'],
+    data: data.map(item => {
+      const palette = item.event_type === 1 ? positiveColors : negativeColors
+      const index = item.event_type === 1 ? positiveIndex++ : negativeIndex++
+      return {
+        name: item.name,
+        value: item.value,
+        itemStyle: { color: palette[index % palette.length] }
+      }
+    })
+  })
+})
+
+const dailyTrendTitle = computed(() => {
+  if (!globalDateRange.value || globalDateRange.value.length !== 2) return '近 14 天日常记录趋势'
+  return '日常记录趋势'
+})
+
+const selectedRangeLabel = computed(() => {
+  if (!globalDateRange.value || globalDateRange.value.length !== 2) return '默认近 14 天/当前学期'
+  return `${globalDateRange.value[0]} 至 ${globalDateRange.value[1]}`
+})
 
 const dailyTrendOption = computed(() => baseLineOption({
   xAxisData: (summary.value.charts?.daily_record_trend || []).map(item => item.date?.slice(5)),
@@ -510,10 +621,34 @@ const fetchExpiringPunishments = async () => {
   }
 }
 
+const fetchWarnings = async () => {
+  try {
+    const res = await getWarnings({ is_read: 0, days: 30, page_size: 10 })
+    if (res.success && res.data) {
+      warnings.value = res.data
+    }
+  } catch (e) {
+    // 静默失败
+  }
+}
+
+const handleWarningClick = async (warning) => {
+  try {
+    await markWarningRead(warning.id)
+    warnings.value = warnings.value.filter(w => w.id !== warning.id)
+  } catch (e) {
+    console.error('标记预警已读失败:', e)
+  }
+}
+
 const fetchAllClassTrend = async () => {
   allClassTrendLoading.value = true
   try {
-    const res = await getAllClassesScoreTrend({ unit: moralTrendUnit.value })
+    const res = await getAllClassesScoreTrend({
+      unit: moralTrendUnit.value,
+      top_n: topN.value,
+      ...globalDateParams()
+    })
     if (res.success) {
       allClassTrendData.value = res.data
     }
@@ -528,15 +663,23 @@ const onMoralTrendUnitChange = () => {
   fetchAllClassTrend()
 }
 
+const onTopNChange = () => {
+  fetchSummary()
+  fetchAllClassTrend()
+}
+
+const globalDateParams = () => {
+  if (!globalDateRange.value || globalDateRange.value.length !== 2) return {}
+  return {
+    start_date: globalDateRange.value[0],
+    end_date: globalDateRange.value[1]
+  }
+}
+
 const fetchClassRecordCompare = async () => {
   classRecordCompareLoading.value = true
   try {
-    const params = {}
-    if (recordCompareDateRange.value && recordCompareDateRange.value.length === 2) {
-      params.start_date = recordCompareDateRange.value[0]
-      params.end_date = recordCompareDateRange.value[1]
-    }
-    const res = await getClassRecordCompare(params)
+    const res = await getClassRecordCompare(globalDateParams())
     if (res.success) {
       classRecordCompareData.value = res.data
     }
@@ -547,23 +690,31 @@ const fetchClassRecordCompare = async () => {
   }
 }
 
-const onRecordCompareDateChange = () => {
+const onGlobalDateChange = () => {
+  fetchSummary()
+  fetchAllClassTrend()
   fetchClassRecordCompare()
 }
 
-const resetRecordCompareDate = () => {
-  recordCompareDateRange.value = null
+const resetGlobalDate = () => {
+  globalDateRange.value = null
+  fetchSummary()
+  fetchAllClassTrend()
   fetchClassRecordCompare()
 }
 
-const fetchSummary = () => execute(
-  () => getMoralDashboardSummary({ top_n: topN.value }),
-  data => { summary.value = data }
-)
+const fetchSummary = () => {
+  const params = { top_n: topN.value, ...globalDateParams() }
+  execute(
+    () => getMoralDashboardSummary(params),
+    data => { summary.value = data }
+  )
+}
 
 onMounted(() => {
   fetchSummary()
   fetchExpiringPunishments()
+  fetchWarnings()
   fetchAllClassTrend()
   fetchClassRecordCompare()
 })
@@ -749,6 +900,146 @@ p {
 }
 
 .expire-date {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* ===== 德育预警区块 ===== */
+.warning-panel {
+  --panel-border: rgba(251, 113, 133, 0.3);
+}
+
+/* ===== 全局时间筛选 ===== */
+.global-filter-section {
+  margin: 0 0 16px 0;
+  padding: 12px 16px;
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.global-filter-header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 16px;
+}
+
+.filter-label {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.filter-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-icon-button {
+  border-color: rgba(34, 211, 238, 0.36);
+  background: rgba(15, 23, 42, 0.72);
+  color: #67e8f9;
+}
+
+.chart-icon-button:hover,
+.chart-icon-button:focus {
+  border-color: #22d3ee;
+  background: rgba(34, 211, 238, 0.18);
+  color: #e0faff;
+}
+
+.chart-section {
+  margin-top: 24px;
+}
+
+.chart-section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.chart-section-header span {
+  display: block;
+  margin-bottom: 4px;
+  color: #67e8f9;
+  font-size: 12px;
+}
+
+.chart-section-header h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.chart-section-header small {
+  color: rgba(226, 232, 240, 0.62);
+  font-size: 12px;
+  text-align: right;
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+@media (max-width: 960px) {
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-section-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+/* ===== 德育预警区块 ===== */
+
+.warning-list {
+  display: grid;
+  gap: 10px;
+}
+
+.warning-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 14px;
+  border: 1px solid rgba(251, 113, 133, 0.25);
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.15);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.warning-row:hover {
+  background: rgba(127, 29, 29, 0.25);
+}
+
+.warning-info strong {
+  color: #fecdd3;
+}
+
+.warning-info span {
+  display: block;
+  margin-top: 4px;
+  color: rgba(226, 232, 240, 0.66);
+  font-size: 13px;
+}
+
+.warning-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.warning-date {
   font-size: 12px;
   color: #94a3b8;
 }

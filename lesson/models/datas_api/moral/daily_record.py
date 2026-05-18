@@ -184,6 +184,7 @@ async def get_daily_records(
     grade_id: Optional[int] = Query(None, description="级号ID"),
     semester_id: Optional[int] = Query(None, description="学期ID"),
     event_type: Optional[int] = Query(None, description="事件类型"),
+    event_id: Optional[int] = Query(None, description="具体事件ID"),
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
     scope: Optional[str] = Query(None, description="数据范围: own(我创建的), managed_classes(管理班级), managed_grades(管理年级), all(全校)"),
@@ -231,6 +232,10 @@ async def get_daily_records(
         if event_type is not None:
             conditions.append("de.event_type = ?")
             params.append(event_type)
+
+        if event_id is not None:
+            conditions.append("dr.event_id = ?")
+            params.append(event_id)
 
         if start_date:
             conditions.append("dr.record_date >= ?")

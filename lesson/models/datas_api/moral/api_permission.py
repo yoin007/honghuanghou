@@ -1805,6 +1805,37 @@ def _normalize_legacy_migrated_permissions(db) -> None:
                 (_json_dump(repair["to"]), path),
             )
 
+    teacher_module_id = _ensure_module(db, "teacher_management", "教师管理", ["admin"], 100)
+    db.execute(
+        """UPDATE api_permission_config
+           SET api_name = ?,
+               api_group = ?,
+               module_id = ?,
+               allowed_roles = ?,
+               min_level = 10,
+               http_method = 'POST',
+               match_type = 'exact',
+               policy_mode = 'role_and_level',
+               inherit_from_module = 0,
+               is_public = 0,
+               enforce_backend = 1,
+               resource_type = 'teacher',
+               action_type = 'update',
+               data_scope_rules = '{}',
+               target_scope_rules = '{}',
+               operation_scope_rules = ?,
+               updated_at = datetime('now', 'localtime')
+           WHERE api_path = ?""",
+        (
+            "教师修改自己的密码",
+            "教师管理",
+            teacher_module_id,
+            _json_dump(["teacher", "cleader", "g_leader", "xuefa", "jiaowu"]),
+            _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES["/api/teachers/change-password"]),
+            "/api/teachers/change-password",
+        ),
+    )
+
 
 def _fix_incorrect_scope_rules(db) -> None:
     """修复已知的范围规则错误：
@@ -2225,6 +2256,16 @@ def _ensure_module(db, module_key: str, module_name: str, allowed_roles: Optiona
 
 def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
     """将 lesson/config/api_level.yaml 同步到数据库权限配置。"""
+    columns = _table_columns(db, "api_permission_config")
+    for column, sql in [
+        ("resource_type", "ALTER TABLE api_permission_config ADD COLUMN resource_type TEXT DEFAULT ''"),
+        ("action_type", "ALTER TABLE api_permission_config ADD COLUMN action_type TEXT DEFAULT ''"),
+        ("data_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN data_scope_rules TEXT DEFAULT '{}'"),
+        ("target_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN target_scope_rules TEXT DEFAULT '{}'"),
+        ("operation_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN operation_scope_rules TEXT DEFAULT '{}'"),
+    ]:
+        if column not in columns:
+            db.execute(sql)
     try:
         from config.config import Config
     except Exception as exc:

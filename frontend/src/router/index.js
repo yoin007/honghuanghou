@@ -60,6 +60,12 @@ const routes = [
     meta: { requiresAuth: true, title: '系统运维驾驶舱', dashboardRoles: ['admin'] }
   },
   {
+    path: '/system/settings',
+    name: 'SystemSettings',
+    component: () => import('../views/system/Settings.vue'),
+    meta: { requiresAuth: true, title: '系统全局配置', adminOnly: true }
+  },
+  {
     path: '/schedule',
     name: 'Schedule',
     component: () => import('../views/Schedule.vue'),
@@ -512,16 +518,6 @@ const routes = [
     meta: {
       requiresAuth: true,
       title: '菜单权限配置',
-      requiresAdmin: true
-    }
-  },
-  {
-    path: '/moral/config/ai-model',
-    name: 'MoralConfigAiModel',
-    component: () => import('../views/moral/config/AiModelConfig.vue'),
-    meta: {
-      requiresAuth: true,
-      title: '大模型配置',
       requiresAdmin: true
     }
   },

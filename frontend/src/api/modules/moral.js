@@ -390,6 +390,31 @@ export function getExpiringPunishments(params = {}) {
 }
 
 // =============================================================================
+// 德育预警 API
+// =============================================================================
+
+/**
+ * 获取预警列表
+ */
+export function getWarnings(params = {}) {
+  return httpClient.get('/api/moral/warnings', { params })
+}
+
+/**
+ * 标记预警已读
+ */
+export function markWarningRead(warningId) {
+  return httpClient.post(`/api/moral/warnings/${warningId}/read`)
+}
+
+/**
+ * 批量标记已读
+ */
+export function markAllWarningsRead() {
+  return httpClient.post('/api/moral/warnings/mark-all-read')
+}
+
+// =============================================================================
 // 处分撤销申请 API
 // =============================================================================
 
@@ -1255,6 +1280,9 @@ export default {
 
   // 处分到期提醒
   getExpiringPunishments,
+  getWarnings,
+  markWarningRead,
+  markAllWarningsRead,
 
   // 处分撤销申请
   createRevokeApplication,

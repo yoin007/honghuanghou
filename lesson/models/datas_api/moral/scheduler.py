@@ -265,7 +265,7 @@ def profile_update_check_task():
     logger.info("执行画像更新检查任务")
 
     from .base import get_moral_db
-    from .profile import generate_student_profile_internal
+    from .profile import _generate_student_profile_payload
 
     with get_moral_db() as db:
         # 获取画像更新配置
@@ -316,7 +316,7 @@ def profile_update_check_task():
 
         for student in students_with_new_records[:10]:  # 限制每次最多生成10个
             try:
-                generate_student_profile_internal(db, student['student_id'])
+                _generate_student_profile_payload(student['student_id'], generated_by='scheduler')
                 logger.info(f"已生成学生画像：{student['name']}")
             except Exception as e:
                 logger.error(f"生成画像失败：{student['student_id']}，错误：{e}")

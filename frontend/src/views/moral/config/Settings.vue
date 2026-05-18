@@ -72,13 +72,6 @@
           <span class="hint">等级为空则只发预警通知，有等级则自动创建处分记录</span>
         </el-form-item>
 
-        <el-divider content-position="left">文件存储配置</el-divider>
-
-        <el-form-item label="文件存储目录">
-          <el-input v-model="configForm.filegather_storage_dir" placeholder="如: /data/filegather" style="width: 400px" />
-          <span class="hint">文件收集系统根目录（自动创建 uploads 和 done 子目录）</span>
-        </el-form-item>
-
         <el-divider content-position="left">升年级管理</el-divider>
 
         <el-form-item label="升年级操作">
@@ -135,8 +128,7 @@ const configForm = reactive({
     { action: 'criticism', name: '通报', level: '二级' },
     { action: 'demerit', name: '记过', level: '三级' },
     { action: 'observation', name: '留校查看', level: '四级' }
-  ],
-  filegather_storage_dir: ''
+  ]
 })
 const configKeys = new Set(Object.keys(configForm))
 

@@ -166,6 +166,8 @@ async def get_dashboard_overview(user: User = Depends(require_configured_api_per
 
 @router.get("/moral/summary", summary="德育驾驶舱总览")
 async def get_moral_dashboard_summary(
+    start_date: Optional[date] = Query(None, description="开始日期"),
+    end_date: Optional[date] = Query(None, description="结束日期"),
     top_n: int = Query(5, ge=1, le=50),
     user: User = Depends(require_configured_api_permission(API_DASHBOARD_MORAL_SUMMARY, "GET", allow_missing=False)),
 ):
@@ -177,6 +179,10 @@ async def get_moral_dashboard_summary(
     - 学发/教务/管理员：全校学生 + 全校班级对比
     """
     _ensure_dashboard_api_access(user, API_DASHBOARD_MORAL_SUMMARY)
+    if not isinstance(start_date, date):
+        start_date = None
+    if not isinstance(end_date, date):
+        end_date = None
     top_n = _normalize_top_n(top_n)
 
     with get_moral_db() as db:
@@ -193,7 +199,7 @@ async def get_moral_dashboard_summary(
         grade_filter = None
         if not scope.get('can_all'):
             if scope.get('my_class_ids'):
-                class_filter = scope['my_class_ids'][0]
+                class_filter = scope['my_class_ids']
             elif scope.get('my_grade_class_ids'):
                 grade_filter = scope.get('my_grade_ids', [])
 
@@ -201,22 +207,42 @@ async def get_moral_dashboard_summary(
         conditions = ["s.status = '在校'"]
         params = []
         if class_filter:
-            conditions.append("s.class_id = ?")
-            params.append(class_filter)
+            class_ids = [int(item) for item in class_filter if item]
+            if class_ids:
+                conditions.append(f"s.class_id IN ({','.join(['?'] * len(class_ids))})")
+                params.extend(class_ids)
         elif grade_filter:
             grade_class_ids = scope.get('my_grade_class_ids', [])
             if grade_class_ids:
-                conditions.append(f"s.class_id IN ({','.join(map(str, grade_class_ids))})")
+                conditions.append(f"s.class_id IN ({','.join(['?'] * len(grade_class_ids))})")
+                params.extend(grade_class_ids)
 
         where_clause = " AND ".join(conditions)
+
+        # 时间过滤条件
+        time_conditions = []
+        time_params = []
+        if start_date:
+            time_conditions.append("dr.record_date >= ?")
+            time_params.append(start_date.isoformat())
+        if end_date:
+            time_conditions.append("dr.record_date <= ?")
+            time_params.append(end_date.isoformat())
+        time_clause = " AND ".join(time_conditions) if time_conditions else ""
+
         student_count = _safe_count(db, f"SELECT COUNT(*) FROM student s WHERE {where_clause}", tuple(params))
+
+        # 日常记录统计（带时间筛选）
+        daily_where = f"dr.is_deleted = 0 AND {where_clause}"
+        if time_clause:
+            daily_where += f" AND {time_clause}"
         daily_count = _safe_count(
             db,
             f"""SELECT COUNT(*)
                 FROM student_daily_record dr
                 JOIN student s ON dr.student_id = s.student_id
-                WHERE dr.is_deleted = 0 AND {where_clause}""",
-            tuple(params),
+                WHERE {daily_where}""",
+            tuple(params + time_params),
         )
         # 正向记录数（event_type=1）
         positive_count = _safe_count(
@@ -225,8 +251,8 @@ async def get_moral_dashboard_summary(
                 FROM student_daily_record dr
                 JOIN daily_event_type det ON dr.event_id = det.event_id
                 JOIN student s ON dr.student_id = s.student_id
-                WHERE dr.is_deleted = 0 AND det.event_type = 1 AND {where_clause}""",
-            tuple(params),
+                WHERE {daily_where} AND det.event_type = 1""",
+            tuple(params + time_params),
         )
         # 需改进记录数（event_type=2）
         negative_count = _safe_count(
@@ -235,8 +261,8 @@ async def get_moral_dashboard_summary(
                 FROM student_daily_record dr
                 JOIN daily_event_type det ON dr.event_id = det.event_id
                 JOIN student s ON dr.student_id = s.student_id
-                WHERE dr.is_deleted = 0 AND det.event_type = 2 AND {where_clause}""",
-            tuple(params),
+                WHERE {daily_where} AND det.event_type = 2""",
+            tuple(params + time_params),
         )
         # 本周新增记录数
         week_start = _current_week_range()["start"].isoformat()
@@ -269,20 +295,46 @@ async def get_moral_dashboard_summary(
         # 班级得分对比：根据角色过滤班级范围
         class_score_rank_data = _class_score_rank_all(db, class_filter, grade_filter, top_n)
 
-        # 教师德育记录分布（使用topN参数）
+        # 教师德育记录分布（使用topN参数，带时间筛选）
+        teacher_where = f"dr.is_deleted = 0 AND dr.recorder IS NOT NULL AND dr.recorder != '' AND {where_clause}"
+        if start_date:
+            teacher_where += " AND dr.record_date >= ?"
+        if end_date:
+            teacher_where += " AND dr.record_date <= ?"
         teacher_record_distribution = db.query_all(
-            f"""SELECT recorder as name, COUNT(*) as value
-            FROM student_daily_record
-            WHERE is_deleted = 0 AND recorder IS NOT NULL AND recorder != ''
-            GROUP BY recorder
+            f"""SELECT dr.recorder as name, COUNT(*) as value
+            FROM student_daily_record dr
+            JOIN student s ON dr.student_id = s.student_id
+            WHERE {teacher_where}
+            GROUP BY dr.recorder
             ORDER BY value DESC
-            LIMIT {top_n}"""
+            LIMIT {top_n}""",
+            tuple(params + time_params),
         )
+
+        # 事件分布占比（各类事件数量）
+        event_distribution = db.query_all(
+            f"""SELECT det.event_name as name, COUNT(*) as value, det.event_type
+            FROM student_daily_record dr
+            JOIN daily_event_type det ON dr.event_id = det.event_id
+            JOIN student s ON dr.student_id = s.student_id
+            WHERE {daily_where}
+            GROUP BY det.event_id
+            ORDER BY value DESC
+            LIMIT 20""",
+            tuple(params + time_params),
+        )
+
+        # 日常表现正负占比（带时间筛选）
+        daily_where_for_mix = f"dr.is_deleted = 0 AND {where_clause}"
+        if time_clause:
+            daily_where_for_mix += f" AND {time_clause}"
 
         charts = {
             "score_distribution": _score_distribution(db, where_clause, query_params),
-            "daily_event_mix": _daily_event_mix(db, where_clause, query_params),
-            "daily_record_trend": _daily_record_trend(db, where_clause, query_params),
+            "daily_event_mix": _daily_event_mix(db, daily_where_for_mix, tuple(params + time_params)),
+            "daily_event_distribution": event_distribution or [],
+            "daily_record_trend": _daily_record_trend(db, where_clause, query_params, start_date, end_date),
             "class_score_rank": class_score_rank_data,
             "teacher_record_distribution": teacher_record_distribution or [],
         }

@@ -28,6 +28,26 @@
             <el-option label="消极事件" :value="2" />
           </el-select>
         </el-form-item>
+        <el-form-item label="事件">
+          <el-select v-model="filterForm.event_id" placeholder="选择事件" clearable filterable>
+            <el-option-group label="积极事件">
+              <el-option
+                v-for="event in positiveEvents"
+                :key="event.event_id"
+                :label="event.event_name"
+                :value="event.event_id"
+              />
+            </el-option-group>
+            <el-option-group label="消极事件">
+              <el-option
+                v-for="event in negativeEvents"
+                :key="event.event_id"
+                :label="event.event_name"
+                :value="event.event_id"
+              />
+            </el-option-group>
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="handleReset">重置</el-button>
@@ -209,7 +229,8 @@ const currentScope = ref(null)
 const filterForm = reactive({
   student_id: '',
   class_id: null,
-  event_type: null
+  event_type: null,
+  event_id: null
 })
 
 // 分页
@@ -340,6 +361,7 @@ const handleReset = () => {
   filterForm.student_id = ''
   filterForm.class_id = null
   filterForm.event_type = null
+  filterForm.event_id = null
   handleSearch()
 }
 

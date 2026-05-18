@@ -318,15 +318,6 @@ async def create_school_record(
         if record.description:
             proof = f"{record.description}" if not proof else f"{record.description} | {record.evidence}"
 
-        # 检查证书编号唯一性
-        if proof:
-            existing = db.query_one(
-                "SELECT record_id FROM student_school_record WHERE proof = ?",
-                (proof,)
-            )
-            if existing:
-                raise HTTPException(400, f"该证明材料已存在")
-
         # 插入记录（使用 event_date 映射到 get_date）
         db.execute(
             """INSERT INTO student_school_record

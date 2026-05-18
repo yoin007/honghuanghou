@@ -1322,6 +1322,8 @@ async def get_grade_classes_score_trend(
 async def get_all_classes_score_trend(
     unit: str = Query('week', description="聚合单位：week 或 month"),
     semester_id: Optional[int] = Query(None, description="学期ID，默认当前学期"),
+    start_date: Optional[str] = Query(None, description="开始日期，如2026-03-01"),
+    end_date: Optional[str] = Query(None, description="结束日期，如2026-03-31"),
     top_n: int = Query(50, ge=1, le=100, description="返回班级数量限制"),
     user: User = Depends(require_configured_api_permission(API_DASHBOARD_ALL_CLASSES_TREND, "GET", allow_missing=False)),
 ):
@@ -1377,17 +1379,24 @@ async def get_all_classes_score_trend(
         if not classes:
             return {"success": True, "data": {"periods": [], "labels": [], "classes": [], "unit": unit}}
 
-        # 获取学期信息
-        if not semester_id:
+        # 获取学期信息。页面全局时间筛选优先于学期范围。
+        semester = None
+        if not start_date or not end_date:
+            if not semester_id:
+                semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE status = 1")
+            else:
+                semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?", (semester_id,))
+
+            if not semester:
+                return {"success": True, "data": {"periods": [], "labels": [], "classes": [], "unit": unit}}
+
+            start_date = start_date or semester.get('start_date')
+            end_date = end_date or semester.get('end_date')
+        elif not semester_id:
             semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE status = 1")
         else:
             semester = db.query_one("SELECT semester_id, start_date, end_date FROM semester WHERE semester_id = ?", (semester_id,))
 
-        if not semester:
-            return {"success": True, "data": {"periods": [], "labels": [], "classes": [], "unit": unit}}
-
-        start_date = semester.get('start_date')
-        end_date = semester.get('end_date')
         period_format = _get_period_format(unit)
 
         # 基础分
@@ -1527,7 +1536,7 @@ async def get_all_classes_score_trend(
             })
 
         sorted_periods = sorted(all_periods)
-        semester_start_date = semester.get('start_date') if semester else None
+        semester_start_date = semester.get('start_date') if semester else start_date
         labels = [_format_period_label(p, unit, semester_start_date) for p in sorted_periods]
 
     return {
