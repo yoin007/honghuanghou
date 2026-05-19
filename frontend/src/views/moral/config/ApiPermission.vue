@@ -763,7 +763,7 @@ const teacherResourceScopeConfigs = {
     dataHelp: '控制能查看哪些教师账号资料。普通教师通常只需要教师通讯录；管理员可查看和维护全校教师。',
     targetHelp: '控制创建或维护教师账号时能作用到哪些教师对象。教师管理写操作通常只给管理员勾选全校教师。',
     operationHelp: '控制修改密码、编辑教师资料、任教班级维护等动作范围。改密是本人，教师资料维护是全校教师。',
-    privilegedScopes: { all_teachers: ['admin'] }
+    privilegedScopes: { all_teachers: ['admin', 'xuefa', 'g_leader'] }
   },
   filegather_scope: {
     dataOptions: [option('own_uploaded', '自己上传'), option('all_files', '全部文件')],
@@ -877,11 +877,10 @@ const expectedPublicApiPaths = new Set([
   '/api/todays',
   '/api/schedules',
   '/api/periods',
+  '/api/class-info/{class_code}',
   '/api/homework/{class_code}',
   '/api/announcements/{class_code}',
-  '/api/messages/{class_code}',
-  '/api/insert_delay/',
-  '/api/delay_infos/{classCode}'
+  '/api/messages/{class_code}'
 ])
 
 const form = reactive({

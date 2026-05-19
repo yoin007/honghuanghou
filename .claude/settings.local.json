@@ -273,7 +273,9 @@
       "Bash(find:*)",
       "Bash(sed:*)",
       "Bash(git -C /Users/yoin/bdsync/program/honghuanghou status --short)",
-      "Bash(git diff:*)"
+      "Bash(git diff:*)",
+      "Bash(tail -100 ../lesson/logs/*.log)",
+      "mcp__plugin_claude-mem_mcp-search__smart_unfold"
     ]
   }
 }

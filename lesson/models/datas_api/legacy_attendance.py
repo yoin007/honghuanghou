@@ -13,8 +13,7 @@ from pydantic import BaseModel
 from models.daily.inout import InOut
 from models.datas_api.auth import User, get_current_user
 from models.datas_api.moral.api_permission import require_configured_api_permission
-from models.datas_api.legacy_common import check_api_permission
-from models.datas_api.legacy_students import StudentInfoRequest, get_stu_dict
+from models.datas_api.legacy_students import StudentInfoRequest, get_stu_dict, _ensure_legacy_class_access
 from models.lesson.lesson import Lesson
 from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
 
@@ -140,8 +139,12 @@ def _get_gleader_class_names(user):
 # ============================================================
 
 @router.post("/insert_delay/")
-async def insert_delay(request: StudentInfoRequest):
+async def insert_delay(
+    request: StudentInfoRequest,
+    current_user: User = Depends(require_configured_api_permission("/api/insert_delay/", "POST", allow_missing=False)),
+):
     """插入学生延迟"""
+    _ensure_legacy_class_access(current_user, request.classCode)
     try:
         with InOut() as i:
             did = i.insert_inout(request.sid, "延时", request.classCode, status="已申请")
@@ -151,8 +154,12 @@ async def insert_delay(request: StudentInfoRequest):
 
 
 @router.get("/delay_infos/{classCode}")
-async def get_delay_infos(classCode: str):
+async def get_delay_infos(
+    classCode: str,
+    current_user: User = Depends(require_configured_api_permission("/api/delay_infos/{classCode}", "GET", allow_missing=False)),
+):
     """获取所有学生延迟"""
+    _ensure_legacy_class_access(current_user, classCode)
     today = datetime.now().strftime("%Y-%m-%d")
     with InOut() as i:
         delays = i.get_inouts(activate=1, recorder=classCode, date=today)

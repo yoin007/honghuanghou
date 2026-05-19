@@ -36,6 +36,10 @@ router = APIRouter(prefix="/escalation-rules", tags=["累进规则管理"])
 API_ESCALATION_STUDENT_HISTORY = "/api/moral/escalation-rules/student/{student_id}/history"
 API_ESCALATION_STUDENT_COUNT = "/api/moral/escalation-rules/student/{student_id}/count"
 API_ESCALATION_STUDENT_PROGRESS = "/api/moral/escalation-rules/student/{student_id}/progress"
+API_ESCALATION_LIST = "/api/moral/escalation-rules"
+API_ESCALATION_CREATE = "/api/moral/escalation-rules/create"
+API_ESCALATION_UPDATE = "/api/moral/escalation-rules/update"
+API_ESCALATION_DELETE = "/api/moral/escalation-rules/delete"
 
 
 def _ensure_student_escalation_access(db, user: User, student_id: str, api_path: str) -> None:
@@ -91,7 +95,7 @@ class EscalationRuleUpdate(BaseModel):
 @router.get("", summary="获取累进规则列表")
 async def get_escalation_rules(
     event_id: Optional[int] = Query(None, description="事件ID"),
-    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_ESCALATION_LIST, "GET", allow_missing=False))
 ):
     """获取累进规则列表"""
     with get_moral_db() as db:
@@ -129,7 +133,7 @@ async def get_escalation_rules(
 async def create_escalation_rule(
     rule_data: EscalationRuleCreate,
     request: Request,
-    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_ESCALATION_CREATE, "POST", allow_missing=False))
 ):
     """创建累进规则"""
     with get_moral_db() as db:
@@ -180,7 +184,7 @@ async def update_escalation_rule(
     rule_id: int,
     update_data: EscalationRuleUpdate,
     request: Request,
-    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_ESCALATION_UPDATE, "PUT", allow_missing=False))
 ):
     """更新累进规则"""
     with get_moral_db() as db:
@@ -228,7 +232,7 @@ async def update_escalation_rule(
 async def delete_escalation_rule(
     rule_id: int,
     request: Request,
-    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_ESCALATION_DELETE, "DELETE", allow_missing=False))
 ):
     """删除累进规则"""
     with get_moral_db() as db:
@@ -342,7 +346,7 @@ async def get_student_all_progress(
 
 @router.get("/events", summary="获取可配置累进规则的消极事件列表")
 async def get_configurable_events(
-    user: User = Depends(require_configured_api_permission("/api/moral/escalation-rules", "GET", allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_ESCALATION_LIST, "GET", allow_missing=False))
 ):
     """获取可配置累进规则的消极事件列表"""
     with get_moral_db() as db:

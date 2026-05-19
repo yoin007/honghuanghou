@@ -11,8 +11,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from models.datas_api.auth import User, get_current_user
-from models.datas_api.legacy_common import check_legacy_api_permission
+from models.datas_api.auth import User
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from utils.db_config import TASK_DB
 
 
@@ -51,8 +51,8 @@ def get_tasks_connection():
     return SQLiteConnectionManager(TASK_DB_PATH, row_factory=sqlite3.Row)
 
 
-@router.get("/tasks/funcs", dependencies=[Depends(check_legacy_api_permission)])
-async def get_available_funcs(current_user: User = Depends(get_current_user)):
+@router.get("/tasks/funcs")
+async def get_available_funcs(current_user: User = Depends(require_configured_api_permission("/api/tasks/funcs", "GET", allow_missing=False))):
     """获取可用的任务函数列表"""
     from models.task import Task
     task_obj = Task()
@@ -60,13 +60,13 @@ async def get_available_funcs(current_user: User = Depends(get_current_user)):
     return {"funcs": funcs}
 
 
-@router.get("/tasks", dependencies=[Depends(check_legacy_api_permission)])
+@router.get("/tasks")
 async def get_tasks(
     page: int = 1,
     page_size: int = 10,
     search: str = None,
     consumed: str = None,  # 状态筛选: "all" 或 None=全部, "pending"=待执行, "done"=已执行
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/tasks", "GET", allow_missing=False))
 ):
     """获取任务列表"""
     try:
@@ -136,8 +136,8 @@ async def get_tasks(
         raise HTTPException(status_code=500, detail=f"获取任务列表失败: {str(e)}")
 
 
-@router.post("/tasks", dependencies=[Depends(check_legacy_api_permission)])
-async def create_task(task: TaskCreate, current_user: User = Depends(get_current_user)):
+@router.post("/tasks")
+async def create_task(task: TaskCreate, current_user: User = Depends(require_configured_api_permission("/api/tasks", "POST", allow_missing=False))):
     """创建任务"""
     try:
         with get_tasks_connection() as conn:
@@ -165,8 +165,8 @@ async def create_task(task: TaskCreate, current_user: User = Depends(get_current
         raise HTTPException(status_code=500, detail=f"创建任务失败: {str(e)}")
 
 
-@router.put("/tasks/{task_id}", dependencies=[Depends(check_legacy_api_permission)])
-async def update_task(task_id: int, task: TaskUpdate, current_user: User = Depends(get_current_user)):
+@router.put("/tasks/{task_id}")
+async def update_task(task_id: int, task: TaskUpdate, current_user: User = Depends(require_configured_api_permission("/api/tasks/{task_id}", "PUT", allow_missing=False))):
     """更新任务"""
     try:
         with get_tasks_connection() as conn:
@@ -221,8 +221,8 @@ async def update_task(task_id: int, task: TaskUpdate, current_user: User = Depen
         raise HTTPException(status_code=500, detail=f"更新任务失败: {str(e)}")
 
 
-@router.delete("/tasks/{task_id}", dependencies=[Depends(check_legacy_api_permission)])
-async def delete_task(task_id: int, current_user: User = Depends(get_current_user)):
+@router.delete("/tasks/{task_id}")
+async def delete_task(task_id: int, current_user: User = Depends(require_configured_api_permission("/api/tasks/{task_id}", "DELETE", allow_missing=False))):
     """删除任务"""
     try:
         with get_tasks_connection() as conn:

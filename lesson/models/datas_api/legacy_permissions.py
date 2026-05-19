@@ -11,8 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from models.manage.member import Member
-from models.datas_api.auth import User, get_current_user
-from models.datas_api.legacy_common import check_api_permission
+from models.datas_api.auth import User
+from models.datas_api.moral.api_permission import require_configured_api_permission
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +72,13 @@ class PermissionUpdate(BaseModel):
 # Routes: Permissions Management
 # ============================================================
 
-@router.get("/permissions", dependencies=[Depends(check_api_permission)])
+@router.get("/permissions")
 async def get_permissions(
     page: int = 1,
     page_size: int = 10,
     search: str = None,
     activate: int = None,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/permissions", "GET", allow_missing=False))
 ):
     """获取权限列表"""
     try:
@@ -126,8 +126,8 @@ async def get_permissions(
         raise HTTPException(status_code=500, detail=f"获取权限列表失败: {str(e)}")
 
 
-@router.post("/permissions", dependencies=[Depends(check_api_permission)])
-async def create_permission(perm: PermissionCreate, current_user: User = Depends(get_current_user)):
+@router.post("/permissions")
+async def create_permission(perm: PermissionCreate, current_user: User = Depends(require_configured_api_permission("/api/permissions", "POST", allow_missing=False))):
     """创建权限"""
     try:
         with Member() as m:
@@ -162,8 +162,8 @@ async def create_permission(perm: PermissionCreate, current_user: User = Depends
         raise HTTPException(status_code=500, detail=f"创建权限失败: {str(e)}")
 
 
-@router.put("/permissions/{id}", dependencies=[Depends(check_api_permission)])
-async def update_permission(id: int, perm: PermissionUpdate, current_user: User = Depends(get_current_user)):
+@router.put("/permissions/{id}")
+async def update_permission(id: int, perm: PermissionUpdate, current_user: User = Depends(require_configured_api_permission("/api/permissions/{id}", "PUT", allow_missing=False))):
     """更新权限信息"""
     try:
         update_data = {k: v for k, v in perm.dict().items() if v is not None}
@@ -185,8 +185,8 @@ async def update_permission(id: int, perm: PermissionUpdate, current_user: User 
         raise HTTPException(status_code=500, detail=f"更新权限失败: {str(e)}")
 
 
-@router.delete("/permissions/{id}", dependencies=[Depends(check_api_permission)])
-async def delete_permission(id: int, current_user: User = Depends(get_current_user)):
+@router.delete("/permissions/{id}")
+async def delete_permission(id: int, current_user: User = Depends(require_configured_api_permission("/api/permissions/{id}", "DELETE", allow_missing=False))):
     """删除权限"""
     try:
         with Member() as m:

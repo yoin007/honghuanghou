@@ -14,8 +14,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from models.daily.daily import Daily
-from models.datas_api.auth import User, get_current_user
-from models.datas_api.legacy_common import check_api_permission
+from models.datas_api.auth import User
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from models.datas_api.legacy_attendance import (
     _user_has_role,
     _can_manage_all_classes,
@@ -131,8 +131,11 @@ async def _get_dailies_data(date: str = None, class_code: str = None, name: str 
 # Routes: Daily Records
 # ============================================================
 
-@router.post("/insert_daily/", dependencies=[Depends(check_api_permission)])
-async def insert_daily(request: DailyInfoRequest):
+@router.post("/insert_daily/")
+async def insert_daily(
+    request: DailyInfoRequest,
+    current_user: User = Depends(require_configured_api_permission("/api/insert_daily/", "POST", allow_missing=False)),
+):
     """插入学生日常"""
     try:
         l = Lesson()
@@ -158,8 +161,13 @@ async def insert_daily(request: DailyInfoRequest):
         raise HTTPException(status_code=500, detail=f"提交失败：{str(e)}")
 
 
-@router.get("/get_dailies/", dependencies=[Depends(check_api_permission)])
-async def get_dailies(date: str = None, class_code: str = None, name: str = None, current_user: User = Depends(get_current_user)):
+@router.get("/get_dailies/")
+async def get_dailies(
+    date: str = None,
+    class_code: str = None,
+    name: str = None,
+    current_user: User = Depends(require_configured_api_permission("/api/get_dailies/", "GET", allow_missing=False)),
+):
     """获取日常记录"""
     try:
         # 班主任只能查看自己班级学生的记录
@@ -180,8 +188,13 @@ async def get_dailies(date: str = None, class_code: str = None, name: str = None
         raise HTTPException(status_code=500, detail=f"查询失败：{str(e)}")
 
 
-@router.get("/export_dailies/", dependencies=[Depends(check_api_permission)])
-async def export_dailies(date: str = None, class_code: str = None, name: str = None, current_user: User = Depends(get_current_user)):
+@router.get("/export_dailies/")
+async def export_dailies(
+    date: str = None,
+    class_code: str = None,
+    name: str = None,
+    current_user: User = Depends(require_configured_api_permission("/api/export_dailies/", "GET", allow_missing=False)),
+):
     """导出日常记录"""
     try:
         # 班主任只能导出自己班级学生的记录

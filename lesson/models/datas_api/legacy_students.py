@@ -8,12 +8,20 @@ import io
 import logging
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from models.datas_api.auth import User
+from models.datas_api.moral.api_permission import require_configured_api_permission
+from models.datas_api.moral.base import (
+    get_teacher_class_ids,
+    get_teacher_grade_ids,
+    get_teacher_teaching_class_ids,
+)
 from models.daily.inout import InOut
 from models.lesson.lesson import Lesson
+from utils.sqlite_moral_db import MoralDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +67,45 @@ def get_stu_dict(sid):
     else:
         student = students_df.iloc[0].to_dict()
         return student
+
+
+def _user_roles(user: User) -> set[str]:
+    if not user or not getattr(user, "role", None):
+        return set()
+    return {role.strip() for role in str(user.role).split("/") if role.strip()}
+
+
+def _class_row_for_code(db: MoralDatabase, class_code: str):
+    return db.query_one(
+        """SELECT class_id, grade_id, class_code, class_name
+           FROM class
+           WHERE is_active = 1 AND (class_code = ? OR class_name = ?)""",
+        (str(class_code), str(class_code)),
+    )
+
+
+def _ensure_legacy_class_access(user: User, class_code: str, *, allow_teaching: bool = True) -> None:
+    """旧版班级/学生接口的班级范围控制。"""
+    roles = _user_roles(user)
+    if roles.intersection({"admin", "xuefa", "jiaowu"}):
+        return
+
+    with MoralDatabase() as db:
+        class_row = _class_row_for_code(db, class_code)
+        if not class_row:
+            raise HTTPException(status_code=404, detail="班级不存在")
+
+        class_id = int(class_row["class_id"])
+        grade_id = int(class_row["grade_id"]) if class_row.get("grade_id") is not None else None
+
+        if "cleader" in roles and class_id in get_teacher_class_ids(user, db):
+            return
+        if "g_leader" in roles and grade_id in get_teacher_grade_ids(user, db):
+            return
+        if allow_teaching and "teacher" in roles and class_id in get_teacher_teaching_class_ids(user, db):
+            return
+
+    raise HTTPException(status_code=403, detail="无权访问该班级数据")
 
 
 # ============================================================
@@ -108,8 +155,12 @@ async def get_class_info(class_code: str):
 # ============================================================
 
 @router.get("/students/{class_code}", summary="获取学生列表", description="获取指定班级的学生列表")
-async def get_students(class_code: str):
+async def get_students(
+    class_code: str,
+    current_user: User = Depends(require_configured_api_permission("/api/students/{class_code}", "GET", allow_missing=False)),
+):
     """获取指定班级的学生名单"""
+    _ensure_legacy_class_access(current_user, class_code)
     l = Lesson()
     students_df = l.get_cache_data("students")
     students = students_df[students_df["cname"] == class_code]["name"].tolist()
@@ -117,8 +168,12 @@ async def get_students(class_code: str):
 
 
 @router.get("/students/export/{class_code}")
-async def export_students_excel(class_code: str):
+async def export_students_excel(
+    class_code: str,
+    current_user: User = Depends(require_configured_api_permission("/api/students/export/{class_code}", "GET", allow_missing=False)),
+):
     """导出班级学生 Excel"""
+    _ensure_legacy_class_access(current_user, class_code, allow_teaching=False)
     l = Lesson()
     students_df = l.get_cache_data("students")
     if students_df is None or students_df.empty:
@@ -147,8 +202,13 @@ async def export_students_excel(class_code: str):
 
 
 @router.post("/students/import/{class_code}")
-async def import_students_excel(class_code: str, file: UploadFile = File(...)):
+async def import_students_excel(
+    class_code: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_configured_api_permission("/api/students/import/{class_code}", "POST", allow_missing=False)),
+):
     """导入学生 Excel"""
+    _ensure_legacy_class_access(current_user, class_code, allow_teaching=False)
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="只允许上传 .xlsx 或 .xls 格式的文件")
 
@@ -174,10 +234,12 @@ async def import_students_excel(class_code: str, file: UploadFile = File(...)):
 
 
 @router.get("/students_status/{class_code}")
-async def get_students_status(class_code: str):
+async def get_students_status(
+    class_code: str,
+    current_user: User = Depends(require_configured_api_permission("/api/students_status/{class_code}", "GET", allow_missing=False)),
+):
     """获取所有学生状态 - 数据源改为德育系统"""
-    from utils.sqlite_moral_db import MoralDatabase
-
+    _ensure_legacy_class_access(current_user, class_code)
     with MoralDatabase() as db:
         # 查询德育系统学生数据，关联班级表获取班级名称
         query = """
@@ -232,10 +294,14 @@ async def get_students_status(class_code: str):
 
 
 @router.post("/student_info/")
-async def get_student_info(request: StudentInfoRequest):
+async def get_student_info(
+    request: StudentInfoRequest,
+    current_user: User = Depends(require_configured_api_permission("/api/student_info/", "POST", allow_missing=False)),
+):
     """获取指定学生信息"""
     sid = request.sid
     class_code = request.classCode
+    _ensure_legacy_class_access(current_user, class_code)
     student = get_stu_dict(sid)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")

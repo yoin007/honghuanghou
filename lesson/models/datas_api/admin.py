@@ -16,6 +16,7 @@ from models.datas_api.auth import (
     get_password_hash,
     authenticate_user
 )
+from models.datas_api.moral.api_permission import require_configured_api_permission
 from utils.teacher_db import update_teacher_record
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ class ResetPasswordChangeRequest(BaseModel):
 # ==================== Admin Routes ====================
 
 @router.get("/users", summary="获取用户列表")
-async def list_users(current_user: User = Depends(get_current_user)):
+async def list_users(current_user: User = Depends(require_configured_api_permission("/api/admin/users", "GET", allow_missing=False))):
     """获取所有用户列表（需要管理员权限）"""
     if not is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="只有管理员可以访问")
@@ -68,7 +69,7 @@ async def list_users(current_user: User = Depends(get_current_user)):
 @router.post("/reset-password")
 async def admin_reset_password(
     request: PasswordResetRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/admin/reset-password", "POST", allow_missing=False))
 ):
     """管理员重置用户密码（生成随机密码）"""
     if not is_admin_user(current_user):
@@ -115,7 +116,7 @@ async def admin_reset_password(
 @router.post("/set-password")
 async def admin_set_password(
     request: AdminSetPasswordRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_configured_api_permission("/api/admin/set-password", "POST", allow_missing=False))
 ):
     """管理员为用户设置密码"""
     if not is_admin_user(current_user):

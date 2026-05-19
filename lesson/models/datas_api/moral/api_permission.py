@@ -39,15 +39,54 @@ EXPECTED_PUBLIC_API_PATHS = {
     "/api/todays",
     "/api/schedules",
     "/api/periods",
+    "/api/class-info/{class_code}",
     "/api/homework/{class_code}",
     "/api/announcements/{class_code}",
     "/api/messages/{class_code}",
+}
+
+LEGACY_PUBLIC_API_PATHS = EXPECTED_PUBLIC_API_PATHS - {"/api/token"}
+
+LEGACY_CONFIGURED_AUTH_API_PATHS = {
+    "/api/current-classes",
+    "/api/teacher-schedule/{teacher_name}",
+    "/api/teacher-schedule-nextweek/{teacher_name}",
+    "/api/upload-schedule",
+    "/api/students/{class_code}",
+    "/api/students/export/{class_code}",
+    "/api/students/import/{class_code}",
+    "/api/students_status/{class_code}",
+    "/api/student_info/",
     "/api/insert_delay/",
     "/api/delay_infos/{classCode}",
+    "/api/del_delay/{id}",
+    "/api/cleader-classes/",
+    "/api/leave-records/",
+    "/api/leave-records/{record_id}/consume",
+    "/api/homework/",
+    "/api/homework/batch",
+    "/api/homework/{hw_id}",
+    "/api/announcement/",
+    "/api/announcement/{ann_id}",
+    "/api/insert_daily/",
+    "/api/get_dailies/",
+    "/api/export_dailies/",
+    "/api/members",
+    "/api/members/{uuid}",
+    "/api/permissions",
+    "/api/permissions/{id}",
+    "/api/tasks",
+    "/api/tasks/{task_id}",
+    "/api/tasks/funcs",
+    "/api/vehicle-inout/{counts}",
+    "/api/admin/users",
+    "/api/admin/reset-password",
+    "/api/admin/set-password",
 }
 
 SYSTEM_RESOURCE_NON_ADMIN_PATHS = {
     "/api/moral/menu-permission/my-menu",
+    "/api/moral/admin/logs",
 }
 
 
@@ -141,13 +180,13 @@ class ApiPermissionAuditRequest(BaseModel):
 
 DEFAULT_API_PERMISSIONS = [
     # 日常表现记录
-    {"api_path": "/api/moral/daily-records", "api_name": "获取日常记录列表", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/moral/daily-records", "api_name": "获取日常记录列表", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "action_type": "view"},
     {"api_path": "/api/moral/daily-records/types", "api_name": "获取事件类型", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
     {"api_path": "/api/moral/daily-records/create", "api_name": "创建日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/daily-records/batch", "api_name": "批量创建记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/daily-records/batch", "api_name": "批量创建记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "http_method": "POST", "action_type": "create"},
     {"api_path": "/api/moral/daily-records/update", "api_name": "更新日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
     {"api_path": "/api/moral/daily-records/delete", "api_name": "删除日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/daily-records/statistics/student/{student_id}", "api_name": "学生日常表现统计", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern"},
+    {"api_path": "/api/moral/daily-records/statistics/student/{student_id}", "api_name": "学生日常表现统计", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "action_type": "view"},
 
     # 点滴记录
     {"api_path": "/api/moral/moment-records", "api_name": "获取点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
@@ -185,7 +224,7 @@ DEFAULT_API_PERMISSIONS = [
 
     # 德育任务
     {"api_path": "/api/moral/tasks", "api_name": "获取德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/tasks/create", "api_name": "创建德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/tasks/create", "api_name": "创建德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50, "action_type": "operate"},
     {"api_path": "/api/moral/tasks/update", "api_name": "更新德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/tasks/delete", "api_name": "删除德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/tasks/finish", "api_name": "记录任务完成", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
@@ -203,7 +242,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/dashboard/class/summary", "api_name": "班级驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 20},
     {"api_path": "/api/dashboard/grade/list", "api_name": "年级驾驶舱年级列表", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20},
     {"api_path": "/api/dashboard/grade/summary", "api_name": "年级驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20},
-    {"api_path": "/api/dashboard/teacher/workbench", "api_name": "教师个人工作台", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
+    {"api_path": "/api/dashboard/teacher/workbench", "api_name": "教师个人工作台", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher", "action_type": "view"},
     {"api_path": "/api/dashboard/invigilation/summary", "api_name": "监考驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu"], "min_level": 50},
     {"api_path": "/api/dashboard/system/summary", "api_name": "系统运维驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin"], "min_level": 100},
     {"api_path": "/api/dashboard/score-trend/student/{student_id}", "api_name": "学生个人得分趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
@@ -245,12 +284,12 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/admin/classes", "api_name": "获取班级列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
     {"api_path": "/api/moral/admin/classes/create", "api_name": "创建班级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
     {"api_path": "/api/moral/admin/classes/{class_id}", "api_name": "更新班级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern"},
-    {"api_path": "/api/moral/admin/school-years", "api_name": "获取学年列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/school-years/create", "api_name": "创建学年", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/semesters", "api_name": "获取学期列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/semesters/create", "api_name": "创建学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/semesters/{semester_id}", "api_name": "更新学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/semesters/{semester_id}/set-current", "api_name": "设置当前学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/school-years", "api_name": "获取学年列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "resource_type": "school_calendar", "action_type": "view"},
+    {"api_path": "/api/moral/admin/school-years/create", "api_name": "创建学年", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "resource_type": "school_calendar", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/semesters", "api_name": "获取学期列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "resource_type": "school_calendar", "action_type": "view"},
+    {"api_path": "/api/moral/admin/semesters/create", "api_name": "创建学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "resource_type": "school_calendar", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/semesters/{semester_id}", "api_name": "更新学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "resource_type": "school_calendar", "action_type": "operate"},
+    {"api_path": "/api/moral/admin/semesters/{semester_id}/set-current", "api_name": "设置当前学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "resource_type": "school_calendar", "action_type": "operate"},
 
     # 系统配置
     {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "system_config", "action_type": "operate"},
@@ -344,7 +383,10 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/escalation-rules/student/{student_id}/history", "api_name": "学生累进处罚历史", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/moral/escalation-rules/student/{student_id}/count", "api_name": "学生事件累计次数", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/moral/escalation-rules/student/{student_id}/progress", "api_name": "学生消极事件累计进度", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/moral/escalation-rules", "api_name": "累进规则管理", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "resource_type": "escalation_rule", "action_type": "operate"},
+    {"api_path": "/api/moral/escalation-rules", "api_name": "查看累进规则", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "GET", "resource_type": "escalation_rule", "action_type": "view"},
+    {"api_path": "/api/moral/escalation-rules/create", "api_name": "创建累进规则", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "POST", "resource_type": "escalation_rule", "action_type": "create"},
+    {"api_path": "/api/moral/escalation-rules/update", "api_name": "更新累进规则", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "PUT", "resource_type": "escalation_rule", "action_type": "update"},
+    {"api_path": "/api/moral/escalation-rules/delete", "api_name": "删除累进规则", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "DELETE", "resource_type": "escalation_rule", "action_type": "delete"},
     {"api_path": "/api/moral/collective-events/student/{student_id}", "api_name": "学生集体事件得分汇总", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "student"], "min_level": 0, "match_type": "pattern"},
 
     # 评价查询
@@ -355,7 +397,7 @@ DEFAULT_API_PERMISSIONS = [
 
     # 学期末评价
     {"api_path": "/api/moral/semester-evaluations/generate", "api_name": "生成单学生学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/semester-evaluations/batch-generate", "api_name": "批量生成学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
+    {"api_path": "/api/moral/semester-evaluations/batch-generate", "api_name": "批量生成学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "POST", "resource_type": "semester_evaluation", "action_type": "create"},
     {"api_path": "/api/moral/semester-evaluations/batch-status/{job_id}", "api_name": "查询学期末评价批量生成状态", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/moral/semester-evaluations/batch-latest", "api_name": "查询最近学期末评价批量任务", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/semester-evaluations/batch-cancel/{job_id}", "api_name": "停止学期末评价批量生成", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "POST", "match_type": "pattern", "action_type": "operate"},
@@ -434,13 +476,6 @@ DEFAULT_OPERATION_SCOPE_RULES = {
         "admin": ["all"],
         "xuefa": ["all"],
     },
-    "/api/moral/warnings": {
-        "admin": ["all"],
-        "jiaowu": ["all"],
-        "xuefa": ["all"],
-        "g_leader": ["managed_grades"],
-        "cleader": ["managed_classes"],
-    },
     "/api/moral/scheduler": {
         "admin": ["all"],
     },
@@ -490,7 +525,11 @@ DEFAULT_OPERATION_SCOPE_RULES = {
         "admin": ["all"],
         "xuefa": ["all"],
     },
-    "/api/moral/escalation-rules": {
+    "/api/moral/escalation-rules/update": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/escalation-rules/delete": {
         "admin": ["all"],
         "xuefa": ["all"],
     },
@@ -651,10 +690,16 @@ def _infer_resource_type(api_path: str) -> str:
         ("/api/moral/consultations", "consultation"),
         ("/api/moral/semester-evaluations/batch", "semester_evaluation_batch"),
         ("/api/moral/semester-evaluations", "semester_evaluation"),
+        ("/api/moral/admin/school-years", "school_calendar"),
+        ("/api/moral/admin/semesters", "school_calendar"),
         ("/api/moral/warnings", "warning_log"),
         ("/api/leave-records", "leave_record"),
         ("/api/cleader-classes", "leave_record"),
         ("/api/del_delay", "leave_record"),
+        ("/api/insert_delay", "legacy_student"),
+        ("/api/delay_infos", "legacy_student"),
+        ("/api/students", "legacy_student"),
+        ("/api/student_info", "legacy_student"),
         ("/api/dashboard/score-trend", "score_trend"),
         ("/api/dashboard", "dashboard"),
         # 教师资源域 (teacher_owned)
@@ -674,6 +719,11 @@ def _infer_resource_type(api_path: str) -> str:
         ("/api/moral/admin/logs", "operation_log"),
         ("/api/moral/scheduler", "scheduler"),
         ("/api/moral/ai-model-config", "ai_model_config"),
+        ("/api/vehicle-inout", "legacy_system_admin"),
+        ("/api/members", "legacy_system_admin"),
+        ("/api/permissions", "legacy_system_admin"),
+        ("/api/tasks", "scheduler"),
+        ("/api/admin", "legacy_system_admin"),
     ]
     for prefix, resource in mapping:
         if api_path.startswith(prefix):
@@ -989,6 +1039,22 @@ DEFAULT_DATA_SCOPE_RULES = {
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
     },
+    "/api/moral/escalation-rules": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/escalation-rules/create": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/escalation-rules/update": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
+    "/api/moral/escalation-rules/delete": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
     "/api/moral/tasks": {
         "admin": ["all"],
         "xuefa": ["all"],
@@ -1149,6 +1215,13 @@ DEFAULT_DATA_SCOPE_RULES = {
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
     },
+    "/api/dashboard/teacher/workbench": {
+        "admin": ["all_teachers"],
+        "xuefa": ["all_teachers"],
+        "g_leader": ["all_teachers"],
+        "cleader": ["self"],
+        "teacher": ["self"],
+    },
     "/api/teacher/todos": {
         "admin": ["own_created", "assigned_to_me"],
         "jiaowu": ["own_created", "assigned_to_me"],
@@ -1209,6 +1282,10 @@ DEFAULT_TARGET_SCOPE_RULES = {
         "admin": ["all_students"],
         "xuefa": ["all_students"],
     },
+    "/api/moral/escalation-rules/create": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
     "/api/moral/consultations/create": {
         "admin": ["all_students"],
         "xuefa": ["all_students"],
@@ -1216,6 +1293,12 @@ DEFAULT_TARGET_SCOPE_RULES = {
         "cleader": ["managed_classes"],
     },
     "/api/moral/semester-evaluations/generate": {
+        "admin": ["all_students"],
+        "xuefa": ["all_students"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/semester-evaluations/batch-generate": {
         "admin": ["all_students"],
         "xuefa": ["all_students"],
         "g_leader": ["managed_grades"],
@@ -1247,7 +1330,7 @@ DEFAULT_TARGET_SCOPE_RULES = {
 TEACHER_RESOURCE_SCOPE_SCHEMAS = {
     "teacher_scope": {
         "valid_scopes": {"self", "teacher_directory", "all_teachers"},
-        "privileged_scopes": {"all_teachers": {"admin"}},
+        "privileged_scopes": {"all_teachers": {"admin", "xuefa", "g_leader"}},
     },
     "filegather_scope": {
         "valid_scopes": {"own_uploaded", "all_files"},
@@ -1296,6 +1379,44 @@ DEFAULT_DATA_SCOPE_RULES.update({
         "xuefa": ["all"],
         "admin": ["all"],
     },
+    "/api/students/{class_code}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+        "teacher": ["teaching_classes"],
+    },
+    "/api/students_status/{class_code}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+        "teacher": ["teaching_classes"],
+    },
+    "/api/student_info/": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+        "teacher": ["teaching_classes"],
+    },
+    "/api/delay_infos/{classCode}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+        "teacher": ["teaching_classes"],
+    },
+    "/api/get_dailies/": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
     "/api/leave-records/": {
         "cleader": ["managed_classes"],
         "g_leader": ["managed_grades"],
@@ -1339,6 +1460,21 @@ DEFAULT_DATA_SCOPE_RULES.update({
 })
 
 DEFAULT_TARGET_SCOPE_RULES.update({
+    "/api/students/import/{class_code}": {
+        "admin": ["all_students"],
+    },
+    "/api/insert_delay/": {
+        "admin": ["all_students"],
+        "jiaowu": ["all_students"],
+        "xuefa": ["all_students"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+        "teacher": ["teaching_classes"],
+    },
+    "/api/insert_daily/": {
+        "admin": ["all_students"],
+        "xuefa": ["all_students"],
+    },
     "/api/leave-records/": {
         "cleader": ["managed_classes"],
         "g_leader": ["managed_grades"],
@@ -1366,6 +1502,20 @@ DEFAULT_TARGET_SCOPE_RULES.update({
 })
 
 DEFAULT_OPERATION_SCOPE_RULES.update({
+    "/api/students/export/{class_code}": {
+        "admin": ["all_students"],
+        "xuefa": ["all_students"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/export_dailies/": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+        "teacher": ["teaching_classes"],
+    },
     "/api/upload-schedule": {"jiaowu": ["all_schedules"], "admin": ["all_schedules"]},
     "/api/del_delay/{id}": {
         "cleader": ["managed_classes"],
@@ -1662,9 +1812,10 @@ DEFAULT_RESOURCE_TYPES = [
     {"resource_type": "leave_record", "resource_name": "旧版请假销假", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 15},
     {"resource_type": "warning_log", "resource_name": "德育预警", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 16},
     {"resource_type": "semester_evaluation", "resource_name": "学期末评价", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 17},
-    {"resource_type": "semester_evaluation_batch", "resource_name": "学期末评价批量任务", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 18},
+    {"resource_type": "legacy_student", "resource_name": "旧版学生信息", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 18},
+    {"resource_type": "semester_evaluation_batch", "resource_name": "学期末评价批量任务", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 19},
     # 教师资源域 (teacher_owned)
-    {"resource_type": "student_profile_job", "resource_name": "画像生成任务", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 19},
+    {"resource_type": "student_profile_job", "resource_name": "画像生成任务", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 20},
     {"resource_type": "teacher", "resource_name": "教师管理", "resource_domain": "teacher_owned", "scope_schema": "teacher_scope", "sort_order": 20},
     {"resource_type": "filegather", "resource_name": "文件收集", "resource_domain": "teacher_owned", "scope_schema": "filegather_scope", "sort_order": 21},
     {"resource_type": "teacher_todo", "resource_name": "教师待办", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 22},
@@ -1672,6 +1823,7 @@ DEFAULT_RESOURCE_TYPES = [
     {"resource_type": "invigilation", "resource_name": "监考安排", "resource_domain": "teacher_owned", "scope_schema": "invigilation_scope", "sort_order": 24},
     {"resource_type": "lesson_schedule", "resource_name": "旧版课表", "resource_domain": "teacher_owned", "scope_schema": "lesson_schedule_scope", "sort_order": 25},
     {"resource_type": "legacy_homework", "resource_name": "旧版作业公告", "resource_domain": "teacher_owned", "scope_schema": "legacy_homework_scope", "sort_order": 26},
+    {"resource_type": "school_calendar", "resource_name": "学年学期配置", "resource_domain": "teacher_owned", "scope_schema": "system_action_scope", "sort_order": 27},
     # 系统资源域 (system_admin)
     {"resource_type": "database_backup", "resource_name": "数据库备份", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 30},
     {"resource_type": "database_admin", "resource_name": "数据库管理", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 31},
@@ -1681,6 +1833,7 @@ DEFAULT_RESOURCE_TYPES = [
     {"resource_type": "operation_log", "resource_name": "操作日志", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 35},
     {"resource_type": "scheduler", "resource_name": "定时调度", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 36},
     {"resource_type": "ai_model_config", "resource_name": "AI模型配置", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 37},
+    {"resource_type": "legacy_system_admin", "resource_name": "旧版系统管理", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 38},
 ]
 
 
@@ -1854,6 +2007,16 @@ def _normalize_legacy_migrated_permissions(db) -> None:
         "/api/teacher-schedule/{teacher_name}": "GET",
         "/api/teacher-schedule-nextweek/{teacher_name}": "GET",
         "/api/upload-schedule": "POST",
+        "/api/students/{class_code}": "GET",
+        "/api/students/export/{class_code}": "GET",
+        "/api/students/import/{class_code}": "POST",
+        "/api/students_status/{class_code}": "GET",
+        "/api/student_info/": "POST",
+        "/api/insert_delay/": "POST",
+        "/api/delay_infos/{classCode}": "GET",
+        "/api/insert_daily/": "POST",
+        "/api/get_dailies/": "GET",
+        "/api/export_dailies/": "GET",
         "/api/homework/": "POST",
         "/api/homework/batch": "DELETE",
         "/api/homework/{hw_id}": "*",
@@ -1879,6 +2042,16 @@ def _normalize_legacy_migrated_permissions(db) -> None:
         "/api/teacher-schedule/{teacher_name}": ("lesson_schedule", "view"),
         "/api/teacher-schedule-nextweek/{teacher_name}": ("lesson_schedule", "view"),
         "/api/upload-schedule": ("lesson_schedule", "update"),
+        "/api/students/{class_code}": ("legacy_student", "view"),
+        "/api/students/export/{class_code}": ("legacy_student", "export"),
+        "/api/students/import/{class_code}": ("legacy_student", "create"),
+        "/api/students_status/{class_code}": ("legacy_student", "view"),
+        "/api/student_info/": ("legacy_student", "view"),
+        "/api/insert_delay/": ("legacy_student", "create"),
+        "/api/delay_infos/{classCode}": ("legacy_student", "view"),
+        "/api/insert_daily/": ("daily_record", "create"),
+        "/api/get_dailies/": ("daily_record", "view"),
+        "/api/export_dailies/": ("daily_record", "export"),
         "/api/homework/": ("legacy_homework", "create"),
         "/api/homework/batch": ("legacy_homework", "delete"),
         "/api/homework/{hw_id}": ("legacy_homework", "operate"),
@@ -1888,7 +2061,18 @@ def _normalize_legacy_migrated_permissions(db) -> None:
         "/api/leave-records/": ("leave_record", "operate"),
         "/api/leave-records/{record_id}/consume": ("leave_record", "update"),
         "/api/del_delay/{id}": ("leave_record", "delete"),
-    }
+        "/api/members": ("legacy_system_admin", "operate"),
+        "/api/members/{uuid}": ("legacy_system_admin", "operate"),
+        "/api/permissions": ("legacy_system_admin", "operate"),
+        "/api/permissions/{id}": ("legacy_system_admin", "operate"),
+        "/api/tasks": ("scheduler", "operate"),
+        "/api/tasks/{task_id}": ("scheduler", "operate"),
+        "/api/tasks/funcs": ("scheduler", "view"),
+        "/api/admin/users": ("legacy_system_admin", "view"),
+            "/api/admin/reset-password": ("legacy_system_admin", "operate"),
+            "/api/admin/set-password": ("legacy_system_admin", "operate"),
+            "/api/vehicle-inout/{counts}": ("legacy_system_admin", "view"),
+        }
     for path, (resource_type, action_type) in metadata_defaults.items():
         db.execute(
             """UPDATE api_permission_config
@@ -2236,6 +2420,180 @@ def _fix_incorrect_scope_rules(db) -> None:
             (_json_dump(["admin", "xuefa"]), 20, api_path),
         )
 
+    # 查询/统计接口只使用 data_scope_rules；动作范围只留给编辑、删除、审批等动作接口。
+    query_operation_cleanup = [
+        "/api/moral/daily-records",
+        "/api/moral/daily-records/batch",
+        "/api/moral/daily-records/statistics/student/{student_id}",
+        "/api/moral/warnings",
+        "/api/moral/escalation-rules",
+    ]
+    for api_path in query_operation_cleanup:
+        db.execute(
+            "UPDATE api_permission_config SET operation_scope_rules = '{}' WHERE api_path = ?",
+            (api_path,),
+        )
+
+    db.execute(
+        """UPDATE api_permission_config
+           SET api_name = '查看累进规则',
+               http_method = 'GET',
+               action_type = 'view',
+               data_scope_rules = ?,
+               target_scope_rules = '{}',
+               operation_scope_rules = '{}'
+           WHERE api_path = ?""",
+        (_json_dict_dump({"admin": ["all"], "xuefa": ["all"]}), "/api/moral/escalation-rules"),
+    )
+
+    for api_path in ["/api/moral/daily-records", "/api/moral/daily-records/statistics/student/{student_id}"]:
+        db.execute(
+            """UPDATE api_permission_config
+               SET action_type = 'view', target_scope_rules = '{}'
+               WHERE api_path = ?""",
+            (api_path,),
+        )
+
+    # 教师工作台实际处理的是教师本人/目标教师的课表、作业公告、监考和本人创建记录，
+    # 不应归为学生数据范围。
+    db.execute(
+        """UPDATE api_permission_config
+           SET resource_type = 'teacher',
+               action_type = 'view',
+               http_method = 'GET',
+               data_scope_rules = ?,
+               target_scope_rules = '{}',
+               operation_scope_rules = '{}'
+           WHERE api_path = ?""",
+        (
+            _json_dict_dump({
+                "admin": ["all_teachers"],
+                "xuefa": ["all_teachers"],
+                "g_leader": ["all_teachers"],
+                "cleader": ["self"],
+                "teacher": ["self"],
+            }),
+            "/api/dashboard/teacher/workbench",
+        ),
+    )
+
+    # 日常批量录入是管理类入口，代码也要求 moral_record_manage；避免教师/班主任被 API 配置误展示为可用。
+    db.execute(
+        """UPDATE api_permission_config
+           SET allowed_roles = ?,
+               min_level = 50,
+               http_method = 'POST',
+               action_type = 'create',
+               data_scope_rules = ?,
+               target_scope_rules = ?
+           WHERE api_path = ?""",
+        (
+            _json_dump(["admin", "jiaowu", "xuefa"]),
+            _json_dict_dump({
+                "admin": ["all"],
+                "jiaowu": ["all"],
+                "xuefa": ["all"],
+            }),
+            _json_dict_dump({
+                "admin": ["all_students"],
+                "jiaowu": ["all_students"],
+                "xuefa": ["all_students"],
+            }),
+            "/api/moral/daily-records/batch",
+        ),
+    )
+
+    # 删除接口实际通过 operation_scope_rules 控制动作范围，但 data_scope_rules 也保持与 allowed_roles 对齐，便于审计预览一致。
+    delete_config = db.query_one(
+        "SELECT data_scope_rules FROM api_permission_config WHERE api_path = ?",
+        ("/api/moral/daily-records/delete",),
+    )
+    if delete_config:
+        rules = _json_dict(delete_config.get("data_scope_rules"))
+        if "jiaowu" not in rules:
+            rules["jiaowu"] = ["all"]
+            db.execute(
+                "UPDATE api_permission_config SET data_scope_rules = ? WHERE api_path = ?",
+                (_json_dict_dump(rules), "/api/moral/daily-records/delete"),
+            )
+        db.execute(
+            "UPDATE api_permission_config SET target_scope_rules = '{}' WHERE api_path = ?",
+            ("/api/moral/daily-records/delete",),
+        )
+
+    # 德育任务定义接口操作的是任务定义/年级任务，不是“选择学生”的创建接口。
+    for api_path in ["/api/moral/tasks/create", "/api/moral/tasks/update", "/api/moral/tasks/delete"]:
+        db.execute(
+            "UPDATE api_permission_config SET action_type = 'operate', target_scope_rules = '{}' WHERE api_path = ?",
+            (api_path,),
+        )
+
+    # 学年/学期查询是基础字典数据，供多个角色使用，不属于学生数据范围。
+    for api_path in ["/api/moral/admin/school-years", "/api/moral/admin/semesters"]:
+        db.execute(
+            """UPDATE api_permission_config
+               SET resource_type = 'school_calendar',
+                   action_type = 'view',
+                   data_scope_rules = '{}',
+                   target_scope_rules = '{}',
+                   operation_scope_rules = '{}'
+               WHERE api_path = ?""",
+            (api_path,),
+        )
+
+    # 学期末批量生成实际作用于学生评价记录，按学生目标范围控制。
+    db.execute(
+        """UPDATE api_permission_config
+           SET resource_type = 'semester_evaluation',
+               action_type = 'create',
+               http_method = 'POST',
+               target_scope_rules = ?
+           WHERE api_path = ?""",
+        (
+            _json_dict_dump({
+                "admin": ["all_students"],
+                "xuefa": ["all_students"],
+                "g_leader": ["managed_grades"],
+                "cleader": ["managed_classes"],
+            }),
+            "/api/moral/semester-evaluations/batch-generate",
+        ),
+    )
+
+    # 旧版接口按真实用途分流：公开展示接口不参与鉴权，敏感/写操作接口进入数据库动态鉴权。
+    public_placeholders = ",".join(["?"] * len(LEGACY_PUBLIC_API_PATHS))
+    db.execute(
+        f"UPDATE api_permission_config SET is_public = 1, policy_mode = 'public', enforce_backend = 0 WHERE api_path IN ({public_placeholders})",
+        tuple(LEGACY_PUBLIC_API_PATHS),
+    )
+    protected_placeholders = ",".join(["?"] * len(LEGACY_CONFIGURED_AUTH_API_PATHS))
+    db.execute(
+        f"UPDATE api_permission_config SET is_public = 0, enforce_backend = 1 WHERE api_path IN ({protected_placeholders})",
+        tuple(LEGACY_CONFIGURED_AUTH_API_PATHS),
+    )
+    legacy_role_defaults = {
+        "/api/students/{class_code}": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+        "/api/students_status/{class_code}": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+        "/api/student_info/": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+        "/api/insert_delay/": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+        "/api/delay_infos/{classCode}": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+        "/api/get_dailies/": (["cleader", "g_leader", "xuefa", "admin"], 10),
+        "/api/vehicle-inout/{counts}": (["admin"], 100),
+    }
+    for api_path, (roles, min_level) in legacy_role_defaults.items():
+        config = db.query_one(
+            "SELECT allowed_roles FROM api_permission_config WHERE api_path = ?",
+            (api_path,),
+        )
+        if not config:
+            continue
+        current_roles = set(_json_list(config.get("allowed_roles")))
+        if not current_roles or not set((DEFAULT_DATA_SCOPE_RULES.get(api_path) or DEFAULT_TARGET_SCOPE_RULES.get(api_path) or {}).keys()).issubset(current_roles):
+            db.execute(
+                "UPDATE api_permission_config SET allowed_roles = ?, min_level = ? WHERE api_path = ?",
+                (_json_dump(roles), min_level, api_path),
+            )
+
     # 修复学生画像 API 的 allowed_roles（补齐 g_leader 和 cleader）
     profile_apis = [
         "/api/moral/profiles",
@@ -2396,7 +2754,7 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
         rule = rule or {}
         api_path = raw_path if raw_path.startswith("/api/") else f"/api{raw_path}"
         allowed_roles = rule.get("allowed_roles") or []
-        is_public = 1 if rule.get("jwt_required") is False or "all" in allowed_roles else 0
+        is_public = 1 if rule.get("jwt_required") is False or "all" in allowed_roles or api_path in LEGACY_PUBLIC_API_PATHS else 0
         role_aliases = {"jiaofa": "jiaowu"}
         normalized_roles = [
             role_aliases.get(role, role)
@@ -2411,9 +2769,15 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
             "/api/teacher-schedule/{teacher_name}": (["teacher", "admin"], 10),
             "/api/teacher-schedule-nextweek/{teacher_name}": (["teacher", "admin"], 10),
             "/api/teachers": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+            "/api/get_dailies/": (["cleader", "g_leader", "xuefa", "admin"], 10),
             "/api/export_dailies/": (["xuefa", "admin", "g_leader", "cleader", "jiaowu", "teacher"], 10),
             "/api/cleader-classes/": (["cleader", "xuefa", "admin", "g_leader"], 0),
             "/api/upload-schedule": (["jiaowu", "admin"], 10),
+            "/api/students/{class_code}": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+            "/api/students_status/{class_code}": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+            "/api/student_info/": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+            "/api/insert_delay/": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
+            "/api/delay_infos/{classCode}": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
             "/api/homework/": (["teacher", "admin"], 10),
             "/api/homework/{hw_id}": (["teacher", "admin"], 10),
             "/api/homework/batch": (["teacher", "admin"], 10),
@@ -2431,6 +2795,16 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
             "/api/teacher-schedule/{teacher_name}": "GET",
             "/api/teacher-schedule-nextweek/{teacher_name}": "GET",
             "/api/upload-schedule": "POST",
+            "/api/students/{class_code}": "GET",
+            "/api/students/export/{class_code}": "GET",
+            "/api/students/import/{class_code}": "POST",
+            "/api/students_status/{class_code}": "GET",
+            "/api/student_info/": "POST",
+            "/api/insert_delay/": "POST",
+            "/api/delay_infos/{classCode}": "GET",
+            "/api/insert_daily/": "POST",
+            "/api/get_dailies/": "GET",
+            "/api/export_dailies/": "GET",
             "/api/homework/": "POST",
             "/api/homework/batch": "DELETE",
             "/api/homework/{hw_id}": "*",
@@ -2446,6 +2820,16 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
             "/api/teacher-schedule/{teacher_name}": ("lesson_schedule", "view"),
             "/api/teacher-schedule-nextweek/{teacher_name}": ("lesson_schedule", "view"),
             "/api/upload-schedule": ("lesson_schedule", "update"),
+            "/api/students/{class_code}": ("legacy_student", "view"),
+            "/api/students/export/{class_code}": ("legacy_student", "export"),
+            "/api/students/import/{class_code}": ("legacy_student", "create"),
+            "/api/students_status/{class_code}": ("legacy_student", "view"),
+            "/api/student_info/": ("legacy_student", "view"),
+            "/api/insert_delay/": ("legacy_student", "create"),
+            "/api/delay_infos/{classCode}": ("legacy_student", "view"),
+            "/api/insert_daily/": ("daily_record", "create"),
+            "/api/get_dailies/": ("daily_record", "view"),
+            "/api/export_dailies/": ("daily_record", "export"),
             "/api/homework/": ("legacy_homework", "create"),
             "/api/homework/batch": ("legacy_homework", "delete"),
             "/api/homework/{hw_id}": ("legacy_homework", "operate"),
@@ -2455,12 +2839,27 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
             "/api/leave-records/": ("leave_record", "operate"),
             "/api/leave-records/{record_id}/consume": ("leave_record", "update"),
             "/api/del_delay/{id}": ("leave_record", "delete"),
+            "/api/members": ("legacy_system_admin", "operate"),
+            "/api/members/{uuid}": ("legacy_system_admin", "operate"),
+            "/api/permissions": ("legacy_system_admin", "operate"),
+            "/api/permissions/{id}": ("legacy_system_admin", "operate"),
+            "/api/tasks": ("scheduler", "operate"),
+            "/api/tasks/{task_id}": ("scheduler", "operate"),
+            "/api/tasks/funcs": ("scheduler", "view"),
+            "/api/admin/users": ("legacy_system_admin", "view"),
+            "/api/admin/reset-password": ("legacy_system_admin", "operate"),
+            "/api/admin/set-password": ("legacy_system_admin", "operate"),
+            "/api/vehicle-inout/{counts}": ("legacy_system_admin", "view"),
         }
         http_method = method_overrides.get(api_path, "*")
         resource_type, action_type = metadata_defaults.get(
             api_path,
             (_infer_resource_type(api_path), _infer_action_type(api_path, http_method)),
         )
+
+        enforce_backend = 1 if api_path in LEGACY_CONFIGURED_AUTH_API_PATHS else 0
+        if is_public:
+            enforce_backend = 0
 
         existing = db.query_one("SELECT id FROM api_permission_config WHERE api_path = ?", (api_path,))
         if existing:
@@ -2474,6 +2873,7 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
                        match_type = ?,
                        policy_mode = COALESCE(policy_mode, 'role_and_level'),
                        is_public = ?,
+                       enforce_backend = ?,
                        resource_type = CASE WHEN resource_type IS NULL OR resource_type = '' THEN ? ELSE resource_type END,
                        action_type = CASE WHEN action_type IS NULL OR action_type = '' THEN ? ELSE action_type END,
                        data_scope_rules = CASE WHEN data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}' THEN ? ELSE data_scope_rules END,
@@ -2489,6 +2889,7 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
                     http_method,
                     match_type,
                     is_public,
+                    enforce_backend,
                     resource_type,
                     action_type,
                     _json_dict_dump(DEFAULT_DATA_SCOPE_RULES.get(api_path, {})),
@@ -2517,7 +2918,7 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
                 match_type,
                 "role_and_level",
                 is_public,
-                1,
+                enforce_backend,
                 "由 lesson/config/api_level.yaml 同步",
                 resource_type,
                 action_type,
@@ -2890,6 +3291,9 @@ def _permission_risk_flags(config: Dict[str, Any]) -> List[str]:
     target_rules = config.get("target_scope_rules") or {}
     operation_rules = config.get("operation_scope_rules") or {}
     resource_type = config.get("resource_type") or ""
+
+    if int(config.get("is_public") or 0) == 1 and api_path in EXPECTED_PUBLIC_API_PATHS:
+        return risks
 
     # 确定资源域和范围 schema
     resource_domain = _get_resource_domain(resource_type)
