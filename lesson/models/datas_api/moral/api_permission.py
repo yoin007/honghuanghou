@@ -40,9 +40,13 @@ EXPECTED_PUBLIC_API_PATHS = {
     "/api/schedules",
     "/api/periods",
     "/api/class-info/{class_code}",
+    "/api/students_status/{class_code}",
+    "/api/student_info/",
+    "/api/insert_delay/",
     "/api/homework/{class_code}",
     "/api/announcements/{class_code}",
     "/api/messages/{class_code}",
+    "/api/delay_infos/{classCode}",
 }
 
 LEGACY_PUBLIC_API_PATHS = EXPECTED_PUBLIC_API_PATHS - {"/api/token"}
@@ -2867,6 +2871,8 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
             api_path,
             (_infer_resource_type(api_path), _infer_action_type(api_path, http_method)),
         )
+        force_protected_system_api = resource_type == "legacy_system_admin"
+        force_pattern_match = "{" in api_path and "}" in api_path
 
         enforce_backend = 1 if api_path in LEGACY_CONFIGURED_AUTH_API_PATHS else 0
         if is_public:
@@ -2880,12 +2886,12 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
                    SET module_id = COALESCE(module_id, ?),
                        api_group = CASE WHEN api_group = '' THEN ? ELSE api_group END,
                        allowed_roles = CASE WHEN allowed_roles IS NULL OR allowed_roles = '' OR allowed_roles = '[]' THEN ? ELSE allowed_roles END,
-                       min_level = CASE WHEN min_level IS NULL THEN ? ELSE min_level END,
+                       min_level = CASE WHEN ? = 1 AND COALESCE(min_level, 0) < ? THEN ? WHEN min_level IS NULL THEN ? ELSE min_level END,
                        http_method = CASE WHEN http_method IS NULL OR http_method = '' OR http_method = '*' THEN ? ELSE http_method END,
-                       match_type = CASE WHEN match_type IS NULL OR match_type = '' THEN ? ELSE match_type END,
+                       match_type = CASE WHEN ? = 1 THEN ? WHEN match_type IS NULL OR match_type = '' THEN ? ELSE match_type END,
                        policy_mode = COALESCE(policy_mode, 'role_and_level'),
-                       is_public = CASE WHEN is_public IS NULL THEN ? ELSE is_public END,
-                       enforce_backend = CASE WHEN is_public = 1 THEN 0 ELSE COALESCE(enforce_backend, ?) END,
+                       is_public = CASE WHEN ? = 1 THEN 0 WHEN is_public IS NULL THEN ? ELSE is_public END,
+                       enforce_backend = CASE WHEN ? = 1 THEN 1 WHEN is_public = 1 THEN 0 ELSE COALESCE(enforce_backend, ?) END,
                        resource_type = CASE WHEN resource_type IS NULL OR resource_type = '' THEN ? ELSE resource_type END,
                        action_type = CASE WHEN action_type IS NULL OR action_type = '' THEN ? ELSE action_type END,
                        data_scope_rules = CASE WHEN data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}' THEN ? ELSE data_scope_rules END,
@@ -2897,10 +2903,17 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
                     module_id,
                     "旧版教务接口",
                     _json_dump(normalized_roles),
+                    1 if force_protected_system_api else 0,
+                    min_level,
+                    min_level,
                     min_level,
                     http_method,
+                    1 if force_pattern_match else 0,
                     match_type,
+                    match_type,
+                    1 if force_protected_system_api else 0,
                     is_public,
+                    1 if force_protected_system_api else 0,
                     enforce_backend,
                     resource_type,
                     action_type,
@@ -3104,7 +3117,7 @@ def require_configured_api_permission(
     allow_missing: bool = True,
 ):
     """FastAPI 依赖：按 api_permission_config 校验当前用户能否调用 API。"""
-    async def check(user: User = Depends(get_current_user)):
+    async def check(user: Optional[User] = Depends(get_current_user_optional)):
         decision = check_configured_api_permission(
             user,
             api_path,
@@ -3112,7 +3125,8 @@ def require_configured_api_permission(
             allow_missing=allow_missing,
         )
         if not decision["allowed"]:
-            raise HTTPException(status_code=403, detail=decision["reason"])
+            status_code = 401 if not user else 403
+            raise HTTPException(status_code=status_code, detail=decision["reason"])
         return user
 
     return check

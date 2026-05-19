@@ -878,9 +878,13 @@ const expectedPublicApiPaths = new Set([
   '/api/schedules',
   '/api/periods',
   '/api/class-info/{class_code}',
+  '/api/students_status/{class_code}',
+  '/api/student_info/',
+  '/api/insert_delay/',
   '/api/homework/{class_code}',
   '/api/announcements/{class_code}',
-  '/api/messages/{class_code}'
+  '/api/messages/{class_code}',
+  '/api/delay_infos/{classCode}'
 ])
 
 const form = reactive({

@@ -37,15 +37,6 @@ export const delayApi = {
    * @returns {Promise}
    */
   deleteDelay(delayId) {
-    return httpClient.delete(`/api/del_delay/${delayId}`)
-  },
-
-  /**
-   * 删除延时申请（GET方式备用）
-   * @param {number} delayId 申请ID
-   * @returns {Promise}
-   */
-  deleteDelayGet(delayId) {
     return httpClient.get(`/api/del_delay/${delayId}`)
   }
 }
@@ -54,6 +45,5 @@ export const getStudentInfo = delayApi.getStudentInfo
 export const createDelay = delayApi.createDelay
 export const getDelayList = delayApi.getDelayList
 export const deleteDelay = delayApi.deleteDelay
-export const deleteDelayGet = delayApi.deleteDelayGet
 
 export default delayApi

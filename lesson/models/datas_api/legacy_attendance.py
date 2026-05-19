@@ -6,6 +6,7 @@ Batch36: 从 datas_api_legacy.py 拆分考勤/请假/延时逻辑。
 
 import logging
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -141,7 +142,7 @@ def _get_gleader_class_names(user):
 @router.post("/insert_delay/")
 async def insert_delay(
     request: StudentInfoRequest,
-    current_user: User = Depends(require_configured_api_permission("/api/insert_delay/", "POST", allow_missing=False)),
+    current_user: Optional[User] = Depends(require_configured_api_permission("/api/insert_delay/", "POST", allow_missing=False)),
 ):
     """插入学生延迟"""
     _ensure_legacy_class_access(current_user, request.classCode)
@@ -156,7 +157,7 @@ async def insert_delay(
 @router.get("/delay_infos/{classCode}")
 async def get_delay_infos(
     classCode: str,
-    current_user: User = Depends(require_configured_api_permission("/api/delay_infos/{classCode}", "GET", allow_missing=False)),
+    current_user: Optional[User] = Depends(require_configured_api_permission("/api/delay_infos/{classCode}", "GET", allow_missing=False)),
 ):
     """获取所有学生延迟"""
     _ensure_legacy_class_access(current_user, classCode)

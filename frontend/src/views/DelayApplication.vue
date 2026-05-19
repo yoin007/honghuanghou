@@ -71,7 +71,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getStudentInfo, createDelay, getDelayList, deleteDelay, deleteDelayGet } from '@/api/modules/delay'
+import { getStudentInfo, createDelay, getDelayList, deleteDelay } from '@/api/modules/delay'
 
 const sid = ref('')
 const studentInfo = ref(null)
@@ -149,14 +149,7 @@ const handleDeleteDelay = async (id) => {
     fetchDelayRecords()
   } catch (error) {
     console.error('Delete delay error:', error)
-    // Fallback if it was a GET or POST
-    try {
-        await deleteDelayGet(id)
-        ElMessage.success('删除成功')
-        fetchDelayRecords()
-    } catch (retryError) {
-        ElMessage.error('删除失败')
-    }
+    ElMessage.error('删除失败')
   }
 }
 

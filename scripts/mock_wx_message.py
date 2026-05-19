@@ -12,7 +12,7 @@ body = {
     'msgsvrid': '1141955020534006954',
     'issend': 'false',
     'contenttype': 1,
-    'content': 'hl',
+    'content': '太好了',
     'ext': '',
     'type': 0,
     'createTime': 1779191745000,

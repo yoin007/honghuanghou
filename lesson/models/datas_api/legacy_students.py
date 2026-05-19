@@ -6,6 +6,7 @@ Batch35: 从 datas_api_legacy.py 拆分学生/班级信息逻辑。
 
 import io
 import logging
+from typing import Optional
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -84,8 +85,11 @@ def _class_row_for_code(db: MoralDatabase, class_code: str):
     )
 
 
-def _ensure_legacy_class_access(user: User, class_code: str, *, allow_teaching: bool = True) -> None:
-    """旧版班级/学生接口的班级范围控制。"""
+def _ensure_legacy_class_access(user: Optional[User], class_code: str, *, allow_teaching: bool = True) -> None:
+    """旧版班级/学生接口的班级范围控制；公开接口无登录用户时由 API 配置负责放行。"""
+    if user is None:
+        return
+
     roles = _user_roles(user)
     if roles.intersection({"admin", "xuefa", "jiaowu"}):
         return
@@ -236,7 +240,7 @@ async def import_students_excel(
 @router.get("/students_status/{class_code}")
 async def get_students_status(
     class_code: str,
-    current_user: User = Depends(require_configured_api_permission("/api/students_status/{class_code}", "GET", allow_missing=False)),
+    current_user: Optional[User] = Depends(require_configured_api_permission("/api/students_status/{class_code}", "GET", allow_missing=False)),
 ):
     """获取所有学生状态 - 数据源改为德育系统"""
     _ensure_legacy_class_access(current_user, class_code)
@@ -296,7 +300,7 @@ async def get_students_status(
 @router.post("/student_info/")
 async def get_student_info(
     request: StudentInfoRequest,
-    current_user: User = Depends(require_configured_api_permission("/api/student_info/", "POST", allow_missing=False)),
+    current_user: Optional[User] = Depends(require_configured_api_permission("/api/student_info/", "POST", allow_missing=False)),
 ):
     """获取指定学生信息"""
     sid = request.sid
