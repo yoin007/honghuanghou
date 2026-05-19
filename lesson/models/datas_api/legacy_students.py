@@ -2,6 +2,10 @@
 """Legacy Students API - 学生和班级信息相关接口。
 
 Batch35: 从 datas_api_legacy.py 拆分学生/班级信息逻辑。
+
+重要约定：
+- 所有学生查询使用 status = '在校' 过滤，排除休学/转出/毕业学生
+- 数据源统一为德育系统 SQLite 数据库，不再使用 Lesson 缓存
 """
 
 import io
@@ -21,7 +25,6 @@ from models.datas_api.moral.base import (
     get_teacher_teaching_class_ids,
 )
 from models.daily.inout import InOut
-from models.lesson.lesson import Lesson
 from utils.sqlite_moral_db import MoralDatabase
 
 logger = logging.getLogger(__name__)
@@ -44,30 +47,28 @@ class StudentInfoRequest(BaseModel):
 # ============================================================
 
 def get_stu_dict(sid):
-    """获取学生信息的字典格式"""
-    l = Lesson()
-    students_df = l.get_cache_data("students")
-    # 转换 roomid 和 rpid 为整数再转字符串，去除小数点
-    def safe_int_str(x):
-        try:
-            if pd.isna(x):
-                return ""
-            if isinstance(x, (int, float)):
-                return str(int(x))
-            return str(x)
-        except (ValueError, TypeError) as e:
-            logging.warning(f"safe_int_str conversion error: {e}")
-            return str(x)
+    """获取学生信息的字典格式（数据源：德育系统 SQLite）
 
-    for col in ['roomid', 'rpid', 'sid']:
-        if col in students_df.columns:
-            students_df[col] = students_df[col].apply(safe_int_str)
-    students_df = students_df[(students_df["sid"] == sid) & (students_df['active'] == 1)].copy()
-    if students_df.empty:
-        return {}
-    else:
-        student = students_df.iloc[0].to_dict()
-        return student
+    注意：只返回在校学生信息，排除休学/转出/毕业学生
+    """
+    with MoralDatabase() as db:
+        student = db.query_one("""
+            SELECT s.student_id as sid, s.name, s.gender, s.birthday, s.phone,
+                   s.roomid, s.rpid, s.status, s.class_id,
+                   c.class_name as cname, c.class_code, g.grade_name
+            FROM student s
+            JOIN class c ON s.class_id = c.class_id
+            JOIN grade g ON s.grade_id = g.grade_id
+            WHERE s.student_id = ? AND s.status = '在校'
+        """, (str(sid),))
+        if not student:
+            return {}
+        # 转换为前端期望的格式
+        result = dict(student)
+        result['roomid'] = result.get('roomid') or ''
+        result['rpid'] = str(result.get('rpid')) if result.get('rpid') else ''
+        result['active'] = 1  # 兼容旧接口格式
+        return result
 
 
 def _user_roles(user: User) -> set[str]:
@@ -123,6 +124,7 @@ async def get_class_info(class_code: str):
 
     with MoralDatabase() as db:
         # 查询班级基本信息，包含学生数实时计算
+        # 注意：使用 status = '在校' 过滤，排除休学/转出/毕业学生
         class_info = db.query_one("""
             SELECT
                 c.class_name,
@@ -133,7 +135,7 @@ async def get_class_info(class_code: str):
                 g.grade_name,
                 COUNT(s.student_id) as student_count
             FROM class c
-            LEFT JOIN student s ON c.class_id = s.class_id AND s.is_active = 1
+            LEFT JOIN student s ON c.class_id = s.class_id AND s.status = '在校'
             JOIN grade g ON c.grade_id = g.grade_id
             WHERE c.class_code = ? AND c.is_active = 1
             GROUP BY c.class_id
@@ -158,17 +160,27 @@ async def get_class_info(class_code: str):
 # Routes: Students Management
 # ============================================================
 
-@router.get("/students/{class_code}", summary="获取学生列表", description="获取指定班级的学生列表")
+@router.get("/students/{class_code}", summary="获取学生列表", description="获取指定班级的在校学生列表")
 async def get_students(
     class_code: str,
     current_user: User = Depends(require_configured_api_permission("/api/students/{class_code}", "GET", allow_missing=False)),
 ):
-    """获取指定班级的学生名单"""
+    """获取指定班级的学生名单（仅在校学生）
+
+    数据源：德育系统 SQLite 数据库
+    过滤条件：status = '在校'，排除休学/转出/毕业学生
+    """
     _ensure_legacy_class_access(current_user, class_code)
-    l = Lesson()
-    students_df = l.get_cache_data("students")
-    students = students_df[students_df["cname"] == class_code]["name"].tolist()
-    return {"students": students}
+    with MoralDatabase() as db:
+        students = db.query_all("""
+            SELECT s.student_id as sid, s.name, s.gender, s.roomid, s.rpid
+            FROM student s
+            JOIN class c ON s.class_id = c.class_id
+            WHERE c.class_code = ? AND s.status = '在校'
+            ORDER BY s.roomid, s.rpid, s.student_id
+        """, (class_code,))
+
+    return {"students": [s['name'] for s in students] if students else []}
 
 
 @router.get("/students/export/{class_code}")
@@ -176,23 +188,22 @@ async def export_students_excel(
     class_code: str,
     current_user: User = Depends(require_configured_api_permission("/api/students/export/{class_code}", "GET", allow_missing=False)),
 ):
-    """导出班级学生 Excel"""
+    """导出班级学生 Excel（仅在校学生）"""
     _ensure_legacy_class_access(current_user, class_code, allow_teaching=False)
-    l = Lesson()
-    students_df = l.get_cache_data("students")
-    if students_df is None or students_df.empty:
-        raise HTTPException(status_code=404, detail="暂无学生数据")
+    with MoralDatabase() as db:
+        students = db.query_all("""
+            SELECT s.student_id as sid, s.name, s.gender as sex, s.phone, s.roomid, s.rpid
+            FROM student s
+            JOIN class c ON s.class_id = c.class_id
+            WHERE c.class_code = ? AND s.status = '在校'
+            ORDER BY s.roomid, s.rpid, s.student_id
+        """, (class_code,))
 
-    class_students = students_df[students_df["cname"] == class_code].copy()
-    if class_students.empty:
-        raise HTTPException(status_code=404, detail=f"未找到班级 {class_code} 的学生")
-
-    # 选择需要导出的列
-    export_cols = ["sid", "name", "sex", "phone", "roomid", "rpid"]
-    available_cols = [col for col in export_cols if col in class_students.columns]
-    export_df = class_students[available_cols].copy()
+    if not students:
+        raise HTTPException(status_code=404, detail=f"未找到班级 {class_code} 的在校学生")
 
     # 生成 Excel
+    export_df = pd.DataFrame(students)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         export_df.to_excel(writer, index=False, sheet_name=f"{class_code}")
@@ -246,6 +257,7 @@ async def get_students_status(
     _ensure_legacy_class_access(current_user, class_code)
     with MoralDatabase() as db:
         # 查询德育系统学生数据，关联班级表获取班级名称
+        # 注意：使用 status = '在校' 过滤，排除休学/转出/毕业学生
         query = """
             SELECT
                 s.student_id as sid,
@@ -257,7 +269,7 @@ async def get_students_status(
                 s.is_active as active
             FROM student s
             JOIN class c ON s.class_id = c.class_id
-            WHERE c.class_name = ? AND s.is_active = 1
+            WHERE c.class_name = ? AND s.status = '在校'
             ORDER BY s.roomid, s.rpid, s.student_id
         """
         students = db.query_all(query, (class_code,))

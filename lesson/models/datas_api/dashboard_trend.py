@@ -777,9 +777,9 @@ async def get_class_score_trend(
         )
         base_score = float(base_score_config or 80)
 
-        # 班级学生数
+        # 班级学生数（仅统计在校学生）
         student_count = db.query_value(
-            "SELECT COUNT(*) FROM student WHERE class_id = ?",
+            "SELECT COUNT(*) FROM student WHERE class_id = ? AND status = '在校'",
             (class_id,)
         ) or 1
 
