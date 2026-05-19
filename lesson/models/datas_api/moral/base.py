@@ -619,13 +619,14 @@ def record_in_scope(
         and record.get(class_field) == scope.get("my_class_id")
     ):
         return True
+    # 班主任范围：匹配才返回 True，不匹配继续检查其他范围（年级/任教）
     my_class_ids = scope.get("my_class_ids") or []
-    if scope.get("can_own_class") and my_class_ids:
-        return record.get(class_field) in my_class_ids
+    if scope.get("can_own_class") and my_class_ids and record.get(class_field) in my_class_ids:
+        return True
     # 年级范围：判断记录的班级是否在年级班级列表中
     my_grade_class_ids = scope.get("my_grade_class_ids") or []
-    if scope.get("can_own_grade") and my_grade_class_ids:
-        return record.get(class_field) in my_grade_class_ids
+    if scope.get("can_own_grade") and my_grade_class_ids and record.get(class_field) in my_grade_class_ids:
+        return True
     if scope.get("can_teaching_classes"):
         teaching_class_ids = scope.get("teaching_class_ids") or []
         return not teaching_class_ids or record.get(class_field) in teaching_class_ids
@@ -858,6 +859,40 @@ def get_class_leader_names(class_id: int, db: SQLiteMoralDatabase) -> List[str]:
     return []
 
 
+def _teacher_identity_candidates(user: User, db: SQLiteMoralDatabase) -> tuple[List[str], List[str]]:
+    """返回可用于匹配教师关系的 ID 候选和姓名候选。"""
+    if not user:
+        return [], []
+
+    username = user.username if hasattr(user, 'username') else ''
+    raw_ids = [username]
+    if username and not username.startswith('T_'):
+        raw_ids.append(f'T_{username}')
+
+    teacher_names = []
+    for tid in list(dict.fromkeys(raw_ids)):
+        teacher = db.query_one(
+            "SELECT name FROM teacher WHERE teacher_id = ?",
+            (tid,)
+        )
+        if teacher and teacher.get('name'):
+            teacher_names.append(teacher.get('name'))
+
+    if username and username.startswith('T_'):
+        raw_name = username[2:]
+        if raw_name:
+            teacher_names.append(raw_name)
+    elif username:
+        teacher_names.append(username)
+
+    teacher_ids = list(dict.fromkeys(raw_ids))
+    for name in list(dict.fromkeys(teacher_names)):
+        if name and not name.startswith('T_'):
+            teacher_ids.append(f'T_{name}')
+
+    return list(dict.fromkeys(v for v in teacher_ids if v)), list(dict.fromkeys(v for v in teacher_names if v))
+
+
 def is_class_leader(user: User, class_id: int, db: SQLiteMoralDatabase) -> bool:
     """检查用户是否是某班级的班主任（支持多人）。
 
@@ -872,12 +907,7 @@ def is_class_leader(user: User, class_id: int, db: SQLiteMoralDatabase) -> bool:
     if not user or not class_id:
         return False
 
-    username = user.username if hasattr(user, 'username') else ''
-
-    # 兼容两种格式：'xxx' 和 'T_xxx'
-    user_candidates = [username]
-    if not username.startswith('T_'):
-        user_candidates.append(f'T_{username}')
+    user_candidates, teacher_names = _teacher_identity_candidates(user, db)
 
     # 获取班级所有班主任ID
     leader_ids = get_class_leader_ids(class_id, db)
@@ -887,15 +917,6 @@ def is_class_leader(user: User, class_id: int, db: SQLiteMoralDatabase) -> bool:
 
     # 也检查班主任姓名匹配（用于 teacher.name）
     leader_names = get_class_leader_names(class_id, db)
-    teacher_names = []
-    for tid in user_candidates:
-        teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = ?",
-            (tid,)
-        )
-        if teacher and teacher.get('name'):
-            teacher_names.append(teacher.get('name'))
-
     for leader_name in leader_names:
         if leader_name in teacher_names:
             return True
@@ -916,22 +937,7 @@ def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     if not user:
         return []
 
-    username = user.username if hasattr(user, 'username') else ''
-
-    # 兼容两种格式
-    user_candidates = [username]
-    if not username.startswith('T_'):
-        user_candidates.append(f'T_{username}')
-
-    # 获取教师姓名用于匹配
-    teacher_names = []
-    for tid in user_candidates:
-        teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = ?",
-            (tid,)
-        )
-        if teacher and teacher.get('name'):
-            teacher_names.append(teacher.get('name'))
+    user_candidates, teacher_names = _teacher_identity_candidates(user, db)
 
     class_ids = set()
 
@@ -1048,11 +1054,7 @@ def is_grade_leader(user: User, grade_id: int, db: SQLiteMoralDatabase) -> bool:
     if not user or not grade_id:
         return False
 
-    username = user.username if hasattr(user, 'username') else ''
-
-    user_candidates = [username]
-    if not username.startswith('T_'):
-        user_candidates.append(f'T_{username}')
+    user_candidates, teacher_names = _teacher_identity_candidates(user, db)
 
     # 获取年级所有年级主任ID
     leader_ids = get_grade_leader_ids(grade_id, db)
@@ -1062,15 +1064,6 @@ def is_grade_leader(user: User, grade_id: int, db: SQLiteMoralDatabase) -> bool:
 
     # 也检查年级主任姓名匹配
     leader_names = get_grade_leader_names(grade_id, db)
-    teacher_names = []
-    for tid in user_candidates:
-        teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = ?",
-            (tid,)
-        )
-        if teacher and teacher.get('name'):
-            teacher_names.append(teacher.get('name'))
-
     for leader_name in leader_names:
         if leader_name in teacher_names:
             return True
@@ -1094,21 +1087,7 @@ def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     if not user:
         return []
 
-    username = user.username if hasattr(user, 'username') else ''
-
-    user_candidates = [username]
-    if not username.startswith('T_'):
-        user_candidates.append(f'T_{username}')
-
-    # 获取教师姓名
-    teacher_names = []
-    for tid in user_candidates:
-        teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = ?",
-            (tid,)
-        )
-        if teacher and teacher.get('name'):
-            teacher_names.append(teacher.get('name'))
+    user_candidates, teacher_names = _teacher_identity_candidates(user, db)
 
     grade_ids = set()
 
@@ -1173,22 +1152,7 @@ def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[
     if not table_exists:
         return []
 
-    username = user.username if hasattr(user, 'username') else ''
-
-    # 兼容两种 teacher_id 格式：'xxx' 和 'T_xxx'
-    teacher_id_candidates = [username]
-    if not username.startswith('T_'):
-        teacher_id_candidates.append(f'T_{username}')
-
-    # 查询 teacher 表获取教师姓名
-    teacher_names = []
-    for tid in teacher_id_candidates:
-        teacher = db.query_one(
-            "SELECT name FROM teacher WHERE teacher_id = ?",
-            (tid,)
-        )
-        if teacher and teacher.get('name'):
-            teacher_names.append(teacher.get('name'))
+    teacher_id_candidates, teacher_names = _teacher_identity_candidates(user, db)
 
     # 构建查询条件
     conditions = ["is_active = 1"]

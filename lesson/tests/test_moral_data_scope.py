@@ -18,6 +18,8 @@ from models.datas_api.moral import api_permission
 from models.datas_api.moral.base import (
     append_record_scope_condition,
     get_record_data_scope,
+    get_teacher_class_ids,
+    get_teacher_grade_ids,
     record_action_flags,
     record_in_scope,
     target_student_in_scope,
@@ -309,6 +311,32 @@ def test_configured_scope_rules_override_permission_defaults():
     assert not record_in_scope({"recorder": "other", "class_id": 101}, scope, username="cleader1")
 
 
+class FakeTeacherIdentityDB:
+    def query_one(self, sql, params=None):
+        if "SELECT name FROM teacher WHERE teacher_id = ?" in sql and params and params[0] == "T_戴建海":
+            return {"name": "戴建海"}
+        return None
+
+    def query_all(self, sql, params=None):
+        if "FROM grade WHERE leader_ids LIKE" in sql:
+            return [{"grade_id": 2, "leader_ids": "T_戴建海"}]
+        if "FROM grade WHERE leader_names LIKE" in sql:
+            return [{"grade_id": 2, "leader_names": "戴建海"}]
+        if "FROM class WHERE leader_ids LIKE" in sql:
+            return [{"class_id": 14, "leader_ids": "T_戴建海"}]
+        if "FROM class WHERE leader_names LIKE" in sql:
+            return [{"class_id": 14, "leader_names": "戴建海"}]
+        return []
+
+
+def test_teacher_identity_candidates_match_prefixed_leader_ids():
+    db = FakeTeacherIdentityDB()
+    user = User(username="戴建海", role="teacher/g_leader/cleader")
+
+    assert get_teacher_grade_ids(user, db) == [2]
+    assert get_teacher_class_ids(user, db) == [14]
+
+
 def test_managed_classes_scope_alias_matches_class_leader_records():
     api_path = "/api/moral/daily-records"
     db = FakeScopeDB(
@@ -331,6 +359,30 @@ def test_managed_classes_scope_alias_matches_class_leader_records():
     assert scope["can_own_class"] is True
     assert record_in_scope({"recorder": "other", "class_id": 101}, scope, username="cleader1")
     assert not record_in_scope({"recorder": "other", "class_id": 102}, scope, username="cleader1")
+
+
+def test_record_scope_checks_class_and_grade_with_or_semantics():
+    scope = {
+        "can_all": False,
+        "can_own": False,
+        "can_own_class": True,
+        "my_class_id": 101,
+        "my_class_ids": [101],
+        "can_own_grade": True,
+        "my_grade_class_ids": [101, 102],
+        "can_teaching_classes": False,
+        "teaching_class_ids": [],
+    }
+
+    assert record_in_scope({"recorder": "other", "class_id": 101}, scope, username="teacher1")
+    assert record_in_scope({"recorder": "other", "class_id": 102}, scope, username="teacher1")
+    assert not record_in_scope({"recorder": "other", "class_id": 103}, scope, username="teacher1")
+
+    conditions = ["dr.is_deleted = 0"]
+    params = []
+    append_record_scope_condition(conditions, params, scope, table_alias="dr", username="teacher1")
+    assert conditions[-1] == "(dr.class_id IN (?) OR dr.class_id IN (?, ?))"
+    assert params == [101, 101, 102]
 
 
 def test_target_scope_rules_can_limit_record_input_to_own_class():

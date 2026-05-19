@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from models.daily.inout import InOut
 from models.datas_api.auth import User, get_current_user
 from models.datas_api.moral.api_permission import require_configured_api_permission
+from models.datas_api.moral.base import get_teacher_grade_ids
 from models.datas_api.legacy_students import StudentInfoRequest, get_stu_dict, _ensure_legacy_class_access
 from models.lesson.lesson import Lesson
 from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
@@ -103,25 +104,7 @@ def _resolve_class_row(class_template, class_code: str):
 def _get_gleader_class_names(user):
     """获取年级主任管理的年级下所有班级名称"""
     with SQLiteMoralDatabase() as db:
-        # 获取年级主任管理的年级ID
-        username = user.username if hasattr(user, 'username') else ''
-        user_candidates = [username]
-        if not username.startswith('T_'):
-            user_candidates.append(f'T_{username}')
-
-        grade_ids = set()
-
-        # 方式1：通过 grade.leader_ids 字段匹配
-        for uid in user_candidates:
-            rows = db.query_all(
-                "SELECT grade_id, leader_ids FROM grade WHERE leader_ids LIKE ?",
-                (f'%{uid}%',)
-            )
-            for row in rows:
-                leader_ids_str = row.get('leader_ids', '')
-                leader_ids = [lid.strip() for lid in leader_ids_str.split(',') if lid.strip()]
-                if uid in leader_ids:
-                    grade_ids.add(row['grade_id'])
+        grade_ids = get_teacher_grade_ids(user, db)
 
         if not grade_ids:
             return []
