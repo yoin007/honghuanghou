@@ -234,6 +234,8 @@ class StudentBatchItem(BaseModel):
     gender: Optional[str] = Field(None, description="性别")
     class_name: str = Field(..., description="班级名称")
     birthday: Optional[str] = Field(None, description="出生日期 YYYY-MM-DD")
+    roomid: Optional[str] = Field(None, description="宿舍号")
+    rpid: Optional[str] = Field(None, description="床位号")
 
 
 class StudentBatchImport(BaseModel):

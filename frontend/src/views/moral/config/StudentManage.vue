@@ -460,7 +460,9 @@ const parseStudentRows = async (file) => {
       name: String(valueOf(row, ['姓名', 'name']) || '').trim(),
       gender: String(valueOf(row, ['性别', 'gender']) || '男').trim(),
       class_name: String(valueOf(row, ['班级', '班级名称', 'class_name']) || '').trim(),
-      birthday: valueOf(row, ['生日', 'birthday']) || null
+      birthday: valueOf(row, ['生日', 'birthday']) || null,
+      roomid: String(valueOf(row, ['宿舍', 'roomid']) || '').trim(),
+      rpid: String(valueOf(row, ['床号', '床位号', 'rpid']) || '').trim()
     })
   })
 
@@ -488,7 +490,9 @@ const handleImportSubmit = async () => {
       name: row.name,
       gender: row.gender || '男',
       class_name: row.class_name,
-      birthday: row.birthday
+      birthday: row.birthday,
+      roomid: row.roomid || null,
+      rpid: row.rpid || null
     })).filter(s => s.student_id && s.name && s.class_name)
 
     if (students.length === 0) {
@@ -601,12 +605,14 @@ const downloadTemplate = async () => {
       { header: '姓名', key: 'name', width: 12 },
       { header: '性别', key: 'gender', width: 8 },
       { header: '生日', key: 'birthday', width: 14 },
+      { header: '宿舍', key: 'roomid', width: 10 },
+      { header: '床号', key: 'rpid', width: 8 },
       { header: '班级', key: 'class_name', width: 16 }
     ],
     rows: [
-      { student_id: '20250101', name: '张三', gender: '男', birthday: '2008-05-15', class_name: '高一1班' },
-      { student_id: '20250102', name: '李四', gender: '女', birthday: '2008-03-20', class_name: '高一1班' },
-      { student_id: '20250103', name: '王五', gender: '男', birthday: '2008-07-10', class_name: '高一2班' }
+      { student_id: '20250101', name: '张三', gender: '男', birthday: '2008-05-15', roomid: 'A101', rpid: '1', class_name: '高一1班' },
+      { student_id: '20250102', name: '李四', gender: '女', birthday: '2008-03-20', roomid: 'A101', rpid: '2', class_name: '高一1班' },
+      { student_id: '20250103', name: '王五', gender: '男', birthday: '2008-07-10', roomid: 'B102', rpid: '3', class_name: '高一2班' }
     ]
   })
   ElMessage.success('模板下载成功')
