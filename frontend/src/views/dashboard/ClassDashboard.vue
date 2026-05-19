@@ -230,15 +230,15 @@ const classTrendOption = computed(() => {
       buildAdaptiveValueAxis(data.total_scores, {
         name: '总分',
         hardMin: 0,
-        minRange: 4,
-        targetTicks: 5
+        minRange: 1,
+        targetTicks: 10
       }),
       buildAdaptiveValueAxis(componentScores, {
         name: '分项',
         hardMin: 0,
         includeZero: true,
-        minRange: 4,
-        targetTicks: 4,
+        minRange: 1,
+        targetTicks: 8,
         splitLine: { show: false },
         axisLabel: { color: '#64748b' },
         extra: { position: 'right' }
@@ -285,15 +285,15 @@ const studentTrendOption = computed(() => {
       buildAdaptiveValueAxis(data.total_scores, {
         name: '总分',
         hardMin: 0,
-        minRange: 4,
-        targetTicks: 5
+        minRange: 1,
+        targetTicks: 10
       }),
       buildAdaptiveValueAxis(componentScores, {
         name: '分项',
         hardMin: 0,
         includeZero: true,
-        minRange: 4,
-        targetTicks: 4,
+        minRange: 1,
+        targetTicks: 8,
         splitLine: { show: false },
         axisLabel: { color: '#64748b' },
         extra: { position: 'right' }

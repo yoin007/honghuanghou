@@ -35,19 +35,28 @@ const roundAxisNumber = (value) => {
 }
 
 const niceStep = (rawStep, integer = false) => {
-  if (!Number.isFinite(rawStep) || rawStep <= 0) return integer ? 1 : 1
+  if (!Number.isFinite(rawStep) || rawStep <= 0) return integer ? 1 : 0.5
   const exponent = Math.floor(Math.log10(rawStep))
   const magnitude = 10 ** exponent
   const residual = rawStep / magnitude
+  // 支持更细的步长：0.5, 0.25, 0.2 等，增加区分颗粒度
   const niceResidual = residual <= 1
     ? 1
-    : residual <= 2
-      ? 2
-      : residual <= 2.5
-        ? 2.5
-        : residual <= 5
-          ? 5
-          : 10
+    : residual <= 1.25
+      ? 1.25
+      : residual <= 1.5
+        ? 1.5
+        : residual <= 2
+          ? 2
+          : residual <= 2.5
+            ? 2.5
+            : residual <= 4
+              ? 4
+              : residual <= 5
+                ? 5
+                : residual <= 8
+                  ? 8
+                  : 10
   const step = niceResidual * magnitude
   return integer ? Math.max(1, Math.ceil(step)) : step
 }

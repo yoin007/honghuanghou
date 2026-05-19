@@ -424,8 +424,8 @@ const classRankOption = computed(() => {
     yAxis: buildAdaptiveValueAxis(rows.map(item => item.avg_score), {
       name: '平均分',
       hardMin: 0,
-      minRange: 4,
-      targetTicks: 5,
+      minRange: 1,
+      targetTicks: 10,
       splitLine: { lineStyle: { type: 'dashed', color: 'rgba(148,163,184,0.3)' } }
     }),
     series: [{
@@ -535,8 +535,8 @@ const allClassTrendOption = computed(() => {
       ...buildAdaptiveValueAxis(totalScores, {
         name: '德育总分',
         hardMin: 0,
-        minRange: 4,
-        targetTicks: 5,
+        minRange: 1,
+        targetTicks: 10,
         axisLabel: { color: '#94a3b8' }
       })
     },
@@ -587,7 +587,8 @@ const classRecordCompareOption = computed(() => {
         hardMin: 0,
         includeZero: true,
         integer: true,
-        minRange: 5,
+        minRange: 3,
+        targetTicks: 8,
         axisLabel: { color: '#94a3b8' }
       })
     },

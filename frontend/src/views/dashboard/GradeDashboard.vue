@@ -255,8 +255,8 @@ const classComparisonOption = computed(() => {
     yAxis: buildAdaptiveValueAxis(sorted.map(d => d.avg_score), {
       name: '平均分',
       hardMin: 0,
-      minRange: 4,
-      targetTicks: 5
+      minRange: 1,
+      targetTicks: 10
     }),
     series: [
       {
@@ -323,15 +323,15 @@ const gradeTrendOption = computed(() => {
       buildAdaptiveValueAxis(data.total_scores, {
         name: '总分',
         hardMin: 0,
-        minRange: 4,
-        targetTicks: 5
+        minRange: 1,
+        targetTicks: 10
       }),
       buildAdaptiveValueAxis(componentScores, {
         name: '分项',
         hardMin: 0,
         includeZero: true,
-        minRange: 4,
-        targetTicks: 4,
+        minRange: 1,
+        targetTicks: 8,
         splitLine: { show: false },
         axisLabel: { color: '#64748b' },
         extra: { position: 'right' }
@@ -378,15 +378,15 @@ const studentTrendOption = computed(() => {
       buildAdaptiveValueAxis(data.total_scores, {
         name: '总分',
         hardMin: 0,
-        minRange: 4,
-        targetTicks: 5
+        minRange: 1,
+        targetTicks: 10
       }),
       buildAdaptiveValueAxis(componentScores, {
         name: '分项',
         hardMin: 0,
         includeZero: true,
-        minRange: 4,
-        targetTicks: 4,
+        minRange: 1,
+        targetTicks: 8,
         splitLine: { show: false },
         axisLabel: { color: '#64748b' },
         extra: { position: 'right' }
@@ -439,8 +439,8 @@ const gradeClassTrendOption = computed(() => {
       ...buildAdaptiveValueAxis(allScores, {
         name: '德育总分',
         hardMin: 0,
-        minRange: 4,
-        targetTicks: 5,
+        minRange: 1,
+        targetTicks: 10,
         axisLabel: { color: '#94a3b8' }
       }),
       axisLabel: { color: '#94a3b8' }
