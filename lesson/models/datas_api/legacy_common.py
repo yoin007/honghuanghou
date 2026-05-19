@@ -2,19 +2,21 @@
 """Shared helpers for legacy API modules.
 
 Batch72: 权限检查函数统一迁移。
+Batch73: 改用数据库权限配置（api_permissions.yaml）。
 """
 
 import os
 import jwt
+import json
 import logging
 from fastapi import HTTPException, Request
-from config.config import Config
 
 logger = logging.getLogger(__name__)
 
 # JWT 配置（从 datas_api_legacy.py 迁移）
-config = Config()
 try:
+    from config.config import Config
+    config = Config()
     config_data = config.get_config("auth", "token.yaml")
 except Exception as e:
     logger.warning(f"Failed to load token.yaml config: {e}")
@@ -27,57 +29,52 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 
 
-# ============================================================
-# 路由匹配与权限规则（Batch72 从 datas_api_legacy.py 迁移）
-# ============================================================
-
 def _match_route(path: str, pattern: str) -> bool:
-    """匹配路由模式，支持 {param} 通配符"""
-    path_parts = [p for p in path.strip("/").split("/") if p != ""]
-    pattern_parts = [p for p in pattern.strip("/").split("/") if p != ""]
+    """兼容旧入口的参数路由匹配。"""
+    path_parts = [p for p in path.strip("/").split("/") if p]
+    pattern_parts = [p for p in pattern.strip("/").split("/") if p]
     if len(path_parts) != len(pattern_parts):
         return False
-    for pp, tp in zip(path_parts, pattern_parts):
-        if tp.startswith("{") and tp.endswith("}"):
-            continue
-        if pp != tp:
-            return False
-    return True
+    return all(pp == tp or (tp.startswith("{") and tp.endswith("}")) for pp, tp in zip(path_parts, pattern_parts))
 
 
 def _get_api_rule(path: str):
-    """基于 api_level.yaml 获取路由权限规则"""
-    # 兼容带有 /api 前缀的路由
-    norm_path = path
-    if norm_path.startswith("/api/"):
-        norm_path = norm_path[4:]
-    cfg_all = Config().get_config_all("api_level.yaml")
-    defaults = cfg_all.get("defaults", {})
-    routes = cfg_all.get("routes", {})
-    for patt, conf in routes.items():
-        if _match_route(norm_path, patt):
-            merged = dict(defaults)
-            merged.update(conf or {})
-            return merged
-    return defaults
+    """兼容旧入口：从数据库返回简化权限规则。"""
+    from models.datas_api.moral.api_permission import _get_matching_config
+    from models.datas_api.moral.base import get_moral_db
+
+    with get_moral_db() as db:
+        config = _get_matching_config(db, path, "*")
+    if not config:
+        return {"allowed_roles": [], "min_level": 0, "jwt_required": True}
+    try:
+        allowed_roles = json.loads(config.get("allowed_roles") or "[]")
+    except Exception:
+        allowed_roles = []
+    return {
+        "allowed_roles": allowed_roles,
+        "min_level": config.get("min_level") or 0,
+        "jwt_required": not bool(config.get("is_public")),
+    }
 
 
 async def check_api_permission(request: Request):
-    """检查 API 权限（基于 YAML 规则 + JWT）"""
-    rule = _get_api_rule(request.url.path)
-    allowed_roles = rule.get("allowed_roles", [])
-    min_level = int(rule.get("min_level", 0))
+    """检查 API 权限（统一读取数据库 api_permission_config）。"""
+    from models.datas_api.auth import User
+    from models.datas_api.moral.api_permission import check_configured_api_permission
 
-    # 无限制：允许所有访问
-    if "all" in allowed_roles and min_level == 0:
+    api_path = request.url.path
+    http_method = request.method
+
+    public_decision = check_configured_api_permission(
+        None,
+        api_path,
+        http_method,
+        allow_missing=False,
+    )
+    if public_decision.get("allowed"):
         return
 
-    # JWT 不要求：直接返回
-    jwt_required = rule.get("jwt_required", True)
-    if not jwt_required:
-        return
-
-    # JWT 验证
     auth_header = request.headers.get("Authorization", "")
     token = ""
     if auth_header.startswith("Bearer "):
@@ -98,13 +95,14 @@ async def check_api_permission(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    roles = user.get("role", "").split('/')
-    level = int(user.get("level") or 0)
-
-    if allowed_roles and not any(role in allowed_roles for role in roles):
-        raise HTTPException(status_code=403, detail="Forbidden: role not allowed")
-    if level < min_level:
-        raise HTTPException(status_code=403, detail="Forbidden: level too low")
+    decision = check_configured_api_permission(
+        User(username=username, role=str(user.get("role") or "")),
+        api_path,
+        http_method,
+        allow_missing=False,
+    )
+    if not decision.get("allowed"):
+        raise HTTPException(status_code=403, detail=decision.get("reason") or "Forbidden")
     return
 
 

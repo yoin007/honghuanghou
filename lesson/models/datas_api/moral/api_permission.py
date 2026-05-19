@@ -28,7 +28,6 @@ from .base import (
     get_user_roles,
 )
 from models.datas_api.auth import User
-from config.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -2539,223 +2538,6 @@ def _ensure_module(db, module_key: str, module_name: str, allowed_roles: Optiona
     return db.lastrowid()
 
 
-def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
-    """将 lesson/config/api_level.yaml 同步到数据库权限配置。"""
-    columns = _table_columns(db, "api_permission_config")
-    for column, sql in [
-        ("resource_type", "ALTER TABLE api_permission_config ADD COLUMN resource_type TEXT DEFAULT ''"),
-        ("action_type", "ALTER TABLE api_permission_config ADD COLUMN action_type TEXT DEFAULT ''"),
-        ("data_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN data_scope_rules TEXT DEFAULT '{}'"),
-        ("target_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN target_scope_rules TEXT DEFAULT '{}'"),
-        ("operation_scope_rules", "ALTER TABLE api_permission_config ADD COLUMN operation_scope_rules TEXT DEFAULT '{}'"),
-    ]:
-        if column not in columns:
-            db.execute(sql)
-    try:
-        from config.config import Config
-    except Exception as exc:
-        logger.warning("无法导入Config，跳过api_level.yaml同步: %s", exc)
-        return {"created": 0, "updated": 0, "skipped": 0}
-
-    cfg_all = Config().get_config_all("api_level.yaml")
-    routes = cfg_all.get("routes", {}) or {}
-    module_id = _ensure_module(db, "legacy_lesson_api", "旧版教务接口", ["admin"], 0)
-    created = 0
-    updated = 0
-    skipped = 0
-
-    for raw_path, rule in routes.items():
-        rule = rule or {}
-        api_path = raw_path if raw_path.startswith("/api/") else f"/api{raw_path}"
-        allowed_roles = rule.get("allowed_roles") or []
-        is_public = 1 if rule.get("jwt_required") is False or "all" in allowed_roles or api_path in LEGACY_PUBLIC_API_PATHS else 0
-        role_aliases = {"jiaofa": "jiaowu"}
-        normalized_roles = [
-            role_aliases.get(role, role)
-            for role in allowed_roles
-            if role != "all"
-        ]
-        if api_path == "/api/del_delay/{id}":
-            normalized_roles = ["cleader", "xuefa", "admin"]
-        min_level = int(rule.get("min_level") or 0)
-        current_legacy_defaults = {
-            "/api/current-classes": (["teacher", "admin"], 10),
-            "/api/teacher-schedule/{teacher_name}": (["teacher", "admin"], 10),
-            "/api/teacher-schedule-nextweek/{teacher_name}": (["teacher", "admin"], 10),
-            "/api/teachers": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
-            "/api/get_dailies/": (["cleader", "g_leader", "xuefa", "admin"], 10),
-            "/api/export_dailies/": (["xuefa", "admin", "g_leader", "cleader", "jiaowu", "teacher"], 10),
-            "/api/cleader-classes/": (["cleader", "xuefa", "admin", "g_leader"], 0),
-            "/api/upload-schedule": (["jiaowu", "admin"], 10),
-            "/api/students/{class_code}": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
-            "/api/students_status/{class_code}": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
-            "/api/student_info/": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
-            "/api/insert_delay/": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
-            "/api/delay_infos/{classCode}": (["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], 10),
-            "/api/homework/": (["teacher", "admin"], 10),
-            "/api/homework/{hw_id}": (["teacher", "admin"], 10),
-            "/api/homework/batch": (["teacher", "admin"], 10),
-            "/api/announcement/": (["teacher", "admin"], 10),
-            "/api/announcement/{ann_id}": (["teacher", "admin"], 10),
-            "/api/students/export/{class_code}": (["cleader", "xuefa", "admin", "g_leader"], 0),
-            "/api/del_delay/{id}": (["cleader", "xuefa", "admin"], 10),
-        }
-        if api_path in current_legacy_defaults:
-            normalized_roles, min_level = current_legacy_defaults[api_path]
-        match_type = "pattern" if "{" in raw_path and "}" in raw_path else "exact"
-        api_name = f"旧版接口 {raw_path}"
-        method_overrides = {
-            "/api/current-classes": "GET",
-            "/api/teacher-schedule/{teacher_name}": "GET",
-            "/api/teacher-schedule-nextweek/{teacher_name}": "GET",
-            "/api/upload-schedule": "POST",
-            "/api/students/{class_code}": "GET",
-            "/api/students/export/{class_code}": "GET",
-            "/api/students/import/{class_code}": "POST",
-            "/api/students_status/{class_code}": "GET",
-            "/api/student_info/": "POST",
-            "/api/insert_delay/": "POST",
-            "/api/delay_infos/{classCode}": "GET",
-            "/api/insert_daily/": "POST",
-            "/api/get_dailies/": "GET",
-            "/api/export_dailies/": "GET",
-            "/api/homework/": "POST",
-            "/api/homework/batch": "DELETE",
-            "/api/homework/{hw_id}": "*",
-            "/api/announcement/": "POST",
-            "/api/announcement/{ann_id}": "*",
-            "/api/cleader-classes/": "GET",
-            "/api/leave-records/": "*",
-            "/api/leave-records/{record_id}/consume": "POST",
-            "/api/del_delay/{id}": "GET",
-        }
-        metadata_defaults = {
-            "/api/current-classes": ("lesson_schedule", "view"),
-            "/api/teacher-schedule/{teacher_name}": ("lesson_schedule", "view"),
-            "/api/teacher-schedule-nextweek/{teacher_name}": ("lesson_schedule", "view"),
-            "/api/upload-schedule": ("lesson_schedule", "update"),
-            "/api/students/{class_code}": ("legacy_student", "view"),
-            "/api/students/export/{class_code}": ("legacy_student", "export"),
-            "/api/students/import/{class_code}": ("legacy_student", "create"),
-            "/api/students_status/{class_code}": ("legacy_student", "view"),
-            "/api/student_info/": ("legacy_student", "view"),
-            "/api/insert_delay/": ("legacy_student", "create"),
-            "/api/delay_infos/{classCode}": ("legacy_student", "view"),
-            "/api/insert_daily/": ("daily_record", "create"),
-            "/api/get_dailies/": ("daily_record", "view"),
-            "/api/export_dailies/": ("daily_record", "export"),
-            "/api/homework/": ("legacy_homework", "create"),
-            "/api/homework/batch": ("legacy_homework", "delete"),
-            "/api/homework/{hw_id}": ("legacy_homework", "operate"),
-            "/api/announcement/": ("legacy_homework", "create"),
-            "/api/announcement/{ann_id}": ("legacy_homework", "operate"),
-            "/api/cleader-classes/": ("leave_record", "view"),
-            "/api/leave-records/": ("leave_record", "operate"),
-            "/api/leave-records/{record_id}/consume": ("leave_record", "update"),
-            "/api/del_delay/{id}": ("leave_record", "delete"),
-            "/api/members": ("legacy_system_admin", "operate"),
-            "/api/members/{uuid}": ("legacy_system_admin", "operate"),
-            "/api/permissions": ("legacy_system_admin", "operate"),
-            "/api/permissions/{id}": ("legacy_system_admin", "operate"),
-            "/api/tasks": ("scheduler", "operate"),
-            "/api/tasks/{task_id}": ("scheduler", "operate"),
-            "/api/tasks/funcs": ("scheduler", "view"),
-            "/api/admin/users": ("legacy_system_admin", "view"),
-            "/api/admin/reset-password": ("legacy_system_admin", "operate"),
-            "/api/admin/set-password": ("legacy_system_admin", "operate"),
-            "/api/vehicle-inout/{counts}": ("legacy_system_admin", "view"),
-        }
-        http_method = method_overrides.get(api_path, "*")
-        resource_type, action_type = metadata_defaults.get(
-            api_path,
-            (_infer_resource_type(api_path), _infer_action_type(api_path, http_method)),
-        )
-        force_protected_system_api = resource_type == "legacy_system_admin"
-        force_pattern_match = "{" in api_path and "}" in api_path
-
-        enforce_backend = 1 if api_path in LEGACY_CONFIGURED_AUTH_API_PATHS else 0
-        if is_public:
-            enforce_backend = 0
-
-        existing = db.query_one("SELECT id FROM api_permission_config WHERE api_path = ?", (api_path,))
-        if existing:
-            # 只补齐缺失字段，保留用户手工配置
-            db.execute(
-                """UPDATE api_permission_config
-                   SET module_id = COALESCE(module_id, ?),
-                       api_group = CASE WHEN api_group = '' THEN ? ELSE api_group END,
-                       allowed_roles = CASE WHEN allowed_roles IS NULL OR allowed_roles = '' OR allowed_roles = '[]' THEN ? ELSE allowed_roles END,
-                       min_level = CASE WHEN ? = 1 AND COALESCE(min_level, 0) < ? THEN ? WHEN min_level IS NULL THEN ? ELSE min_level END,
-                       http_method = CASE WHEN http_method IS NULL OR http_method = '' OR http_method = '*' THEN ? ELSE http_method END,
-                       match_type = CASE WHEN ? = 1 THEN ? WHEN match_type IS NULL OR match_type = '' THEN ? ELSE match_type END,
-                       policy_mode = COALESCE(policy_mode, 'role_and_level'),
-                       is_public = CASE WHEN ? = 1 THEN 0 WHEN is_public IS NULL THEN ? ELSE is_public END,
-                       enforce_backend = CASE WHEN ? = 1 THEN 1 WHEN is_public = 1 THEN 0 ELSE COALESCE(enforce_backend, ?) END,
-                       resource_type = CASE WHEN resource_type IS NULL OR resource_type = '' THEN ? ELSE resource_type END,
-                       action_type = CASE WHEN action_type IS NULL OR action_type = '' THEN ? ELSE action_type END,
-                       data_scope_rules = CASE WHEN data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}' THEN ? ELSE data_scope_rules END,
-                       target_scope_rules = CASE WHEN target_scope_rules IS NULL OR target_scope_rules = '' OR target_scope_rules = '{}' THEN ? ELSE target_scope_rules END,
-                       operation_scope_rules = CASE WHEN operation_scope_rules IS NULL OR operation_scope_rules = '' OR operation_scope_rules = '{}' THEN ? ELSE operation_scope_rules END,
-                       updated_at = datetime('now', 'localtime')
-                   WHERE id = ?""",
-                (
-                    module_id,
-                    "旧版教务接口",
-                    _json_dump(normalized_roles),
-                    1 if force_protected_system_api else 0,
-                    min_level,
-                    min_level,
-                    min_level,
-                    http_method,
-                    1 if force_pattern_match else 0,
-                    match_type,
-                    match_type,
-                    1 if force_protected_system_api else 0,
-                    is_public,
-                    1 if force_protected_system_api else 0,
-                    enforce_backend,
-                    resource_type,
-                    action_type,
-                    _json_dict_dump(DEFAULT_DATA_SCOPE_RULES.get(api_path, {})),
-                    _json_dict_dump(DEFAULT_TARGET_SCOPE_RULES.get(api_path, {})),
-                    _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES.get(api_path, {})),
-                    existing["id"],
-                ),
-            )
-            updated += 1
-            continue
-
-        db.execute(
-            """INSERT INTO api_permission_config
-            (api_path, api_name, api_group, allowed_roles, min_level, module_id,
-             http_method, match_type, policy_mode, is_public, enforce_backend, description,
-             resource_type, action_type, data_scope_rules, target_scope_rules, operation_scope_rules)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                api_path,
-                api_name,
-                "旧版教务接口",
-                _json_dump(normalized_roles),
-                min_level,
-                module_id,
-                http_method,
-                match_type,
-                "role_and_level",
-                is_public,
-                enforce_backend,
-                "由 lesson/config/api_level.yaml 同步",
-                resource_type,
-                action_type,
-                _json_dict_dump(DEFAULT_DATA_SCOPE_RULES.get(api_path, {})),
-                _json_dict_dump(DEFAULT_TARGET_SCOPE_RULES.get(api_path, {})),
-                _json_dict_dump(DEFAULT_OPERATION_SCOPE_RULES.get(api_path, {})),
-            ),
-        )
-        created += 1
-
-    return {"created": created, "updated": updated, "skipped": skipped}
-
-
 def _path_matches(api_path: str, request_path: str, match_type: str) -> bool:
     match_type = _normalize_match_type(match_type)
     if match_type == "prefix":
@@ -2935,70 +2717,6 @@ def require_configured_api_permission(
 # 统一鉴权入口 - 支持数据库配置 + YAML fallback
 # =============================================================================
 
-def _match_route_yaml(path: str, pattern: str) -> bool:
-    """YAML路由匹配逻辑"""
-    path_parts = [p for p in path.strip("/").split("/") if p != ""]
-    pattern_parts = [p for p in pattern.strip("/").split("/") if p != ""]
-    if len(path_parts) != len(pattern_parts):
-        return False
-    for pp, tp in zip(path_parts, pattern_parts):
-        if tp.startswith("{") and tp.endswith("}"):
-            continue
-        if pp != tp:
-            return False
-    return True
-
-
-def _get_yaml_rule(path: str) -> Dict[str, Any]:
-    """获取YAML配置的API规则"""
-    norm_path = path
-    if norm_path.startswith("/api/"):
-        norm_path = norm_path[4:]
-    try:
-        cfg_all = Config().get_config_all("api_level.yaml")
-    except Exception:
-        cfg_all = {}
-    defaults = cfg_all.get("defaults", {})
-    routes = cfg_all.get("routes", {})
-    for patt, conf in routes.items():
-        if _match_route_yaml(norm_path, patt):
-            merged = dict(defaults)
-            merged.update(conf or {})
-            return merged
-    return defaults
-
-
-def _check_yaml_permission(user: Optional[User], rule: Dict[str, Any]) -> Dict[str, Any]:
-    """基于YAML规则的权限检查"""
-    allowed_roles = rule.get("allowed_roles", [])
-    min_level = int(rule.get("min_level", 0))
-    jwt_required = rule.get("jwt_required", True)
-
-    # 公开API判断
-    if "all" in allowed_roles and min_level == 0:
-        return {"allowed": True, "reason": "公开API (yaml)", "source": "yaml"}
-    if not jwt_required:
-        return {"allowed": True, "reason": "jwt_required=false (yaml)", "source": "yaml"}
-
-    # 需要登录
-    if not user:
-        return {"allowed": False, "reason": "未登录", "source": "yaml"}
-
-    # admin放行
-    if is_admin_user(user):
-        return {"allowed": True, "reason": "admin拥有所有权限", "source": "yaml"}
-
-    # 角色检查
-    user_roles = get_user_roles(user)
-    user_level = get_user_role_level(user)
-    if allowed_roles and not any(role in allowed_roles for role in user_roles):
-        return {"allowed": False, "reason": f"角色不允许: {user_roles} vs {allowed_roles}", "source": "yaml"}
-    if user_level < min_level:
-        return {"allowed": False, "reason": f"等级不足: {user_level} < {min_level}", "source": "yaml"}
-
-    return {"allowed": True, "reason": "权限通过", "source": "yaml"}
-
-
 def unified_api_permission(
     api_path: str,
     http_method: str = "*",
@@ -3073,22 +2791,11 @@ def unified_api_permission(
             if auth_mode == "wechat_token":
                 raise HTTPException(status_code=401, detail="微信token无效")
 
-        # 2. 数据库无配置 → fallback到YAML（仅JWT通道）
-        rule = _get_yaml_rule(api_path)
-
-        # YAML公开API
-        if "all" in rule.get("allowed_roles", []) and int(rule.get("min_level", 0)) == 0:
+        # 2. 数据库无配置：默认配置统一来自 api_permissions.yaml 并落库。
+        if allow_missing:
             return user
-        if not rule.get("jwt_required", True):
-            return user
+        raise HTTPException(status_code=403, detail="无权限配置")
 
-        # YAML需要登录
-        if not user:
-            raise HTTPException(status_code=401, detail="未登录")
-
-        decision = _check_yaml_permission(user, rule)
-        if not decision["allowed"]:
-            raise HTTPException(status_code=403, detail=decision["reason"])
         return user
 
     return check
@@ -3578,23 +3285,6 @@ async def audit_api_permissions(
         return {"success": True, "data": _build_permission_audit(configs)}
 
 
-@router.post("/sync-legacy-yaml", summary="同步旧版YAML权限配置")
-async def sync_legacy_yaml_permissions(
-    request: Request,
-    user: User = Depends(require_admin),
-):
-    """将 lesson/config/api_level.yaml 导入统一API权限配置（仅admin）。"""
-    with get_moral_db() as db:
-        ensure_api_permission_schema(db)
-        result = _sync_legacy_api_level_yaml(db)
-        log_operation(db, user.username, user.role, "SYNC", "api_permission_config", None, new_data=result)
-        return {
-            "success": True,
-            "message": f"同步完成：新增 {result['created']} 条，更新 {result['updated']} 条",
-            "data": result,
-        }
-
-
 @router.post("/sync-default-scope-rules", summary="强制同步默认数据范围规则")
 async def sync_default_scope_rules(
     request: Request,
@@ -4042,14 +3732,11 @@ async def init_api_permissions(
             new_data={"created": created_count, "skipped": skipped_count}
         )
 
-        legacy_result = _sync_legacy_api_level_yaml(db)
+        # legacy sync removed - using api_permissions.yaml
 
         return {
             "success": True,
-            "message": (
-                f"初始化完成：创建 {created_count} 条，跳过 {skipped_count} 条已存在配置；"
-                f"同步旧版接口新增 {legacy_result['created']} 条，更新 {legacy_result['updated']} 条"
-            )
+            "message": f"初始化完成：创建 {created_count} 条，跳过 {skipped_count} 条已存在配置"
         }
 
 

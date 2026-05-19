@@ -48,7 +48,6 @@
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item command="syncLegacy" :disabled="syncLoading">同步旧配置</el-dropdown-item>
                     <el-dropdown-item command="syncScope" :disabled="scopeLoading">同步范围规则</el-dropdown-item>
                     <el-dropdown-item command="initDefault" :disabled="initLoading">初始化默认配置</el-dropdown-item>
                   </el-dropdown-menu>
@@ -551,7 +550,6 @@ import {
   createApiPermissionModule,
   updateApiPermissionModule,
   applyApiPermissionModule,
-  syncLegacyApiPermissions,
   getApiPermissionTemplates,
   applyApiPermissionTemplate,
   auditApiPermissions
@@ -560,7 +558,6 @@ import { downloadRowsAsExcel } from '@/utils/filegather'
 
 const loading = ref(false)
 const initLoading = ref(false)
-const syncLoading = ref(false)
 const scopeLoading = ref(false)
 const submitLoading = ref(false)
 const moduleSubmitLoading = ref(false)
@@ -1239,22 +1236,6 @@ const handleInit = async () => {
   }
 }
 
-const handleSyncLegacy = async () => {
-  try {
-    await ElMessageBox.confirm('确定同步 lesson/config/api_level.yaml 中的旧版接口权限？已有配置不会被删除。', '提示', { type: 'info' })
-    syncLoading.value = true
-    const res = await syncLegacyApiPermissions()
-    if (res.success) {
-      ElMessage.success(res.message)
-      refreshAll()
-    }
-  } catch (error) {
-    if (error !== 'cancel') console.error('同步旧配置失败:', error)
-  } finally {
-    syncLoading.value = false
-  }
-}
-
 const handleSyncScopeRules = async () => {
   let force = 0
   try {
@@ -1292,10 +1273,6 @@ const handleSyncScopeRules = async () => {
 }
 
 const handleAdvancedCommand = (command) => {
-  if (command === 'syncLegacy') {
-    handleSyncLegacy()
-    return
-  }
   if (command === 'syncScope') {
     handleSyncScopeRules()
     return

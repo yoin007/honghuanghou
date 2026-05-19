@@ -61,16 +61,11 @@ def fake_permission_db():
 
 
 @pytest.mark.asyncio
-async def test_unified_api_permission_allows_public_yaml_without_user(monkeypatch):
-    """数据库无配置时，YAML 公开规则不应强制登录。"""
+async def test_unified_api_permission_allows_missing_config_when_allowed(monkeypatch):
+    """数据库无配置且 allow_missing=True 时允许沿用调用方旧逻辑。"""
     monkeypatch.setattr(api_permission, "get_moral_db", fake_permission_db)
     monkeypatch.setattr(api_permission, "ensure_api_permission_schema", lambda db: None)
     monkeypatch.setattr(api_permission, "_get_matching_config", lambda db, path, method: None)
-    monkeypatch.setattr(
-        api_permission,
-        "_get_yaml_rule",
-        lambda path: {"allowed_roles": ["all"], "min_level": 0, "jwt_required": True},
-    )
 
     checker = api_permission.unified_api_permission("/api/public")
     request = _mock_request()
@@ -79,43 +74,18 @@ async def test_unified_api_permission_allows_public_yaml_without_user(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_unified_api_permission_rejects_private_yaml_without_user(monkeypatch):
-    """数据库无配置时，YAML 私有规则应拒绝未登录访问。"""
+async def test_unified_api_permission_rejects_missing_config_when_required(monkeypatch):
+    """数据库无配置且 allow_missing=False 时拒绝访问。"""
     monkeypatch.setattr(api_permission, "get_moral_db", fake_permission_db)
     monkeypatch.setattr(api_permission, "ensure_api_permission_schema", lambda db: None)
     monkeypatch.setattr(api_permission, "_get_matching_config", lambda db, path, method: None)
-    monkeypatch.setattr(
-        api_permission,
-        "_get_yaml_rule",
-        lambda path: {"allowed_roles": ["xuefa"], "min_level": 0, "jwt_required": True},
-    )
 
-    checker = api_permission.unified_api_permission("/api/private")
+    checker = api_permission.unified_api_permission("/api/private", allow_missing=False)
     request = _mock_request()
 
     with pytest.raises(HTTPException) as exc:
         await checker(request, None)
-    assert exc.value.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_unified_api_permission_allows_matching_yaml_role(monkeypatch):
-    """数据库无配置时，YAML fallback 应按角色和等级放行。"""
-    monkeypatch.setattr(api_permission, "get_moral_db", fake_permission_db)
-    monkeypatch.setattr(api_permission, "ensure_api_permission_schema", lambda db: None)
-    monkeypatch.setattr(api_permission, "_get_matching_config", lambda db, path, method: None)
-    monkeypatch.setattr(
-        api_permission,
-        "_get_yaml_rule",
-        lambda path: {"allowed_roles": ["xuefa"], "min_level": 20, "jwt_required": True},
-    )
-    monkeypatch.setattr(api_permission, "get_user_role_level", lambda user: 50)
-    user = User(username="苏子腾", role="teacher/xuefa")
-
-    checker = api_permission.unified_api_permission("/api/private")
-    request = _mock_request()
-
-    assert await checker(request, user) is user
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio

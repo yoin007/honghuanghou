@@ -762,13 +762,6 @@ export function applyApiPermissionModule(moduleId) {
   return httpClient.post(`/api/moral/api-permissions/modules/${moduleId}/apply`)
 }
 
-/**
- * 同步旧版 YAML 权限配置
- */
-export function syncLegacyApiPermissions() {
-  return httpClient.post('/api/moral/api-permissions/sync-legacy-yaml')
-}
-
 export function getApiPermissionTemplates() {
   return httpClient.get('/api/moral/api-permissions/templates')
 }
@@ -1395,7 +1388,6 @@ export default {
   createApiPermissionModule,
   updateApiPermissionModule,
   applyApiPermissionModule,
-  syncLegacyApiPermissions,
   updateApiPermission,
   deleteApiPermission,
   getMyApiPermissions,
