@@ -78,10 +78,10 @@ rsync -av --delete \
 # ============================================================================
 # 3. 复制 Windows 启动脚本
 # ============================================================================
-echo -e "${YELLOW}复制启动脚本...${NC}"
+# echo -e "${YELLOW}复制启动脚本...${NC}"
 
-mkdir -p "$PACKAGE_DIR/scripts"
-cp scripts/windows/*.bat "$PACKAGE_DIR/scripts/"
+# mkdir -p "$PACKAGE_DIR/scripts"
+# cp scripts/windows/*.bat "$PACKAGE_DIR/scripts/"
 
 # ============================================================================
 # 4. 创建部署说明
