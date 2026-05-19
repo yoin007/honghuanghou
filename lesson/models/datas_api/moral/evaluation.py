@@ -19,6 +19,7 @@ from .base import (
     get_current_semester,
     calculate_moral_level,
     get_teacher_class_id,
+    get_teacher_grade_ids,
     has_user_role,
     check_moral_permission_for_roles,
     get_api_scoped_user_roles,
@@ -327,11 +328,21 @@ async def get_grade_evaluation(
     """
     获取年级德育评价汇总
 
-    权限要求：xuefa/jiaowu/admin
+    权限要求：
+    - xuefa/jiaowu/admin：全部年级
+    - g_leader：自己管理的年级
     """
     with get_moral_db() as db:
-        if not _has_scoped_permission(db, user, API_EVAL_GRADE, 'report_view_all'):
-            raise HTTPException(403, "权限不足")
+        scope = get_record_data_scope(
+            db,
+            user,
+            API_EVAL_GRADE,
+            all_permissions=['report_view_all'],
+            own_class_permissions=[],
+            own_permissions=[],
+        )
+        if not scope.get('can_all') and grade_id not in get_teacher_grade_ids(user, db):
+            raise HTTPException(403, "权限不足：只能查看授权范围内的年级")
 
         if not semester_id:
             current_semester = get_current_semester(db)

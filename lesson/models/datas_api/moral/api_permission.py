@@ -231,7 +231,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/teacher/todos/groups/{group_id}/members/{teacher_id}", "api_name": "移除群组成员", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "operate"},
 
     # 学生管理
-    {"api_path": "/api/moral/admin/students", "api_name": "获取学生列表", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
+    {"api_path": "/api/moral/admin/students", "api_name": "获取学生列表", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
     {"api_path": "/api/moral/admin/students/create", "api_name": "创建学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
     {"api_path": "/api/moral/admin/students/update", "api_name": "更新学生信息", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/admin/students/batch", "api_name": "批量导入学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
@@ -328,7 +328,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/profiles/student/{student_id}", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
     {"api_path": "/api/moral/profiles/student/{student_id}/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
     {"api_path": "/api/moral/profiles/student/{student_id}/generate-async", "api_name": "异步生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
-    {"api_path": "/api/moral/profiles/generation-status/{job_id}", "api_name": "查询画像生成状态", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
+    {"api_path": "/api/moral/profiles/generation-status/{job_id}", "api_name": "查询画像生成状态", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/moral/profiles/batch-generate", "api_name": "批量生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
     {"api_path": "/api/moral/profiles/config", "api_name": "获取画像配置", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
 
@@ -354,7 +354,7 @@ DEFAULT_API_PERMISSIONS = [
     {"api_path": "/api/moral/evaluations/calculate", "api_name": "计算德育评价", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50},
 
     # 学期末评价
-    {"api_path": "/api/moral/semester-evaluations/generate", "api_name": "生成单学生学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
+    {"api_path": "/api/moral/semester-evaluations/generate", "api_name": "生成单学生学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/semester-evaluations/batch-generate", "api_name": "批量生成学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
     {"api_path": "/api/moral/semester-evaluations/batch-status/{job_id}", "api_name": "查询学期末评价批量生成状态", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
     {"api_path": "/api/moral/semester-evaluations/batch-latest", "api_name": "查询最近学期末评价批量任务", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
@@ -447,6 +447,37 @@ DEFAULT_OPERATION_SCOPE_RULES = {
     "/api/moral/admin/database-backup/history": {
         "admin": ["all"],
     },
+    "/api/moral/semester-evaluations/batch-status/{job_id}": {
+        "admin": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+    },
+    "/api/moral/semester-evaluations/batch-latest": {
+        "admin": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+    },
+    "/api/moral/semester-evaluations/batch-cancel/{job_id}": {
+        "admin": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+    },
+    "/api/moral/semester-evaluations/batch-delete/{job_id}": {
+        "admin": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+    },
+    "/api/moral/profiles/generation-status/{job_id}": {
+        "admin": ["own_created"],
+        "jiaowu": ["own_created"],
+        "xuefa": ["own_created"],
+        "g_leader": ["own_created"],
+        "cleader": ["own_created"],
+    },
     "/api/moral/punishment-periods/update": {
         "admin": ["all"],
         "xuefa": ["all"],
@@ -485,35 +516,6 @@ DEFAULT_OPERATION_SCOPE_RULES = {
     "/api/moral/carryover/logs": {
         "admin": ["all"],
         "xuefa": ["all"],
-    },
-    "/api/moral/escalation-rules/student/{student_id}/history": {
-        "admin": ["all"],
-        "jiaowu": ["all"],
-        "xuefa": ["all"],
-        "g_leader": ["managed_grades"],
-        "cleader": ["managed_classes"],
-    },
-    "/api/moral/escalation-rules/student/{student_id}/count": {
-        "admin": ["all"],
-        "jiaowu": ["all"],
-        "xuefa": ["all"],
-        "g_leader": ["managed_grades"],
-        "cleader": ["managed_classes"],
-    },
-    "/api/moral/escalation-rules/student/{student_id}/progress": {
-        "admin": ["all"],
-        "jiaowu": ["all"],
-        "xuefa": ["all"],
-        "g_leader": ["managed_grades"],
-        "cleader": ["managed_classes"],
-    },
-    "/api/moral/collective-events/student/{student_id}": {
-        "admin": ["all"],
-        "jiaowu": ["all"],
-        "xuefa": ["all"],
-        "g_leader": ["managed_grades"],
-        "cleader": ["managed_classes"],
-        "student": ["own_created"],
     },
     "/api/teacher/todos/{series_id}": {
         "admin": ["own_created"],
@@ -644,8 +646,11 @@ def _infer_resource_type(api_path: str) -> str:
         ("/api/moral/tasks", "moral_task"),
         ("/api/moral/collective-events", "collective_event"),
         ("/api/moral/timeline", "student_lifebook"),
+        ("/api/moral/profiles/generation-status", "student_profile_job"),
         ("/api/moral/profiles", "student_profile"),
         ("/api/moral/consultations", "consultation"),
+        ("/api/moral/semester-evaluations/batch", "semester_evaluation_batch"),
+        ("/api/moral/semester-evaluations", "semester_evaluation"),
         ("/api/moral/warnings", "warning_log"),
         ("/api/leave-records", "leave_record"),
         ("/api/cleader-classes", "leave_record"),
@@ -692,6 +697,36 @@ def _infer_action_type(api_path: str, http_method: str = "*") -> str:
     if any(token in path for token in ["/trend", "/summary", "/search", "/list"]):
         return "view"
     return "view" if method == "GET" else "operate"
+
+
+def _api_route_hint(api_path: str, http_method: str = "*") -> Dict[str, str]:
+    """为前端展示生成真实路由提示，不参与实际鉴权匹配。"""
+    path = api_path or ""
+    method = (http_method or "*").upper()
+    action_map = {
+        "/create": ("POST", ""),
+        "/update": ("PUT", "/{id}"),
+        "/delete": ("DELETE", "/{id}"),
+        "/review": ("POST", "/{id}/review"),
+        "/revoke": ("POST", "/{id}/revoke"),
+        "/close": ("POST", "/{id}/close"),
+        "/approve": ("POST", "/{id}/approve"),
+        "/reject": ("POST", "/{id}/reject"),
+    }
+    for suffix, (hint_method, route_suffix) in action_map.items():
+        if path.endswith(suffix):
+            base_path = path[: -len(suffix)]
+            return {
+                "config_kind": "virtual_action",
+                "route_hint": f"{hint_method} {base_path}{route_suffix}",
+                "route_hint_note": "业务动作配置，代码鉴权使用该虚拟权限路径",
+            }
+    return {
+        "config_kind": "route",
+        "route_hint": f"{method} {path}",
+        "route_hint_note": "真实路由或路由模式",
+    }
+
 
 DEFAULT_DATA_SCOPE_RULES = {
     "/api/moral/daily-records": {
@@ -843,6 +878,23 @@ DEFAULT_DATA_SCOPE_RULES = {
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
+        "teacher": ["teaching_classes"],
+    },
+    "/api/moral/admin/grades": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+        "teacher": ["teaching_classes"],
+    },
+    "/api/moral/admin/classes": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+        "teacher": ["teaching_classes"],
     },
     "/api/moral/admin/students/create": {
         "admin": ["all"],
@@ -916,6 +968,31 @@ DEFAULT_DATA_SCOPE_RULES = {
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
     },
+    "/api/moral/escalation-rules/student/{student_id}/history": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/escalation-rules/student/{student_id}/count": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/escalation-rules/student/{student_id}/progress": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
+    },
+    "/api/moral/tasks": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+    },
     "/api/moral/tasks/finish": {
         "admin": ["all"],
         "xuefa": ["all"],
@@ -939,6 +1016,13 @@ DEFAULT_DATA_SCOPE_RULES = {
     "/api/moral/collective-events/distributions/update": {
         "admin": ["all"],
         "xuefa": ["all"],
+    },
+    "/api/moral/collective-events/student/{student_id}": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
     },
     "/api/moral/timeline": {
         "admin": ["all"],
@@ -983,6 +1067,12 @@ DEFAULT_DATA_SCOPE_RULES = {
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
         "teacher": ["teaching_classes"],
+    },
+    "/api/moral/semester-evaluations/generate": {
+        "admin": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "cleader": ["managed_classes"],
     },
     "/api/moral/semester-evaluations/{record_id}": {
         "admin": ["all"],
@@ -1571,14 +1661,17 @@ DEFAULT_RESOURCE_TYPES = [
     {"resource_type": "escalation_rule", "resource_name": "累进规则", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 14},
     {"resource_type": "leave_record", "resource_name": "旧版请假销假", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 15},
     {"resource_type": "warning_log", "resource_name": "德育预警", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 16},
+    {"resource_type": "semester_evaluation", "resource_name": "学期末评价", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 17},
+    {"resource_type": "semester_evaluation_batch", "resource_name": "学期末评价批量任务", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 18},
     # 教师资源域 (teacher_owned)
-    {"resource_type": "teacher", "resource_name": "教师管理", "resource_domain": "teacher_owned", "scope_schema": "teacher_scope", "sort_order": 18},
-    {"resource_type": "filegather", "resource_name": "文件收集", "resource_domain": "teacher_owned", "scope_schema": "filegather_scope", "sort_order": 19},
-    {"resource_type": "teacher_todo", "resource_name": "教师待办", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 20},
-    {"resource_type": "teacher_todo_group", "resource_name": "协作群组", "resource_domain": "teacher_owned", "scope_schema": "teacher_group_scope", "sort_order": 21},
-    {"resource_type": "invigilation", "resource_name": "监考安排", "resource_domain": "teacher_owned", "scope_schema": "invigilation_scope", "sort_order": 22},
-    {"resource_type": "lesson_schedule", "resource_name": "旧版课表", "resource_domain": "teacher_owned", "scope_schema": "lesson_schedule_scope", "sort_order": 23},
-    {"resource_type": "legacy_homework", "resource_name": "旧版作业公告", "resource_domain": "teacher_owned", "scope_schema": "legacy_homework_scope", "sort_order": 24},
+    {"resource_type": "student_profile_job", "resource_name": "画像生成任务", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 19},
+    {"resource_type": "teacher", "resource_name": "教师管理", "resource_domain": "teacher_owned", "scope_schema": "teacher_scope", "sort_order": 20},
+    {"resource_type": "filegather", "resource_name": "文件收集", "resource_domain": "teacher_owned", "scope_schema": "filegather_scope", "sort_order": 21},
+    {"resource_type": "teacher_todo", "resource_name": "教师待办", "resource_domain": "teacher_owned", "scope_schema": "teacher_todo_scope", "sort_order": 22},
+    {"resource_type": "teacher_todo_group", "resource_name": "协作群组", "resource_domain": "teacher_owned", "scope_schema": "teacher_group_scope", "sort_order": 23},
+    {"resource_type": "invigilation", "resource_name": "监考安排", "resource_domain": "teacher_owned", "scope_schema": "invigilation_scope", "sort_order": 24},
+    {"resource_type": "lesson_schedule", "resource_name": "旧版课表", "resource_domain": "teacher_owned", "scope_schema": "lesson_schedule_scope", "sort_order": 25},
+    {"resource_type": "legacy_homework", "resource_name": "旧版作业公告", "resource_domain": "teacher_owned", "scope_schema": "legacy_homework_scope", "sort_order": 26},
     # 系统资源域 (system_admin)
     {"resource_type": "database_backup", "resource_name": "数据库备份", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 30},
     {"resource_type": "database_admin", "resource_name": "数据库管理", "resource_domain": "system_admin", "scope_schema": "system_action_scope", "sort_order": 31},
@@ -2780,6 +2873,7 @@ def _parse_config_row(config: Dict[str, Any]) -> Dict[str, Any]:
     config["action_type"] = config.get("action_type") or _infer_action_type(config.get("api_path") or "", config.get("http_method") or "*")
     if config.get("module_allowed_roles") is not None:
         config["module_allowed_roles"] = _json_list(config.get("module_allowed_roles"))
+    config.update(_api_route_hint(config.get("api_path") or "", config.get("http_method") or "*"))
     config["effective_policy"] = _effective_policy(config)
     config["risk_flags"] = _permission_risk_flags(config)
     return config
@@ -2960,6 +3054,8 @@ def _build_permission_audit(configs: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "module_id": parsed.get("module_id"),
                     "api_name": parsed.get("api_name"),
                     "api_path": parsed.get("api_path"),
+                    "route_hint": parsed.get("route_hint"),
+                    "config_kind": parsed.get("config_kind"),
                     "module_name": module_name,
                     "action_type": action_type,
                     "risk_flags": risks,

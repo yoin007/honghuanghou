@@ -22,7 +22,6 @@ from .base import (
     check_moral_permission,
     check_class_access,
     get_teacher_class_id,
-    has_user_role,
     check_moral_permission_for_roles,
     get_api_scoped_user_roles,
     get_record_data_scope,
@@ -143,6 +142,45 @@ def _student_manage_scope(db, user: User, api_path: str) -> dict:
     )
 
 
+def _visible_class_ids_for_lookup(db, user: User, *, include_teaching: bool = True) -> Optional[List[int]]:
+    """返回基础选择器可见班级；None 表示全校可见。"""
+    scope = get_record_data_scope(
+        db,
+        user,
+        API_CLASSES,
+        all_permissions=['class_manage', 'report_view_all'],
+        own_class_permissions=[],
+        own_permissions=[],
+    )
+    if scope.get("can_all"):
+        return None
+
+    class_ids = set()
+    class_ids.update(scope.get("my_class_ids") or [])
+    class_ids.update(scope.get("my_grade_class_ids") or [])
+    if include_teaching:
+        class_ids.update(scope.get("teaching_class_ids") or [])
+    return sorted(class_ids)
+
+
+def _append_visible_class_condition(
+    conditions: List[str],
+    params: List,
+    class_ids: Optional[List[int]],
+    *,
+    field: str,
+) -> bool:
+    """把可见班级范围追加到查询条件；返回 False 表示无可见数据。"""
+    if class_ids is None:
+        return True
+    if not class_ids:
+        return False
+    placeholders = ", ".join(["?"] * len(class_ids))
+    conditions.append(f"{field} IN ({placeholders})")
+    params.extend(class_ids)
+    return True
+
+
 # =============================================================================
 # Pydantic 模型
 # =============================================================================
@@ -256,12 +294,30 @@ async def get_teachers_for_config(user: User = Depends(require_configured_api_pe
 async def get_grades(user: User = Depends(require_configured_api_permission(API_GRADES, allow_missing=False))):
     """获取级号列表"""
     with get_moral_db() as db:
-        grades = db.query_all(
-            "SELECT g.*, "
-            "(SELECT COUNT(*) FROM class WHERE grade_id = g.grade_id) as class_count, "
-            "(SELECT COUNT(*) FROM student WHERE grade_id = g.grade_id AND status = '在校') as student_count "
-            "FROM grade g ORDER BY g.enrollment_year DESC"
-        )
+        visible_class_ids = _visible_class_ids_for_lookup(db, user, include_teaching=True)
+        if visible_class_ids is None:
+            grades = db.query_all(
+                "SELECT g.*, "
+                "(SELECT COUNT(*) FROM class WHERE grade_id = g.grade_id) as class_count, "
+                "(SELECT COUNT(*) FROM student WHERE grade_id = g.grade_id AND status = '在校') as student_count "
+                "FROM grade g ORDER BY g.enrollment_year DESC"
+            )
+        elif not visible_class_ids:
+            grades = []
+        else:
+            placeholders = ", ".join(["?"] * len(visible_class_ids))
+            grades = db.query_all(
+                f"""SELECT g.*,
+                    COUNT(DISTINCT c.class_id) as class_count,
+                    COUNT(DISTINCT CASE WHEN s.status = '在校' THEN s.student_id END) as student_count
+                   FROM grade g
+                   JOIN class c ON c.grade_id = g.grade_id
+                   LEFT JOIN student s ON s.class_id = c.class_id
+                   WHERE c.class_id IN ({placeholders})
+                   GROUP BY g.grade_id
+                   ORDER BY g.enrollment_year DESC""",
+                tuple(visible_class_ids),
+            )
         return {"success": True, "data": grades}
 
 
@@ -687,51 +743,17 @@ async def get_classes(
     - for_evaluation=1：德育评价，班主任只看管理班级
     - admin/jiaowu/xuefa/g_leader：始终看相应范围班级
     """
-    from .base import (
-        get_teacher_teaching_class_ids,
-        get_teacher_class_ids,
-        get_teacher_grade_ids,
-        has_user_role,
-        is_admin_user,
-    )
-
     with get_moral_db() as db:
         conditions = ["c.is_active = 1"]
         params = []
 
-        # 按场景过滤班级
-        if for_record_input == 1 or for_evaluation == 1:
-            # admin/jiaowu/xuefa 可以看所有班级
-            if is_admin_user(user) or has_user_role(user, 'jiaowu') or has_user_role(user, 'xuefa'):
-                # 不额外过滤
-                pass
-            else:
-                # 计算可见班级ID列表
-                visible_class_ids = set()
-
-                # 年级主任管理的年级班级
-                if has_user_role(user, 'g_leader'):
-                    grade_ids = get_teacher_grade_ids(user, db)
-                    if grade_ids:
-                        grade_classes = db.query_all(
-                            f"SELECT class_id FROM class WHERE grade_id IN ({','.join(map(str, grade_ids))}) AND is_active = 1"
-                        )
-                        visible_class_ids.update(c['class_id'] for c in grade_classes)
-
-                # 班主任班级
-                if has_user_role(user, 'cleader'):
-                    own_class_ids = get_teacher_class_ids(user, db)
-                    visible_class_ids.update(own_class_ids)
-
-                # 任教班级（只在 for_record_input 场景添加）
-                if for_record_input == 1:
-                    teaching_ids = get_teacher_teaching_class_ids(user, db)
-                    visible_class_ids.update(teaching_ids)
-
-                if not visible_class_ids:
-                    return {"success": True, "data": []}
-
-                conditions.append(f"c.class_id IN ({','.join(map(str, visible_class_ids))})")
+        visible_class_ids = _visible_class_ids_for_lookup(
+            db,
+            user,
+            include_teaching=(for_evaluation != 1),
+        )
+        if not _append_visible_class_condition(conditions, params, visible_class_ids, field="c.class_id"):
+            return {"success": True, "data": []}
 
         if grade_id:
             conditions.append("c.grade_id = ?")
@@ -1163,22 +1185,24 @@ async def get_students(
             or check_moral_permission(user, 'moment_create')
         )
 
-        if (
-            not manage_scope.get("can_all")
-            and not manage_scope.get("can_own_class")
-            and not is_record_input_lookup
-        ):
+        has_read_scope = any([
+            manage_scope.get("can_all"),
+            manage_scope.get("can_own_class"),
+            manage_scope.get("can_own_grade"),
+            manage_scope.get("can_teaching_classes"),
+            manage_scope.get("can_own"),
+        ])
+        if not has_read_scope:
             raise HTTPException(403, "权限不足：需要学生查看权限")
 
-        if not is_record_input_lookup:
-            append_record_scope_condition(
-                conditions,
-                params,
-                manage_scope,
-                table_alias="s",
-                username=user.username,
-                recorder_field="student_id",
-            )
+        append_record_scope_condition(
+            conditions,
+            params,
+            manage_scope,
+            table_alias="s",
+            username=user.username,
+            recorder_field="student_id",
+        )
 
         if class_id:
             conditions.append("s.class_id = ?")
@@ -1399,9 +1423,9 @@ async def batch_import_students(
 
                     db.execute(
                         """UPDATE student SET
-                        name = ?, gender = ?, class_id = ?, grade_id = ?, birthday = ?
+                        name = ?, gender = ?, class_id = ?, grade_id = ?, birthday = ?, roomid = ?, rpid = ?
                         WHERE student_id = ?""",
-                        (item.name, item.gender, class_id, grade_id, birthday, item.student_id)
+                        (item.name, item.gender, class_id, grade_id, birthday, item.roomid, item.rpid, item.student_id)
                     )
 
                     # 如果班级变更，记录班级履历
@@ -1418,9 +1442,9 @@ async def batch_import_students(
                     # 新学生，插入
                     db.execute(
                         """INSERT INTO student
-                        (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '在校')""",
-                        (item.student_id, item.name, item.gender, class_id, grade_id, grade_id, birthday, enrollment_date)
+                        (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, roomid, rpid, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '在校')""",
+                        (item.student_id, item.name, item.gender, class_id, grade_id, grade_id, birthday, enrollment_date, item.roomid, item.rpid)
                     )
 
                     # 创建班级履历

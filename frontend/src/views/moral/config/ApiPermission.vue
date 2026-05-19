@@ -98,7 +98,14 @@
         >
           <el-table-column type="selection" width="48" />
           <el-table-column prop="api_name" label="API名称" min-width="150" />
-          <el-table-column prop="api_path" label="API路径" min-width="230" />
+          <el-table-column label="权限路径 / 实际调用" min-width="300">
+            <template #default="{ row }">
+              <div class="api-path-cell">
+                <span class="api-path-main">{{ row.api_path }}</span>
+                <span class="api-route-hint">{{ row.route_hint || `${row.http_method || '*'} ${row.api_path}` }}</span>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column label="业务对象" width="120">
             <template #default="{ row }">{{ getResourceName(row.resource_type) }}</template>
           </el-table-column>
@@ -110,6 +117,12 @@
           </el-table-column>
           <el-table-column label="方法" width="80">
             <template #default="{ row }">{{ row.http_method || '*' }}</template>
+          </el-table-column>
+          <el-table-column label="类型" width="100">
+            <template #default="{ row }">
+              <el-tag v-if="row.config_kind === 'virtual_action'" type="info" size="small">动作配置</el-tag>
+              <el-tag v-else size="small">路由配置</el-tag>
+            </template>
           </el-table-column>
           <el-table-column label="匹配" width="90">
             <template #default="{ row }">{{ getMatchName(row.match_type) }}</template>
@@ -609,7 +622,7 @@ const filteredPermissions = computed(() => {
     if (selectedModuleId.value && item.module_id !== selectedModuleId.value) return false
     const keyword = keywordFilter.value.trim().toLowerCase()
     if (keyword) {
-      const searchable = `${item.api_name || ''} ${item.api_path || ''}`.toLowerCase()
+      const searchable = `${item.api_name || ''} ${item.api_path || ''} ${item.route_hint || ''}`.toLowerCase()
       if (!searchable.includes(keyword)) return false
     }
     if (resourceFilter.value && item.resource_type !== resourceFilter.value) return false
@@ -1508,6 +1521,8 @@ const exportAuditReport = async () => {
     columns: [
       { header: 'API名称', key: 'api_name', width: 24 },
       { header: 'API路径', key: 'api_path', width: 42 },
+      { header: '实际调用', key: 'route_hint', width: 42 },
+      { header: '配置类型', key: 'config_kind_name', width: 12 },
       { header: '模块', key: 'module_name', width: 18 },
       { header: '动作', key: 'action_type_name', width: 10 },
       { header: '风险项', key: 'risk_flags', width: 36 }
@@ -1515,6 +1530,8 @@ const exportAuditReport = async () => {
     rows: (auditReport.value.items || []).map(item => ({
       api_name: item.api_name || '',
       api_path: item.api_path || '',
+      route_hint: item.route_hint || '',
+      config_kind_name: item.config_kind === 'virtual_action' ? '动作配置' : '路由配置',
       module_name: item.module_name || '',
       action_type_name: getActionName(item.action_type),
       risk_flags: (item.risk_flags || []).join('；')
@@ -1873,6 +1890,23 @@ onMounted(refreshAll)
   align-items: center;
   gap: 6px;
   line-height: 1.6;
+}
+
+.api-path-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.4;
+}
+
+.api-path-main {
+  font-family: var(--el-font-family);
+  color: var(--el-text-color-primary);
+}
+
+.api-route-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 .role-list {

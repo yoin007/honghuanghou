@@ -565,6 +565,8 @@ async def get_profile_generation_status(
     job = PROFILE_GENERATION_JOBS.get(job_id)
     if not job:
         raise HTTPException(404, "画像生成任务不存在或已过期")
+    if job.get("generated_by") != user.username:
+        raise HTTPException(403, "权限不足：只能查看自己发起的画像生成任务")
     return {
         "success": True,
         "data": {
