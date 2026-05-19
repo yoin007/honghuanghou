@@ -104,9 +104,17 @@ class WxMsg:
         self.type = msg.get("type", "")
         self.create_time = time.time() * 1000
         self.is_at = False
-        bizContent = msg.get("bizContent", "")
-        self.ext = bizContent.get("QrCodeUrl", "")
-        self.msg_id = bizContent.get("TaskId", "")
+        bizContent_raw = msg.get("bizContent", "")
+        # bizContent 可能是 JSON 字符串，需要解析
+        if isinstance(bizContent_raw, str) and bizContent_raw:
+            try:
+                bizContent = json.loads(bizContent_raw)
+            except json.JSONDecodeError:
+                bizContent = {}
+        else:
+            bizContent = bizContent_raw if isinstance(bizContent_raw, dict) else {}
+        self.ext = bizContent.get("qrCodeUrl", bizContent.get("QrCodeUrl", ""))
+        self.msg_id = bizContent.get("TaskId", bizContent.get("msgId", ""))
         self.roomid = bizContent.get("ChatRoomId", "")
         self.sender = bizContent.get("ChatRoomId", "")
         self.thumb = ""
@@ -594,6 +602,16 @@ class MessageDB:
             """
             SELECT * FROM messages WHERE msg_id = :msg_id""",
             {"msg_id": msg_id},
+        )
+        result = self.__cursor__.fetchone()
+        return result if result else None
+
+    def select_by_event(self, event_type):
+        """按 eventType 查询最新的回调消息"""
+        self.__cursor__.execute(
+            """SELECT * FROM messages WHERE content = :event_type
+               ORDER BY create_time DESC LIMIT 1""",
+            {"event_type": event_type},
         )
         result = self.__cursor__.fetchone()
         return result if result else None

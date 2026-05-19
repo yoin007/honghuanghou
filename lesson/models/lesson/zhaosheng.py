@@ -376,12 +376,15 @@ async def get_group_qr(record):
     # 6. 调用 Client.group_qr() 获取二维码链接
     client = Client()
     try:
-        qr_url, qr_expr = await asyncio.to_thread(client.group_qr, roomid, record.msg_id)
+        qr_result = await asyncio.to_thread(client.group_qr, roomid)
 
         # 7. 处理结果
-        if qr_url and qr_url.strip():
-            logger.info(f"群二维码获取成功: room_name={room_name}, roomid={roomid}, url={qr_url}")
-            expr = qr_expr.splitlines()[-1]
+        if qr_result and qr_result.strip():
+            logger.info(f"群二维码获取成功: room_name={room_name}, roomid={roomid}, url={qr_result}")
+            # qr_result 包含二维码图片链接和有效期信息
+            lines = qr_result.splitlines()
+            qr_url = lines[0] if lines else qr_result
+            expr = lines[-1] if len(lines) > 1 else ""
             send_text(f"群「{room_name}」的二维码：\n{expr}\n{qr_url}", sender, producer="get_group_qr")
             send_image(qr_url, sender, producer="get_group_qr")
         else:

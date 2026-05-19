@@ -512,6 +512,22 @@ class Member:
                     result = m.__cursor__.fetchone()
         return result if result else ("",)
 
+    def chatroom_id(self, room_name):
+        """通过群名称获取群ID"""
+        with self as m:
+            m.__cursor__.execute(
+                "SELECT roomid FROM chatroom WHERE room_name = ?", (room_name,)
+            )
+            result = m.__cursor__.fetchone()
+            if not result:
+                self.update_chatroom()
+                with self as m:
+                    m.__cursor__.execute(
+                        "SELECT roomid FROM chatroom WHERE room_name = ?", (room_name,)
+                    )
+                    result = m.__cursor__.fetchone()
+        return result[0] if result else None
+
     def insert_member(
         self,
         uuid,

@@ -218,18 +218,26 @@ class Client:
         try:
             # 解析响应数据
             response = json.loads(response)
-            if response["success"] and response["message"] == "触发获取群二维码成功":
-                msg_id = response["data"]["data"]
+            if response.get("success") and response.get("message") == "触发获取群二维码成功":
                 from wxmsg import MessageDB
 
                 with MessageDB() as msgdb:
-                    for _ in range(10):
+                    # 重试多次，等待回调中的 qrCodeUrl 不为空
+                    for i in range(10):
                         sleep(3)
-                        msg = msgdb.select(msg_id)
+                        msg = msgdb.select_by_event("PULL_CHATROOM_QRCODE")
                         if msg:
-                            return msg[8]
-            else:
+                            # msg[8] 是 ext 字段，存储 qrCodeUrl
+                            # 也检查 msg[7] thumb 字段，可能包含图片URL
+                            qr_url = msg[8] or msg[7] or ""
+                            if qr_url and qr_url.strip():
+                                return qr_url
+                            # 如果 URL 为空但 msg 存在，说明回调已到达但无URL，继续等待
+                            self.LOG.info(f"第{i+1}次查询回调消息，qrCodeUrl为空，继续等待")
+                # 10次后仍未获取到URL，返回空
+                self.LOG.warning("群二维码回调中qrCodeUrl始终为空")
                 return ""
+            return ""
         except (json.JSONDecodeError, TypeError, KeyError) as e:
             self.LOG.error(f"解析群二维码失败: {e}, 响应内容: {response}")
             return ""

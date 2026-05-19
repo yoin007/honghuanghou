@@ -190,8 +190,16 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
 
   /**
    * 从后端加载菜单权限配置
+   * 未登录时静默跳过，不触发 401 弹窗
    */
   const loadMenuConfigFromBackend = async () => {
+    // 未登录时跳过，避免触发 401 弹窗
+    const token = localStorage.getItem('token')
+    if (!token) {
+      configLoaded.value = false
+      return false
+    }
+
     try {
       const res = await httpClient.get('/api/moral/menu-permission/my-menu')
       if (res.success && res.data && res.data.length > 0) {

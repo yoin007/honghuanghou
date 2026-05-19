@@ -48,6 +48,8 @@ rsync -av --delete \
   --exclude='backups/' \
   --exclude='*.bak' \
   --exclude='*副本*' \
+  --exclude='*.yaml' \
+  --exclude='setting.local.json' \
   --exclude='white_list.txt' \
   --exclude='*.db' \
   --exclude='*.db-shm' \
@@ -69,6 +71,7 @@ rsync -av --delete \
   --exclude='.DS_Store' \
   --exclude='tests/' \
   --exclude='.env' \
+  --exclude='.env.development' \
   --exclude='*.pem' \
   frontend/ "$PACKAGE_DIR/frontend/"
 

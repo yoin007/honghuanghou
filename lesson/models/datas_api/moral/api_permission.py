@@ -2570,8 +2570,9 @@ def _fix_incorrect_scope_rules(db) -> None:
         tuple(LEGACY_PUBLIC_API_PATHS),
     )
     protected_placeholders = ",".join(["?"] * len(LEGACY_CONFIGURED_AUTH_API_PATHS))
+    # 只在 is_public 为空或未设置时设置默认值，保留用户手工配置的公开状态
     db.execute(
-        f"UPDATE api_permission_config SET is_public = 0, enforce_backend = 1 WHERE api_path IN ({protected_placeholders})",
+        f"UPDATE api_permission_config SET is_public = CASE WHEN is_public IS NULL THEN 0 ELSE is_public END, enforce_backend = CASE WHEN is_public = 1 THEN 0 ELSE 1 END WHERE api_path IN ({protected_placeholders})",
         tuple(LEGACY_CONFIGURED_AUTH_API_PATHS),
     )
     legacy_role_defaults = {
@@ -2585,13 +2586,20 @@ def _fix_incorrect_scope_rules(db) -> None:
     }
     for api_path, (roles, min_level) in legacy_role_defaults.items():
         config = db.query_one(
-            "SELECT allowed_roles FROM api_permission_config WHERE api_path = ?",
+            "SELECT allowed_roles, min_level FROM api_permission_config WHERE api_path = ?",
             (api_path,),
         )
         if not config:
             continue
         current_roles = set(_json_list(config.get("allowed_roles")))
-        if not current_roles or not set((DEFAULT_DATA_SCOPE_RULES.get(api_path) or DEFAULT_TARGET_SCOPE_RULES.get(api_path) or {}).keys()).issubset(current_roles):
+        current_min_level = config.get("min_level")
+        # 只在配置为空或明显错误时补齐，保留用户手工配置
+        needs_update = False
+        if not current_roles:
+            needs_update = True
+        elif current_min_level is None:
+            needs_update = True
+        if needs_update:
             db.execute(
                 "UPDATE api_permission_config SET allowed_roles = ?, min_level = ? WHERE api_path = ?",
                 (_json_dump(roles), min_level, api_path),
@@ -2866,17 +2874,18 @@ def _sync_legacy_api_level_yaml(db) -> Dict[str, int]:
 
         existing = db.query_one("SELECT id FROM api_permission_config WHERE api_path = ?", (api_path,))
         if existing:
+            # 只补齐缺失字段，保留用户手工配置
             db.execute(
                 """UPDATE api_permission_config
                    SET module_id = COALESCE(module_id, ?),
                        api_group = CASE WHEN api_group = '' THEN ? ELSE api_group END,
-                       allowed_roles = ?,
-                       min_level = ?,
-                       http_method = ?,
-                       match_type = ?,
+                       allowed_roles = CASE WHEN allowed_roles IS NULL OR allowed_roles = '' OR allowed_roles = '[]' THEN ? ELSE allowed_roles END,
+                       min_level = CASE WHEN min_level IS NULL THEN ? ELSE min_level END,
+                       http_method = CASE WHEN http_method IS NULL OR http_method = '' OR http_method = '*' THEN ? ELSE http_method END,
+                       match_type = CASE WHEN match_type IS NULL OR match_type = '' THEN ? ELSE match_type END,
                        policy_mode = COALESCE(policy_mode, 'role_and_level'),
-                       is_public = ?,
-                       enforce_backend = ?,
+                       is_public = CASE WHEN is_public IS NULL THEN ? ELSE is_public END,
+                       enforce_backend = CASE WHEN is_public = 1 THEN 0 ELSE COALESCE(enforce_backend, ?) END,
                        resource_type = CASE WHEN resource_type IS NULL OR resource_type = '' THEN ? ELSE resource_type END,
                        action_type = CASE WHEN action_type IS NULL OR action_type = '' THEN ? ELSE action_type END,
                        data_scope_rules = CASE WHEN data_scope_rules IS NULL OR data_scope_rules = '' OR data_scope_rules = '{}' THEN ? ELSE data_scope_rules END,
