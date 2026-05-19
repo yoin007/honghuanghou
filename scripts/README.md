@@ -4,6 +4,8 @@
 
 ```
 scripts/
+├── package.sh        # 打包脚本 (macOS/Linux)
+│
 ├── windows/          # Windows 平台脚本
 │   ├── install.bat       # 安装依赖
 │   ├── start-backend.bat # 启动后端
@@ -18,6 +20,25 @@ scripts/
     ├── start-all.sh      # 启动全部
     └── stop-all.sh       # 停止全部
 ```
+
+## 打包部署
+
+```bash
+# 在 macOS/Linux 上打包，生成 Windows 部署包
+./scripts/package.sh [版本号]
+
+# 示例
+./scripts/package.sh              # 自动使用时间戳作为版本号
+./scripts/package.sh v1.0.0       # 指定版本号
+
+# 输出文件: release/honghuanghou_<版本号>.zip
+```
+
+打包内容：
+- `lesson/` 后端代码（不含数据库、日志、缓存、测试）
+- `frontend/` 前端源码（不含 node_modules）
+- `scripts/*.bat` Windows 启动脚本
+- `部署说明.txt` 部署指南
 
 ## Windows 使用方法
 
