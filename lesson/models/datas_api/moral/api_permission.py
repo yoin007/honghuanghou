@@ -10,6 +10,9 @@ import json
 import re
 import hashlib
 import sqlite3
+import os
+import yaml
+from functools import lru_cache
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -179,236 +182,32 @@ class ApiPermissionAuditRequest(BaseModel):
 
 
 # =============================================================================
-# 默认API权限配置
+# 默认API权限配置 (从 YAML 文件加载)
 # =============================================================================
 
-DEFAULT_API_PERMISSIONS = [
-    # 日常表现记录
-    {"api_path": "/api/moral/daily-records", "api_name": "获取日常记录列表", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "action_type": "view"},
-    {"api_path": "/api/moral/daily-records/types", "api_name": "获取事件类型", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/daily-records/create", "api_name": "创建日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/daily-records/batch", "api_name": "批量创建记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "http_method": "POST", "action_type": "create"},
-    {"api_path": "/api/moral/daily-records/update", "api_name": "更新日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/daily-records/delete", "api_name": "删除日常记录", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/daily-records/statistics/student/{student_id}", "api_name": "学生日常表现统计", "api_group": "日常表现", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "action_type": "view"},
+API_PERMISSIONS_CONFIG_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+    "config", "api_permissions.yaml"
+)
 
-    # 点滴记录
-    {"api_path": "/api/moral/moment-records", "api_name": "获取点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/moment-records/create", "api_name": "创建点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/moment-records/update", "api_name": "更新点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/moment-records/delete", "api_name": "删除点滴记录", "api_group": "点滴记录", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
 
-    # 校级事件
-    {"api_path": "/api/moral/school-records", "api_name": "获取校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/school-records/types", "api_name": "校级事件类型管理", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/school-records/create", "api_name": "创建校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/school-records/update", "api_name": "更新校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/school-records/delete", "api_name": "删除校级事件", "api_group": "校级事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
+@lru_cache(maxsize=1)
+def _load_api_permissions_from_yaml() -> List[Dict[str, Any]]:
+    """从 YAML 文件加载 API 权限配置，带缓存"""
+    if not os.path.exists(API_PERMISSIONS_CONFIG_FILE):
+        logger.warning(f"API权限配置文件不存在: {API_PERMISSIONS_CONFIG_FILE}")
+        return []
+    try:
+        with open(API_PERMISSIONS_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f) or []
+    except Exception as e:
+        logger.error(f"加载API权限配置失败: {e}")
+        return []
 
-    # 处分管理
-    {"api_path": "/api/moral/punishments", "api_name": "获取处分记录", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/punishments/create", "api_name": "创建处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/punishments/update", "api_name": "更新处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/punishments/revoke", "api_name": "撤销处分", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/punishments/review", "api_name": "处分复核", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/punishments/expiring", "api_name": "即将到期处分列表", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "GET", "resource_type": "punishment_record", "action_type": "view"},
-    {"api_path": "/api/moral/punishment-periods", "api_name": "处分期限配置列表", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "GET", "resource_type": "punishment_period", "action_type": "view"},
-    {"api_path": "/api/moral/punishment-periods/update", "api_name": "更新处分期限配置", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "PUT", "resource_type": "punishment_period", "action_type": "update"},
-    {"api_path": "/api/moral/punishment-revoke-applications", "api_name": "处分撤销申请列表", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "GET", "resource_type": "punishment_revoke_application", "action_type": "view"},
-    {"api_path": "/api/moral/punishment-revoke-applications/create", "api_name": "提交处分撤销申请", "api_group": "处分管理", "allowed_roles": ["admin", "cleader"], "min_level": 20, "http_method": "POST", "resource_type": "punishment_revoke_application", "action_type": "create"},
-    {"api_path": "/api/moral/punishment-revoke-applications/approve", "api_name": "审批通过处分撤销申请", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "POST", "resource_type": "punishment_revoke_application", "action_type": "review"},
-    {"api_path": "/api/moral/punishment-revoke-applications/reject", "api_name": "审批拒绝处分撤销申请", "api_group": "处分管理", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "POST", "resource_type": "punishment_revoke_application", "action_type": "review"},
 
-    # 集体事件
-    {"api_path": "/api/moral/collective-events", "api_name": "集体事件管理", "api_group": "集体事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/collective-events/create", "api_name": "创建集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/collective-events/update", "api_name": "更新集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/collective-events/delete", "api_name": "删除集体事件", "api_group": "集体事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/collective-events/distributions/update", "api_name": "调整集体事件分配", "api_group": "集体事件", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
+# 动态获取配置
+DEFAULT_API_PERMISSIONS = _load_api_permissions_from_yaml()
 
-    # 德育任务
-    {"api_path": "/api/moral/tasks", "api_name": "获取德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-    {"api_path": "/api/moral/tasks/create", "api_name": "创建德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/tasks/update", "api_name": "更新德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/tasks/delete", "api_name": "删除德育任务", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/tasks/finish", "api_name": "记录任务完成", "api_group": "德育任务", "allowed_roles": ["admin", "xuefa"], "min_level": 20},
-
-    # 事件类型管理
-    {"api_path": "/api/moral/event-types", "api_name": "创建事件类型", "api_group": "事件类型", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/event-types/update", "api_name": "更新事件类型", "api_group": "事件类型", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/event-types/import", "api_name": "批量导入事件类型", "api_group": "事件类型", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-
-    # 学生管理
-    # 数据驾驶舱
-    {"api_path": "/api/dashboard/overview", "api_name": "当前用户数据驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/dashboard/moral/summary", "api_name": "德育驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/dashboard/teaching/summary", "api_name": "教务驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu"], "min_level": 50},
-    {"api_path": "/api/dashboard/class/summary", "api_name": "班级驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 20},
-    {"api_path": "/api/dashboard/grade/list", "api_name": "年级驾驶舱年级列表", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20},
-    {"api_path": "/api/dashboard/grade/summary", "api_name": "年级驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20},
-    {"api_path": "/api/dashboard/teacher/workbench", "api_name": "教师个人工作台", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher", "action_type": "view"},
-    {"api_path": "/api/dashboard/invigilation/summary", "api_name": "监考驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu"], "min_level": 50},
-    {"api_path": "/api/dashboard/system/summary", "api_name": "系统运维驾驶舱总览", "api_group": "数据驾驶舱", "allowed_roles": ["admin"], "min_level": 100},
-    {"api_path": "/api/dashboard/score-trend/student/{student_id}", "api_name": "学生个人得分趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/dashboard/score-trend/class/{class_id}", "api_name": "班级平均得分趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "cleader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/dashboard/score-trend/grade/{grade_id}", "api_name": "年级平均得分趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/dashboard/score-trend/grade/{grade_id}/classes", "api_name": "年级班级对比趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/dashboard/score-trend/all-classes", "api_name": "全校班级对比趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20},
-    {"api_path": "/api/dashboard/class-record-compare", "api_name": "全校班级正负记录对比", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 20},
-    {"api_path": "/api/dashboard/teacher-record-trend", "api_name": "教师德育记录趋势", "api_group": "数据驾驶舱", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-
-    # 德育预警
-    {"api_path": "/api/moral/warnings", "api_name": "德育预警列表与已读状态", "api_group": "德育预警", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "*", "resource_type": "warning_log", "action_type": "operate"},
-
-    # 教师待办
-    {"api_path": "/api/teacher/todos", "api_name": "查询教师待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher_todo", "action_type": "view"},
-    {"api_path": "/api/teacher/todos/create", "api_name": "创建教师待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "resource_type": "teacher_todo", "action_type": "create"},
-    {"api_path": "/api/teacher/todos/{series_id}", "api_name": "编辑删除教师待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern", "resource_type": "teacher_todo", "action_type": "update"},
-    {"api_path": "/api/teacher/todos/occurrences/{occurrence_id}/complete", "api_name": "完成教师待办实例", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo", "action_type": "operate"},
-    {"api_path": "/api/teacher/todos/occurrences/{occurrence_id}/reopen", "api_name": "恢复教师待办实例", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo", "action_type": "operate"},
-    {"api_path": "/api/teacher/todos/upcoming", "api_name": "教师近期待办", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "GET", "resource_type": "teacher_todo", "action_type": "view"},
-    # 教师协作群组
-    {"api_path": "/api/teacher/todos/groups", "api_name": "协作群组列表和创建", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "*", "resource_type": "teacher_todo_group", "action_type": "operate"},
-    {"api_path": "/api/teacher/todos/groups/{group_id}", "api_name": "更新删除协作群组", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "update"},
-    {"api_path": "/api/teacher/todos/groups/{group_id}/members", "api_name": "添加群组成员", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "operate"},
-    {"api_path": "/api/teacher/todos/groups/{group_id}/members/{teacher_id}", "api_name": "移除群组成员", "api_group": "教师待办", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "match_type": "pattern", "resource_type": "teacher_todo_group", "action_type": "operate"},
-
-    # 学生管理
-    {"api_path": "/api/moral/admin/students", "api_name": "获取学生列表", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/admin/students/create", "api_name": "创建学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/admin/students/update", "api_name": "更新学生信息", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/admin/students/batch", "api_name": "批量导入学生", "api_group": "学生管理", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/admin/teachers", "api_name": "获取教师选择列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/grades", "api_name": "获取级号列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/grades/create", "api_name": "创建级号", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/grades/{grade_id}", "api_name": "更新级号", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern"},
-    {"api_path": "/api/moral/admin/grades/promote/preview", "api_name": "预览年级升迁", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/grades/promote/execute", "api_name": "执行年级升迁", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/grades/archived", "api_name": "获取归档年级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/classes", "api_name": "获取班级列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/classes/create", "api_name": "创建班级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/admin/classes/{class_id}", "api_name": "更新班级", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern"},
-    {"api_path": "/api/moral/admin/school-years", "api_name": "获取学年列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "resource_type": "school_calendar", "action_type": "view"},
-    {"api_path": "/api/moral/admin/school-years/create", "api_name": "创建学年", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "resource_type": "school_calendar", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/semesters", "api_name": "获取学期列表", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "resource_type": "school_calendar", "action_type": "view"},
-    {"api_path": "/api/moral/admin/semesters/create", "api_name": "创建学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "resource_type": "school_calendar", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/semesters/{semester_id}", "api_name": "更新学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "resource_type": "school_calendar", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/semesters/{semester_id}/set-current", "api_name": "设置当前学期", "api_group": "基础配置", "allowed_roles": ["admin", "jiaowu", "xuefa"], "min_level": 50, "match_type": "pattern", "resource_type": "school_calendar", "action_type": "operate"},
-
-    # 系统配置
-    {"api_path": "/api/moral/admin/config", "api_name": "系统配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "system_config", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/logs", "api_name": "获取操作日志", "api_group": "系统管理", "allowed_roles": ["admin", "xuefa", "jiaowu"], "min_level": 40, "http_method": "GET", "resource_type": "operation_log", "action_type": "view"},
-    {"api_path": "/api/moral/ai-model-config", "api_name": "大模型配置", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "ai_model_config", "action_type": "operate"},
-    {"api_path": "/api/moral/scheduler", "api_name": "定时任务调度器", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "scheduler", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/api-permissions", "api_name": "API权限管理", "api_group": "系统配置", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "api_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/list", "api_name": "获取菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/my-menu", "api_name": "获取当前用户菜单", "api_group": "菜单权限", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher", "student"], "min_level": 0, "resource_type": "menu_permission", "action_type": "view"},
-    {"api_path": "/api/moral/menu-permission/groups", "api_name": "获取菜单分组", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/roles", "api_name": "获取菜单角色", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/create", "api_name": "创建菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/{menu_key}", "api_name": "修改菜单配置", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "menu_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/batch", "api_name": "批量更新菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/batch-by-group", "api_name": "按分组更新菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/init", "api_name": "初始化菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/menu-permission/reset", "api_name": "重置菜单权限", "api_group": "菜单权限", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "menu_permission", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/list", "api_name": "获取数据库列表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_admin", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/tables/{db_name}", "api_name": "获取数据库表列表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_admin", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/protected-tables", "api_name": "获取受保护表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_admin", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/generate-token/{db_name}/{table_name}", "api_name": "生成清空确认令牌", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_admin", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database/clear/{db_name}/{table_name}", "api_name": "清空数据库表", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_admin", "action_type": "delete"},
-    {"api_path": "/api/moral/admin/database/check-integrity", "api_name": "检查数据库完整性", "api_group": "数据库管理", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_admin", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database-backup/config", "api_name": "备份配置管理", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database-backup/manual", "api_name": "手动执行备份", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
-    {"api_path": "/api/moral/admin/database-backup/history", "api_name": "备份历史列表", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "view"},
-    {"api_path": "/api/moral/admin/database-backup/delete/{backup_id}", "api_name": "删除备份文件", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "delete"},
-    {"api_path": "/api/moral/admin/database-backup/download/{backup_id}", "api_name": "下载备份文件", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "match_type": "pattern", "resource_type": "database_backup", "action_type": "export"},
-    {"api_path": "/api/moral/admin/database-backup/schedule", "api_name": "定时备份配置", "api_group": "数据库备份", "allowed_roles": ["admin"], "min_level": 100, "resource_type": "database_backup", "action_type": "operate"},
-
-    # 教师管理（同一路径存在 GET/POST，使用 *，写操作保留模块内 admin 判断）
-    {"api_path": "/api/teachers", "api_name": "教师列表和创建", "api_group": "教师管理", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10, "http_method": "*", "resource_type": "teacher", "action_type": "operate"},
-    {"api_path": "/api/teachers/{username}", "api_name": "更新删除教师", "api_group": "教师管理", "allowed_roles": ["admin"], "min_level": 100, "http_method": "*", "match_type": "pattern", "resource_type": "teacher", "action_type": "update"},
-    {"api_path": "/api/teachers/{teacher_id}/teaching-classes", "api_name": "教师任教班级维护", "api_group": "教师管理", "allowed_roles": ["admin"], "min_level": 100, "http_method": "*", "match_type": "pattern", "resource_type": "teacher", "action_type": "update"},
-    {"api_path": "/api/teachers/init-teaching-classes", "api_name": "初始化教师任教班级", "api_group": "教师管理", "allowed_roles": ["admin"], "min_level": 100, "http_method": "POST", "resource_type": "teacher", "action_type": "update"},
-    {"api_path": "/api/teachers/change-password", "api_name": "教师修改自己的密码", "api_group": "教师管理", "allowed_roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu"], "min_level": 10, "http_method": "POST", "resource_type": "teacher", "action_type": "update"},
-
-    # 文件收集
-    {"api_path": "/api/filegather/upload", "api_name": "上传文件", "api_group": "文件收集", "allowed_roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "min_level": 10, "http_method": "POST", "resource_type": "filegather", "action_type": "create"},
-    {"api_path": "/api/filegather/my-files", "api_name": "我的文件列表", "api_group": "文件收集", "allowed_roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
-    {"api_path": "/api/filegather/my-files/{file_id}", "api_name": "删除我的文件", "api_group": "文件收集", "allowed_roles": ["teacher", "cleader", "g_leader", "xuefa", "jiaowu", "admin"], "min_level": 10, "http_method": "DELETE", "match_type": "pattern", "resource_type": "filegather", "action_type": "delete"},
-    {"api_path": "/api/filegather/admin/files", "api_name": "待处理文件列表", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
-    {"api_path": "/api/filegather/admin/done-files", "api_name": "已完成文件列表", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
-    {"api_path": "/api/filegather/admin/mark-done/{file_id}", "api_name": "标记文件完成", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "filegather", "action_type": "update"},
-    {"api_path": "/api/filegather/admin/download/{file_id}", "api_name": "下载文件", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "filegather", "action_type": "export"},
-    {"api_path": "/api/filegather/admin/statistics", "api_name": "文件统计", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
-    {"api_path": "/api/filegather/admin/months", "api_name": "文件月份列表", "api_group": "文件收集", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "filegather", "action_type": "view"},
-
-    # 监考安排（同一路径存在多方法，统一使用 *，角色统一为教务/管理员）
-    {"api_path": "/api/invigilation/teachers", "api_name": "监考教师列表", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "invigilation", "action_type": "view"},
-    {"api_path": "/api/invigilation/projects", "api_name": "考试项目列表和创建", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "*", "resource_type": "invigilation", "action_type": "operate"},
-    {"api_path": "/api/invigilation/projects/{project_id}", "api_name": "考试项目详情更新删除", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "*", "match_type": "pattern", "resource_type": "invigilation", "action_type": "operate"},
-    {"api_path": "/api/invigilation/projects/{project_id}/slots", "api_name": "监考安排列表和保存", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "*", "match_type": "pattern", "resource_type": "invigilation", "action_type": "operate"},
-    {"api_path": "/api/invigilation/projects/{project_id}/slots/swap-teachers", "api_name": "交换监考教师", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "invigilation", "action_type": "update"},
-    {"api_path": "/api/invigilation/projects/{project_id}/changes", "api_name": "监考变更预览", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "invigilation", "action_type": "view"},
-    {"api_path": "/api/invigilation/projects/{project_id}/notify", "api_name": "发送监考通知", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "invigilation", "action_type": "update"},
-    {"api_path": "/api/invigilation/projects/{project_id}/notification-logs", "api_name": "监考通知日志", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "invigilation", "action_type": "view"},
-    {"api_path": "/api/invigilation/template", "api_name": "下载监考模板", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "resource_type": "invigilation", "action_type": "export"},
-    {"api_path": "/api/invigilation/projects/{project_id}/import", "api_name": "导入监考安排", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "POST", "match_type": "pattern", "resource_type": "invigilation", "action_type": "create"},
-    {"api_path": "/api/invigilation/projects/{project_id}/export", "api_name": "导出监考安排", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "invigilation", "action_type": "export"},
-    {"api_path": "/api/invigilation/projects/{project_id}/report", "api_name": "导出监考工作量报表", "api_group": "监考安排", "allowed_roles": ["jiaowu", "admin"], "min_level": 10, "http_method": "GET", "match_type": "pattern", "resource_type": "invigilation", "action_type": "export"},
-
-    # 生日提醒
-    {"api_path": "/api/moral/birthdays/upcoming", "api_name": "获取即将生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-    {"api_path": "/api/moral/birthdays/today", "api_name": "获取今日生日", "api_group": "生日提醒", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "teacher"], "min_level": 10},
-
-    # 学生画像
-    {"api_path": "/api/moral/timeline", "api_name": "一生一册查看", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/timeline/search", "api_name": "一生一册学生搜索", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/timeline/export/{student_id}/xlsx", "api_name": "导出单学生一生一册", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/moral/timeline/export/class/{class_id}", "api_name": "批量导出班级一生一册", "api_group": "一生一册", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-
-    # 学生画像
-    {"api_path": "/api/moral/profiles", "api_name": "获取画像列表", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "GET", "resource_type": "student_profile", "action_type": "view"},
-    {"api_path": "/api/moral/profiles/student/{student_id}", "api_name": "获取学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
-    {"api_path": "/api/moral/profiles/student/{student_id}/generate", "api_name": "生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
-    {"api_path": "/api/moral/profiles/student/{student_id}/generate-async", "api_name": "异步生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
-    {"api_path": "/api/moral/profiles/generation-status/{job_id}", "api_name": "查询画像生成状态", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/moral/profiles/batch-generate", "api_name": "批量生成学生画像", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
-    {"api_path": "/api/moral/profiles/config", "api_name": "获取画像配置", "api_group": "学生画像", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30},
-
-    # AI 诊疗
-    {"api_path": "/api/moral/consultations", "api_name": "获取诊疗会话列表", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/consultations/create", "api_name": "创建诊疗会话", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/consultations/update", "api_name": "更新诊疗会话", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/consultations/close", "api_name": "关闭诊疗会话", "api_group": "AI诊疗", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/carryover/execute", "api_name": "执行任务结转", "api_group": "任务结转", "allowed_roles": ["admin", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/carryover/preview", "api_name": "预览任务结转", "api_group": "任务结转", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/carryover/logs", "api_name": "查看任务结转日志", "api_group": "任务结转", "allowed_roles": ["admin", "xuefa"], "min_level": 50},
-    {"api_path": "/api/moral/carryover/config", "api_name": "任务结转配置", "api_group": "任务结转", "allowed_roles": ["admin", "xuefa"], "min_level": 50, "action_type": "operate"},
-    {"api_path": "/api/moral/escalation-rules/student/{student_id}/history", "api_name": "学生累进处罚历史", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/moral/escalation-rules/student/{student_id}/count", "api_name": "学生事件累计次数", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/moral/escalation-rules/student/{student_id}/progress", "api_name": "学生消极事件累计进度", "api_group": "累进规则", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/moral/escalation-rules", "api_name": "查看累进规则", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "GET", "resource_type": "escalation_rule", "action_type": "view"},
-    {"api_path": "/api/moral/escalation-rules/create", "api_name": "创建累进规则", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "POST", "resource_type": "escalation_rule", "action_type": "create"},
-    {"api_path": "/api/moral/escalation-rules/update", "api_name": "更新累进规则", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "PUT", "resource_type": "escalation_rule", "action_type": "update"},
-    {"api_path": "/api/moral/escalation-rules/delete", "api_name": "删除累进规则", "api_group": "累进规则", "allowed_roles": ["admin", "xuefa"], "min_level": 20, "http_method": "DELETE", "resource_type": "escalation_rule", "action_type": "delete"},
-    {"api_path": "/api/moral/collective-events/student/{student_id}", "api_name": "学生集体事件得分汇总", "api_group": "集体事件", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "student"], "min_level": 0, "match_type": "pattern"},
-
-    # 评价查询
-    {"api_path": "/api/moral/evaluations/student/{student_id}", "api_name": "学生评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader", "student"], "min_level": 0, "match_type": "pattern"},
-    {"api_path": "/api/moral/evaluations/class/{class_id}", "api_name": "班级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader", "cleader"], "min_level": 30, "match_type": "pattern"},
-    {"api_path": "/api/moral/evaluations/grade/{grade_id}", "api_name": "年级评价查询", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50, "match_type": "pattern"},
-    {"api_path": "/api/moral/evaluations/calculate", "api_name": "计算德育评价", "api_group": "评价查询", "allowed_roles": ["admin", "jiaowu", "xuefa", "g_leader"], "min_level": 50},
-
-    # 学期末评价
-    {"api_path": "/api/moral/semester-evaluations/generate", "api_name": "生成单学生学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/semester-evaluations/batch-generate", "api_name": "批量生成学期末评价", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "POST", "resource_type": "semester_evaluation", "action_type": "create"},
-    {"api_path": "/api/moral/semester-evaluations/batch-status/{job_id}", "api_name": "查询学期末评价批量生成状态", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-    {"api_path": "/api/moral/semester-evaluations/batch-latest", "api_name": "查询最近学期末评价批量任务", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/semester-evaluations/batch-cancel/{job_id}", "api_name": "停止学期末评价批量生成", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "POST", "match_type": "pattern", "action_type": "operate"},
-    {"api_path": "/api/moral/semester-evaluations/batch-delete/{job_id}", "api_name": "删除已结束学期末评价批量任务", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "http_method": "DELETE", "match_type": "pattern", "action_type": "delete"},
-    {"api_path": "/api/moral/semester-evaluations/list", "api_name": "查询学期末评价列表", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20},
-    {"api_path": "/api/moral/semester-evaluations/{record_id}", "api_name": "查询学期末评价详情", "api_group": "学期末评价", "allowed_roles": ["admin", "xuefa", "g_leader", "cleader"], "min_level": 20, "match_type": "pattern"},
-]
 
 VALID_POLICY_MODES = {"role_and_level", "role_or_level", "role_only", "level_only", "public"}
 VALID_MATCH_TYPES = {"exact", "prefix", "pattern"}
