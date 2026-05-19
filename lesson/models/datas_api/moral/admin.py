@@ -1626,7 +1626,7 @@ async def get_operation_logs(
     end_date: Optional[date] = Query(None, description="结束日期"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(require_configured_api_permission(API_LOGS, allow_missing=False))
+    user: User = Depends(require_configured_api_permission(API_LOGS, "*", allow_missing=False))
 ):
     """
     获取操作日志列表

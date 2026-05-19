@@ -2179,9 +2179,12 @@ def _fix_incorrect_scope_rules(db) -> None:
                 ),
             )
         else:
+            # 只补齐缺失的字段，不覆盖用户手工配置的 http_method/match_type
+            # scope_rules 使用 CASE WHEN 仅在空时补齐
             db.execute(
                 """UPDATE api_permission_config
-                   SET http_method = ?, match_type = ?,
+                   SET http_method = COALESCE(NULLIF(http_method, ''), ?),
+                       match_type = COALESCE(NULLIF(match_type, ''), ?),
                        resource_type = COALESCE(NULLIF(resource_type, ''), ?),
                        action_type = COALESCE(NULLIF(action_type, ''), ?),
                        data_scope_rules = CASE
@@ -2962,7 +2965,11 @@ def _get_matching_config(db, api_path: str, http_method: str = "*") -> Optional[
     method = (http_method or "*").upper()
     for config in configs:
         config_method = (config.get("http_method") or "*").upper()
-        if config_method not in ("*", method):
+        # 方法匹配逻辑：* 表示不限方法，匹配所有
+        # 当 method="*" 时，匹配任何 config_method
+        # 当 config_method="*" 时，匹配任何 method
+        # 只有两者都不是 "*" 时才需要精确匹配
+        if method != "*" and config_method != "*" and config_method != method:
             continue
         if config.get("module_is_active") == 0:
             continue
@@ -3944,6 +3951,7 @@ async def update_api_permission(
     user: User = Depends(require_admin)
 ):
     """更新API权限配置（仅admin）"""
+    import json
     with get_moral_db() as db:
         ensure_api_permission_schema(db)
         existing = db.query_one(
@@ -4031,14 +4039,13 @@ async def update_api_permission(
         updates.append("updated_at = datetime('now', 'localtime')")
 
         if not updates:
+            logger.info(f"[UPDATE] 无变更")
             return {"success": True, "message": "无变更"}
 
         params.append(config_id)
 
-        db.execute(
-            f"UPDATE api_permission_config SET {', '.join(updates)} WHERE id = ?",
-            tuple(params)
-        )
+        sql = f"UPDATE api_permission_config SET {', '.join(updates)} WHERE id = ?"
+        rowcount = db.execute(sql, tuple(params))
 
         log_operation(
             db, user.username, user.role, 'UPDATE', 'api_permission_config', config_id,
