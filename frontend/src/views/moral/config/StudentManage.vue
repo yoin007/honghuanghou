@@ -24,8 +24,9 @@
         />
         <el-select v-model="filterStatus" placeholder="学生状态" clearable @change="fetchStudents" style="width: 120px; margin-left: 10px">
           <el-option label="在校" value="在校" />
+          <el-option label="休学" value="休学" />
+          <el-option label="转出" value="转出" />
           <el-option label="毕业" value="毕业" />
-          <el-option label="离校" value="离校" />
         </el-select>
       </div>
 
@@ -143,8 +144,9 @@
         <el-form-item label="新状态" prop="new_status">
           <el-select v-model="statusForm.new_status" placeholder="选择新状态" style="width: 100%">
             <el-option label="在校" value="在校" />
+            <el-option label="休学" value="休学" />
+            <el-option label="转出" value="转出" />
             <el-option label="毕业" value="毕业" />
-            <el-option label="离校" value="离校" />
           </el-select>
         </el-form-item>
         <el-form-item label="原因">
@@ -264,8 +266,9 @@ const gradeClassOptions = computed(() => {
 const getStatusType = (status) => {
   switch (status) {
     case '在校': return 'success'
+    case '休学': return 'warning'
+    case '转出': return 'warning'
     case '毕业': return 'info'
-    case '离校': return 'warning'
     default: return ''
   }
 }
