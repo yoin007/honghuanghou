@@ -36,3 +36,9 @@ lesson/storage/*
 *.db
 *.zip
 .env
+
+*.db-shm
+*.db-wal
+*.db-lock
+
+setting.local.json

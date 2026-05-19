@@ -275,7 +275,10 @@
       "Bash(git -C /Users/yoin/bdsync/program/honghuanghou status --short)",
       "Bash(git diff:*)",
       "Bash(tail -100 ../lesson/logs/*.log)",
-      "mcp__plugin_claude-mem_mcp-search__smart_unfold"
+      "mcp__plugin_claude-mem_mcp-search__smart_unfold",
+      "Bash(chmod +x /Users/yoin/bdsync/program/honghuanghou/scripts/package.sh)",
+      "Bash(/Users/yoin/bdsync/program/honghuanghou/scripts/package.sh)",
+      "Bash(./scripts/package.sh:*)"
     ]
   }
 }
