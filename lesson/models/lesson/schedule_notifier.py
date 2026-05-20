@@ -145,7 +145,7 @@ class ScheduleNotifier:
                 for item in items:
                     tips += f"\n{item}"
                 send_text(tips, wxids[0], "", "lesson")
-            elif teacher not in ["早读", "-", "专业课", "英语", "活动", "自习", "校本"]:
+            elif teacher not in ["早读", "-", "专业课", "英语", "活动", "自习", "校本", "班会"]:
                 errors.append(teacher)
 
         if errors:
