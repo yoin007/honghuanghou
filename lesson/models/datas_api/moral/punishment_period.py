@@ -104,7 +104,7 @@ async def update_punishment_period(
 
         # 记录操作日志
         log_operation(
-            db, user.username, "UPDATE", "punishment_period_config", config_id,
+            db, user.username, user.role, "UPDATE", "punishment_period_config", config_id,
             old_data=old_data,
             new_data=config.dict(),
             reason="更新处分期限配置"

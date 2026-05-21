@@ -26,6 +26,7 @@ MIGRATE_TABLES = [
     "moral_evaluation",
     "moral_operation_log",
     "punishment_record",
+    "punishment_period_config",
     "school_event_type",
     "school_year",
     "semester",
