@@ -1214,7 +1214,10 @@ async def get_students(
             conditions.append("s.grade_id = ?")
             params.append(grade_id)
 
-        if status:
+        # 德育录入场景：强制只显示在校学生（排除转出/休学/毕业）
+        if is_record_input_lookup:
+            conditions.append("s.status = '在校'")
+        elif status:
             conditions.append("s.status = ?")
             params.append(status)
 
