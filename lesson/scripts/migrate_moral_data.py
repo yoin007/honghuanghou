@@ -31,6 +31,7 @@ MIGRATE_TABLES = [
     "semester",
     "semester_carryover_config",
     "student_daily_record",
+    "student_school_record",
     "teacher",
     "teacher_teaching_class",
     "teacher_todo_assignee",
