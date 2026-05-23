@@ -47,7 +47,7 @@
         <el-table-column prop="class_name" label="班级" width="150" />
         <el-table-column prop="punishment_type" label="处分类型" width="120">
           <template #default="{ row }">
-            <el-tag :type="getPunishmentTagType(row.punishment_level)">
+            <el-tag :type="getPunishmentTagType(row.punishment_type)">
               {{ row.punishment_type }}
             </el-tag>
           </template>
@@ -486,14 +486,16 @@ const getDaysTagType = (days) => {
 }
 
 // 方法
-const getPunishmentTagType = (level) => {
-  const types = {
-    1: 'info',
-    2: 'warning',
-    3: 'danger',
-    4: 'danger'
+// 处分类型颜色映射（按处分类型名称）
+const getPunishmentTagType = (punishmentType) => {
+  const colorMap = {
+    '警告': 'info',          // 轻处分 - 蓝灰
+    '严重警告': 'warning',    // 中等 - 橙色
+    '记过': 'warning',       // 中等 - 橙色
+    '记大过': 'danger',      // 重处分 - 红色
+    '留校察看': 'danger'     // 最重 - 红色
   }
-  return types[level] || 'warning'
+  return colorMap[punishmentType] || 'info'
 }
 
 const fetchRecords = async () => {
