@@ -82,24 +82,25 @@ async def get_punishment_types_direct():
     获取处罚类型列表（用于前端下拉框）
 
     无需权限验证（前端展示需要）
+    统一数据源：punishment_period_config 表
     """
     with get_moral_db() as db:
-        config = db.query_one(
-            "SELECT config_value FROM moral_config WHERE config_key = 'punishment_types'"
+        types = db.query_all(
+            """SELECT punishment_type as name, period_days, period_description,
+                      allow_revoke_apply, min_good_records
+               FROM punishment_period_config
+               WHERE is_active = 1
+               ORDER BY period_days ASC"""
         )
-        if config:
-            try:
-                types = json.loads(config['config_value'])
-                return {"success": True, "data": types}
-            except:
-                pass
-    # 默认值（与 punishment_period_config 保持一致）
+        if types:
+            return {"success": True, "data": types}
+    # 默认值（仅作为兜底）
     default_types = [
-        {"name": "警告"},
-        {"name": "严重警告"},
-        {"name": "记过"},
-        {"name": "记大过"},
-        {"name": "留校察看"}
+        {"name": "警告", "period_days": 30},
+        {"name": "严重警告", "period_days": 90},
+        {"name": "记过", "period_days": 90},
+        {"name": "记大过", "period_days": 90},
+        {"name": "留校察看", "period_days": 365}
     ]
     return {"success": True, "data": default_types}
 

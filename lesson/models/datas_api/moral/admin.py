@@ -1703,14 +1703,8 @@ DEFAULT_CONFIG = {
         "punishment": -0.2
     },
     "birthday_reminder_days": 7,
-    "semester_start_month": 9,
-    "punishment_types": [
-        {"name": "警告"},
-        {"name": "严重警告"},
-        {"name": "记过"},
-        {"name": "记大过"},
-        {"name": "留校察看"}
-    ]
+    "semester_start_month": 9
+    # punishment_types 已废弃，统一使用 punishment_period_config
 }
 
 
@@ -1742,9 +1736,28 @@ async def get_system_config(
                         result[key] = config_dict[key]
                 else:
                     result[key] = value
+
+            # punishment_types 从 punishment_period_config 动态读取
+            result["punishment_types"] = db.query_all(
+                """SELECT punishment_type as name, period_days, period_description,
+                          allow_revoke_apply, min_good_records
+                   FROM punishment_period_config
+                   WHERE is_active = 1
+                   ORDER BY period_days ASC"""
+            ) or []
+
             return {"success": True, "data": result}
         else:
-            return {"success": True, "data": DEFAULT_CONFIG}
+            # DEFAULT_CONFIG 无 punishment_types，动态补充
+            result = dict(DEFAULT_CONFIG)
+            result["punishment_types"] = db.query_all(
+                """SELECT punishment_type as name, period_days, period_description,
+                          allow_revoke_apply, min_good_records
+                   FROM punishment_period_config
+                   WHERE is_active = 1
+                   ORDER BY period_days ASC"""
+            ) or []
+            return {"success": True, "data": result}
 
 
 class ConfigUpdate(BaseModel):
@@ -1758,21 +1771,11 @@ class ConfigUpdate(BaseModel):
     evaluation_weights: Optional[dict] = Field(None, description="评价权重配置")
     birthday_reminder_days: Optional[int] = Field(None, description="生日提前提醒天数", ge=1, le=30)
     semester_start_month: Optional[int] = Field(None, description="学期开始月份", ge=1, le=12)
-    punishment_types: Optional[List[dict]] = Field(None, description="处罚类型配置")
+    # punishment_types 已废弃，请使用 /punishment-periods API 管理
     daily_record_roles: Optional[str] = Field(None, description="日常记录角色（逗号分隔）")
     student_profile_roles: Optional[str] = Field(None, description="学生画像角色（逗号分隔）")
     ai_consultation_roles: Optional[str] = Field(None, description="AI诊疗角色（逗号分隔）")
     filegather_storage_dir: Optional[str] = Field(None, description="文件收集系统存储根目录（自动创建 uploads 和 done 子目录）")
-
-    @field_validator("punishment_types", mode="before")
-    @classmethod
-    def parse_punishment_types(cls, value):
-        if isinstance(value, str):
-            value = value.strip()
-            if not value:
-                return []
-            return json.loads(value)
-        return value
 
 
 @router.put("/config", summary="更新系统配置")
