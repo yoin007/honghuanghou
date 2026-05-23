@@ -500,12 +500,15 @@ const fetchRecords = async () => {
   loading.value = true
   try {
     const params = {
-      ...filterForm,
+      student_id: filterForm.student_id || undefined,
+      class_id: filterForm.class_id || undefined,
+      is_revoked: filterForm.status !== null ? (filterForm.status === 1 ? 0 : 1) : undefined,  // status=1生效中→is_revoked=0
       page: pagination.page,
       page_size: pagination.pageSize
     }
+    // 清理空值
     Object.keys(params).forEach(key => {
-      if (params[key] === '' || params[key] === null) {
+      if (params[key] === '' || params[key] === null || params[key] === undefined) {
         delete params[key]
       }
     })
