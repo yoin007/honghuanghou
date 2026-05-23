@@ -41,35 +41,29 @@
         <el-divider content-position="left">处罚类型配置</el-divider>
 
         <el-form-item label="处罚类型列表">
-          <el-table :data="configForm.punishment_types" size="small" border style="width: 500px">
-            <el-table-column prop="action" label="类型代码" width="120" align="center">
+          <el-table :data="configForm.punishment_types" size="small" border style="width: 600px">
+            <el-table-column prop="name" label="处分类型" width="120" />
+            <el-table-column prop="period_days" label="期限天数" width="100" align="center">
               <template #default="{ row }">
-                <el-tag size="small">{{ row.action }}</el-tag>
+                <el-tag size="small" type="info">{{ row.period_days }}天</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="name" label="名称" width="120">
+            <el-table-column prop="period_description" label="期限说明" width="120" />
+            <el-table-column prop="allow_revoke_apply" label="可申请撤销" width="100" align="center">
               <template #default="{ row }">
-                <el-input v-model="row.name" size="small" />
+                <el-tag size="small" :type="row.allow_revoke_apply ? 'success' : 'danger'">
+                  {{ row.allow_revoke_apply ? '是' : '否' }}
+                </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="level" label="处分等级" width="120">
-              <template #default="{ row }">
-                <el-select v-model="row.level" size="small" clearable placeholder="无">
-                  <el-option label="无" :value="null" />
-                  <el-option label="一级" value="一级" />
-                  <el-option label="二级" value="二级" />
-                  <el-option label="三级" value="三级" />
-                  <el-option label="四级" value="四级" />
-                </el-select>
-              </template>
-            </el-table-column>
-            <el-table-column label="说明" width="140">
-              <template #default="{ row }">
-                <span class="hint">{{ row.level ? '创建处分记录' : '仅预警通知' }}</span>
-              </template>
-            </el-table-column>
+            <el-table-column prop="min_good_records" label="良好记录数" width="100" align="center" />
           </el-table>
-          <span class="hint">等级为空则只发预警通知，有等级则自动创建处分记录</span>
+          <div style="margin-top: 10px;">
+            <el-button type="primary" size="small" @click="$router.push('/moral/config/punishment-period')">
+              管理处罚期限配置
+            </el-button>
+            <span class="hint" style="margin-left: 10px;">处罚类型统一在「处罚期限配置」页面管理</span>
+          </div>
         </el-form-item>
 
         <el-divider content-position="left">升年级管理</el-divider>
@@ -122,13 +116,7 @@ const configForm = reactive({
   evaluation_good_line: 75,
   evaluation_pass_line: 60,
   birthday_reminder_days: 3,
-  punishment_types: [
-    { action: 'warning', name: '警告', level: null },
-    { action: 'serious_warning', name: '严重警告', level: '一级' },
-    { action: 'criticism', name: '通报', level: '二级' },
-    { action: 'demerit', name: '记过', level: '三级' },
-    { action: 'observation', name: '留校查看', level: '四级' }
-  ]
+  punishment_types: []  // 从 punishment_period_config 动态读取
 })
 const configKeys = new Set(Object.keys(configForm))
 
@@ -142,13 +130,6 @@ const fetchConfig = async () => {
         if (!configKeys.has(key)) return
         if (key.endsWith('_roles') && typeof res.data[key] === 'string') {
           configForm[key] = res.data[key].split(',')
-        } else if (key === 'punishment_types' && typeof res.data[key] === 'string') {
-          // 处理 punishment_types（JSON字符串转数组）
-          try {
-            configForm[key] = JSON.parse(res.data[key])
-          } catch {
-            console.warn('处罚类型解析失败')
-          }
         } else {
           configForm[key] = res.data[key]
         }
