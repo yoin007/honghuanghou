@@ -1705,11 +1705,11 @@ DEFAULT_CONFIG = {
     "birthday_reminder_days": 7,
     "semester_start_month": 9,
     "punishment_types": [
-        {"action": "warning", "name": "警告", "level": None},
-        {"action": "serious_warning", "name": "严重警告", "level": "一级"},
-        {"action": "criticism", "name": "通报", "level": "二级"},
-        {"action": "demerit", "name": "记过", "level": "三级"},
-        {"action": "observation", "name": "留校查看", "level": "四级"}
+        {"name": "警告"},
+        {"name": "严重警告"},
+        {"name": "记过"},
+        {"name": "记大过"},
+        {"name": "留校察看"}
     ]
 }
 
