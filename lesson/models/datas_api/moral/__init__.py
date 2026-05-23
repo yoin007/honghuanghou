@@ -93,13 +93,13 @@ async def get_punishment_types_direct():
                 return {"success": True, "data": types}
             except:
                 pass
-    # 默认值
+    # 默认值（与 punishment_period_config 保持一致）
     default_types = [
-        {"action": "warning", "name": "警告", "level": None},
-        {"action": "serious_warning", "name": "严重警告", "level": "一级"},
-        {"action": "criticism", "name": "通报", "level": "二级"},
-        {"action": "demerit", "name": "记过", "level": "三级"},
-        {"action": "observation", "name": "留校查看", "level": "四级"}
+        {"name": "警告"},
+        {"name": "严重警告"},
+        {"name": "记过"},
+        {"name": "记大过"},
+        {"name": "留校察看"}
     ]
     return {"success": True, "data": default_types}
 

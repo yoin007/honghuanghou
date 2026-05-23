@@ -79,8 +79,8 @@ def _punishment_action_scope(db, user: User, api_path: str) -> dict:
 class PunishmentCreate(BaseModel):
     """创建处分记录"""
     student_id: str = Field(..., description="学号")
-    punishment_type: str = Field(..., description="处分类型")
-    punishment_level: int = Field(2, description="处分等级")
+    punishment_type: str = Field(..., description="处分类型（警告/严重警告/记过/记大过/留校察看）")
+    punishment_level: int = Field(2, description="处分等级（已废弃，仅用于兼容旧前端）")
     punishment_date: date = Field(..., description="处分日期")
     punishment_reason: Optional[str] = Field(None, description="处分原因")
     evidence: Optional[str] = Field(None, description="证据材料")
@@ -243,21 +243,20 @@ async def create_punishment(
         else:
             event_id = event['event_id']
 
-        # 计算扣分
-        level_score_map = {1: 5, 2: 10, 3: 20, 4: 30}
-        score_deduct = abs(punishment.score_deduct) if punishment.score_deduct else level_score_map.get(punishment.punishment_level, 10)
-
-        # 处分等级文本
-        level_map = {1: '一级', 2: '二级', 3: '三级', 4: '四级'}
-        level_text = level_map.get(punishment.punishment_level, '二级')
-
-        # 获取处分期限配置并计算到期日期
+        # 计算扣分（根据处分类型从配置表获取）
         period_config = get_period_config_by_type(db, punishment.punishment_type)
         period_days = period_config['period_days'] if period_config else 90
         can_apply_revoke = period_config['allow_revoke_apply'] if period_config else 1
+
+        # 扣分默认值
+        type_score_map = {
+            '警告': 5, '严重警告': 10, '记过': 10, '记大过': 20, '留校察看': 30
+        }
+        score_deduct = abs(punishment.score_deduct) if punishment.score_deduct else type_score_map.get(punishment.punishment_type, 10)
+
         expire_date = calculate_expire_date(str(punishment.punishment_date), period_days)
 
-        # 插入记录
+        # 插入记录（level字段存处分类型名称）
         db.execute(
             """INSERT INTO punishment_record
             (student_id, event_id, semester_id, punishment_date, class_id, grade_id,
@@ -271,7 +270,7 @@ async def create_punishment(
                 student_info['class_id'],
                 student_info['grade_id'],
                 score_deduct,
-                level_text,
+                punishment.punishment_type,  # 直接存处分类型名称
                 punishment.punishment_reason,
                 user.username,
                 expire_date,
@@ -323,17 +322,17 @@ async def update_punishment(
         if not record_in_scope(old_record, action_scope, username=user.username):
             raise HTTPException(403, "只能编辑授权范围内的处分记录")
 
-        # 处分等级文本
-        level_map = {1: '一级', 2: '二级', 3: '三级', 4: '四级'}
-        level_text = level_map.get(punishment.punishment_level, '二级')
-        level_score_map = {1: 5, 2: 10, 3: 20, 4: 30}
-        score_deduct = abs(punishment.score_deduct) if punishment.score_deduct else level_score_map.get(punishment.punishment_level, 10)
+        # 扣分（根据处分类型）
+        type_score_map = {
+            '警告': 5, '严重警告': 10, '记过': 10, '记大过': 20, '留校察看': 30
+        }
+        score_deduct = abs(punishment.score_deduct) if punishment.score_deduct else type_score_map.get(punishment.punishment_type, 10)
 
         db.execute(
             """UPDATE punishment_record SET
             punishment_date = ?, level = ?, reason = ?, score_deduct = ?
             WHERE id = ?""",
-            (punishment.punishment_date, level_text, punishment.punishment_reason,
+            (punishment.punishment_date, punishment.punishment_type, punishment.punishment_reason,
              score_deduct, record_id)
         )
 
