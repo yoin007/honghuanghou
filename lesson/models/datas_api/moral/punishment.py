@@ -160,11 +160,11 @@ async def get_punishments(
         offset = (page - 1) * page_size
         data_query = f"""
             SELECT p.id as record_id, p.student_id, p.punishment_date, p.score_deduct,
-                   p.level as punishment_level, p.reason as punishment_reason,
+                   p.level as punishment_type, p.reason as punishment_reason,
                    p.is_revoked, p.revoke_date, p.revoke_reason, p.revoke_type, p.revoke_category,
                    p.review_status, p.recorder, p.expire_date, p.period_days, p.can_apply_revoke,
                    p.revoke_application_id,
-                   COALESCE(de.event_name, se.event_name, '累进扣分') as punishment_type,
+                   COALESCE(de.event_name, se.event_name, '累进扣分') as trigger_event,
                    s.name as student_name, c.class_name, g.grade_name
             FROM punishment_record p
             JOIN student s ON p.student_id = s.student_id
