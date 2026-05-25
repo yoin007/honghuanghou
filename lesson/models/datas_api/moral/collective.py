@@ -205,13 +205,13 @@ async def create_collective_event(
 
         ensure_collective_class_access(user, db, event.class_id, API_COLLECTIVE_CREATE)
 
-        # 分值校验
+        # 分值校验（允许0分）
         if event.event_type in ['班级荣誉', '集体活动']:
-            if event.score <= 0:
-                raise HTTPException(400, "荣誉/活动分值必须为正数")
+            if event.score < 0:
+                raise HTTPException(400, "荣誉/活动分值不能为负数")
         elif event.event_type == '集体违纪':
-            if event.score >= 0:
-                raise HTTPException(400, "违纪扣分必须为负数")
+            if event.score > 0:
+                raise HTTPException(400, "违纪扣分必须为负数或0")
 
         # 创建集体事件
         db.execute(
