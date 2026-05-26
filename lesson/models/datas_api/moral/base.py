@@ -592,7 +592,8 @@ def append_record_scope_condition(
             parts.append(f"{table_alias}.{class_field} IN ({placeholders})")
             params.extend(teaching_class_ids)
         else:
-            return
+            # 无任教班级，添加空结果条件
+            parts.append("1 = 0")
 
     if not parts:
         conditions.append("1 = 0")
