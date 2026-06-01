@@ -239,6 +239,7 @@ const onTeacherChange = (newTeacher) => {
   }
   fetchSummary()
   fetchTeacherTrend()
+  fetchUpcomingTodos()
 }
 
 // 获取教师列表
@@ -325,7 +326,11 @@ const todoTypeLabel = (type) => {
 
 const fetchUpcomingTodos = async () => {
   try {
-    const res = await getUpcomingTodos({ days: 7, limit: 5 })
+    const params = { days: 7, limit: 5 }
+    if (selectedTeacherName.value) {
+      params.teacher_name = selectedTeacherName.value
+    }
+    const res = await getUpcomingTodos(params)
     if (res.success) {
       upcomingTodos.value = res.data.todos || []
     }

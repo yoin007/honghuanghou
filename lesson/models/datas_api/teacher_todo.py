@@ -543,16 +543,31 @@ async def reopen_occurrence(
 @router.get("/upcoming", summary="近期待办")
 async def get_upcoming_todos(
     limit: int = Query(5, ge=1, le=20, description="返回数量"),
+    teacher_name: Optional[str] = Query(None, description="教师姓名（管理员切换查看）"),
     user: User = Depends(require_configured_api_permission(API_TODO_UPCOMING, "GET", allow_missing=False))
 ):
     """
     获取教师最近未完成待办
 
     用于教师工作台展示
+    管理员可通过 teacher_name 参数查看其他教师的待办
     """
     with get_moral_db() as db:
         ensure_teacher_todo_schema(db)
-        identity = _get_teacher_identity(db, user.username)
+
+        # 确定查询目标教师
+        if teacher_name and user.role in ['admin', 'jiaowu', 'xuefa', 'g_leader']:
+            # 管理员切换查看其他教师
+            target_teacher = db.query_one(
+                "SELECT teacher_id FROM teacher WHERE name = ?",
+                (teacher_name,)
+            )
+            if not target_teacher:
+                return {"success": True, "data": {"todos": [], "total": 0}}
+            identity = {"aliases": [target_teacher["teacher_id"]], "name": teacher_name}
+        else:
+            # 默认查看当前用户
+            identity = _get_teacher_identity(db, user.username)
 
         today = datetime.now().strftime("%Y-%m-%d")
         creator_clause = _sql_in_clause("t.creator_teacher_id", identity["aliases"])
