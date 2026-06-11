@@ -62,6 +62,8 @@ from .ai_model_config import router as ai_model_config_router
 from .semester_evaluation import router as semester_evaluation_router
 from .warning import router as warning_router
 
+from .pending_record import router as pending_record_router
+
 from fastapi import APIRouter
 from fastapi import Depends
 from typing import List
@@ -173,6 +175,7 @@ router.include_router(menu_permission_router)
 router.include_router(ai_model_config_router)
 router.include_router(semester_evaluation_router)
 router.include_router(warning_router)
+router.include_router(pending_record_router)
 
 __all__ = [
     'router',

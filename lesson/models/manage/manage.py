@@ -291,3 +291,158 @@ def _send_modules_list(roomid):
     lines.append("\n💡 输入 \"规则 模块名\" 查看指定模块的规则")
 
     send_text("\n".join(lines), roomid)
+
+
+async def complete_pending_record_wx(msg):
+    """
+    微信端完善待完善记录
+
+    消息格式：
+    待完善记录：123
+    学生1：张三
+    学生2：李四
+    任课教师：王老师
+    时间：2026-06-10 08:00
+    事件类型：迟到
+    备注：...
+
+    正则匹配记录ID和学生姓名，验证后完善记录
+    """
+    import re
+    import json
+    from sendqueue import send_text
+    from models.datas_api.moral.base import get_moral_db
+    from models.datas_api.moral.pending_record import _ensure_pending_record_table
+    from models.datas_api.moral.pending_record import API_PENDING_COMPLETE_WX
+
+    content = msg.content.strip()
+    roomid = msg.roomid
+
+    # 解析记录ID
+    match_id = re.search(r'待完善记录[：:]\s*(\d+)', content)
+    if not match_id:
+        send_text("格式错误：未找到记录ID", roomid)
+        return
+
+    record_id = int(match_id.group(1))
+
+    # 解析学生姓名
+    student_names = []
+    for m in re.finditer(r'学生\d+[：:]\s*(.+)', content):
+        name = m.group(1).strip()
+        if name:
+            student_names.append(name)
+
+    if not student_names:
+        send_text(f"未找到学生姓名，请按格式填写：\n待完善记录：{record_id}\n学生1：姓名\n学生2：姓名", roomid)
+        return
+
+    # 调用后端 API 逻辑完善记录
+    try:
+        with get_moral_db() as db:
+            _ensure_pending_record_table(db)
+
+            pending = db.query_one("SELECT * FROM pending_daily_record WHERE id = ?", (record_id,))
+            if not pending:
+                send_text(f"记录 {record_id} 不存在", roomid)
+                return
+            if pending["is_completed"]:
+                send_text(f"记录 {record_id} 已完善", roomid)
+                return
+
+            class_id = pending["class_id"]
+            class_students = db.query_all(
+                "SELECT student_id, name FROM student WHERE class_id = ? AND status = '在校'",
+                (class_id,)
+            )
+            name_to_id = {s["name"]: s["student_id"] for s in class_students}
+
+            student_ids = []
+            not_found = []
+            for name in student_names:
+                if name in name_to_id:
+                    student_ids.append(name_to_id[name])
+                else:
+                    matched = [nid for n, nid in name_to_id.items() if name in n]
+                    if len(matched) == 1:
+                        student_ids.append(matched[0])
+                    else:
+                        not_found.append(name)
+
+            if not_found:
+                send_text(f"以下学生在班级中未找到: {', '.join(not_found)}，请检查姓名是否正确", roomid)
+                return
+
+            if len(student_ids) != pending["student_count"]:
+                send_text(f"学生数不匹配，需要 {pending['student_count']} 名，已匹配 {len(student_ids)} 名", roomid)
+                return
+
+        # 通过内部 API 调用完善
+        from models.datas_api.moral.pending_record import PendingRecordCompleteWx
+        import requests as http_requests
+
+        # 直接调用后端逻辑
+        from models.datas_api.moral.evaluation import calculate_evaluation
+        from models.datas_api.moral.escalation import check_and_trigger_escalation
+        from models.datas_api.moral.base import get_student_class_snapshot, log_operation
+        from datetime import datetime, timezone, timedelta
+
+        GMT8 = timezone(timedelta(hours=8))
+
+        with get_moral_db() as db:
+            event = db.query_one("SELECT * FROM daily_event_type WHERE event_id = ?", (pending["event_id"],))
+            if not event:
+                send_text("事件类型不存在", roomid)
+                return
+
+            semester_id = pending["semester_id"]
+            grade_id = pending["grade_id"]
+            record_date = pending["record_date"]
+
+            combined_remark = ""
+            if pending["teacher_name"]:
+                combined_remark += f"任课教师：{pending['teacher_name']}"
+            if pending["remark"]:
+                if combined_remark:
+                    combined_remark += "；"
+                combined_remark += pending["remark"]
+
+            current_time = datetime.now(GMT8).replace(tzinfo=None)
+            created_count = 0
+            for sid in student_ids:
+                student_info = get_student_class_snapshot(db, sid)
+                if not student_info:
+                    continue
+                db.execute(
+                    """INSERT INTO student_daily_record
+                    (student_id, event_id, semester_id, record_date, class_id, grade_id, score, remark, recorder)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (sid, pending["event_id"], semester_id, record_date,
+                     class_id, grade_id, event["score"], combined_remark,
+                     pending.get("recorder") or "wx_complete")
+                )
+                new_record_id = db.lastrowid()
+                created_count += 1
+
+                if event["event_type"] == 2:
+                    try:
+                        rd = datetime.strptime(record_date, "%Y-%m-%d %H:%M")
+                    except:
+                        rd = current_time
+                    check_and_trigger_escalation(
+                        db=db, student_id=sid, event_id=pending["event_id"],
+                        record_id=new_record_id, record_date=rd, semester_id=semester_id
+                    )
+                calculate_evaluation(db, sid, semester_id, class_id, grade_id)
+
+            db.execute(
+                """UPDATE pending_daily_record SET is_completed = 1, student_ids = ?, updated_at = datetime('now', 'localtime')
+                WHERE id = ?""",
+                (json.dumps(student_ids, ensure_ascii=False), record_id)
+            )
+
+        send_text(f"记录 {record_id} 已完善，创建了 {created_count} 条日常表现记录", roomid)
+
+    except Exception as e:
+        send_text(f"完善记录失败: {str(e)[:100]}", roomid)
+        import logging

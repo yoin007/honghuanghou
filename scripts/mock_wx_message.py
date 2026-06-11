@@ -12,7 +12,7 @@ body = {
     'msgsvrid': '1141955020534006954',
     'issend': 'false',
     'contenttype': 1,
-    'content': '太好了',
+    'content': '待完善记录：11\n学生1：杨善青\n学生2：刘洪义\n任课教师：冯秀珍\n时间：2026-06-11 14:40\n事件类型：为班集体贡献',
     'ext': '',
     'type': 0,
     'createTime': 1779191745000,

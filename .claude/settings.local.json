@@ -278,7 +278,8 @@
       "mcp__plugin_claude-mem_mcp-search__smart_unfold",
       "Bash(chmod +x /Users/yoin/bdsync/program/honghuanghou/scripts/package.sh)",
       "Bash(/Users/yoin/bdsync/program/honghuanghou/scripts/package.sh)",
-      "Bash(./scripts/package.sh:*)"
+      "Bash(./scripts/package.sh:*)",
+      "Bash(git log *)"
     ]
   }
 }

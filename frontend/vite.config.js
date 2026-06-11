@@ -72,6 +72,13 @@ export default defineConfig(({ mode }) => {
           secure: false,
           timeout: 300000,
           proxyTimeout: 300000
+        },
+        '/pending-uploads': {
+          target: proxyTarget,
+          changeOrigin: true,
+          secure: false,
+          timeout: 300000,
+          proxyTimeout: 300000
         }
       }
     },

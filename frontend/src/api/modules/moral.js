@@ -113,6 +113,61 @@ export function getStudentDailyStatistics(studentId, semesterId = null) {
 }
 
 // =============================================================================
+// 待完善记录 API
+// =============================================================================
+
+/**
+ * 获取待完善记录列表
+ */
+export function getPendingRecords(params = {}) {
+  return httpClient.get('/api/moral/pending-records', { params })
+}
+
+/**
+ * 创建待完善记录
+ */
+export function createPendingRecord(data) {
+  return httpClient.post('/api/moral/pending-records', data)
+}
+
+/**
+ * 完善待完善记录
+ */
+export function completePendingRecord(recordId, data) {
+  return httpClient.post(`/api/moral/pending-records/${recordId}/complete`, data)
+}
+
+/**
+ * 微信端完善待完善记录
+ */
+export function completePendingRecordWx(recordId, data) {
+  return httpClient.post(`/api/moral/pending-records/${recordId}/complete-wx`, data)
+}
+
+/**
+ * 删除待完善记录
+ */
+export function deletePendingRecord(recordId) {
+  return httpClient.delete(`/api/moral/pending-records/${recordId}`)
+}
+
+/**
+ * 上传待完善记录图片
+ */
+export function uploadPendingImages(formData) {
+  return httpClient.post('/api/moral/pending-records/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/**
+ * 搜索教师（用于任课教师选择）
+ */
+export function searchTeachers(keyword) {
+  return httpClient.get('/api/moral/pending-records/teachers', { params: { keyword } })
+}
+
+// =============================================================================
 // 校级事件记录 API
 // =============================================================================
 
@@ -1229,6 +1284,14 @@ export default {
   updateDailyRecord,
   deleteDailyRecord,
   getStudentDailyStatistics,
+
+  // 待完善记录
+  getPendingRecords,
+  createPendingRecord,
+  completePendingRecord,
+  deletePendingRecord,
+  uploadPendingImages,
+  searchTeachers,
 
   // 校级事件
   getSchoolEventTypes,

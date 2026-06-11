@@ -90,6 +90,10 @@ async def lifespan(app: FastAPI):
 
     # 启动时执行数据库迁移（添加 leader_ids/leader_names 字段）
     try:
+        import sys
+        project_root = os.path.dirname(os.path.dirname(__file__))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
         from scripts.create_moral_tables import ensure_sqlite_schema
         from models.datas_api.moral.base import get_moral_db
         with get_moral_db() as db:
@@ -214,6 +218,19 @@ async def health_check():
 static_dir = config.get_cross_platform_path("lesson_dir", "lesson.yaml")
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# 待完善记录图片目录（从 moral_config 读取 filegather_storage_dir，在其下创建 images 子目录）
+def _get_pending_upload_dir():
+    from models.datas_api.moral.base import get_moral_db
+    with get_moral_db() as db:
+        row = db.query_one("SELECT config_value FROM moral_config WHERE config_key = 'filegather_storage_dir'")
+        base_dir = row["config_value"] if row and row.get("config_value") else os.path.join(os.path.dirname(__file__), "storage", "filegather")
+    img_dir = os.path.join(base_dir, "images")
+    os.makedirs(img_dir, exist_ok=True)
+    return img_dir
+
+app.mount("/pending-uploads", StaticFiles(directory=_get_pending_upload_dir()), name="pending-uploads")
+
 
 
 @app.post("/")
