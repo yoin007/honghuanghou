@@ -123,6 +123,10 @@
           <el-input-number v-model="todoForm.remind_before_minutes" :min="0" :max="120" :step="5" style="width: 100%" />
           <span style="margin-left: 8px; color: #909399">分钟</span>
         </el-form-item>
+        <el-form-item label="提醒间隔" v-if="todoForm.wechat_notify_enabled">
+          <el-input-number v-model="todoForm.reminder_interval" :min="1" :max="60" :step="1" style="width: 100%" />
+          <span style="margin-left: 8px; color: #909399">分钟</span>
+        </el-form-item>
         <el-form-item label="通知对象" v-if="todoForm.wechat_notify_enabled">
           <el-checkbox v-model="todoForm.notify_creator" :true-label="1" :false-label="0">通知创建者</el-checkbox>
           <el-checkbox v-model="todoForm.notify_assignees" :true-label="1" :false-label="0">通知协作教师</el-checkbox>
@@ -223,6 +227,7 @@ const todoForm = reactive({
   recurrence_rule: { unit: 'weekly', weekday: null, day_of_month: null, month: null, day: null },
   wechat_notify_enabled: 1,
   remind_before_minutes: 30,
+  reminder_interval: 2,
   notify_creator: 1,
   notify_assignees: 1,
   assignee_group_ids: [],
@@ -369,6 +374,7 @@ const handleAdd = () => {
   todoForm.recurrence_rule = { unit: 'weekly', weekday: null, day_of_month: null, month: null, day: null }
   todoForm.wechat_notify_enabled = 1
   todoForm.remind_before_minutes = 30
+  todoForm.reminder_interval = 2
   todoForm.notify_creator = 1
   todoForm.notify_assignees = 1
   todoForm.assignee_group_ids = []
@@ -387,6 +393,7 @@ const handleEdit = (todo) => {
   todoForm.time_of_day = todo.time_of_day || (todo.scheduled_at ? todo.scheduled_at.slice(11, 16) : '08:00')
   todoForm.wechat_notify_enabled = todo.wechat_notify_enabled ?? 1
   todoForm.remind_before_minutes = todo.remind_before_minutes ?? 30
+  todoForm.reminder_interval = todo.reminder_interval ?? 2
   todoForm.notify_creator = todo.notify_creator ?? 1
   todoForm.notify_assignees = todo.notify_assignees ?? 1
   todoForm.recurrence_rule = {
@@ -420,6 +427,7 @@ const handleSubmit = async () => {
     time_of_day: todoForm.time_of_day,
     wechat_notify_enabled: todoForm.wechat_notify_enabled,
     remind_before_minutes: todoForm.remind_before_minutes,
+    reminder_interval: todoForm.reminder_interval,
     notify_creator: todoForm.notify_creator,
     notify_assignees: todoForm.notify_assignees,
     assignee_group_ids: todoForm.assignee_group_ids || null,

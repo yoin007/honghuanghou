@@ -592,8 +592,6 @@ def teacher_todo_reminder_task():
     from sendqueue import send_text
 
     MAX_REMINDERS = 3  # 最大提醒次数
-    REMINDER_INTERVAL = 2  # 提醒间隔（分钟）
-    REMIND_BEFORE = 5  # 提前5分钟开始提醒
 
     with get_moral_db() as db:
         ensure_teacher_todo_schema(db)
@@ -617,13 +615,14 @@ def teacher_todo_reminder_task():
         for todo in remindables:
             scheduled_at = todo['scheduled_at']
 
-            # 固定提前5分钟开始提醒
+            # 使用用户设置的提前提醒时间（默认5分钟）
             try:
                 scheduled_dt = datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M:%S")
             except:
                 scheduled_dt = datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M")
 
-            remind_time = scheduled_dt - timedelta(minutes=REMIND_BEFORE)
+            remind_before = todo.get('remind_before_minutes') or 5
+            remind_time = scheduled_dt - timedelta(minutes=remind_before)
 
             # 判断是否应该发送提醒（当前时间 >= 提醒时间）
             if now < remind_time:
@@ -666,12 +665,13 @@ def teacher_todo_reminder_task():
                     logger.info(f"待办 {todo['title']} 已发送3次提醒仍未完成，标记为逾期")
                     continue
 
-                # 检查距离上次提醒是否>=2分钟
+                # 检查距离上次提醒是否>=间隔时间
+                reminder_interval = todo.get('reminder_interval') or 2
                 if last_remind_time_str:
                     try:
                         last_remind_dt = datetime.strptime(last_remind_time_str, "%Y-%m-%d %H:%M:%S")
-                        if now < last_remind_dt + timedelta(minutes=REMINDER_INTERVAL):
-                            continue  # 距上次提醒不足2分钟，跳过
+                        if now < last_remind_dt + timedelta(minutes=reminder_interval):
+                            continue  # 距上次提醒不足间隔时间，跳过
                     except:
                         pass  # 时间解析失败，允许发送
 
@@ -732,7 +732,7 @@ def teacher_todo_reminder_task():
                         remind_time.strftime("%Y-%m-%d %H:%M:%S"),
                         todo['todo_series_id'],
                         teacher_id,
-                        REMIND_BEFORE,
+                        remind_before,
                         remind_time.strftime("%Y-%m-%d %H:%M:%S"),
                         now.strftime("%Y-%m-%d %H:%M:%S"),
                         log_message,
