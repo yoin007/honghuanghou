@@ -187,6 +187,7 @@ async def get_daily_records(
     event_id: Optional[int] = Query(None, description="具体事件ID"),
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
+    remark: Optional[str] = Query(None, description="备注模糊过滤"),
     scope: Optional[str] = Query(None, description="数据范围: own(我创建的), managed_classes(管理班级), managed_grades(管理年级), all(全校)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
@@ -244,6 +245,10 @@ async def get_daily_records(
         if end_date:
             conditions.append("dr.record_date <= ?")
             params.append(end_date)
+
+        if remark:
+            conditions.append("dr.remark LIKE ?")
+            params.append(f"%{remark}%")
 
         # 权限过滤：API 控制入口，数据范围控制能查看哪些记录。
         view_scope = _daily_view_scope(db, user)

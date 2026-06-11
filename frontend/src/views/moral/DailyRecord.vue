@@ -56,6 +56,9 @@
               </el-option-group>
             </el-select>
           </el-form-item>
+          <el-form-item label="备注">
+            <el-input v-model="filterForm.remark" placeholder="输入备注关键词" clearable />
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="handleSearch">查询</el-button>
             <el-button @click="handleReset">重置</el-button>
@@ -441,7 +444,8 @@ const filterForm = reactive({
   student_id: '',
   class_id: null,
   event_type: null,
-  event_id: null
+  event_id: null,
+  remark: ''
 })
 
 const pagination = reactive({
@@ -622,6 +626,7 @@ const handleReset = () => {
   filterForm.class_id = null
   filterForm.event_type = null
   filterForm.event_id = null
+  filterForm.remark = ''
   handleSearch()
 }
 
