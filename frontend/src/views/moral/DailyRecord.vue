@@ -417,9 +417,8 @@ import MoralScopeTabs from '@/components/MoralScopeTabs.vue'
 
 // 当前用户角色
 const authStore = useAuthStore()
-const currentUserRole = computed(() => authStore.role)
-const isXuefa = computed(() => ['xuefa', 'admin'].includes(currentUserRole.value))
-const canDeletePending = computed(() => ['xuefa', 'admin'].includes(currentUserRole.value))
+const isXuefa = computed(() => authStore.isXuefa || authStore.isAdmin)
+const canDeletePending = computed(() => authStore.isXuefa || authStore.isAdmin)
 
 // 选项卡
 const activeTab = ref('daily')
