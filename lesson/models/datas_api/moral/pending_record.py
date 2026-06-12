@@ -46,11 +46,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pending-records", tags=["待完善记录"])
 
 API_PENDING_LIST = "/api/moral/pending-records"
-API_PENDING_CREATE = "/api/moral/pending-records/create"
-API_PENDING_COMPLETE = "/api/moral/pending-records/complete"
-API_PENDING_DELETE = "/api/moral/pending-records/delete"
+API_PENDING_CREATE = "/api/moral/pending-records"
+API_PENDING_COMPLETE = "/api/moral/pending-records/{record_id}/complete"
+API_PENDING_DELETE = "/api/moral/pending-records/{record_id}"
 API_PENDING_UPLOAD = "/api/moral/pending-records/upload"
-API_PENDING_COMPLETE_WX = "/api/moral/pending-records/complete-wx"
+API_PENDING_COMPLETE_WX = "/api/moral/pending-records/{record_id}/complete-wx"
 
 # 上传图片存储目录
 def _get_pending_image_dir():
@@ -361,7 +361,7 @@ async def create_pending_record(
     创建后自动通知班主任和任课教师
     """
     # 仅限学发
-    if not (is_admin_user(user) or (hasattr(user, "role") and user.role == "xuefa")):
+    if not (is_admin_user(user) or has_user_role(user, "xuefa")):
         raise HTTPException(403, "仅限学发身份添加待完善记录")
 
     # 图片必填验证
@@ -660,7 +660,7 @@ async def delete_pending_record(
     user: User = Depends(require_configured_api_permission(API_PENDING_DELETE, "DELETE", allow_missing=True))
 ):
     """删除待完善记录（仅学发和管理员）"""
-    if not (is_admin_user(user) or (hasattr(user, "role") and user.role == "xuefa")):
+    if not (is_admin_user(user) or has_user_role(user, "xuefa")):
         raise HTTPException(403, "仅限学发和管理员删除")
 
     with get_moral_db() as db:
