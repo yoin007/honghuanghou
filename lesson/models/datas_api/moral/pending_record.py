@@ -176,9 +176,17 @@ def _send_pending_notifications(db, record_id: int, class_id: int, teacher_name:
     if teacher_name:
         teacher_wxid = _get_teacher_wxid(teacher_name)
         if teacher_wxid and teacher_wxid not in leader_wxids:
+            # 获取班级名称
+            class_info = db.query_one("SELECT class_name FROM class WHERE class_id = ?", (class_id,))
+            class_name = class_info.get("class_name", "") if class_info else ""
+            
+            remark_line = f"\n备注：{remark}" if remark else ""
             msg_teacher = (
-                f"待完善日常记录：\n"
-                f"{event_name}-{teacher_name}-{remark or ''}"
+                f"【日常记录通知】\n"
+                f"班级：{class_name}\n"
+                f"时间：{record_date}\n"
+                f"事件类型：{event_name}\n"
+                f"涉及学生数：{student_count}{remark_line}"
             )
             try:
                 send_text(msg_teacher, teacher_wxid, producer="moral_pending")
