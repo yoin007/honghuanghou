@@ -9,7 +9,10 @@ import datetime
 import os
 import time
 import requests
+import logging
 from sendqueue import send_text
+
+logger = logging.getLogger(__name__)
 
 
 class ZPAI:
@@ -53,6 +56,81 @@ def one_day_English():
     return response
 
 
+def daily_news(max_retries=2, timeout=10):
+    """
+    每日早报，调用alapi获取每日新闻
+    :param max_retries: 最大重试次数
+    :param timeout: 请求超时时间（秒）
+    :return: 完整的早报数据字典，包含date、news、weiyu、image、audio、head_image等
+    """
+    url = "https://v3.alapi.cn/api/zaobao"
+    
+    token = Config().get_config("alapi_zaobao_token", "token.yaml")
+    if not token:
+        logger.error("每日早报API token未配置")
+        return None
+    
+    payload = {
+        "token": token,
+        "format": "json"
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/119.0.6045.160 Safari/537.36 "
+    }
+    
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            
+            try:
+                data = response.json()
+            except ValueError:
+                logger.error("每日早报API返回非JSON数据")
+                if attempt < max_retries:
+                    time.sleep(1)
+                    continue
+                return None
+            
+            if data.get("success"):
+                return data["data"]
+            else:
+                logger.warning(f"每日早报API调用失败(第{attempt+1}次): {data.get('message')}")
+                if attempt < max_retries:
+                    time.sleep(1)
+                    continue
+                return None
+                
+        except requests.exceptions.Timeout:
+            logger.error(f"每日早报API请求超时(第{attempt+1}次)")
+            if attempt < max_retries:
+                time.sleep(2)
+                continue
+            return None
+        except requests.exceptions.ConnectionError:
+            logger.error(f"每日早报API连接失败(第{attempt+1}次): 网络连接异常")
+            if attempt < max_retries:
+                time.sleep(3)
+                continue
+            return None
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"每日早报API HTTP错误(第{attempt+1}次): {e}")
+            if attempt < max_retries:
+                time.sleep(1)
+                continue
+            return None
+        except Exception as e:
+            logger.error(f"每日早报API调用异常(第{attempt+1}次): {e}")
+            if attempt < max_retries:
+                time.sleep(1)
+                continue
+            return None
+    
+    return None
+
+
 def countdown_day(month, day):
     """
     日期倒计时函数
@@ -79,12 +157,27 @@ def countdown_day(month, day):
 
 def gk_countdown():
     """
-    高考倒计时，每天一句英语
+    高考倒计时，每日一句微语
     同时发布到各班级公告，署名：数字天龙
     :return:
     """
     today = datetime.datetime.now()
-    tips = one_day_English()
+    
+    news_data = daily_news()
+    tips = news_data.get("weiyu", "") if news_data else ""
+    
+    if not tips:
+        backup_weiyu = [
+            "【微语】成功不是将来才有的，而是从决定去做的那一刻起，持续累积而成。",
+            "【微语】路的好坏不在于崎岖多少，只在于谁能最终达到目标。",
+            "【微语】不积跬步，无以至千里；不积小流，无以成江海。",
+            "【微语】每一个不曾起舞的日子，都是对生命的辜负。",
+            "【微语】坚持到底，成功就在下一个转角处等你。",
+            "【微语】心有多大，舞台就有多大。",
+            "【微语】今天的努力，是明天的实力。",
+            "【微语】天道酬勤，厚积薄发。"
+        ]
+        tips = backup_weiyu[today.day % len(backup_weiyu)]
 
     gk_days = countdown_day(6, 7)
     zk_days = countdown_day(6, 13)
