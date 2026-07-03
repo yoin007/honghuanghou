@@ -39,6 +39,8 @@ def get_invigilation_project_stats(inv_db_conn) -> Dict[str, int]:
 def get_invigilation_slot_stats(inv_db_conn, today_str: str) -> Dict[str, int]:
     """获取监考场次统计（已安排/未安排）。
 
+    已安排定义：主监或副监至少一位有效教师。
+
     Args:
         inv_db_conn: invigilation.db 连接上下文管理器
         today_str: 今日日期字符串（YYYY-MM-DD）
@@ -60,7 +62,11 @@ def get_invigilation_slot_stats(inv_db_conn, today_str: str) -> Dict[str, int]:
 
             cursor.execute(
                 """SELECT COUNT(*) FROM invigilation_slot
-                   WHERE exam_date >= ? AND teacher_id IS NOT NULL AND teacher_id != ''""",
+                   WHERE exam_date >= ?
+                     AND (
+                       (teacher_id IS NOT NULL AND teacher_id != '')
+                       OR (assistant_teacher_id IS NOT NULL AND assistant_teacher_id != '')
+                     )""",
                 (today_str,)
             )
             slot_stats["arranged"] = cursor.fetchone()[0] or 0
@@ -72,7 +78,7 @@ def get_invigilation_slot_stats(inv_db_conn, today_str: str) -> Dict[str, int]:
 
 
 def get_invigilation_conflict_count(inv_db_conn, today_str: str) -> int:
-    """获取冲突场次数（同一教师同一时间）。
+    """获取冲突场次数（同一教师同一时间；主监副监都算）。
 
     Args:
         inv_db_conn: invigilation.db 连接上下文管理器
@@ -87,15 +93,23 @@ def get_invigilation_conflict_count(inv_db_conn, today_str: str) -> int:
         with inv_db_conn() as inv_db:
             cursor = inv_db.cursor()
             cursor.execute(
-                """SELECT teacher_name, exam_date, start_time, COUNT(*) AS count
-                   FROM invigilation_slot
-                   WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                """WITH slot_role AS (
+                       SELECT teacher_name, exam_date, start_time
+                       FROM invigilation_slot
+                       WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                       UNION ALL
+                       SELECT assistant_teacher_name AS teacher_name, exam_date, start_time
+                       FROM invigilation_slot
+                       WHERE exam_date >= ? AND assistant_teacher_name IS NOT NULL AND assistant_teacher_name != ''
+                   )
+                   SELECT teacher_name, exam_date, start_time, COUNT(*) AS count
+                   FROM slot_role
                    GROUP BY teacher_name, exam_date, start_time
                    HAVING count > 1""",
-                (today_str,)
+                (today_str, today_str)
             )
             for row in cursor.fetchall():
-                conflict_count += row["count"] - 1  # 冒泡数减1为冲突数
+                conflict_count += row["count"] - 1
     except Exception:
         pass
 
@@ -133,7 +147,7 @@ def get_invigilation_notification_stats(inv_db_conn) -> Dict[str, int]:
 
 
 def get_invigilation_teacher_workload(inv_db_conn, today_str: str, top_n: int) -> List[Dict]:
-    """获取教师监考负载排行。
+    """获取教师监考负载排行（主监副监都计入）。
 
     Args:
         inv_db_conn: invigilation.db 连接上下文管理器
@@ -149,13 +163,21 @@ def get_invigilation_teacher_workload(inv_db_conn, today_str: str, top_n: int) -
         with inv_db_conn() as inv_db:
             cursor = inv_db.cursor()
             cursor.execute(
-                """SELECT teacher_name, COUNT(*) AS invigilation_count
-                   FROM invigilation_slot
-                   WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                """WITH slot_role AS (
+                       SELECT teacher_name
+                       FROM invigilation_slot
+                       WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                       UNION ALL
+                       SELECT assistant_teacher_name AS teacher_name
+                       FROM invigilation_slot
+                       WHERE exam_date >= ? AND assistant_teacher_name IS NOT NULL AND assistant_teacher_name != ''
+                   )
+                   SELECT teacher_name, COUNT(*) AS invigilation_count
+                   FROM slot_role
                    GROUP BY teacher_name
                    ORDER BY invigilation_count DESC
                    LIMIT ?""",
-                (today_str, top_n)
+                (today_str, today_str, top_n)
             )
             for row in cursor.fetchall():
                 teacher_workload.append({
@@ -169,7 +191,7 @@ def get_invigilation_teacher_workload(inv_db_conn, today_str: str, top_n: int) -
 
 
 def get_invigilation_unarranged_slots(inv_db_conn, today_str: str) -> List[Dict]:
-    """获取未安排场次列表。
+    """获取未安排场次列表（主监副监均无）。
 
     Args:
         inv_db_conn: invigilation.db 连接上下文管理器
@@ -190,6 +212,7 @@ def get_invigilation_unarranged_slots(inv_db_conn, today_str: str) -> List[Dict]
                    LEFT JOIN exam_project p ON s.project_id = p.id
                    WHERE s.exam_date >= ?
                      AND (s.teacher_id IS NULL OR s.teacher_id = '')
+                     AND (s.assistant_teacher_id IS NULL OR s.assistant_teacher_id = '')
                    ORDER BY s.exam_date, s.start_time
                    LIMIT 10""",
                 (today_str,)
@@ -203,7 +226,7 @@ def get_invigilation_unarranged_slots(inv_db_conn, today_str: str) -> List[Dict]
 
 
 def get_invigilation_conflict_slots(inv_db_conn, today_str: str) -> List[Dict]:
-    """获取冲突场次详情。
+    """获取冲突场次详情（主监副监都算）。
 
     Args:
         inv_db_conn: invigilation.db 连接上下文管理器
@@ -218,15 +241,23 @@ def get_invigilation_conflict_slots(inv_db_conn, today_str: str) -> List[Dict]:
         with inv_db_conn() as inv_db:
             cursor = inv_db.cursor()
             cursor.execute(
-                """SELECT teacher_name, exam_date, start_time,
+                """WITH slot_role AS (
+                       SELECT teacher_name, exam_date, start_time, subject, room_name
+                       FROM invigilation_slot
+                       WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                       UNION ALL
+                       SELECT assistant_teacher_name AS teacher_name, exam_date, start_time, subject, room_name
+                       FROM invigilation_slot
+                       WHERE exam_date >= ? AND assistant_teacher_name IS NOT NULL AND assistant_teacher_name != ''
+                   )
+                   SELECT teacher_name, exam_date, start_time,
                           GROUP_CONCAT(subject || ' (' || room_name || ')', ', ') AS subjects
-                   FROM invigilation_slot
-                   WHERE exam_date >= ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                   FROM slot_role
                    GROUP BY teacher_name, exam_date, start_time
                    HAVING COUNT(*) > 1
                    ORDER BY exam_date, start_time
                    LIMIT 10""",
-                (today_str,)
+                (today_str, today_str)
             )
             for row in cursor.fetchall():
                 conflict_slots.append(dict(row))

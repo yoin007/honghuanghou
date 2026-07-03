@@ -83,17 +83,23 @@ def gk_countdown():
     同时发布到各班级公告，署名：数字天龙
     :return:
     """
-    year = datetime.datetime.now().year
+    today = datetime.datetime.now()
     tips = one_day_English()
 
     gk_days = countdown_day(6, 7)
     zk_days = countdown_day(6, 13)
+    
+    # 判断高考年份：如果当前日期已过6月7日，则显示明年
+    gk_year = today.year if today.month < 6 or (today.month == 6 and today.day <= 7) else today.year + 1
     if gk_days > 0:
-        gk_tips = f"距离{str(year)}年高考还有{gk_days}天!"
+        gk_tips = f"距离{str(gk_year)}年高考还有{gk_days}天!"
     elif gk_days == 0:
         gk_tips = f"今日高考，祝考试顺利，金榜题名！"
+    
+    # 判断中考年份：如果当前日期已过6月13日，则显示明年
+    zk_year = today.year if today.month < 6 or (today.month == 6 and today.day <= 13) else today.year + 1
     if zk_days > 0:
-        zk_tips = f"距离{str(year)}年中考还有{zk_days}天!"
+        zk_tips = f"距离{str(zk_year)}年中考还有{zk_days}天!"
     elif zk_days == 0:
         zk_tips = f"今日中考，祝考试顺利，金榜题名！"
 

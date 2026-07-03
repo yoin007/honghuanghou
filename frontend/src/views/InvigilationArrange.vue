@@ -58,11 +58,19 @@
             <table class="horizontal-table" v-if="horizontalSlots[grade.id]?.length">
               <thead>
                 <tr>
-                  <th class="th-date">日期</th>
-                  <th class="th-time">时间</th>
-                  <th class="th-subject">学科</th>
-                  <th v-for="room in maxRooms[grade.id]" :key="room" class="th-room">考场{{ room }}</th>
-                  <th class="th-actions">操作</th>
+                  <th class="th-date" rowspan="2">日期</th>
+                  <th class="th-time" rowspan="2">时间</th>
+                  <th class="th-subject" rowspan="2">学科</th>
+                  <th v-for="room in maxRooms[grade.id]" :key="'room-' + room" class="th-room" colspan="2">
+                    考场{{ room }}
+                  </th>
+                  <th class="th-actions" rowspan="2">操作</th>
+                </tr>
+                <tr>
+                  <template v-for="room in maxRooms[grade.id]" :key="'sub-' + room">
+                    <th class="th-role">主监</th>
+                    <th class="th-role">副监</th>
+                  </template>
                 </tr>
               </thead>
               <tbody>
@@ -87,26 +95,50 @@
                   <td>
                     <el-input v-model="row.subject" size="small" placeholder="语文" style="width: 100px" @change="markChanged" />
                   </td>
-                  <td v-for="room in maxRooms[grade.id]" :key="room" class="td-teacher">
-                    <div
-                      class="teacher-cell"
-                      draggable="true"
-                      @dragstart="handleDragStart($event, grade.id, rowIndex, room)"
-                      @dragover.prevent
-                      @drop="handleDrop($event, grade.id, rowIndex, room)"
-                    >
-                      <el-select
-                        v-model="row.teachers[room]"
-                        placeholder="选择教师"
-                        size="small"
-                        filterable
-                        style="width: 100%"
-                        @change="markChanged"
+                  <template v-for="room in maxRooms[grade.id]" :key="'cell-' + room">
+                    <td class="td-teacher td-primary">
+                      <div
+                        class="teacher-cell"
+                        draggable="true"
+                        @dragstart="handleDragStart($event, grade.id, rowIndex, room, 'primary')"
+                        @dragover.prevent
+                        @drop="handleDrop($event, grade.id, rowIndex, room, 'primary')"
                       >
-                        <el-option v-for="t in teachers" :key="t.teacher_id" :label="t.name" :value="t.teacher_id" />
-                      </el-select>
-                    </div>
-                  </td>
+                        <el-select
+                          v-model="row.teachers[room].primary"
+                          placeholder="主监"
+                          size="small"
+                          filterable
+                          clearable
+                          style="width: 100%"
+                          @change="markChanged"
+                        >
+                          <el-option v-for="t in teachers" :key="t.teacher_id" :label="t.name" :value="t.teacher_id" />
+                        </el-select>
+                      </div>
+                    </td>
+                    <td class="td-teacher td-assistant">
+                      <div
+                        class="teacher-cell"
+                        draggable="true"
+                        @dragstart="handleDragStart($event, grade.id, rowIndex, room, 'assistant')"
+                        @dragover.prevent
+                        @drop="handleDrop($event, grade.id, rowIndex, room, 'assistant')"
+                      >
+                        <el-select
+                          v-model="row.teachers[room].assistant"
+                          placeholder="副监(可空)"
+                          size="small"
+                          filterable
+                          clearable
+                          style="width: 100%"
+                          @change="markChanged"
+                        >
+                          <el-option v-for="t in teachers" :key="t.teacher_id" :label="t.name" :value="t.teacher_id" />
+                        </el-select>
+                      </div>
+                    </td>
+                  </template>
                   <td>
                     <el-button type="danger" size="small" link @click="deleteRow(grade.id, rowIndex)">删除</el-button>
                   </td>
@@ -336,7 +368,7 @@ const visibleGrades = computed(() => {
 const activeGradeId = ref('1')
 
 // 拖拽状态
-const dragState = ref({ gradeId: null, rowIndex: null, room: null, teacherId: null })
+const dragState = ref({ gradeId: null, rowIndex: null, room: null, role: null, teacherId: null })
 
 // 弹窗
 const createProjectVisible = ref(false)
@@ -465,8 +497,18 @@ function convertToHorizontal() {
       // 从 room_name 提取考场号 (支持 "考场1" 和 "第1考场")
       const roomMatch = slot.room_name?.match(/\d+/)
       const roomNum = roomMatch ? parseInt(roomMatch[0]) : 1
-      groups[key].teachers[roomNum] = slot.teacher_id
+      groups[key].teachers[roomNum] = {
+        primary: slot.teacher_id || null,
+        assistant: slot.assistant_teacher_id || null
+      }
       maxRoom = Math.max(maxRoom, roomNum)
+    }
+
+    // 保证每一行的 teachers 都覆盖 1..maxRoom（可能存在的空位）
+    for (const g of Object.values(groups)) {
+      for (let r = 1; r <= Math.max(maxRoom, 1); r++) {
+        if (!g.teachers[r]) g.teachers[r] = { primary: null, assistant: null }
+      }
     }
 
     result[grade.id] = Object.values(groups)
@@ -478,28 +520,34 @@ function convertToHorizontal() {
 }
 
 // 横向数据转换为纵向（用于保存）
+// 每个 (行, 考场) 组合最多输出一条 slot；若主监与副监都为空则丢弃。
 function convertToVertical() {
   const result = []
+  const teacherName = id => teachers.value.find(t => t.teacher_id === id)?.name || ''
 
   for (const gradeId of [1, 2, 3]) {
     const rows = horizontalSlots.value[gradeId] || []
     for (const row of rows) {
       for (const room of Object.keys(row.teachers || {})) {
-        const teacherId = row.teachers[room]
-        if (teacherId) {
-          result.push({
-            grade_id: gradeId,
-            grade_name: projectGrades.find(g => g.id === gradeId)?.name,
-            exam_date: row.exam_date,
-            start_time: row.start_time,
-            end_time: row.end_time,
-            subject: row.subject,
-            room_name: `考场${room}`,
-            room_order: parseInt(room),
-            teacher_id: teacherId,
-            teacher_name: teachers.value.find(t => t.teacher_id === teacherId)?.name || ''
-          })
-        }
+        const cell = row.teachers[room] || {}
+        const primaryId = cell.primary || null
+        const assistantId = cell.assistant || null
+        if (!primaryId && !assistantId) continue
+
+        result.push({
+          grade_id: parseInt(gradeId),
+          grade_name: projectGrades.find(g => g.id === parseInt(gradeId))?.name,
+          exam_date: row.exam_date,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          subject: row.subject,
+          room_name: `考场${room}`,
+          room_order: parseInt(room),
+          teacher_id: primaryId,
+          teacher_name: teacherName(primaryId),
+          assistant_teacher_id: assistantId,
+          assistant_teacher_name: teacherName(assistantId)
+        })
       }
     }
   }
@@ -508,41 +556,57 @@ function convertToVertical() {
 }
 
 // 拖拽处理
-function handleDragStart(event, gradeId, rowIndex, room) {
-  const teacherId = horizontalSlots.value[gradeId]?.[rowIndex]?.teachers?.[room]
+function handleDragStart(event, gradeId, rowIndex, room, role) {
+  const cell = horizontalSlots.value[gradeId]?.[rowIndex]?.teachers?.[room]
+  const teacherId = cell ? cell[role] : null
   if (!teacherId) {
     event.preventDefault()
     return
   }
-  dragState.value = { gradeId, rowIndex, room, teacherId }
+  dragState.value = { gradeId, rowIndex, room, role, teacherId }
   event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData('text/plain', teacherId)
 }
 
-function handleDrop(event, targetGradeId, targetRowIndex, targetRoom) {
+function handleDrop(event, targetGradeId, targetRowIndex, targetRoom, targetRole) {
   const source = dragState.value
   if (!source.teacherId) return
 
   // 不能拖到同一个格子
-  if (source.gradeId === targetGradeId && source.rowIndex === targetRowIndex && source.room === targetRoom) {
+  if (source.gradeId === targetGradeId
+      && source.rowIndex === targetRowIndex
+      && source.room === targetRoom
+      && source.role === targetRole) {
+    return
+  }
+
+  const targetCell = horizontalSlots.value[targetGradeId]?.[targetRowIndex]?.teachers?.[targetRoom]
+  const sourceCell = horizontalSlots.value[source.gradeId]?.[source.rowIndex]?.teachers?.[source.room]
+  if (!targetCell || !sourceCell) return
+
+  const targetTeacherId = targetCell[targetRole] || null
+
+  // 交换后主副自冲检测（目标格子内的另一角色 == 换过去的教师）
+  const otherRole = targetRole === 'primary' ? 'assistant' : 'primary'
+  if (targetCell[otherRole] && targetCell[otherRole] === source.teacherId) {
+    ElMessage.warning('交换后目标考场的主监与副监会重复，操作已取消')
+    dragState.value = {}
+    return
+  }
+  const otherRoleSrc = source.role === 'primary' ? 'assistant' : 'primary'
+  if (targetTeacherId && sourceCell[otherRoleSrc] === targetTeacherId) {
+    ElMessage.warning('交换后源考场的主监与副监会重复，操作已取消')
+    dragState.value = {}
     return
   }
 
   // 互换教师
-  const targetTeacherId = horizontalSlots.value[targetGradeId]?.[targetRowIndex]?.teachers?.[targetRoom]
-
-  // 设置目标格子
-  horizontalSlots.value[targetGradeId][targetRowIndex].teachers[targetRoom] = source.teacherId
-
-  // 设置源格子
-  if (horizontalSlots.value[source.gradeId]?.[source.rowIndex]?.teachers) {
-    horizontalSlots.value[source.gradeId][source.rowIndex].teachers[source.room] = targetTeacherId || null
-  }
+  targetCell[targetRole] = source.teacherId
+  sourceCell[source.role] = targetTeacherId
 
   hasChanges.value = true
   dragState.value = {}
 
-  // 提示互换
   const sourceName = teachers.value.find(t => t.teacher_id === source.teacherId)?.name
   const targetName = targetTeacherId ? teachers.value.find(t => t.teacher_id === targetTeacherId)?.name : '空'
   ElMessage.success(`已互换: ${sourceName} ↔ ${targetName}`)
@@ -560,7 +624,7 @@ function addRow(gradeId) {
   }
   // 预填充空值
   for (let i = 1; i <= maxRooms.value[gradeId]; i++) {
-    newRow.teachers[i] = null
+    newRow.teachers[i] = { primary: null, assistant: null }
   }
   rows.push(newRow)
   horizontalSlots.value[gradeId] = rows
@@ -577,7 +641,7 @@ function addRoom(gradeId) {
   maxRooms.value[gradeId]++
   // 为所有行补充新考场列
   for (const row of (horizontalSlots.value[gradeId] || [])) {
-    row.teachers[maxRooms.value[gradeId]] = null
+    row.teachers[maxRooms.value[gradeId]] = { primary: null, assistant: null }
   }
   hasChanges.value = true
 }
@@ -972,11 +1036,21 @@ async function confirmDeleteProject() {
 .th-date { min-width: 140px; }
 .th-time { min-width: 160px; }
 .th-subject { min-width: 120px; }
-.th-room { min-width: 120px; }
+.th-room { min-width: 240px; }
+.th-role {
+  font-weight: normal;
+  font-size: 12px;
+  color: #666;
+  min-width: 120px;
+}
 .th-actions { min-width: 80px; }
 
 .td-teacher {
   position: relative;
+}
+
+.td-assistant {
+  background: #fafcff;
 }
 
 .teacher-cell {

@@ -41,6 +41,12 @@ REQUIRED_COLUMNS = {
         "grade": ["grade_id", "grade_name", "enrollment_year"],
         "class": ["class_id", "class_name", "grade_id"],
     },
+    "invigilation.db": {
+        "invigilation_slot": [
+            "teacher_id", "teacher_name", "teacher_wxid",
+            "assistant_teacher_id", "assistant_teacher_name", "assistant_teacher_wxid",
+        ],
+    },
 }
 
 

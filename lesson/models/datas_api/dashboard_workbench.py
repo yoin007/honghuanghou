@@ -148,13 +148,19 @@ def get_teacher_invigilation_tasks(teacher_name: str, today_str: str, invigilati
             cursor = inv_db.cursor()
             cursor.execute(
                 """SELECT p.name AS project_name, s.exam_date, s.start_time, s.end_time,
-                          s.subject, s.room_name, s.grade_name
+                          s.subject, s.room_name, s.grade_name,
+                          CASE
+                            WHEN s.teacher_name = ? THEN '主监'
+                            WHEN s.assistant_teacher_name = ? THEN '副监'
+                            ELSE ''
+                          END AS role
                 FROM invigilation_slot s
                 JOIN exam_project p ON s.project_id = p.id
-                WHERE s.teacher_name = ? AND s.exam_date >= ?
+                WHERE (s.teacher_name = ? OR s.assistant_teacher_name = ?)
+                  AND s.exam_date >= ?
                 ORDER BY s.exam_date, s.start_time
                 LIMIT 10""",
-                (teacher_name, today_str)
+                (teacher_name, teacher_name, teacher_name, teacher_name, today_str)
             )
             for row in cursor.fetchall():
                 invigilation_tasks.append(dict(row))

@@ -65,8 +65,10 @@ class InvigilationSlotCreate(BaseModel):
     subject: str = Field(..., description="学科")
     room_name: str = Field(..., description="考场名称")
     room_order: Optional[int] = Field(0, description="考场序号")
-    teacher_id: Optional[str] = Field(None, description="教师ID")
-    teacher_name: Optional[str] = Field(None, description="教师姓名")
+    teacher_id: Optional[str] = Field(None, description="主监教师ID")
+    teacher_name: Optional[str] = Field(None, description="主监教师姓名")
+    assistant_teacher_id: Optional[str] = Field(None, description="副监教师ID")
+    assistant_teacher_name: Optional[str] = Field(None, description="副监教师姓名")
 
 
 class InvigilationSlotsBatch(BaseModel):
@@ -96,10 +98,200 @@ class NotifyRequestV2(BaseModel):
 
 from models.datas_api.repositories.sqlite_base import get_sqlite_connection
 
+# ---------------------------------------------------------------------------
+# 主副监公共常量 / 辅助
+# ---------------------------------------------------------------------------
+# 一场考试可以有主监 + 副监两位老师；副监可留空。
+# 数据库列：主监 -> teacher_id / teacher_name / teacher_wxid
+#           副监 -> assistant_teacher_id / assistant_teacher_name / assistant_teacher_wxid
+SLOT_ROLES = ("primary", "assistant")
+
+
+def _slot_role_columns(role: str) -> tuple:
+    """按角色返回 (id_col, name_col, wxid_col)。"""
+    if role == "primary":
+        return "teacher_id", "teacher_name", "teacher_wxid"
+    if role == "assistant":
+        return "assistant_teacher_id", "assistant_teacher_name", "assistant_teacher_wxid"
+    raise ValueError(f"未知角色：{role}")
+
+
+def _slot_role_teacher(slot: Optional[dict], role: str) -> dict:
+    """从 slot dict / Row 里按角色抽出 {teacher_id, teacher_name, teacher_wxid}。空 slot 返回全 None。"""
+    if not slot:
+        return {"teacher_id": None, "teacher_name": None, "teacher_wxid": None}
+    id_col, name_col, wxid_col = _slot_role_columns(role)
+    return {
+        "teacher_id": slot.get(id_col) if isinstance(slot, dict) else slot[id_col],
+        "teacher_name": slot.get(name_col) if isinstance(slot, dict) else slot[name_col],
+        "teacher_wxid": slot.get(wxid_col) if isinstance(slot, dict) else slot[wxid_col],
+    }
+
+
 def get_invigilation_db():
     """获取监考安排数据库连接"""
     conn = get_sqlite_connection(INVIGILATION_DB, row_factory=sqlite3.Row)
     return conn
+
+
+# ---------------------------------------------------------------------------
+# 变更 diff 公共实现（changes preview 与 notify 共用）
+# ---------------------------------------------------------------------------
+def _slot_change_key(slot: dict) -> str:
+    """场次唯一键（不含角色）。"""
+    return f"{slot['grade_id']}|{slot['exam_date']}|{slot['start_time']}|{slot['room_name']}"
+
+
+def _compute_slot_changes(
+    current_slots: List[dict],
+    previous_slots: List[dict],
+    subject_filter: Optional[List[str]] = None,
+):
+    """
+    对比两次快照，按 (slot_key, role) 二元组产出 added/removed/swaps/unchanged。
+
+    主监与副监被视作独立的"位置"：同一场考试的主监换人或副监换人各自触发一条变更；
+    swap 检测跨 slot、跨 role 都能配对（例：A 场主监 ↔ B 场副监）。
+    """
+    current_map = {_slot_change_key(s): s for s in current_slots}
+    previous_map = {_slot_change_key(s): s for s in previous_slots}
+
+    added: List[dict] = []
+    removed: List[dict] = []
+    changed: List[dict] = []
+    unchanged: List[dict] = []
+
+    all_keys = set(current_map.keys()) | set(previous_map.keys())
+
+    for key in all_keys:
+        current_slot = current_map.get(key)
+        previous_slot = previous_map.get(key)
+
+        # 学科筛选
+        if subject_filter:
+            slot_subject = (current_slot or previous_slot).get('subject', '')
+            if slot_subject not in subject_filter:
+                continue
+
+        for role in SLOT_ROLES:
+            prev_t = _slot_role_teacher(previous_slot, role)
+            curr_t = _slot_role_teacher(current_slot, role)
+            prev_id, curr_id = prev_t["teacher_id"], curr_t["teacher_id"]
+
+            # 场次整体新增：以当前 slot 全量存在为准
+            if not previous_slot and current_slot:
+                if curr_id:
+                    added.append({
+                        'teacher_id': curr_id,
+                        'teacher_name': curr_t["teacher_name"],
+                        'teacher_wxid': curr_t["teacher_wxid"],
+                        'role': role,
+                        'slot': current_slot,
+                    })
+                continue
+
+            # 场次整体取消
+            if previous_slot and not current_slot:
+                if prev_id:
+                    removed.append({
+                        'teacher_id': prev_id,
+                        'teacher_name': prev_t["teacher_name"],
+                        'teacher_wxid': prev_t["teacher_wxid"],
+                        'role': role,
+                        'slot': previous_slot,
+                        'reason': '场次取消',
+                    })
+                continue
+
+            # 场次仍在，比对角色内的教师变化
+            if prev_id != curr_id:
+                if prev_id and curr_id:
+                    removed.append({
+                        'teacher_id': prev_id,
+                        'teacher_name': prev_t["teacher_name"],
+                        'teacher_wxid': prev_t["teacher_wxid"],
+                        'role': role,
+                        'slot': previous_slot,
+                        'reason': '教师替换',
+                    })
+                    added.append({
+                        'teacher_id': curr_id,
+                        'teacher_name': curr_t["teacher_name"],
+                        'teacher_wxid': curr_t["teacher_wxid"],
+                        'role': role,
+                        'slot': current_slot,
+                    })
+                    changed.append({
+                        'type': 'replace',
+                        'old_teacher_id': prev_id,
+                        'old_teacher_name': prev_t["teacher_name"],
+                        'old_teacher_wxid': prev_t["teacher_wxid"],
+                        'old_role': role,
+                        'new_teacher_id': curr_id,
+                        'new_teacher_name': curr_t["teacher_name"],
+                        'new_teacher_wxid': curr_t["teacher_wxid"],
+                        'new_role': role,
+                        'slot': current_slot,
+                        'old_slot': previous_slot,
+                    })
+                elif prev_id and not curr_id:
+                    removed.append({
+                        'teacher_id': prev_id,
+                        'teacher_name': prev_t["teacher_name"],
+                        'teacher_wxid': prev_t["teacher_wxid"],
+                        'role': role,
+                        'slot': previous_slot,
+                        'reason': '教师取消',
+                    })
+                elif not prev_id and curr_id:
+                    added.append({
+                        'teacher_id': curr_id,
+                        'teacher_name': curr_t["teacher_name"],
+                        'teacher_wxid': curr_t["teacher_wxid"],
+                        'role': role,
+                        'slot': current_slot,
+                    })
+            else:
+                if curr_id:
+                    unchanged.append({
+                        'teacher_id': curr_id,
+                        'teacher_name': curr_t["teacher_name"],
+                        'teacher_wxid': curr_t["teacher_wxid"],
+                        'role': role,
+                        'slot': current_slot,
+                    })
+
+    # swap 检测：(old_id, new_id) 与 (new_id, old_id) 同时存在即为一次互换
+    swaps: List[dict] = []
+    replace_map: Dict[tuple, dict] = {}
+    for ch in changed:
+        replace_map[(ch['old_teacher_id'], ch['new_teacher_id'])] = ch
+
+    processed_keys: set = set()
+    swap_teacher_ids: set = set()
+    for (old_id, new_id), ch in replace_map.items():
+        if (new_id, old_id) in replace_map and (new_id, old_id) not in processed_keys:
+            ch2 = replace_map[(new_id, old_id)]
+            swaps.append({
+                'type': 'swap',
+                'teacher_a_id': old_id,
+                'teacher_a_name': ch['old_teacher_name'],
+                'teacher_a_wxid': ch['old_teacher_wxid'],
+                'teacher_b_id': new_id,
+                'teacher_b_name': ch['new_teacher_name'],
+                'teacher_b_wxid': ch['new_teacher_wxid'],
+                'slot_a': ch['slot'],   # A 现在的位置（也是 B 原来的位置）
+                'slot_b': ch2['slot'],  # B 现在的位置（也是 A 原来的位置）
+            })
+            swap_teacher_ids.add(old_id)
+            swap_teacher_ids.add(new_id)
+            processed_keys.add((old_id, new_id))
+            processed_keys.add((new_id, old_id))
+
+    removed = [r for r in removed if r['teacher_id'] not in swap_teacher_ids]
+    added = [a for a in added if a['teacher_id'] not in swap_teacher_ids]
+
+    return added, removed, swaps, unchanged
 
 
 def require_jiaowu(user: User = Depends(get_current_user)) -> User:
@@ -387,13 +579,32 @@ async def save_invigilation_slots(
             if slot.grade_id not in allowed_grades:
                 raise HTTPException(400, f"年级 {slot.grade_id} 不属于该考试项目")
 
-        # 检查batch内部是否有冲突（同一教师同一时间多个考场）
+        # 冲突校验：
+        # 1. 同一教师在同一 (date, start_time) 只能出现一次（主监副监都算）
+        # 2. 同一场考试主监 ≠ 副监
         teacher_time_map = {}
         for slot in batch.slots:
-            if slot.teacher_id:
-                key = f"{slot.teacher_id}|{slot.exam_date}|{slot.start_time}"
+            if slot.teacher_id and slot.assistant_teacher_id \
+                    and slot.teacher_id == slot.assistant_teacher_id:
+                raise HTTPException(
+                    400,
+                    f"{slot.exam_date} {slot.start_time} {slot.room_name} "
+                    f"的主监与副监不能是同一位老师（{slot.teacher_name}）"
+                )
+
+            for role in SLOT_ROLES:
+                if role == "primary":
+                    tid, tname = slot.teacher_id, slot.teacher_name
+                else:
+                    tid, tname = slot.assistant_teacher_id, slot.assistant_teacher_name
+                if not tid:
+                    continue
+                key = f"{tid}|{slot.exam_date}|{slot.start_time}"
                 if key in teacher_time_map:
-                    raise HTTPException(400, f"教师 {slot.teacher_name} 在 {slot.exam_date} {slot.start_time} 安排了多个考场")
+                    raise HTTPException(
+                        400,
+                        f"教师 {tname} 在 {slot.exam_date} {slot.start_time} 被安排了多个考场"
+                    )
                 teacher_time_map[key] = slot.room_name
 
         # 删除旧安排
@@ -411,14 +622,20 @@ async def save_invigilation_slots(
         # 插入新安排
         for slot in batch.slots:
             teacher_wxid = wxid_dict.get(slot.teacher_id)
+            assistant_wxid = wxid_dict.get(slot.assistant_teacher_id) if slot.assistant_teacher_id else None
             cursor.execute("""
                 INSERT INTO invigilation_slot
-                (project_id, grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, room_order, teacher_id, teacher_name, teacher_wxid, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')
+                (project_id, grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, room_order,
+                 teacher_id, teacher_name, teacher_wxid,
+                 assistant_teacher_id, assistant_teacher_name, assistant_teacher_wxid,
+                 source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')
             """, (
                 project_id, slot.grade_id, slot.grade_name, slot.exam_date,
                 slot.start_time, slot.end_time, slot.subject, slot.room_name,
-                slot.room_order or 0, slot.teacher_id, slot.teacher_name, teacher_wxid
+                slot.room_order or 0,
+                slot.teacher_id, slot.teacher_name, teacher_wxid,
+                slot.assistant_teacher_id, slot.assistant_teacher_name, assistant_wxid,
             ))
 
         # 更新项目状态
@@ -440,9 +657,18 @@ async def swap_teachers(
     project_id: int,
     slot_id_1: int = Query(...),
     slot_id_2: int = Query(...),
+    role_1: str = Query("primary", description="slot_id_1 交换的角色：primary/assistant"),
+    role_2: str = Query("primary", description="slot_id_2 交换的角色：primary/assistant"),
     user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/slots/swap-teachers", "POST"))
 ):
-    """交换两条安排的监考老师"""
+    """
+    交换两条安排的监考老师（支持主监 / 副监两个角色任意组合互换）。
+
+    role_1、role_2 均默认 primary，与旧接口兼容。
+    """
+    if role_1 not in SLOT_ROLES or role_2 not in SLOT_ROLES:
+        raise HTTPException(400, "role 参数必须是 primary 或 assistant")
+
     with get_invigilation_db() as db:
         cursor = db.cursor()
 
@@ -457,18 +683,46 @@ async def swap_teachers(
         if not slot2:
             raise HTTPException(404, "安排2不存在")
 
-        # 交换教师信息
-        cursor.execute("""
-            UPDATE invigilation_slot
-            SET teacher_id = ?, teacher_name = ?, updated_at = datetime('now', 'localtime')
-            WHERE id = ?
-        """, (slot2['teacher_id'], slot2['teacher_name'], slot_id_1))
+        # 按角色拿出当前教师信息
+        t1 = _slot_role_teacher(slot1, role_1)
+        t2 = _slot_role_teacher(slot2, role_2)
 
-        cursor.execute("""
-            UPDATE invigilation_slot
-            SET teacher_id = ?, teacher_name = ?, updated_at = datetime('now', 'localtime')
-            WHERE id = ?
-        """, (slot1['teacher_id'], slot1['teacher_name'], slot_id_2))
+        # 交换后自冲校验：如果目标 slot 内的另一角色已经是要换过去的教师，则拒绝
+        def _other_role(role: str) -> str:
+            return "assistant" if role == "primary" else "primary"
+
+        for target_slot, target_role, incoming in (
+            (slot1, role_1, t2),
+            (slot2, role_2, t1),
+        ):
+            if not incoming["teacher_id"]:
+                continue
+            other = _slot_role_teacher(target_slot, _other_role(target_role))
+            if other["teacher_id"] and other["teacher_id"] == incoming["teacher_id"]:
+                raise HTTPException(
+                    400,
+                    f"交换后 {target_slot['exam_date']} {target_slot['start_time']} "
+                    f"{target_slot['room_name']} 会出现主监与副监相同（{incoming['teacher_name']}）"
+                )
+
+        # 分别更新两条 slot 对应角色的教师列
+        id_col_1, name_col_1, wxid_col_1 = _slot_role_columns(role_1)
+        id_col_2, name_col_2, wxid_col_2 = _slot_role_columns(role_2)
+
+        cursor.execute(
+            f"""UPDATE invigilation_slot
+                SET {id_col_1} = ?, {name_col_1} = ?, {wxid_col_1} = ?,
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = ?""",
+            (t2["teacher_id"], t2["teacher_name"], t2["teacher_wxid"], slot_id_1)
+        )
+        cursor.execute(
+            f"""UPDATE invigilation_slot
+                SET {id_col_2} = ?, {name_col_2} = ?, {wxid_col_2} = ?,
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = ?""",
+            (t1["teacher_id"], t1["teacher_name"], t1["teacher_wxid"], slot_id_2)
+        )
 
         db.commit()
 
@@ -518,149 +772,10 @@ async def get_changes_preview(
         if snapshot_row and snapshot_row['slots_json']:
             previous_slots = json.loads(snapshot_row['slots_json'])
 
-        # 构建唯一键：grade_id + exam_date + start_time + room_name
-        def get_key(slot):
-            return f"{slot['grade_id']}|{slot['exam_date']}|{slot['start_time']}|{slot['room_name']}"
+        added, removed, swaps, unchanged = _compute_slot_changes(
+            current_slots, previous_slots, subject_filter
+        )
 
-        current_map = {get_key(s): s for s in current_slots}
-        previous_map = {get_key(s): s for s in previous_slots}
-
-        # 检测变更
-        added = []      # 新增监考
-        removed = []    # 取消监考
-        changed = []    # 教师变更（替换/交换）
-        unchanged = []  # 无变化
-
-        all_keys = set(current_map.keys()) | set(previous_map.keys())
-
-        for key in all_keys:
-            current_slot = current_map.get(key)
-            previous_slot = previous_map.get(key)
-
-            # 学科筛选
-            if subject_filter:
-                slot_subject = (current_slot or previous_slot).get('subject', '')
-                if slot_subject not in subject_filter:
-                    continue
-
-            if not previous_slot and current_slot:
-                # 新增
-                if current_slot['teacher_id']:
-                    added.append({
-                        'teacher_id': current_slot['teacher_id'],
-                        'teacher_name': current_slot['teacher_name'],
-                        'teacher_wxid': current_slot['teacher_wxid'],
-                        'slot': current_slot
-                    })
-
-            elif previous_slot and not current_slot:
-                # 删除（整个场次取消）
-                if previous_slot['teacher_id']:
-                    removed.append({
-                        'teacher_id': previous_slot['teacher_id'],
-                        'teacher_name': previous_slot['teacher_name'],
-                        'teacher_wxid': previous_slot['teacher_wxid'],
-                        'slot': previous_slot,
-                        'reason': '场次取消'
-                    })
-
-            elif previous_slot and current_slot:
-                prev_teacher = previous_slot.get('teacher_id')
-                curr_teacher = current_slot.get('teacher_id')
-
-                if prev_teacher != curr_teacher:
-                    # 教师变更
-                    if prev_teacher and curr_teacher:
-                        # 替换：拆成取消原教师 + 新增新教师
-                        removed.append({
-                            'teacher_id': prev_teacher,
-                            'teacher_name': previous_slot['teacher_name'],
-                            'teacher_wxid': previous_slot['teacher_wxid'],
-                            'slot': previous_slot,
-                            'reason': '教师替换'
-                        })
-                        added.append({
-                            'teacher_id': curr_teacher,
-                            'teacher_name': current_slot['teacher_name'],
-                            'teacher_wxid': current_slot['teacher_wxid'],
-                            'slot': current_slot
-                        })
-                        # 同时记录changed用于交换检测
-                        changed.append({
-                            'type': 'replace',
-                            'old_teacher_id': prev_teacher,
-                            'old_teacher_name': previous_slot['teacher_name'],
-                            'old_teacher_wxid': previous_slot['teacher_wxid'],
-                            'new_teacher_id': curr_teacher,
-                            'new_teacher_name': current_slot['teacher_name'],
-                            'new_teacher_wxid': current_slot['teacher_wxid'],
-                            'slot': current_slot
-                        })
-                    elif prev_teacher and not curr_teacher:
-                        # 取消该教师的监考
-                        removed.append({
-                            'teacher_id': prev_teacher,
-                            'teacher_name': previous_slot['teacher_name'],
-                            'teacher_wxid': previous_slot['teacher_wxid'],
-                            'slot': previous_slot,
-                            'reason': '教师取消'
-                        })
-                    elif not prev_teacher and curr_teacher:
-                        # 新增教师
-                        added.append({
-                            'teacher_id': curr_teacher,
-                            'teacher_name': current_slot['teacher_name'],
-                            'teacher_wxid': current_slot['teacher_wxid'],
-                            'slot': current_slot
-                        })
-                else:
-                    # 无变化
-                    if current_slot['teacher_id']:
-                        unchanged.append({
-                            'teacher_id': current_slot['teacher_id'],
-                            'teacher_name': current_slot['teacher_name'],
-                            'teacher_wxid': current_slot['teacher_wxid'],
-                            'slot': current_slot
-                        })
-
-        # 检测交换：old→new 和 new→old 同时存在
-        swaps = []
-        # 构建替换映射
-        replace_map = {}
-        for ch in changed:
-            if ch['type'] == 'replace':
-                key_pair = (ch['old_teacher_id'], ch['new_teacher_id'])
-                replace_map[key_pair] = ch
-
-        # 检测交换并从removed/added中过滤
-        processed_keys = set()
-        swap_teacher_ids = set()
-        for (old_id, new_id), ch in replace_map.items():
-            if (new_id, old_id) in replace_map and (new_id, old_id) not in processed_keys:
-                # 发现交换：A→B 和 B→A 同时存在
-                ch2 = replace_map[(new_id, old_id)]
-                swaps.append({
-                    'type': 'swap',
-                    'teacher_a_id': old_id,
-                    'teacher_a_name': ch['old_teacher_name'],
-                    'teacher_a_wxid': ch['old_teacher_wxid'],
-                    'teacher_b_id': new_id,
-                    'teacher_b_name': ch['new_teacher_name'],
-                    'teacher_b_wxid': ch['new_teacher_wxid'],
-                    'slot_a': ch['slot'],  # A原位置
-                    'slot_b': ch2['slot']  # B原位置
-                })
-                # 交换教师从removed/added中移除（避免重复）
-                swap_teacher_ids.add(old_id)
-                swap_teacher_ids.add(new_id)
-                processed_keys.add((old_id, new_id))
-                processed_keys.add((new_id, old_id))
-
-        # 从removed/added过滤掉交换教师
-        removed = [r for r in removed if r['teacher_id'] not in swap_teacher_ids]
-        added = [a for a in added if a['teacher_id'] not in swap_teacher_ids]
-
-        # 汇总统计（changed仅用于交换检测，不再单独统计）
         stats = {
             'added_count': len(added),
             'removed_count': len(removed),
@@ -725,125 +840,9 @@ async def send_notifications(
         if snapshot_row and snapshot_row['slots_json']:
             previous_slots = json.loads(snapshot_row['slots_json'])
 
-        # 检测变更（复用get_changes_preview的逻辑）
-        def get_key(slot):
-            return f"{slot['grade_id']}|{slot['exam_date']}|{slot['start_time']}|{slot['room_name']}"
-
-        current_map = {get_key(s): s for s in current_slots}
-        previous_map = {get_key(s): s for s in previous_slots}
-
-        added = []
-        removed = []
-        changed = []
-        unchanged = []
-
-        all_keys = set(current_map.keys()) | set(previous_map.keys())
-
-        for key in all_keys:
-            current_slot = current_map.get(key)
-            previous_slot = previous_map.get(key)
-
-            # 学科筛选
-            if subject_filter:
-                slot_subject = (current_slot or previous_slot).get('subject', '')
-                if slot_subject not in subject_filter:
-                    continue
-
-            if not previous_slot and current_slot:
-                if current_slot['teacher_id']:
-                    added.append({
-                        'teacher_id': current_slot['teacher_id'],
-                        'teacher_name': current_slot['teacher_name'],
-                        'teacher_wxid': current_slot['teacher_wxid'],
-                        'slot': current_slot
-                    })
-            elif previous_slot and current_slot:
-                prev_teacher = previous_slot.get('teacher_id')
-                curr_teacher = current_slot.get('teacher_id')
-
-                if prev_teacher != curr_teacher:
-                    if prev_teacher and curr_teacher:
-                        # 替换：拆成取消原教师 + 新增新教师
-                        removed.append({
-                            'teacher_id': prev_teacher,
-                            'teacher_name': previous_slot['teacher_name'],
-                            'teacher_wxid': previous_slot['teacher_wxid'],
-                            'slot': previous_slot,
-                            'reason': '教师替换'
-                        })
-                        added.append({
-                            'teacher_id': curr_teacher,
-                            'teacher_name': current_slot['teacher_name'],
-                            'teacher_wxid': current_slot['teacher_wxid'],
-                            'slot': current_slot
-                        })
-                        # 同时记录changed用于交换检测
-                        changed.append({
-                            'old_teacher_id': prev_teacher,
-                            'old_teacher_name': previous_slot['teacher_name'],
-                            'old_teacher_wxid': previous_slot['teacher_wxid'],
-                            'new_teacher_id': curr_teacher,
-                            'new_teacher_name': current_slot['teacher_name'],
-                            'new_teacher_wxid': current_slot['teacher_wxid'],
-                            'slot': current_slot,
-                            'old_slot': previous_slot
-                        })
-                    elif prev_teacher and not curr_teacher:
-                        removed.append({
-                            'teacher_id': prev_teacher,
-                            'teacher_name': previous_slot['teacher_name'],
-                            'teacher_wxid': previous_slot['teacher_wxid'],
-                            'slot': previous_slot,
-                            'reason': '教师取消'
-                        })
-                    elif not prev_teacher and curr_teacher:
-                        added.append({
-                            'teacher_id': curr_teacher,
-                            'teacher_name': current_slot['teacher_name'],
-                            'teacher_wxid': current_slot['teacher_wxid'],
-                            'slot': current_slot
-                        })
-                else:
-                    if current_slot['teacher_id']:
-                        unchanged.append({
-                            'teacher_id': current_slot['teacher_id'],
-                            'teacher_name': current_slot['teacher_name'],
-                            'teacher_wxid': current_slot['teacher_wxid'],
-                            'slot': current_slot
-                        })
-
-        # 检测交换
-        swaps = []
-
-        replace_map = {}
-        for ch in changed:
-            key_pair = (ch['old_teacher_id'], ch['new_teacher_id'])
-            replace_map[key_pair] = ch
-
-        # 检测交换并过滤
-        processed_keys = set()
-        swap_teacher_ids = set()
-        for (old_id, new_id), ch in replace_map.items():
-            if (new_id, old_id) in replace_map and (new_id, old_id) not in processed_keys:
-                ch2 = replace_map[(new_id, old_id)]
-                swaps.append({
-                    'teacher_a_id': old_id,
-                    'teacher_a_name': ch['old_teacher_name'],
-                    'teacher_a_wxid': ch['old_teacher_wxid'],
-                    'teacher_b_id': new_id,
-                    'teacher_b_name': ch['new_teacher_name'],
-                    'teacher_b_wxid': ch['new_teacher_wxid'],
-                    'slot_a': ch['slot'],
-                    'slot_b': ch2['slot']
-                })
-                swap_teacher_ids.add(old_id)
-                swap_teacher_ids.add(new_id)
-                processed_keys.add((old_id, new_id))
-                processed_keys.add((new_id, old_id))
-
-        # 从removed/added过滤掉交换教师
-        removed = [r for r in removed if r['teacher_id'] not in swap_teacher_ids]
-        added = [a for a in added if a['teacher_id'] not in swap_teacher_ids]
+        added, removed, swaps, unchanged = _compute_slot_changes(
+            current_slots, previous_slots, subject_filter
+        )
 
         # 发送通知
         success_count = 0
@@ -939,7 +938,7 @@ async def send_notifications(
 
         # 5. 发送提醒（无变化的教师）
         if request.notify_reminder:
-            # 按教师聚合unchanged
+            # 按教师聚合 unchanged；同一 slot 可能因主/副双份出现，需以 slot.id 去重
             teacher_unchanged = {}
             for item in unchanged:
                 tid = item['teacher_id']
@@ -947,9 +946,15 @@ async def send_notifications(
                     teacher_unchanged[tid] = {
                         'teacher_name': item['teacher_name'],
                         'teacher_wxid': item['teacher_wxid'],
-                        'slots': []
+                        'slots': [],
+                        '_slot_ids': set(),
                     }
-                teacher_unchanged[tid]['slots'].append(item['slot'])
+                slot = item['slot']
+                slot_uid = slot.get('id') or _slot_change_key(slot)
+                if slot_uid in teacher_unchanged[tid]['_slot_ids']:
+                    continue
+                teacher_unchanged[tid]['_slot_ids'].add(slot_uid)
+                teacher_unchanged[tid]['slots'].append(slot)
 
             for tid, data in teacher_unchanged.items():
                 slots_str = '\n'.join([f"{i+1}. {format_slot(s)}" for i, s in enumerate(data['slots'])])
@@ -1030,19 +1035,25 @@ async def get_notification_logs(
 
 @router.get("/template", summary="下载导入模板")
 async def download_template(user: User = Depends(require_invigilation_permission("/api/invigilation/template", "GET"))):
-    """下载监考安排导入模板（横向布局）"""
+    """
+    下载监考安排导入模板（横向布局）
+
+    每个考场拆成两列：`考场N主监` `考场N副监`。副监列允许留空。
+    """
     import pandas as pd
 
-    # 横向布局：同一学科不同考场横向排列，只有时间没有场次
     template_data = {
         '年级': ['高一', '高一', '高一', '高二', '高二', '高三'],
         '日期': ['2026-05-10', '2026-05-10', '2026-05-11', '2026-05-10', '2026-05-10', '2026-05-11'],
         '开始时间': ['08:00', '10:20', '14:00', '08:00', '10:20', '08:00'],
         '结束时间': ['10:00', '12:00', '16:00', '10:00', '12:00', '10:00'],
         '学科': ['语文', '数学', '英语', '语文', '数学', '物理'],
-        '考场1': ['任庆叶', '侯莹', '刘亚利', '刘斌', '张炜', '戴建海'],
-        '考场2': ['任秀辉', '冯秀珍', '单俊杰', '刘晓玲', '张鹏飞', '宋文燕'],
-        '考场3': ['', '', '', '', '', '']  # 空示例，可选
+        '考场1主监': ['任庆叶', '侯莹', '刘亚利', '刘斌', '张炜', '戴建海'],
+        '考场1副监': ['任秀辉', '冯秀珍', '', '刘晓玲', '张鹏飞', ''],
+        '考场2主监': ['宋文燕', '张鹏飞', '刘斌', '任秀辉', '侯莹', '任庆叶'],
+        '考场2副监': ['', '', '', '', '', ''],
+        '考场3主监': ['', '', '', '', '', ''],
+        '考场3副监': ['', '', '', '', '', ''],
     }
 
     df = pd.DataFrame(template_data)
@@ -1127,10 +1138,17 @@ async def import_invigilation(
             if missing_cols:
                 raise HTTPException(400, f"缺少必要列: {', '.join(missing_cols)}")
 
-            room_cols = [col for col in df.columns if re.match(r'(?:考场\d+|第?\d+考场)', col)]
+            # 列名两类：
+            #   1) `考场N主监` / `考场N副监`（新格式，主副拆列）
+            #   2) `考场N` / `第N考场监考`（旧格式，只有主监）
+            # 用统一正则同时提取 room_order 与 role（默认 primary）
+            room_col_pattern = re.compile(r'(?:考场(\d+)|(?:第)?(\d+)考场)(主监|副监)?')
+            room_cols = [col for col in df.columns if room_col_pattern.search(col)]
 
-            # 检查是否有独立的时间列
             has_time_cols = '开始时间' in df.columns and '结束时间' in df.columns
+
+            # 用 (grade_id, date, start, end, subject, room_order) 汇聚主/副
+            slot_bag: Dict[tuple, dict] = {}
 
             for idx, row in df.iterrows():
                 try:
@@ -1147,7 +1165,6 @@ async def import_invigilation(
                     exam_date = str(row['日期'])
                     subject = str(row['学科'])
 
-                    # 获取时间：优先使用独立列，否则从场次解析
                     if has_time_cols:
                         start_time = str(row['开始时间'])
                         end_time = str(row['结束时间'])
@@ -1158,29 +1175,27 @@ async def import_invigilation(
                         errors.append(f"第{idx+2}行: 缺少时间信息")
                         continue
 
-                    # 展开横向考场列
                     for room_col in room_cols:
-                        # 解析考场名称：支持 "考场1" 或 "第1考场监考" 格式
-                        room_match = re.search(r'(?:考场(\d+)|(?:第)?(\d+)考场)', room_col)
-                        if room_match:
-                            # 取第一个匹配的数字组
-                            room_order = int(room_match.group(1) or room_match.group(2))
-                            room_name = f"考场{room_order}"
-                        else:
-                            room_order = 0
-                            room_name = room_col
+                        m = room_col_pattern.search(room_col)
+                        if not m:
+                            continue
+                        room_order = int(m.group(1) or m.group(2))
+                        role_label = m.group(3) or '主监'  # 未标注的当主监
+                        role = 'assistant' if role_label == '副监' else 'primary'
+                        room_name = f"考场{room_order}"
 
                         teacher_name = row.get(room_col)
-                        if pd.isna(teacher_name) or not teacher_name:
-                            continue  # 空单元格跳过
+                        if pd.isna(teacher_name) or not teacher_name or not str(teacher_name).strip():
+                            continue
 
-                        teacher_name = str(teacher_name)
+                        teacher_name = str(teacher_name).strip()
                         teacher_info = teachers.get(teacher_name)
                         if not teacher_info:
                             errors.append(f"第{idx+2}行 {room_col}: 教师 '{teacher_name}' 未找到")
                             continue
 
-                        imported.append({
+                        key = (grade_id, exam_date, start_time, end_time, subject, room_order)
+                        bucket = slot_bag.setdefault(key, {
                             'grade_id': grade_id,
                             'grade_name': grade_name,
                             'exam_date': exam_date,
@@ -1189,20 +1204,53 @@ async def import_invigilation(
                             'subject': subject,
                             'room_name': room_name,
                             'room_order': room_order,
-                            'teacher_id': teacher_info['teacher_id'],
-                            'teacher_name': teacher_name,
-                            'teacher_wxid': teacher_info['wxid'],
-                            'source': 'import'
+                            'teacher_id': None,
+                            'teacher_name': None,
+                            'teacher_wxid': None,
+                            'assistant_teacher_id': None,
+                            'assistant_teacher_name': None,
+                            'assistant_teacher_wxid': None,
+                            'source': 'import',
                         })
+                        if role == 'primary':
+                            if bucket['teacher_id']:
+                                errors.append(
+                                    f"第{idx+2}行 {room_col}: 该考场已存在主监 "
+                                    f"{bucket['teacher_name']}，请合并同一场次的主监列"
+                                )
+                                continue
+                            bucket['teacher_id'] = teacher_info['teacher_id']
+                            bucket['teacher_name'] = teacher_name
+                            bucket['teacher_wxid'] = teacher_info['wxid']
+                        else:
+                            if bucket['assistant_teacher_id']:
+                                errors.append(
+                                    f"第{idx+2}行 {room_col}: 该考场已存在副监 "
+                                    f"{bucket['assistant_teacher_name']}，请合并同一场次的副监列"
+                                )
+                                continue
+                            bucket['assistant_teacher_id'] = teacher_info['teacher_id']
+                            bucket['assistant_teacher_name'] = teacher_name
+                            bucket['assistant_teacher_wxid'] = teacher_info['wxid']
 
                 except Exception as e:
                     errors.append(f"第{idx+2}行: 数据格式错误 - {str(e)}")
 
+            imported.extend(slot_bag.values())
+
         else:
             # 纵向布局（传统格式）
-            required_cols = ['年级', '日期', '开始时间', '结束时间', '学科', '考场', '监考老师']
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            if missing_cols:
+            #  - 旧模板必要列：年级 日期 开始时间 结束时间 学科 考场 监考老师
+            #  - 新模板必要列：年级 日期 开始时间 结束时间 学科 考场 主监老师（副监老师可空）
+            required_cols_new = ['年级', '日期', '开始时间', '结束时间', '学科', '考场', '主监老师']
+            required_cols_legacy = ['年级', '日期', '开始时间', '结束时间', '学科', '考场', '监考老师']
+
+            if all(c in df.columns for c in required_cols_new):
+                primary_col, assistant_col = '主监老师', '副监老师'
+            elif all(c in df.columns for c in required_cols_legacy):
+                primary_col, assistant_col = '监考老师', None  # 兼容旧格式
+            else:
+                missing_cols = [c for c in required_cols_new if c not in df.columns]
                 raise HTTPException(400, f"缺少必要列: {', '.join(missing_cols)}")
 
             for idx, row in df.iterrows():
@@ -1222,12 +1270,24 @@ async def import_invigilation(
                     end_time = str(row['结束时间'])
                     subject = str(row['学科'])
                     room_name = str(row['考场'])
-                    teacher_name = str(row['监考老师'])
                     room_order = int(row.get('考场序号', 0)) if '考场序号' in df.columns else 0
 
-                    teacher_info = teachers.get(teacher_name)
-                    if not teacher_info:
-                        errors.append(f"第{idx+2}行: 教师 '{teacher_name}' 未找到")
+                    def _resolve(col_name):
+                        raw = row.get(col_name)
+                        if pd.isna(raw) or not raw or not str(raw).strip():
+                            return None
+                        name = str(raw).strip()
+                        info = teachers.get(name)
+                        if not info:
+                            errors.append(f"第{idx+2}行 {col_name}: 教师 '{name}' 未找到")
+                            return None
+                        return {'name': name, **info}
+
+                    primary = _resolve(primary_col)
+                    assistant = _resolve(assistant_col) if assistant_col else None
+
+                    if not primary and not assistant:
+                        errors.append(f"第{idx+2}行: 主监/副监都为空")
                         continue
 
                     imported.append({
@@ -1239,10 +1299,13 @@ async def import_invigilation(
                         'subject': subject,
                         'room_name': room_name,
                         'room_order': room_order,
-                        'teacher_id': teacher_info['teacher_id'],
-                        'teacher_name': teacher_name,
-                        'teacher_wxid': teacher_info['wxid'],
-                        'source': 'import'
+                        'teacher_id': primary['teacher_id'] if primary else None,
+                        'teacher_name': primary['name'] if primary else None,
+                        'teacher_wxid': primary['wxid'] if primary else None,
+                        'assistant_teacher_id': assistant['teacher_id'] if assistant else None,
+                        'assistant_teacher_name': assistant['name'] if assistant else None,
+                        'assistant_teacher_wxid': assistant['wxid'] if assistant else None,
+                        'source': 'import',
                     })
 
                 except Exception as e:
@@ -1259,13 +1322,31 @@ async def import_invigilation(
                 }
             }
 
-        # 检查导入数据内部的冲突：同一教师同一时间多个考场
+        # 检查导入数据内部的冲突：
+        # 1) 同一教师同一时间被安排多个考场（主/副都算）
+        # 2) 同一场考试的主监与副监是同一人
         teacher_time_map = {}
         for slot in imported:
-            if slot['teacher_id']:
-                key = f"{slot['teacher_id']}|{slot['exam_date']}|{slot['start_time']}"
+            if slot.get('teacher_id') and slot.get('assistant_teacher_id') \
+                    and slot['teacher_id'] == slot['assistant_teacher_id']:
+                errors.append(
+                    f"冲突：{slot['exam_date']} {slot['start_time']} {slot['room_name']} "
+                    f"主监与副监相同（{slot['teacher_name']}）"
+                )
+                continue
+            for role_key, id_key, name_key in (
+                ('primary', 'teacher_id', 'teacher_name'),
+                ('assistant', 'assistant_teacher_id', 'assistant_teacher_name'),
+            ):
+                tid = slot.get(id_key)
+                if not tid:
+                    continue
+                key = f"{tid}|{slot['exam_date']}|{slot['start_time']}"
                 if key in teacher_time_map:
-                    errors.append(f"冲突：教师 {slot['teacher_name']} 在 {slot['exam_date']} {slot['start_time']} 安排了多个考场（{teacher_time_map[key]} 和 {slot['room_name']}）")
+                    errors.append(
+                        f"冲突：教师 {slot[name_key]} 在 {slot['exam_date']} {slot['start_time']} "
+                        f"安排了多个考场（{teacher_time_map[key]} 和 {slot['room_name']}）"
+                    )
                 else:
                     teacher_time_map[key] = slot['room_name']
 
@@ -1286,12 +1367,18 @@ async def import_invigilation(
         for slot in imported:
             cursor.execute("""
                 INSERT INTO invigilation_slot
-                (project_id, grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, room_order, teacher_id, teacher_name, teacher_wxid, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (project_id, grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, room_order,
+                 teacher_id, teacher_name, teacher_wxid,
+                 assistant_teacher_id, assistant_teacher_name, assistant_teacher_wxid,
+                 source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 project_id, slot['grade_id'], slot['grade_name'], slot['exam_date'],
                 slot['start_time'], slot['end_time'], slot['subject'], slot['room_name'],
-                slot['room_order'], slot['teacher_id'], slot['teacher_name'], slot['teacher_wxid'], slot['source']
+                slot['room_order'],
+                slot.get('teacher_id'), slot.get('teacher_name'), slot.get('teacher_wxid'),
+                slot.get('assistant_teacher_id'), slot.get('assistant_teacher_name'), slot.get('assistant_teacher_wxid'),
+                slot['source'],
             ))
 
         db.commit()
@@ -1322,7 +1409,8 @@ async def export_invigilation(
 
         # 获取所有安排
         cursor.execute("""
-            SELECT grade_id, grade_name, exam_date, start_time, end_time, subject, room_name, teacher_name, room_order
+            SELECT grade_id, grade_name, exam_date, start_time, end_time, subject, room_name,
+                   teacher_name, assistant_teacher_name, room_order
             FROM invigilation_slot
             WHERE project_id = ?
             ORDER BY grade_id, exam_date, start_time, room_order
@@ -1357,9 +1445,9 @@ async def export_invigilation(
                             '结束时间': slot['end_time'],
                             '学科': slot['subject']
                         }
-                    # 添加考场列
-                    room_col = f"考场{slot['room_order']}"
-                    grouped[key][room_col] = slot['teacher_name']
+                    # 主监 + 副监各占一列
+                    grouped[key][f"考场{slot['room_order']}主监"] = slot['teacher_name'] or ''
+                    grouped[key][f"考场{slot['room_order']}副监"] = slot['assistant_teacher_name'] or ''
 
                 # 获取最大考场数
                 max_room = max(
@@ -1370,26 +1458,26 @@ async def export_invigilation(
                 # 构建DataFrame
                 for key in sorted(grouped.keys()):
                     row_data = grouped[key]
-                    # 确保所有考场列都存在
                     for i in range(1, max_room + 1):
-                        if f"考场{i}" not in row_data:
-                            row_data[f"考场{i}"] = ''
+                        row_data.setdefault(f"考场{i}主监", '')
+                        row_data.setdefault(f"考场{i}副监", '')
                     horizontal_data.append(row_data)
 
+                room_cols = []
+                for i in range(1, max_room + 1):
+                    room_cols.extend([f"考场{i}主监", f"考场{i}副监"])
+
                 if horizontal_data:
-                    # 按列顺序排列
-                    columns = ['年级', '日期', '开始时间', '结束时间', '学科'] + [f"考场{i}" for i in range(1, max_room + 1)]
+                    columns = ['年级', '日期', '开始时间', '结束时间', '学科'] + room_cols
                     df = pd.DataFrame(horizontal_data)
                     df = df[columns]
                     df.to_excel(writer, index=False, sheet_name=grade_name)
                 else:
-                    # 空sheet
-                    df = pd.DataFrame(columns=['年级', '日期', '开始时间', '结束时间', '学科', '考场1'])
+                    df = pd.DataFrame(columns=['年级', '日期', '开始时间', '结束时间', '学科', '考场1主监', '考场1副监'])
                     df.to_excel(writer, index=False, sheet_name=grade_name)
 
-            # 如果没有任何数据
             if not grade_slots:
-                df = pd.DataFrame(columns=['年级', '日期', '开始时间', '结束时间', '学科', '考场1'])
+                df = pd.DataFrame(columns=['年级', '日期', '开始时间', '结束时间', '学科', '考场1主监', '考场1副监'])
                 df.to_excel(writer, index=False, sheet_name='监考安排')
 
         output.seek(0)
@@ -1427,18 +1515,26 @@ async def export_workload_report(
         if not project:
             raise HTTPException(404, "考试项目不存在")
 
-        # Sheet1: 教师工作量汇总
+        # Sheet1: 教师工作量汇总（主监、副监都算 1 场；同一教师若同时是主+副在不同场次，累加）
         cursor.execute("""
+            WITH slot_role AS (
+                SELECT teacher_id, teacher_name, grade_id, grade_name, start_time, end_time
+                FROM invigilation_slot
+                WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                UNION ALL
+                SELECT assistant_teacher_id AS teacher_id,
+                       assistant_teacher_name AS teacher_name,
+                       grade_id, grade_name, start_time, end_time
+                FROM invigilation_slot
+                WHERE project_id = ? AND assistant_teacher_name IS NOT NULL AND assistant_teacher_name != ''
+            )
             SELECT teacher_name,
-                   COUNT(*) as slot_count,
-                   SUM(
-                     (strftime('?', end_time) - strftime('?', start_time)) / 60
-                   ) as duration_minutes
-            FROM invigilation_slot
-            WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                   COUNT(*) AS slot_count,
+                   SUM((strftime('?', end_time) - strftime('?', start_time)) / 60) AS duration_minutes
+            FROM slot_role
             GROUP BY teacher_id, teacher_name
             ORDER BY slot_count DESC, duration_minutes DESC
-        """, (project_id,))
+        """, (project_id, project_id))
 
         summary_data = []
         for row in cursor.fetchall():
@@ -1448,18 +1544,26 @@ async def export_workload_report(
                 '监考时长(分钟)': int(row['duration_minutes'] or 0)
             })
 
-        # Sheet2: 按年级细化统计
+        # Sheet2: 按年级细化统计（同上，主副都算）
         cursor.execute("""
+            WITH slot_role AS (
+                SELECT teacher_id, teacher_name, grade_id, grade_name, start_time, end_time
+                FROM invigilation_slot
+                WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                UNION ALL
+                SELECT assistant_teacher_id AS teacher_id,
+                       assistant_teacher_name AS teacher_name,
+                       grade_id, grade_name, start_time, end_time
+                FROM invigilation_slot
+                WHERE project_id = ? AND assistant_teacher_name IS NOT NULL AND assistant_teacher_name != ''
+            )
             SELECT teacher_name, grade_name,
-                   COUNT(*) as slot_count,
-                   SUM(
-                     (strftime('?', end_time) - strftime('?', start_time)) / 60
-                   ) as duration_minutes
-            FROM invigilation_slot
-            WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
+                   COUNT(*) AS slot_count,
+                   SUM((strftime('?', end_time) - strftime('?', start_time)) / 60) AS duration_minutes
+            FROM slot_role
             GROUP BY teacher_id, teacher_name, grade_id, grade_name
             ORDER BY teacher_name, grade_id
-        """, (project_id,))
+        """, (project_id, project_id))
 
         grade_detail_data = []
         for row in cursor.fetchall():
