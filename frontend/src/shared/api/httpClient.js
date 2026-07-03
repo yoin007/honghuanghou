@@ -143,13 +143,22 @@ httpClient.interceptors.response.use(
   },
   error => {
     const status = error.response?.status
+    const cfg = error.config || {}
     const isTimeout = error.code === 'ECONNABORTED' || /timeout/i.test(error.message || '')
     const message = isTimeout
       ? '请求处理时间较长，请稍后查看结果或重试'
       : (error.response?.data?.detail || error.response?.data?.message || error.message)
 
+    // 允许调用方按状态码抑制全局错误弹窗：
+    //   httpClient.get(url, { silentStatuses: [404] })
+    //   httpClient.get(url, { silent: true })  // 全部状态码都不弹
+    const silentStatuses = Array.isArray(cfg.silentStatuses) ? cfg.silentStatuses : []
+    const shouldSilent = cfg.silent === true || (status && silentStatuses.includes(status))
+
     if (isTimeout) {
-      ElMessage.error(message)
+      if (!shouldSilent) ElMessage.error(message)
+    } else if (shouldSilent) {
+      // 业务层自行处理，不弹全局
     } else {
       switch (status) {
         case 401:

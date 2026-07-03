@@ -56,15 +56,27 @@ def one_day_English():
     return response
 
 
-def daily_news(max_retries=2, timeout=10):
+def daily_news(max_retries=2, timeout=10, force_refresh: bool = False):
     """
     每日早报，调用alapi获取每日新闻
+
+    改进：同一天的数据只请求一次接口，成功后落库；后续请求直接读缓存。
+    - force_refresh=True 时强制走远端并覆盖缓存（用于人工刷新场景）
     :param max_retries: 最大重试次数
     :param timeout: 请求超时时间（秒）
+    :param force_refresh: 是否忽略缓存强制刷新
     :return: 完整的早报数据字典，包含date、news、weiyu、image、audio、head_image等
     """
+    # 1) 优先读缓存
+    from models.daily_news_db import get_cached, save_cache
+    if not force_refresh:
+        cached = get_cached()
+        if cached:
+            return cached
+
+    # 2) 缓存未命中 → 调用远端
     url = "https://v3.alapi.cn/api/zaobao"
-    
+
     token = Config().get_config("alapi_zaobao_token", "token.yaml")
     if not token:
         logger.error("每日早报API token未配置")
@@ -95,7 +107,10 @@ def daily_news(max_retries=2, timeout=10):
                 return None
             
             if data.get("success"):
-                return data["data"]
+                payload = data["data"]
+                # 首次拿到当日数据 → 落库，供后续复用
+                save_cache(payload)
+                return payload
             else:
                 logger.warning(f"每日早报API调用失败(第{attempt+1}次): {data.get('message')}")
                 if attempt < max_retries:

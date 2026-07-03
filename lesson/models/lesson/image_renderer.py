@@ -6,6 +6,7 @@
 
 import os
 import time
+from typing import Optional
 
 import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -26,9 +27,15 @@ class ImageRenderer:
         png_name: str = "temp.png",
         title: str = "",
         index_name: str = "节次\\星期",
+        highlight_cells: Optional[list] = None,
     ) -> list:
         """
         将 DataFrame 转换为 PNG 图片。
+
+        Args:
+            highlight_cells: 需要高亮的单元格坐标列表，元素为 ``(行索引值, 列名)``。
+                行索引值按 DataFrame 原始 index（重置前）匹配，列名按原始列名匹配。
+                用于在课表调整通知中突出被调整的课。
 
         Returns:
             包含保存路径的列表，兼容旧的 Lesson.df_to_png 返回格式。
@@ -36,6 +43,10 @@ class ImageRenderer:
         os.makedirs(self.output_dir, exist_ok=True)
 
         df = df.copy().fillna("")
+        # 保留原始 index / columns，用于把 highlight_cells 的 (行值, 列名) 换算成表格坐标
+        row_key_to_index = {key: pos for pos, key in enumerate(df.index.tolist())}
+        col_key_to_index = {key: pos for pos, key in enumerate(df.columns.tolist())}
+
         df.index.name = index_name
         df.reset_index(inplace=True)
 
@@ -85,6 +96,28 @@ class ImageRenderer:
 
         for col_idx in range(len(df.columns)):
             table[(0, col_idx)].set_height(0.1)
+
+        # 高亮被调整的单元格：reset_index 后原 index 成为首列，所以表格坐标要 +1；表头占第 0 行，同样 +1
+        if highlight_cells:
+            # 同时按原值和字符串建立索引，兼容 Excel 加载后 int/str 混用的情况
+            row_lookup = {**{str(k): v for k, v in row_key_to_index.items()}, **row_key_to_index}
+            col_lookup = {**{str(k): v for k, v in col_key_to_index.items()}, **col_key_to_index}
+            for row_key, col_key in highlight_cells:
+                row_pos = row_lookup.get(row_key, row_lookup.get(str(row_key)))
+                col_pos = col_lookup.get(col_key, col_lookup.get(str(col_key)))
+                if row_pos is None or col_pos is None:
+                    continue
+                table_row = row_pos + 1
+                table_col = col_pos + 1
+                cell = table[(table_row, table_col)]
+                cell.set_facecolor("#FFCDD2")
+                cell.set_edgecolor("#C62828")
+                cell.set_linewidth(1.2)
+                cell.set_text_props(
+                    color="#B71C1C",
+                    fontweight="bold",
+                    fontfamily=get_cached_chinese_font(),
+                )
 
         fig.tight_layout()
         canvas.print_figure(

@@ -31,6 +31,7 @@ const STATIC_RESOURCE_CONFIG = {
       { key: 'schedules', label: '总课表', route: '/schedules', roles: ['all'], sort_order: 80 },
       { key: 'random-call', label: '随机点名', route: '/random-call', roles: ['all'], sort_order: 90 },
       { key: 'loud-pk', label: '大声PK', route: '/loud-pk', roles: ['all'], sort_order: 100 },
+      { key: 'daily-news', label: '每日早报', route: '/daily-news', roles: ['all'], sort_order: 110 },
     ],
 
     teacher: [
@@ -93,7 +94,7 @@ const STATIC_RESOURCE_CONFIG = {
   menuGroups: [
     { key: 'class', label: '班级', items: 'public', requiresAuth: false, itemFilter: ['homework', 'basic-info', 'class-students', 'announcement', 'delay-application', 'leave-record'] },
     { key: 'schedule', label: '课表', items: 'public', requiresAuth: false, itemFilter: ['schedule', 'schedules'] },
-    { key: 'fun', label: '趣味', items: 'public', requiresAuth: false, itemFilter: ['random-call', 'loud-pk'] },
+    { key: 'fun', label: '趣味', items: 'public', requiresAuth: false, itemFilter: ['random-call', 'loud-pk', 'daily-news'] },
     { key: 'teacher', label: '教师', items: 'teacher', requiresAuth: true },
     { key: 'jiaowu', label: '教务', items: 'jiaowu', requiresAuth: true, roles: ['jiaowu', 'admin'] },
     { key: 'moral', label: '德育评价', items: 'moral', requiresAuth: true, roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'] },

@@ -401,9 +401,9 @@ class Lesson:
         """获取教师课表"""
         return self.schedule_service.get_teacher_schedule(teacher_name, week_next)
 
-    def df_to_png(self, df: pd.DataFrame, png_name:str="temp.png", title:str="", index_name:str="节次\星期"):
+    def df_to_png(self, df: pd.DataFrame, png_name:str="temp.png", title:str="", index_name:str="节次\星期", highlight_cells=None):
         """兼容旧入口：将 DataFrame 转换为 PNG 图片。"""
-        return self.image_renderer.dataframe_to_png(df, png_name, title, index_name)
+        return self.image_renderer.dataframe_to_png(df, png_name, title, index_name, highlight_cells)
         
     
     def current_teaching(self) -> dict:
@@ -462,13 +462,13 @@ async def create_month_dir():
         l.notify_admins(f"上月份课表不存在", log_level="error")
         return False
 
-async def process_and_send_image(lesson: Lesson, df: pd.DataFrame, png_name: str, title: str, wxid: str, producer: str, tips=False):
+async def process_and_send_image(lesson: Lesson, df: pd.DataFrame, png_name: str, title: str, wxid: str, producer: str, tips=False, highlight_cells=None):
     """异步处理并发送图片"""
-    return await lesson.notifier.process_and_send_image(df, png_name, title, wxid, producer, tips)
+    return await lesson.notifier.process_and_send_image(df, png_name, title, wxid, producer, tips, highlight_cells)
 
-async def process_class_schedule(lesson: Lesson, df: pd.DataFrame, png_name: str, title: str, class_name: str, producer: str, tips=False):
+async def process_class_schedule(lesson: Lesson, df: pd.DataFrame, png_name: str, title: str, class_name: str, producer: str, tips=False, highlight_cells=None):
     """异步处理并发送班级课表图片"""
-    return await lesson.notifier.process_class_schedule(df, png_name, title, class_name, producer, tips)
+    return await lesson.notifier.process_class_schedule(df, png_name, title, class_name, producer, tips, highlight_cells)
 
 async def _update_schedule(l: Lesson, title: str, temp_file: str, new_name: str, content=''):
     # 读取课表文件, 检查课表是否符合要求
@@ -510,20 +510,21 @@ async def _update_schedule(l: Lesson, title: str, temp_file: str, new_name: str,
 
         # 比较旧课表副本和新课表
         diffs = l.schedule_diff(old_schedule_copy, new_schedule)
-        if diffs != ([], []):
+        class_diff, teachers_dff, highlights = diffs
+        if class_diff or teachers_dff:
             week_next = True if week[4] else False
             week_flag = "下周" if week_next else "本周"
             teachers = []
             errors = []
             task = []
-            class_diff = diffs[0]
-            teachers_dff = diffs[1]
+            class_highlights = highlights.get("class", {})
+            teacher_highlights = highlights.get("teacher", {})
             for k in class_diff:
                 class_df = l.get_class_schedule(k, week_next)
                 title = f"{k}{week_flag}的课表"
                 teachers.append(k)
                 if not class_df.empty:
-                    task.append(process_class_schedule(l, class_df, f"{k}.png", title, k, "lesson", True))
+                    task.append(process_class_schedule(l, class_df, f"{k}.png", title, k, "lesson", True, class_highlights.get(k)))
             for k in teachers_dff:
                 teacher_df = l.get_teacher_schedule(k, week_next)
                 title = f"{k}{week_flag}的课表"
@@ -533,7 +534,7 @@ async def _update_schedule(l: Lesson, title: str, temp_file: str, new_name: str,
                 else:
                     teachers.append(k)
                     for wxid in wxids:
-                        task.append(process_and_send_image(l, teacher_df, f"{wxid}.png", title, wxid, "lesson", True))
+                        task.append(process_and_send_image(l, teacher_df, f"{wxid}.png", title, wxid, "lesson", True, teacher_highlights.get(k)))
             if task:
                 await asyncio.gather(*task)
             teachers = set(teachers)

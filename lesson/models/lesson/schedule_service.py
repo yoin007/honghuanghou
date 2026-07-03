@@ -283,7 +283,22 @@ class ScheduleService:
                 diff_teachers.append(self.get_subject_teacher(old_category))
             if new_category not in diff_teachers:
                 diff_teachers.append(self.get_subject_teacher(new_category))
-        return class_changes, diff_teachers
+
+        # 记录每个班级/老师课表中被调整的单元格 (order, week)，供图片渲染高亮
+        class_highlights: dict = {}
+        teacher_highlights: dict = {}
+        for change in changes:
+            class_name = change[1]
+            order = change[3]
+            week = change[6]
+            class_highlights.setdefault(class_name, []).append((order, week))
+            for category in (change[4], change[5]):
+                teacher = self.get_subject_teacher(category)
+                cells = teacher_highlights.setdefault(teacher, [])
+                if (order, week) not in cells:
+                    cells.append((order, week))
+
+        return class_changes, diff_teachers, {"class": class_highlights, "teacher": teacher_highlights}
 
     def get_class_schedule(self, class_name: str, week_next: bool = False) -> pd.DataFrame:
         schedule_data = self.get_cache_data("next_schedule") if week_next else self.get_cache_data("current_schedule")

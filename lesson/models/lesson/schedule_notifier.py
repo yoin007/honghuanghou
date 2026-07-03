@@ -17,7 +17,7 @@ class ScheduleNotifier:
     def __init__(self, lesson):
         self.lesson = lesson
 
-    async def process_and_send_image(self, df, png_name: str, title: str, wxid: str, producer: str, tips=False):
+    async def process_and_send_image(self, df, png_name: str, title: str, wxid: str, producer: str, tips=False, highlight_cells=None):
         with ThreadPoolExecutor() as executor:
             df_png = await asyncio.get_event_loop().run_in_executor(
                 executor,
@@ -25,6 +25,8 @@ class ScheduleNotifier:
                 df,
                 png_name,
                 title,
+                "节次\\星期",
+                highlight_cells,
             )
             if df_png:
                 pic_path = df_png[0][len(self.lesson.lesson_dir):].replace("\\", "/")
@@ -36,7 +38,7 @@ class ScheduleNotifier:
             self.lesson.notify_admins(f"生成课表图片失败: {title}", log_level="error")
             return False
 
-    async def process_class_schedule(self, df, png_name: str, title: str, class_name: str, producer: str, tips=False):
+    async def process_class_schedule(self, df, png_name: str, title: str, class_name: str, producer: str, tips=False, highlight_cells=None):
         with ThreadPoolExecutor() as executor:
             class_pic = await asyncio.get_event_loop().run_in_executor(
                 executor,
@@ -44,6 +46,8 @@ class ScheduleNotifier:
                 df,
                 png_name,
                 title,
+                "节次\\星期",
+                highlight_cells,
             )
             if class_pic:
                 pic_path = class_pic[0][len(self.lesson.lesson_dir):].replace("\\", "/")

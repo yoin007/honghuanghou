@@ -25,6 +25,7 @@ from models.task import task_start
 from models.manage.manage import forward_msg
 from models import datas_api
 from models.lesson.lound import router as loud_router
+from models.lesson.daily_news_api import router as daily_news_router
 from websocket import websocket_endpoint, manager
 from utils.database import init_db_optimization
 from utils.monitor import init_monitor
@@ -185,6 +186,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 注册路由
 app.include_router(datas_api.router, prefix="/api")
 app.include_router(loud_router, prefix="/api")
+app.include_router(daily_news_router, prefix="/api")
 
 # WebSocket 端点
 @app.websocket("/ws")

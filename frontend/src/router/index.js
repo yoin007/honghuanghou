@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { canAccessDashboardRoute, getDefaultDashboardByRole } from './guards'
 
 // 公开页面，不需要登录
-const publicRoutes = ['/', '/zhf', '/homework', '/basic-info', '/class-students', '/announcement', '/delay-application', '/leave-record', '/schedule', '/schedules', '/random-call', '/loud-pk']
+const publicRoutes = ['/', '/zhf', '/homework', '/basic-info', '/class-students', '/announcement', '/delay-application', '/leave-record', '/schedule', '/schedules', '/random-call', '/loud-pk', '/daily-news']
 
 const routes = [
   {
@@ -151,6 +151,15 @@ const routes = [
       requiresAuth: false,
       title: '大声PK',
       protocol: 'https'
+    }
+  },
+  {
+    path: '/daily-news',
+    name: 'DailyNews',
+    component: () => import('../views/DailyNews.vue'),
+    meta: {
+      requiresAuth: false,
+      title: '每日早报'
     }
   },
   {
