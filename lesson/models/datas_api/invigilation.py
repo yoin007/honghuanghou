@@ -135,11 +135,106 @@ def get_invigilation_db():
 
 
 # ---------------------------------------------------------------------------
+# 导入用：日期/时间归一化
+# ---------------------------------------------------------------------------
+# Excel 单元格进来 pandas 时类型很杂：datetime.datetime、datetime.date、
+# pandas.Timestamp、datetime.time、"2026-07-07"、"2026-07-07 00:00:00"、
+# "2026/7/7"、"08:00"、"08:00:00"、"8:0" 等。若直接 str(...)，同一场次会因
+# 表面字符串不同而"绕过"冲突检测；库里也会同时存 '08:00' 与 '08:00:00' 两种。
+# 这里统一归一化：日期 -> 'YYYY-MM-DD'，时间 -> 'HH:MM:SS'。
+
+
+def _normalize_date_cell(value) -> Optional[str]:
+    """把日期单元格归一到 'YYYY-MM-DD'。识别不了返回 None。"""
+    if value is None:
+        return None
+    # pandas Timestamp / datetime / date
+    if hasattr(value, "date") and callable(value.date):
+        try:
+            return value.date().isoformat()
+        except Exception:
+            pass
+    if isinstance(value, date):
+        return value.isoformat()
+
+    s = str(value).strip()
+    if not s or s.lower() in ("nan", "nat", "none"):
+        return None
+    # 常见字符串格式挨个试：ISO、含时分秒、斜杠分隔、无零填充
+    for fmt in (
+        "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+        "%Y/%m/%d", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M",
+        "%Y.%m.%d",
+    ):
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _normalize_time_cell(value) -> Optional[str]:
+    """把时间单元格归一到 'HH:MM:SS'。识别不了返回 None。"""
+    if value is None:
+        return None
+    # datetime.time
+    if hasattr(value, "hour") and hasattr(value, "minute") and not hasattr(value, "year"):
+        return f"{value.hour:02d}:{value.minute:02d}:{getattr(value, 'second', 0):02d}"
+    # datetime.datetime / pandas.Timestamp -> 取时间部分
+    if hasattr(value, "time") and callable(value.time):
+        try:
+            t = value.time()
+            return f"{t.hour:02d}:{t.minute:02d}:{t.second:02d}"
+        except Exception:
+            pass
+
+    s = str(value).strip()
+    if not s or s.lower() in ("nan", "nat", "none"):
+        return None
+    # 兼容 '8:00'/'08:00'/'08:00:00'/'8:0:0'
+    m = re.match(r"^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$", s)
+    if m:
+        hh, mm, ss = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+        if 0 <= hh < 24 and 0 <= mm < 60 and 0 <= ss < 60:
+            return f"{hh:02d}:{mm:02d}:{ss:02d}"
+    # 兜底试 datetime 解析
+    for fmt in ("%H:%M:%S", "%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            t = datetime.strptime(s, fmt).time()
+            return f"{t.hour:02d}:{t.minute:02d}:{t.second:02d}"
+        except ValueError:
+            continue
+    return None
+
+
+# ---------------------------------------------------------------------------
 # 变更 diff 公共实现（changes preview 与 notify 共用）
 # ---------------------------------------------------------------------------
+def _norm_date_key(v) -> str:
+    """把日期字符串归一到 'YYYY-MM-DD'，供 diff key 使用。
+    容忍历史遗留的 '2026-07-07 00:00:00' 与新写入的 '2026-07-07' 混用，
+    避免同一场次因表面文本不同被判成'取消 + 新增'。"""
+    if not v:
+        return ''
+    return str(v).split(' ')[0]
+
+
+def _norm_time_key(v) -> str:
+    """把时间字符串归一到 'HH:MM:SS'，供 diff key 使用。"""
+    if not v:
+        return ''
+    s = str(v)
+    return s if len(s) == 8 else (s + ':00' if len(s) == 5 else s)
+
+
 def _slot_change_key(slot: dict) -> str:
-    """场次唯一键（不含角色）。"""
-    return f"{slot['grade_id']}|{slot['exam_date']}|{slot['start_time']}|{slot['room_name']}"
+    """场次唯一键（不含角色）。所有字段做归一化，防止历史遗留脏格式造成误判。"""
+    return (
+        f"{slot['grade_id']}|"
+        f"{_norm_date_key(slot.get('exam_date'))}|"
+        f"{_norm_time_key(slot.get('start_time'))}|"
+        f"{slot.get('room_name')}"
+    )
 
 
 def _compute_slot_changes(
@@ -1151,28 +1246,46 @@ async def import_invigilation(
             slot_bag: Dict[tuple, dict] = {}
 
             for idx, row in df.iterrows():
+                row_no = idx + 2  # Excel 1-based + 表头一行
                 try:
-                    grade_name = str(row['年级'])
+                    grade_name = str(row['年级']).strip()
                     grade_id = grade_map.get(grade_name)
                     if grade_id is None:
-                        errors.append(f"第{idx+2}行: 年级 '{grade_name}' 无法识别")
+                        errors.append(f"第{row_no}行 · 年级列：'{grade_name}' 无法识别（应为 高一/高二/高三）")
                         continue
 
                     if grade_id not in allowed_grades:
-                        errors.append(f"第{idx+2}行: 年级 '{grade_name}' 不属于该考试项目")
+                        errors.append(f"第{row_no}行 · 年级列：'{grade_name}' 不在本考试项目的年级范围内")
                         continue
 
-                    exam_date = str(row['日期'])
-                    subject = str(row['学科'])
+                    exam_date = _normalize_date_cell(row['日期'])
+                    if not exam_date:
+                        errors.append(f"第{row_no}行 · 日期列：'{row['日期']}' 无法解析（示例 2026-07-07 或 2026/7/7）")
+                        continue
+
+                    subject = str(row['学科']).strip()
 
                     if has_time_cols:
-                        start_time = str(row['开始时间'])
-                        end_time = str(row['结束时间'])
+                        start_time = _normalize_time_cell(row['开始时间'])
+                        end_time = _normalize_time_cell(row['结束时间'])
+                        if not start_time:
+                            errors.append(f"第{row_no}行 · 开始时间列：'{row['开始时间']}' 无法解析（示例 08:00）")
+                            continue
+                        if not end_time:
+                            errors.append(f"第{row_no}行 · 结束时间列：'{row['结束时间']}' 无法解析（示例 10:00）")
+                            continue
                     elif '场次' in df.columns:
-                        session = str(row['场次'])
-                        start_time, end_time = parse_session(session)
+                        start_time, end_time = parse_session(str(row['场次']))
+                        start_time = _normalize_time_cell(start_time)
+                        end_time = _normalize_time_cell(end_time)
                     else:
-                        errors.append(f"第{idx+2}行: 缺少时间信息")
+                        errors.append(f"第{row_no}行：缺少时间信息（需要 开始时间/结束时间 或 场次 列）")
+                        continue
+
+                    if start_time and end_time and start_time >= end_time:
+                        errors.append(
+                            f"第{row_no}行 · {subject}：开始时间 {start_time} 不早于结束时间 {end_time}"
+                        )
                         continue
 
                     for room_col in room_cols:
@@ -1191,7 +1304,9 @@ async def import_invigilation(
                         teacher_name = str(teacher_name).strip()
                         teacher_info = teachers.get(teacher_name)
                         if not teacher_info:
-                            errors.append(f"第{idx+2}行 {room_col}: 教师 '{teacher_name}' 未找到")
+                            errors.append(
+                                f"第{row_no}行 · {subject} · {room_col}：教师 '{teacher_name}' 不在教师库中"
+                            )
                             continue
 
                         key = (grade_id, exam_date, start_time, end_time, subject, room_order)
@@ -1211,30 +1326,36 @@ async def import_invigilation(
                             'assistant_teacher_name': None,
                             'assistant_teacher_wxid': None,
                             'source': 'import',
+                            '_row_primary': None,
+                            '_row_assistant': None,
                         })
                         if role == 'primary':
                             if bucket['teacher_id']:
                                 errors.append(
-                                    f"第{idx+2}行 {room_col}: 该考场已存在主监 "
-                                    f"{bucket['teacher_name']}，请合并同一场次的主监列"
+                                    f"第{row_no}行 · {subject} · {room_col}：{grade_name}{room_name} "
+                                    f"已由第{bucket['_row_primary']}行的 {bucket['teacher_name']} 担任主监，"
+                                    f"现在又要指派 {teacher_name}，请合并同一场次的主监列"
                                 )
                                 continue
                             bucket['teacher_id'] = teacher_info['teacher_id']
                             bucket['teacher_name'] = teacher_name
                             bucket['teacher_wxid'] = teacher_info['wxid']
+                            bucket['_row_primary'] = row_no
                         else:
                             if bucket['assistant_teacher_id']:
                                 errors.append(
-                                    f"第{idx+2}行 {room_col}: 该考场已存在副监 "
-                                    f"{bucket['assistant_teacher_name']}，请合并同一场次的副监列"
+                                    f"第{row_no}行 · {subject} · {room_col}：{grade_name}{room_name} "
+                                    f"已由第{bucket['_row_assistant']}行的 {bucket['assistant_teacher_name']} 担任副监，"
+                                    f"现在又要指派 {teacher_name}，请合并同一场次的副监列"
                                 )
                                 continue
                             bucket['assistant_teacher_id'] = teacher_info['teacher_id']
                             bucket['assistant_teacher_name'] = teacher_name
                             bucket['assistant_teacher_wxid'] = teacher_info['wxid']
+                            bucket['_row_assistant'] = row_no
 
                 except Exception as e:
-                    errors.append(f"第{idx+2}行: 数据格式错误 - {str(e)}")
+                    errors.append(f"第{row_no}行：数据格式错误 - {str(e)}")
 
             imported.extend(slot_bag.values())
 
@@ -1254,22 +1375,39 @@ async def import_invigilation(
                 raise HTTPException(400, f"缺少必要列: {', '.join(missing_cols)}")
 
             for idx, row in df.iterrows():
+                row_no = idx + 2
                 try:
-                    grade_name = str(row['年级'])
+                    grade_name = str(row['年级']).strip()
                     grade_id = grade_map.get(grade_name)
                     if grade_id is None:
-                        errors.append(f"第{idx+2}行: 年级 '{grade_name}' 无法识别")
+                        errors.append(f"第{row_no}行 · 年级列：'{grade_name}' 无法识别（应为 高一/高二/高三）")
                         continue
 
                     if grade_id not in allowed_grades:
-                        errors.append(f"第{idx+2}行: 年级 '{grade_name}' 不属于该考试项目")
+                        errors.append(f"第{row_no}行 · 年级列：'{grade_name}' 不在本考试项目的年级范围内")
                         continue
 
-                    exam_date = str(row['日期'])
-                    start_time = str(row['开始时间'])
-                    end_time = str(row['结束时间'])
-                    subject = str(row['学科'])
-                    room_name = str(row['考场'])
+                    exam_date = _normalize_date_cell(row['日期'])
+                    if not exam_date:
+                        errors.append(f"第{row_no}行 · 日期列：'{row['日期']}' 无法解析（示例 2026-07-07 或 2026/7/7）")
+                        continue
+
+                    start_time = _normalize_time_cell(row['开始时间'])
+                    end_time = _normalize_time_cell(row['结束时间'])
+                    if not start_time:
+                        errors.append(f"第{row_no}行 · 开始时间列：'{row['开始时间']}' 无法解析（示例 08:00）")
+                        continue
+                    if not end_time:
+                        errors.append(f"第{row_no}行 · 结束时间列：'{row['结束时间']}' 无法解析（示例 10:00）")
+                        continue
+                    if start_time >= end_time:
+                        errors.append(
+                            f"第{row_no}行：开始时间 {start_time} 不早于结束时间 {end_time}"
+                        )
+                        continue
+
+                    subject = str(row['学科']).strip()
+                    room_name = str(row['考场']).strip()
                     room_order = int(row.get('考场序号', 0)) if '考场序号' in df.columns else 0
 
                     def _resolve(col_name):
@@ -1279,7 +1417,9 @@ async def import_invigilation(
                         name = str(raw).strip()
                         info = teachers.get(name)
                         if not info:
-                            errors.append(f"第{idx+2}行 {col_name}: 教师 '{name}' 未找到")
+                            errors.append(
+                                f"第{row_no}行 · {subject} · {col_name}：教师 '{name}' 不在教师库中"
+                            )
                             return None
                         return {'name': name, **info}
 
@@ -1287,7 +1427,9 @@ async def import_invigilation(
                     assistant = _resolve(assistant_col) if assistant_col else None
 
                     if not primary and not assistant:
-                        errors.append(f"第{idx+2}行: 主监/副监都为空")
+                        errors.append(
+                            f"第{row_no}行 · {subject} · {room_name}：主监与副监均为空，至少填一位"
+                        )
                         continue
 
                     imported.append({
@@ -1306,10 +1448,12 @@ async def import_invigilation(
                         'assistant_teacher_name': assistant['name'] if assistant else None,
                         'assistant_teacher_wxid': assistant['wxid'] if assistant else None,
                         'source': 'import',
+                        '_row_primary': row_no if primary else None,
+                        '_row_assistant': row_no if assistant else None,
                     })
 
                 except Exception as e:
-                    errors.append(f"第{idx+2}行: 数据格式错误 - {str(e)}")
+                    errors.append(f"第{row_no}行：数据格式错误 - {str(e)}")
 
         if errors:
             return {
@@ -1323,32 +1467,98 @@ async def import_invigilation(
             }
 
         # 检查导入数据内部的冲突：
-        # 1) 同一教师同一时间被安排多个考场（主/副都算）
-        # 2) 同一场考试的主监与副监是同一人
-        teacher_time_map = {}
+        # 1) 同一场考试的主监与副监是同一人
+        # 2) 同一教师同一日期出现时段交叠（主/副都算，跨考场也算）
+        # 因为现在支持"分年级分批导入"，还要检查本次数据与库中【其他年级已有场次】的冲突，
+        #   避免高一 Excel 中的张三与库里已存在的高二安排重叠。
+        # 报错消息统一格式：
+        #   冲突：教师 X 在 2026-07-07 08:00:00-10:00:00 高一·数学·考场1（主监，第3行）
+        #         与 08:30:00-10:30:00 高一·语文·考场2（副监，第7行）时间重叠
+        def _slot_label(slot, role) -> str:
+            role_label = '主监' if role == 'primary' else '副监'
+            row_no = slot.get('_row_primary' if role == 'primary' else '_row_assistant')
+            # 库中已存在的场次没有 _row_* ，改成"已存在"提示
+            row_part = f"，第{row_no}行" if row_no else "，已存在"
+            return (
+                f"{slot['exam_date']} {slot['start_time']}-{slot['end_time']} "
+                f"{slot['grade_name']}·{slot['subject']}·{slot['room_name']}"
+                f"（{role_label}{row_part}）"
+            )
+
+        # 预加载：库里本项目【非本次导入年级】的场次，作为冲突检测的底盘
+        # （本次要导入的年级会被 DELETE 覆盖，不需要参与冲突判断）
+        imported_grade_ids_preview = sorted({slot['grade_id'] for slot in imported})
+        teacher_day_slots: Dict[tuple, list] = {}
+        if imported_grade_ids_preview:
+            placeholders = ",".join("?" * len(imported_grade_ids_preview))
+            cursor.execute(
+                f"""SELECT grade_id, grade_name, exam_date, start_time, end_time,
+                           subject, room_name,
+                           teacher_id, teacher_name,
+                           assistant_teacher_id, assistant_teacher_name
+                    FROM invigilation_slot
+                    WHERE project_id = ? AND grade_id NOT IN ({placeholders})""",
+                (project_id, *imported_grade_ids_preview),
+            )
+            for existing in cursor.fetchall():
+                base = dict(existing)  # sqlite3.Row -> dict
+                for role, id_key in (('primary', 'teacher_id'), ('assistant', 'assistant_teacher_id')):
+                    tid = base.get(id_key)
+                    if not tid:
+                        continue
+                    teacher_day_slots.setdefault((tid, base['exam_date']), []).append((base, role))
+
         for slot in imported:
             if slot.get('teacher_id') and slot.get('assistant_teacher_id') \
                     and slot['teacher_id'] == slot['assistant_teacher_id']:
+                row_hint = ''
+                if slot.get('_row_primary'):
+                    row_hint = f"（第{slot['_row_primary']}行）"
                 errors.append(
-                    f"冲突：{slot['exam_date']} {slot['start_time']} {slot['room_name']} "
-                    f"主监与副监相同（{slot['teacher_name']}）"
+                    f"冲突：{slot['exam_date']} {slot['start_time']}-{slot['end_time']} "
+                    f"{slot['grade_name']}·{slot['subject']}·{slot['room_name']}"
+                    f"{row_hint} 的主监与副监同为 {slot['teacher_name']}，请拆分为两位老师"
                 )
                 continue
-            for role_key, id_key, name_key in (
-                ('primary', 'teacher_id', 'teacher_name'),
-                ('assistant', 'assistant_teacher_id', 'assistant_teacher_name'),
-            ):
+            for role, id_key in (('primary', 'teacher_id'), ('assistant', 'assistant_teacher_id')):
                 tid = slot.get(id_key)
                 if not tid:
                     continue
-                key = f"{tid}|{slot['exam_date']}|{slot['start_time']}"
-                if key in teacher_time_map:
-                    errors.append(
-                        f"冲突：教师 {slot[name_key]} 在 {slot['exam_date']} {slot['start_time']} "
-                        f"安排了多个考场（{teacher_time_map[key]} 和 {slot['room_name']}）"
-                    )
-                else:
-                    teacher_time_map[key] = slot['room_name']
+                bucket = teacher_day_slots.setdefault((tid, slot['exam_date']), [])
+                # 与已登记的 slot 逐一比时段交叠（[s1,e1) 与 [s2,e2) 相交等价于 s1 < e2 and s2 < e1）
+                for other_slot, other_role in bucket:
+                    if slot['start_time'] < other_slot['end_time'] and other_slot['start_time'] < slot['end_time']:
+                        name_key = 'teacher_name' if role == 'primary' else 'assistant_teacher_name'
+                        errors.append(
+                            f"冲突：教师 {slot[name_key]} 在 {_slot_label(other_slot, other_role)} "
+                            f"与 {_slot_label(slot, role)} 时间重叠"
+                        )
+                bucket.append((slot, role))
+            if slot.get('teacher_id') and slot.get('assistant_teacher_id') \
+                    and slot['teacher_id'] == slot['assistant_teacher_id']:
+                row_hint = ''
+                if slot.get('_row_primary'):
+                    row_hint = f"（第{slot['_row_primary']}行）"
+                errors.append(
+                    f"冲突：{slot['exam_date']} {slot['start_time']}-{slot['end_time']} "
+                    f"{slot['grade_name']}·{slot['subject']}·{slot['room_name']}"
+                    f"{row_hint} 的主监与副监同为 {slot['teacher_name']}，请拆分为两位老师"
+                )
+                continue
+            for role, id_key in (('primary', 'teacher_id'), ('assistant', 'assistant_teacher_id')):
+                tid = slot.get(id_key)
+                if not tid:
+                    continue
+                bucket = teacher_day_slots.setdefault((tid, slot['exam_date']), [])
+                # 与已登记的 slot 逐一比时段交叠（[s1,e1) 与 [s2,e2) 相交等价于 s1 < e2 and s2 < e1）
+                for other_slot, other_role in bucket:
+                    if slot['start_time'] < other_slot['end_time'] and other_slot['start_time'] < slot['end_time']:
+                        name_key = 'teacher_name' if role == 'primary' else 'assistant_teacher_name'
+                        errors.append(
+                            f"冲突：教师 {slot[name_key]} 在 {_slot_label(other_slot, other_role)} "
+                            f"与 {_slot_label(slot, role)} 时间重叠"
+                        )
+                bucket.append((slot, role))
 
         if errors:
             return {
@@ -1361,8 +1571,15 @@ async def import_invigilation(
                 }
             }
 
-        # 清除旧数据并插入新数据
-        cursor.execute("DELETE FROM invigilation_slot WHERE project_id = ?", (project_id,))
+        # 只清理本次导入涉及的年级，避免"分年级分批导入"时互相覆盖。
+        # 例如：先导高二、后导高一，若按 project_id 全删，会把之前的高二清空。
+        imported_grade_ids = sorted({slot['grade_id'] for slot in imported})
+        if imported_grade_ids:
+            placeholders = ",".join("?" * len(imported_grade_ids))
+            cursor.execute(
+                f"DELETE FROM invigilation_slot WHERE project_id = ? AND grade_id IN ({placeholders})",
+                (project_id, *imported_grade_ids),
+            )
 
         for slot in imported:
             cursor.execute("""
@@ -1383,10 +1600,15 @@ async def import_invigilation(
 
         db.commit()
 
+        # 上报本次覆盖的年级，前端可给用户一个明确回执
+        grade_names = sorted({slot['grade_name'] for slot in imported})
         return {
             "success": True,
-            "message": "导入成功",
-            "data": {"count": len(imported)}
+            "message": f"导入成功，已更新 {'、'.join(grade_names)} 的监考安排",
+            "data": {
+                "count": len(imported),
+                "grades": grade_names,
+            }
         }
 
 

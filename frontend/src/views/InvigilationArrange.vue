@@ -844,9 +844,24 @@ async function importExcel() {
       importVisible.value = false
       await loadProjectSlots()
     } else {
-      ElMessage.error(`导入有错误: ${res.data.error_count}条`)
+      ElMessage.error(`导入有错误：${res.data.error_count} 条`)
       if (res.data.errors?.length > 0) {
-        ElMessageBox.alert(res.data.errors.join('\n'), '导入错误', { type: 'error' })
+        // 每条错误一行 + 编号 + 支持滚动，方便对照 Excel 逐条修改
+        const escape = (s) => String(s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const list = res.data.errors
+          .map((msg, i) => `<div style="padding:2px 0"><span style="color:#909399;margin-right:6px">${i + 1}.</span>${escape(msg)}</div>`)
+          .join('')
+        ElMessageBox.alert(
+          `<div style="max-height:60vh;overflow:auto;font-family:inherit;line-height:1.6;font-size:13px">${list}</div>`,
+          `导入失败（${res.data.error_count} 条错误）`,
+          {
+            type: 'error',
+            dangerouslyUseHTMLString: true,
+            customClass: 'invigilation-import-error',
+            confirmButtonText: '知道了',
+          }
+        )
       }
     }
   } catch (e) {
