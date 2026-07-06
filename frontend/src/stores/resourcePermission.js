@@ -111,6 +111,44 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
   const dynamicMenuConfig = ref(null)
   const configLoaded = ref(false)
 
+  // 公开路由（匿名可访问）——由后端 menu_permission_config 表 is_public=1 的记录决定。
+  // 这是"哪些路径不需要登录"的唯一权威 source。首屏加载时预拉一次，之后新增/修改
+  // 公开菜单只需管理员在后台勾选 is_public，无需改任何前端代码。
+  const publicRoutes = ref(new Set())
+  const publicRoutesLoaded = ref(false)
+  let publicRoutesPromise = null
+
+  const loadPublicRoutes = async () => {
+    // 幂等：并发调用共享同一次请求
+    if (publicRoutesPromise) return publicRoutesPromise
+    publicRoutesPromise = (async () => {
+      try {
+        const res = await httpClient.get('/api/moral/menu-permission/public-menus')
+        const list = Array.isArray(res?.data) ? res.data : []
+        const set = new Set()
+        list.forEach(item => {
+          if (item?.menu_route) set.add(item.menu_route)
+        })
+        publicRoutes.value = set
+        publicRoutesLoaded.value = true
+        return set
+      } catch (err) {
+        console.warn('[PublicRoutes] 加载失败，将回退到路由 meta 判定:', err?.message || err)
+        publicRoutesLoaded.value = false
+        return new Set()
+      } finally {
+        publicRoutesPromise = null
+      }
+    })()
+    return publicRoutesPromise
+  }
+
+  const isRoutePublic = (path) => {
+    if (!path) return false
+    // 优先读后端配置；未加载完成时返回 false，由调用方决定 fallback 策略
+    return publicRoutes.value.has(path)
+  }
+
   // 用户角色集合（从authStore提取）
   const userRoles = computed(() => {
     const roles = []
@@ -334,6 +372,10 @@ export const useResourcePermissionStore = defineStore('resourcePermission', () =
     buildMenuTree,
     getAccessibleRoutes,
     loadMenuConfigFromBackend,
+    loadPublicRoutes,
+    isRoutePublic,
+    publicRoutes,
+    publicRoutesLoaded,
     mergedConfig,
     configLoaded,
     // 保留静态配置供外部访问

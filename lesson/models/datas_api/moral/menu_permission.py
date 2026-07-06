@@ -25,6 +25,7 @@ router = APIRouter(prefix="/menu-permission", tags=["菜单权限配置"])
 
 API_MENU_LIST = "/api/moral/menu-permission/list"
 API_MENU_MY_MENU = "/api/moral/menu-permission/my-menu"
+API_MENU_PUBLIC = "/api/moral/menu-permission/public-menus"
 API_MENU_GROUPS = "/api/moral/menu-permission/groups"
 API_MENU_ROLES = "/api/moral/menu-permission/roles"
 API_MENU_CREATE = "/api/moral/menu-permission/create"
@@ -210,6 +211,35 @@ async def list_menu_config(
                 "updated_at": row["updated_at"]
             })
 
+        return {"success": True, "data": configs}
+
+
+@router.get("/public-menus", summary="获取所有公开菜单（匿名可访问）")
+async def get_public_menus():
+    """返回所有 is_public=1 且 is_active=1 的菜单配置。
+
+    匿名可访问：用于前端首屏识别"哪些路由无需登录"。
+    只返回渲染菜单所需的最小字段，不含 allowed_roles 等敏感元数据。
+    """
+    with get_moral_db() as db:
+        ensure_menu_table_exists(db)
+        rows = db.query_all(
+            """SELECT menu_key, menu_label, menu_route, menu_group, sort_order
+               FROM menu_permission_config
+               WHERE is_public = 1 AND is_active = 1
+               ORDER BY menu_group, sort_order, menu_key"""
+        )
+        configs = [
+            {
+                "menu_key": row["menu_key"],
+                "menu_label": row["menu_label"],
+                "menu_route": row["menu_route"],
+                "menu_group": row["menu_group"],
+                "sort_order": row["sort_order"],
+                "is_public": True,
+            }
+            for row in rows
+        ]
         return {"success": True, "data": configs}
 
 

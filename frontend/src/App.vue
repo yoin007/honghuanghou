@@ -39,6 +39,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { isPublicPath } from '@/router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useApiPermissionStore } from '@/stores/apiPermission'
@@ -84,15 +85,15 @@ const handleClassChange = (value) => {
 // 目标路由缓存（登录后跳转）
 const pendingRoute = ref(null)
 
-// 公开路由列表（无需登录）
-const publicRoutes = ['/', '/zhf', '/homework', '/basic-info', '/class-students', '/announcement', '/delay-application', '/leave-record', '/schedule', '/schedules', '/random-call', '/loud-pk']
+// 公开路由判定统一走 isPublicPath（内部读 store.publicRoutes，
+// 后端 menu_permission_config 表 is_public=1 决定；meta.requiresAuth 兜底）
 
 const handleSelect = (index) => {
   if (!index || typeof index !== 'string') return
   if (!index.startsWith('/')) return
 
   // 公开路由直接跳转，不需要登录
-  if (publicRoutes.includes(index)) {
+  if (isPublicPath(index)) {
     if (index === route.path) {
       const timestamp = Date.now().toString()
       router.push({ path: index, query: { t: timestamp } })

@@ -1516,21 +1516,30 @@ async def export_workload_report(
             raise HTTPException(404, "考试项目不存在")
 
         # Sheet1: 教师工作量汇总（主监、副监都算 1 场；同一教师若同时是主+副在不同场次，累加）
+        # 时长口径：以 exam_date + start_time/end_time 拼成完整时刻后取秒差 /60。
+        #   - exam_date 兼容 'YYYY-MM-DD' 与 'YYYY-MM-DD HH:MM:SS' 两种存法（date() 归一化）
+        #   - start_time/end_time 兼容 'HH:MM' 与 'HH:MM:SS' 两种存法（time() 归一化）
+        #   - 任一字段格式非法时 strftime 返回 NULL，该行不计入 SUM，避免脏数据污染统计
         cursor.execute("""
             WITH slot_role AS (
-                SELECT teacher_id, teacher_name, grade_id, grade_name, start_time, end_time
+                SELECT teacher_id, teacher_name, grade_id, grade_name,
+                       exam_date, start_time, end_time
                 FROM invigilation_slot
                 WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
                 UNION ALL
                 SELECT assistant_teacher_id AS teacher_id,
                        assistant_teacher_name AS teacher_name,
-                       grade_id, grade_name, start_time, end_time
+                       grade_id, grade_name,
+                       exam_date, start_time, end_time
                 FROM invigilation_slot
                 WHERE project_id = ? AND assistant_teacher_name IS NOT NULL AND assistant_teacher_name != ''
             )
             SELECT teacher_name,
                    COUNT(*) AS slot_count,
-                   SUM((strftime('?', end_time) - strftime('?', start_time)) / 60) AS duration_minutes
+                   SUM(
+                       ( strftime('%s', date(exam_date) || ' ' || time(end_time))
+                       - strftime('%s', date(exam_date) || ' ' || time(start_time)) ) / 60
+                   ) AS duration_minutes
             FROM slot_role
             GROUP BY teacher_id, teacher_name
             ORDER BY slot_count DESC, duration_minutes DESC
@@ -1544,22 +1553,27 @@ async def export_workload_report(
                 '监考时长(分钟)': int(row['duration_minutes'] or 0)
             })
 
-        # Sheet2: 按年级细化统计（同上，主副都算）
+        # Sheet2: 按年级细化统计（同上，主副都算；时长口径与 Sheet1 一致）
         cursor.execute("""
             WITH slot_role AS (
-                SELECT teacher_id, teacher_name, grade_id, grade_name, start_time, end_time
+                SELECT teacher_id, teacher_name, grade_id, grade_name,
+                       exam_date, start_time, end_time
                 FROM invigilation_slot
                 WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
                 UNION ALL
                 SELECT assistant_teacher_id AS teacher_id,
                        assistant_teacher_name AS teacher_name,
-                       grade_id, grade_name, start_time, end_time
+                       grade_id, grade_name,
+                       exam_date, start_time, end_time
                 FROM invigilation_slot
                 WHERE project_id = ? AND assistant_teacher_name IS NOT NULL AND assistant_teacher_name != ''
             )
             SELECT teacher_name, grade_name,
                    COUNT(*) AS slot_count,
-                   SUM((strftime('?', end_time) - strftime('?', start_time)) / 60) AS duration_minutes
+                   SUM(
+                       ( strftime('%s', date(exam_date) || ' ' || time(end_time))
+                       - strftime('%s', date(exam_date) || ' ' || time(start_time)) ) / 60
+                   ) AS duration_minutes
             FROM slot_role
             GROUP BY teacher_id, teacher_name, grade_id, grade_name
             ORDER BY teacher_name, grade_id

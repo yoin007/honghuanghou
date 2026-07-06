@@ -86,6 +86,10 @@
         </el-form-item>
         <el-form-item label="路由路径" required>
           <el-input v-model="editForm.menu_route" placeholder="如：/moral/daily-record" />
+          <div class="form-tip route-tip">
+            <el-icon><Warning /></el-icon>
+            <span>该路径必须已在前端 <code>frontend/src/router/index.js</code> 里注册对应组件，否则用户点击后会打开空白页。</span>
+          </div>
         </el-form-item>
         <el-form-item label="所属分组" required>
           <el-select v-model="editForm.menu_group" style="width: 100%">
@@ -134,7 +138,9 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Warning } from '@element-plus/icons-vue'
 import {
   getMenuConfigList,
   getMenuGroups,
@@ -146,6 +152,21 @@ import {
   initDefaultMenuConfig,
   resetToDefault
 } from '@/api/modules/menu'
+
+const router = useRouter()
+
+// 检查某个路径是否已在前端 router 中注册组件。
+// 用来在新增/修改菜单后，及时提醒管理员是否遗漏了路由注册。
+function isRouteRegistered(path) {
+  if (!path) return false
+  try {
+    const resolved = router.resolve(path)
+    // 未匹配到任何路由时，vue-router 会返回一个 matched 为空的空壳
+    return Array.isArray(resolved.matched) && resolved.matched.length > 0
+  } catch {
+    return false
+  }
+}
 
 // 数据
 const configs = ref([])
@@ -161,6 +182,8 @@ const selectedRows = ref([])
 // 编辑相关
 const editDialogVisible = ref(false)
 const editMode = ref('add')
+// 编辑模式下记住原始路由路径，用于判断路径是否被修改
+const editingOriginalRoute = ref('')
 const editForm = reactive({
   menu_key: '',
   menu_label: '',
@@ -271,6 +294,7 @@ const handleReset = async () => {
 
 const handleAdd = () => {
   editMode.value = 'add'
+  editingOriginalRoute.value = ''
   Object.assign(editForm, {
     menu_key: '',
     menu_label: '',
@@ -286,6 +310,7 @@ const handleAdd = () => {
 
 const handleEdit = (row) => {
   editMode.value = 'edit'
+  editingOriginalRoute.value = row.menu_route
   Object.assign(editForm, {
     menu_key: row.menu_key,
     menu_label: row.menu_label,
@@ -308,7 +333,8 @@ const handleSubmit = async () => {
   submitLoading.value = true
   try {
     let res
-    if (editMode.value === 'add') {
+    const isAdd = editMode.value === 'add'
+    if (isAdd) {
       res = await createMenuConfig(editForm)
     } else {
       res = await updateMenuConfig(editForm.menu_key, editForm)
@@ -317,6 +343,11 @@ const handleSubmit = async () => {
       ElMessage.success(res.message)
       editDialogVisible.value = false
       fetchConfig()
+      // 新增 或 修改了路由路径 → 检查前端是否已注册对应组件
+      const routeChanged = isAdd || (editingOriginalRoute.value && editingOriginalRoute.value !== editForm.menu_route)
+      if (routeChanged && !isRouteRegistered(editForm.menu_route)) {
+        warnRouteNotRegistered(editForm.menu_route, editForm.menu_label)
+      }
     }
   } catch (error) {
     ElMessage.error(editMode.value === 'add' ? '创建失败' : '更新失败')
@@ -324,6 +355,29 @@ const handleSubmit = async () => {
   } finally {
     submitLoading.value = false
   }
+}
+
+// 前端未注册对应路由时弹出的显眼警告
+function warnRouteNotRegistered(path, label) {
+  ElMessageBox.alert(
+    `路径 <code style="background:#fef3c7;padding:2px 6px;border-radius:3px;color:#92400e;">${path}</code> 在前端<b>尚未注册组件</b>，用户点击该菜单会打开空白页。<br/><br/>
+    请让开发者在 <code style="background:#f3f4f6;padding:2px 6px;border-radius:3px;">frontend/src/router/index.js</code> 中添加：
+    <pre style="background:#1f2937;color:#e5e7eb;padding:12px;border-radius:6px;margin-top:8px;font-size:12px;line-height:1.6;overflow-x:auto;">{
+  path: '${path}',
+  name: '${(label || 'NewPage').replace(/\\s+/g, '')}',
+  component: () => import('../views/YourPage.vue'),
+  meta: { title: '${label || ''}' }
+}</pre>
+    并创建对应的 <code style="background:#f3f4f6;padding:2px 6px;border-radius:3px;">.vue</code> 页面文件。<br/><br/>
+    <span style="color:#6b7280;font-size:13px;">SPA 架构下路由与组件的映射需要在代码中声明，无法仅通过数据库配置生成新页面。</span>`,
+    '⚠️ 需要开发者补全前端代码',
+    {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '知道了',
+      customClass: 'route-warning-dialog',
+      customStyle: { width: '560px' },
+    }
+  ).catch(() => {})
 }
 
 const handleDelete = async (row) => {
@@ -440,5 +494,34 @@ onMounted(() => {
   margin-left: 10px;
   color: #909399;
   font-size: 12px;
+}
+
+.route-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.route-tip .el-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #d97706;
+}
+
+.route-tip code {
+  background: rgba(255, 255, 255, 0.7);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 11px;
+  color: #7c2d12;
 }
 </style>

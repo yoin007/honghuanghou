@@ -1,8 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { canAccessDashboardRoute, getDefaultDashboardByRole } from './guards'
+import { useResourcePermissionStore } from '@/stores/resourcePermission'
 
-// 公开页面，不需要登录
-const publicRoutes = ['/', '/zhf', '/homework', '/basic-info', '/class-students', '/announcement', '/delay-application', '/leave-record', '/schedule', '/schedules', '/random-call', '/loud-pk', '/daily-news']
+// 公开路由的权威来源：resourcePermission store 的 publicRoutes（后端 menu_permission_config
+// 表 is_public=1 的记录）。首屏由 main.js 预拉，之后新增公开菜单只需在后台勾选 is_public。
+//
+// 路由 meta.requiresAuth 保留作 fallback：后端接口不可达时仍能兜住基础导航。
 
 const routes = [
   {
@@ -600,12 +603,38 @@ const ensureProtocol = (to) => {
   return url.toString()
 }
 
-// 检查是否需要登录
-const isPublicPath = (path) => {
-  return publicRoutes.includes(path)
+// 判断某个路径是否为公开路径（无需登录）。
+//
+// 权威来源：resourcePermission store 的 publicRoutes（后端 menu_permission_config 表
+// is_public=1 的记录）。新增/修改公开菜单只需管理员在后台勾选，无需改代码。
+//
+// Fallback：store 尚未加载（首屏 store 拉取失败）时，退回到路由表 meta.requiresAuth
+// —— 这样即便后端不可达，静态标记为公开的路由（首页 '/' 等）仍能正常访问。
+export const isPublicPath = (path) => {
+  if (!path) return false
+
+  // 1) 优先读 store。因为 pinia 需要 activePinia，这里做防御式获取。
+  try {
+    const store = useResourcePermissionStore()
+    if (store.publicRoutesLoaded && store.isRoutePublic(path)) return true
+  } catch {
+    // pinia 未就绪（极早期调用），走 fallback
+  }
+
+  // 2) Fallback：读路由 meta.requiresAuth。仅在 store 未标记为公开时才检查——
+  //    避免 store 已加载但未包含此路径的情况被 meta 意外覆盖。
+  try {
+    const resolved = router.resolve(path)
+    const matched = resolved.matched
+    if (!matched || matched.length === 0) return false
+    const meta = matched[matched.length - 1]?.meta || {}
+    return meta.requiresAuth === false
+  } catch {
+    return false
+  }
 }
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   // 协议检查
   const redirectUrl = ensureProtocol(to)
   if (redirectUrl) {
@@ -613,19 +642,26 @@ router.beforeEach((to) => {
     return false
   }
 
+  // 首次导航时确保公开路由已加载（幂等，后续走缓存）
+  try {
+    const store = useResourcePermissionStore()
+    if (!store.publicRoutesLoaded) {
+      await store.loadPublicRoutes()
+    }
+  } catch {
+    // pinia 未就绪或加载失败，isPublicPath 内部会 fallback 到 meta
+  }
+
   // 登录检查
   const token = localStorage.getItem('token')
-  const requiresAuth = to.meta.requiresAuth !== false
+  // 是否需要登录：数据库（store）优先，路由 meta 兜底
+  const requiresAuth = !isPublicPath(to.path)
 
   // 需要登录但未登录
   if (requiresAuth && !token) {
     // 清除过期的 token
     localStorage.removeItem('token')
-    // 未登录停留在公开页面（App.vue会显示登录对话框），不重定向避免循环
-    if (isPublicPath(to.path)) {
-      return true
-    }
-    // 未登录直达受保护页面时回到公开入口
+    // 未登录直达受保护页面时回到公开入口，App.vue 会弹出登录框
     return { path: '/' }
   }
 
