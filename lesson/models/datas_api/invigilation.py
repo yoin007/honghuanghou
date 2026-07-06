@@ -702,8 +702,17 @@ async def save_invigilation_slots(
                     )
                 teacher_time_map[key] = slot.room_name
 
-        # 删除旧安排
-        cursor.execute("DELETE FROM invigilation_slot WHERE project_id = ?", (project_id,))
+        # 只删除本次 PUT 推送涉及的年级，避免"前端只加载了一个年级、保存时把其他年级洗掉"。
+        # 前端 convertToVertical() 会遍历 [1,2,3] 所有年级，但空年级不产生 slot，会漏在删除范围外。
+        # 这里以本次 batch 里出现的 grade_id 集合为准。
+        submitted_grade_ids = sorted({slot.grade_id for slot in batch.slots})
+        if submitted_grade_ids:
+            placeholders = ",".join("?" * len(submitted_grade_ids))
+            cursor.execute(
+                f"DELETE FROM invigilation_slot WHERE project_id = ? AND grade_id IN ({placeholders})",
+                (project_id, *submitted_grade_ids),
+            )
+        # 若 batch 为空（用户什么都没勾选），什么都不删——保护现有数据
 
         # 获取教师wxid映射（从moral.db）
         with SQLiteMoralDatabase() as moral_db:
@@ -1509,31 +1518,6 @@ async def import_invigilation(
                     teacher_day_slots.setdefault((tid, base['exam_date']), []).append((base, role))
 
         for slot in imported:
-            if slot.get('teacher_id') and slot.get('assistant_teacher_id') \
-                    and slot['teacher_id'] == slot['assistant_teacher_id']:
-                row_hint = ''
-                if slot.get('_row_primary'):
-                    row_hint = f"（第{slot['_row_primary']}行）"
-                errors.append(
-                    f"冲突：{slot['exam_date']} {slot['start_time']}-{slot['end_time']} "
-                    f"{slot['grade_name']}·{slot['subject']}·{slot['room_name']}"
-                    f"{row_hint} 的主监与副监同为 {slot['teacher_name']}，请拆分为两位老师"
-                )
-                continue
-            for role, id_key in (('primary', 'teacher_id'), ('assistant', 'assistant_teacher_id')):
-                tid = slot.get(id_key)
-                if not tid:
-                    continue
-                bucket = teacher_day_slots.setdefault((tid, slot['exam_date']), [])
-                # 与已登记的 slot 逐一比时段交叠（[s1,e1) 与 [s2,e2) 相交等价于 s1 < e2 and s2 < e1）
-                for other_slot, other_role in bucket:
-                    if slot['start_time'] < other_slot['end_time'] and other_slot['start_time'] < slot['end_time']:
-                        name_key = 'teacher_name' if role == 'primary' else 'assistant_teacher_name'
-                        errors.append(
-                            f"冲突：教师 {slot[name_key]} 在 {_slot_label(other_slot, other_role)} "
-                            f"与 {_slot_label(slot, role)} 时间重叠"
-                        )
-                bucket.append((slot, role))
             if slot.get('teacher_id') and slot.get('assistant_teacher_id') \
                     and slot['teacher_id'] == slot['assistant_teacher_id']:
                 row_hint = ''

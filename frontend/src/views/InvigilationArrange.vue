@@ -840,7 +840,10 @@ async function importExcel() {
     const res = await invigilationApi.importSlots(selectedProjectId.value, formData)
 
     if (res.success) {
-      ElMessage.success(`导入成功，共${res.data.count}条`)
+      const gradesTip = res.data.grades?.length
+        ? `（已更新 ${res.data.grades.join('、')}）`
+        : ''
+      ElMessage.success(`导入成功，共 ${res.data.count} 条${gradesTip}，数据已保存到服务器`)
       importVisible.value = false
       await loadProjectSlots()
     } else {
