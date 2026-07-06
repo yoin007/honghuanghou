@@ -326,9 +326,9 @@
       </div>
 
       <template #footer>
-        <el-button @click="notifyDialogVisible = false">取消</el-button>
+        <el-button @click="notifyDialogVisible = false" :disabled="notifySending">取消</el-button>
         <el-button type="primary" @click="sendNotificationsV2" :loading="notifySending" :disabled="!changesPreview">
-          确认发送
+          {{ notifySending ? '正在入队...' : '确认发送' }}
         </el-button>
       </template>
     </el-dialog>
@@ -337,7 +337,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { invigilationApi } from '@/api/modules/invigilation'
 
@@ -771,13 +771,33 @@ async function sendNotificationsV2() {
     const res = await invigilationApi.sendNotification(selectedProjectId.value, body)
     if (res.success) {
       const stats = res.data
-      ElMessage.success(`通知发送完成: 成功${stats.success}, 失败${stats.failed}, 跳过${stats.skipped}`)
+      // 后端只做「入队 + 落库」，真正的微信推送由消费者按随机间隔逐条发送，
+      // 通常需要数分钟。用 notify（可停留、可展开）代替瞬时 message，
+      // 并给用户明确的"下一步在哪看进度"入口，避免误以为已全部送达。
+      const total = (stats.success || 0) + (stats.failed || 0) + (stats.skipped || 0)
+      const queuedNote = stats.skipped > 0
+        ? `已入队 ${stats.success} 条，跳过 ${stats.skipped} 条（未配置 wxid）`
+        : `已入队 ${stats.success} 条通知`
+      ElNotification({
+        type: 'success',
+        title: '通知已入队',
+        message: `${queuedNote}${stats.failed ? `，入队失败 ${stats.failed} 条` : ''}。系统将按顺序推送，完整送达可能需要数分钟，可点击「通知日志」查看进度。`,
+        duration: 8000,
+        position: 'top-right',
+      })
       notifyDialogVisible.value = false
       await loadProjectSlots()
     }
   } catch (e) {
     console.error('通知发送失败:', e)
-    ElMessage.error('通知发送失败: ' + (e.response?.data?.detail || e.message))
+    // silent:true 后所有错误都要业务层自己处理
+    const isTimeout = e.code === 'ECONNABORTED' || /timeout/i.test(e.message || '')
+    if (isTimeout) {
+      // 入队实测 155 条约 14s，超过 5 分钟兜底基本意味着服务卡死
+      ElMessage.error('入队超时，请稍后打开「通知日志」确认是否已经入队；如未入队，请重试。')
+    } else {
+      ElMessage.error('通知入队失败: ' + (e.response?.data?.detail || e.message))
+    }
   } finally {
     notifySending.value = false
   }

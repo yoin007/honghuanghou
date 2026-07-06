@@ -74,7 +74,13 @@ export const invigilationApi = {
    * @returns {Promise}
    */
   sendNotification(projectId, body) {
-    return httpClient.post(`/api/invigilation/projects/${projectId}/notify`, body)
+    // 通知是批量入队 + 逐条落库，人数多时会明显超过全局 10s 超时。
+    // 每条估算 ~200ms（队列 INSERT + 日志 INSERT + commit），
+    // 按 1500 人的上限给 5 分钟兜底；同时 silent=true 让业务层自己处理超时提示。
+    return httpClient.post(`/api/invigilation/projects/${projectId}/notify`, body, {
+      timeout: 300000,
+      silent: true,
+    })
   },
 
   /**
