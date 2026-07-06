@@ -87,6 +87,7 @@ const STATIC_RESOURCE_CONFIG = {
       { key: 'moral-database', label: '数据库管理', route: '/moral/config/database', roles: ['admin'], sort_order: 70 },
       { key: 'moral-database-backup', label: '数据库备份', route: '/moral/config/database-backup', roles: ['admin'], sort_order: 75 },
       { key: 'moral-menu-permission', label: '菜单权限', route: '/moral/config/menu-permission', roles: ['admin'], sort_order: 80 },
+      { key: 'system-settings', label: '系统全局配置', route: '/system/settings', roles: ['admin'], sort_order: 100 },
     ],
   },
 

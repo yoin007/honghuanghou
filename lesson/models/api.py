@@ -276,18 +276,20 @@ def ju_pai(words):
 
 def bailian_req(question):
     try:
-        client = OpenAI(
-            api_key=Config().get_config("bailian_token", "token.yaml"),
-            base_url="https://coding.dashscope.aliyuncs.com/v1",
-        )
-        completion = client.chat.completions.create(
-            model=get_current_model('bailian_general'), 
+        client = OpenAI(api_key=Config().get_config("deepseek_key", "token.yaml"), base_url="https://api.deepseek.com")
+
+        response = client.chat.completions.create(
+            model=get_current_model('bailian_general'),
             messages=[
                 {"role": "system", "content": "你是一个有帮助的助手，需要提供精准、高效且富有洞察力的回应，随时准备协助用户处理各种任务与问题。"},
-                {'role': 'user', 'content': question}
+                {"role": "user", "content": question},
             ],
+            max_tokens=1024,
+            temperature=0.7,
+            stream=False,
         )
-        return completion.choices[0].message.content
+
+        return str(response.choices[0].message.content)
     except Exception as e:
         return f"请求出错: {e}"
 

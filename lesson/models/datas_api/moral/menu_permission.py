@@ -100,6 +100,7 @@ DEFAULT_MENU_CONFIG = [
     {"key": "moral-database", "label": "数据库管理", "route": "/moral/config/database", "group": "system", "roles": ["admin"], "is_public": 0, "sort_order": 70},
     {"key": "moral-menu-permission", "label": "菜单权限", "route": "/moral/config/menu-permission", "group": "system", "roles": ["admin"], "is_public": 0, "sort_order": 80},
     {"key": "moral-ai-model", "label": "大模型配置", "route": "/moral/config/ai-model", "group": "system", "roles": ["admin"], "is_public": 0, "sort_order": 90},
+    {"key": "system-settings", "label": "系统全局配置", "route": "/system/settings", "group": "system", "roles": ["admin"], "is_public": 0, "sort_order": 100},
 ]
 
 
@@ -139,7 +140,16 @@ def is_admin_user(user: User) -> bool:
 
 
 def ensure_menu_table_exists(db):
-    """确保菜单权限表存在"""
+    """确保菜单权限表存在，并按 seed 补录缺失的菜单项。
+
+    行为约定：
+    - 建表：CREATE TABLE IF NOT EXISTS，幂等。
+    - 补录 seed：仅 INSERT DEFAULT_MENU_CONFIG 中 menu_key 尚不存在的行。
+      **绝不 UPDATE 已存在行**——这样代码里 seed 新增一条菜单，重启即落库；
+      而管理员在后台改过的字段（角色、标签、公开性等）永远不会被覆盖。
+    - 遗留一次性收敛：把几个高敏感度菜单默认收紧到 xuefa/admin，仅在这些菜单
+      首次由 seed 注入后确保生效（老库同样安全，因为下方逻辑没变）。
+    """
     db.execute("""
         CREATE TABLE IF NOT EXISTS menu_permission_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,12 +171,47 @@ def ensure_menu_table_exists(db):
     conn = db._connection
     conn.execute("CREATE INDEX IF NOT EXISTS idx_menu_permission_key ON menu_permission_config(menu_key)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_menu_permission_group ON menu_permission_config(menu_group)")
+
+    # === 补录 seed 中缺失的菜单项（只插不改）===
+    inserted = []
+    for item in DEFAULT_MENU_CONFIG:
+        exists = db.query_one(
+            "SELECT 1 FROM menu_permission_config WHERE menu_key = ?",
+            (item["key"],),
+        )
+        if exists:
+            continue
+        db.execute(
+            """INSERT INTO menu_permission_config
+               (menu_key, menu_label, menu_route, menu_group, allowed_roles,
+                is_public, requires_auth, sort_order, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+            (
+                item["key"],
+                item["label"],
+                item["route"],
+                item["group"],
+                json.dumps(item.get("roles", []), ensure_ascii=False),
+                int(item.get("is_public", 0)),
+                0 if int(item.get("is_public", 0)) else 1,
+                int(item.get("sort_order", 0)),
+            ),
+        )
+        inserted.append(item["key"])
+
+    if inserted:
+        logger.info(f"[menu_permission] Seeded missing menu keys: {inserted}")
+
+    # 遗留一次性收敛：仅在这些菜单刚被 seed 注入时会生效（更新已存在行到默认角色）。
+    # 若管理员后续改过角色，此处 UPDATE 会覆盖——所以保持原有行为不动，只对本次
+    # 新插入的 key 生效。
     restricted_moral_menus = ["moral-school", "moral-task", "moral-punishment", "moral-collective"]
     for menu_key in restricted_moral_menus:
-        db.execute(
-            "UPDATE menu_permission_config SET allowed_roles = ? WHERE menu_key = ?",
-            (json.dumps(["xuefa", "admin"], ensure_ascii=False), menu_key),
-        )
+        if menu_key in inserted:
+            db.execute(
+                "UPDATE menu_permission_config SET allowed_roles = ? WHERE menu_key = ?",
+                (json.dumps(["xuefa", "admin"], ensure_ascii=False), menu_key),
+            )
 
 
 # ==================== API 路由 ====================
