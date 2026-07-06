@@ -116,9 +116,17 @@ httpClient.interceptors.response.use(
 
     const res = response.data
 
+    // 允许调用方拿业务失败 payload 自己处理（不弹全局 Toast、不 reject）
+    // 用法：httpClient.post(url, data, { returnBusinessError: true })
+    //   适用场景：导入接口要拿到 errors[] 明细，注册接口要看具体报错等。
+    const cfg = response.config || {}
+    const passBusinessError = cfg.returnBusinessError === true
+
     // FastAPI 格式: { success: true/false, data, message }
     if (res !== undefined && 'success' in res) {
       if (res.success) {
+        return res
+      } else if (passBusinessError) {
         return res
       } else {
         ElMessage.error(res.message || '操作失败')
@@ -132,6 +140,9 @@ httpClient.interceptors.response.use(
         return res
       }
       if (res.code >= 400) {
+        if (passBusinessError) {
+          return res
+        }
         ElMessage.error(res.message || '操作失败')
         return Promise.reject(new Error(res.message || '操作失败'))
       }

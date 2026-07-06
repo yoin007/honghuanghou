@@ -866,7 +866,12 @@ async function importExcel() {
     }
   } catch (e) {
     console.error('导入失败:', e)
-    ElMessage.error('导入失败')
+    // 显示更具体的原因：优先取后端 detail / message，其次网络错误信息
+    const detail = e.response?.data?.detail
+      || e.response?.data?.message
+      || e.message
+      || '未知错误'
+    ElMessage.error(`导入失败：${detail}`)
   } finally {
     importLoading.value = false
   }

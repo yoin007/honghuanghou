@@ -102,7 +102,10 @@ export const invigilationApi = {
    */
   importSlots(projectId, formData) {
     return httpClient.post(`/api/invigilation/projects/${projectId}/import`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      // 让业务失败（success:false + errors[]）返回到调用方自己处理，
+      // 不被拦截器吞成一句笼统的"操作失败"。
+      returnBusinessError: true,
     })
   },
 
