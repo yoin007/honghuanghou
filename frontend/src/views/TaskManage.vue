@@ -13,6 +13,8 @@
               @change="handleStatusChange"
             >
               <el-option label="全部" value="" />
+              <el-option label="运行中" value="active" />
+              <el-option label="已停用" value="inactive" />
               <el-option label="待执行" value="pending" />
               <el-option label="已执行" value="done" />
             </el-select>
@@ -52,17 +54,28 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="consumed" label="状态" width="70" align="center">
+        <el-table-column prop="consumed" label="状态" width="90" align="center">
           <template #default="scope">
-            <el-tag :type="scope.row.consumed ? 'danger' : 'success'" size="small">
+            <el-tag v-if="scope.row.one_off" :type="scope.row.consumed ? 'danger' : 'success'" size="small">
               {{ scope.row.consumed ? '已执行' : '待执行' }}
+            </el-tag>
+            <el-tag v-else :type="scope.row.is_active ? 'success' : 'info'" size="small">
+              {{ scope.row.is_active ? '运行中' : '已停用' }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
-        <el-table-column label="操作" width="200" fixed="right" align="center">
+        <el-table-column label="操作" width="260" fixed="right" align="center">
           <template #default="scope">
             <el-button size="small" @click="handleEdit(scope.row)">编辑</el-button>
+            <el-button 
+              v-if="!scope.row.one_off" 
+              size="small" 
+              :type="scope.row.is_active ? 'warning' : 'success'"
+              @click="handleToggleActive(scope.row)"
+            >
+              {{ scope.row.is_active ? '停用' : '启用' }}
+            </el-button>
             <el-button size="small" type="danger" @click="handleDelete(scope.row)">删除</el-button>
           </template>
         </el-table-column>
@@ -128,12 +141,15 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="一次性任务">
-              <el-switch v-model="form.one_off" :active-value="true" :inactive-value="false" />
+              <el-switch v-model="form.one_off" :active-value="true" :inactive-value="false" :disabled="dialogType === 'edit'" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="已执行">
+            <el-form-item v-if="form.one_off" label="已执行">
               <el-switch v-model="form.consumed" :active-value="true" :inactive-value="false" :disabled="dialogType === 'add'" />
+            </el-form-item>
+            <el-form-item v-else label="启用状态">
+              <el-switch v-model="form.is_active" :active-value="true" :inactive-value="false" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -189,7 +205,8 @@ const form = reactive({
   kwargs: '',
   one_off: true,
   description: '',
-  consumed: false
+  consumed: false,
+  is_active: true
 })
 
 const rules = {
@@ -267,7 +284,8 @@ const handleAdd = () => {
     kwargs: '',
     one_off: true,
     description: '',
-    consumed: false
+    consumed: false,
+    is_active: true
   })
   dialogVisible.value = true
 }
@@ -284,9 +302,35 @@ const handleEdit = (row) => {
     kwargs: row.kwargs || '',
     one_off: Boolean(row.one_off),
     description: row.description || '',
-    consumed: Boolean(row.consumed)
+    consumed: Boolean(row.consumed),
+    is_active: row.is_active !== undefined ? Boolean(row.is_active) : true
   })
   dialogVisible.value = true
+}
+
+const handleToggleActive = (row) => {
+  const newStatus = !row.is_active
+  const actionText = newStatus ? '启用' : '停用'
+  ElMessageBox.confirm(
+    `确定要${actionText}任务 ${row.description || row.func} (ID: ${row.id}) 吗？`,
+    `${actionText}确认`,
+    {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning',
+    }
+  )
+    .then(async () => {
+      try {
+        await updateTask(row.id, { is_active: newStatus })
+        ElMessage.success(`${actionText}成功`)
+        fetchData()
+      } catch (error) {
+        console.error(`${actionText}失败:`, error)
+        ElMessage.error(error.response?.data?.detail || `${actionText}失败`)
+      }
+    })
+    .catch(() => {})
 }
 
 const handleDelete = (row) => {
@@ -333,7 +377,11 @@ const handleSubmit = async () => {
           await createTask(taskData)
           ElMessage.success('创建成功')
         } else {
-          taskData.consumed = form.consumed
+          if (form.one_off) {
+            taskData.consumed = form.consumed
+          } else {
+            taskData.is_active = form.is_active
+          }
           await updateTask(form.id, taskData)
           ElMessage.success('更新成功')
         }

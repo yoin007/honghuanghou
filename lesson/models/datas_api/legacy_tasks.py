@@ -30,6 +30,7 @@ class TaskCreate(BaseModel):
     kwargs: str = None
     one_off: bool = True
     description: str = None
+    is_active: bool = True
 
 
 class TaskUpdate(BaseModel):
@@ -42,6 +43,7 @@ class TaskUpdate(BaseModel):
     one_off: Optional[bool] = None
     description: Optional[str] = None
     consumed: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 
 def get_tasks_connection():
@@ -65,7 +67,7 @@ async def get_tasks(
     page: int = 1,
     page_size: int = 10,
     search: str = None,
-    consumed: str = None,  # 状态筛选: "all" 或 None=全部, "pending"=待执行, "done"=已执行
+    consumed: str = None,  # 状态筛选: None=全部, "pending"=待执行(一次性), "done"=已执行(一次性), "active"=运行中(循环), "inactive"=已停用(循环)
     current_user: User = Depends(require_configured_api_permission("/api/tasks", "GET", allow_missing=False))
 ):
     """获取任务列表"""
@@ -84,9 +86,13 @@ async def get_tasks(
 
             # 状态筛选
             if consumed == "pending":
-                where_conditions.append("consumed = 0")
+                where_conditions.append("one_off = 1 AND consumed = 0")
             elif consumed == "done":
-                where_conditions.append("consumed = 1")
+                where_conditions.append("one_off = 1 AND consumed = 1")
+            elif consumed == "active":
+                where_conditions.append("one_off = 0 AND is_active = 1")
+            elif consumed == "inactive":
+                where_conditions.append("one_off = 0 AND is_active = 0")
 
             # 构建 WHERE 子句
             where_clause = ""
@@ -144,8 +150,8 @@ async def create_task(task: TaskCreate, current_user: User = Depends(require_con
             cursor = conn.cursor()
 
             cursor.execute(
-                """INSERT INTO tasks (func, type, trigger_type, trigger_args, args, kwargs, one_off, description, consumed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO tasks (func, type, trigger_type, trigger_args, args, kwargs, one_off, description, consumed, is_active)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task.func,
                     task.type,
@@ -155,7 +161,8 @@ async def create_task(task: TaskCreate, current_user: User = Depends(require_con
                     task.kwargs,
                     task.one_off,
                     task.description,
-                    False
+                    False,
+                    task.is_active
                 )
             )
             task_id = cursor.lastrowid
@@ -206,6 +213,9 @@ async def update_task(task_id: int, task: TaskUpdate, current_user: User = Depen
             if task.consumed is not None:
                 update_fields.append("consumed = ?")
                 update_values.append(task.consumed)
+            if task.is_active is not None:
+                update_fields.append("is_active = ?")
+                update_values.append(task.is_active)
 
             if not update_fields:
                 raise HTTPException(status_code=400, detail="没有提供更新数据")
@@ -213,6 +223,15 @@ async def update_task(task_id: int, task: TaskUpdate, current_user: User = Depen
             update_values.append(task_id)
             sql = f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = ?"
             cursor.execute(sql, tuple(update_values))
+
+            # 如果修改了 is_active，同步更新调度器
+            if task.is_active is not None:
+                try:
+                    from models.task import task_scheduler
+                    task_scheduler.update_task_active(task_id, task.is_active)
+                except Exception as e:
+                    logger = __import__('logging').getLogger(__name__)
+                    logger.warning(f"同步调度器任务状态失败: {e}")
 
         return {"status": "success", "message": "任务更新成功"}
     except HTTPException:

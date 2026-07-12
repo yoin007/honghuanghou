@@ -117,6 +117,7 @@ class Task:
         self.scheduler.configure(timezone="Asia/Shanghai")
         self.log = LogConfig().get_logger()
         self.job_args = {}
+        self.task_id_to_job_id = {}
         self.__enter__()
 
     def __enter__(self, db=TASK_DB):
@@ -142,7 +143,8 @@ class Task:
                     kwargs TEXT,
                     one_off BOOLEAN DEFAULT 1,
                     description TEXT,
-                    consumed BOOLEAN DEFAULT 0
+                    consumed BOOLEAN DEFAULT 0,
+                    is_active BOOLEAN DEFAULT 1
                 )
                 """
             )
@@ -247,6 +249,11 @@ class Task:
             del self.job_args[job_id]
         except:
             pass
+        # 清理 task_id_to_job_id 映射
+        for task_id, jid in list(self.task_id_to_job_id.items()):
+            if jid == job_id:
+                del self.task_id_to_job_id[task_id]
+                break
         return True
 
     async def start(self):
@@ -270,6 +277,7 @@ class Task:
         description=None,
         one_off=True,
         consumed=False,
+        is_active=True,
     ):
         """
         将任务添加到数据库
@@ -279,6 +287,9 @@ class Task:
         :param args: 函数参数
         :param kwargs: 函数关键字参数
         :param description: 任务描述
+        :param one_off: 是否一次性任务
+        :param consumed: 是否已消费（仅一次性任务）
+        :param is_active: 是否启用
         :return: 任务ID
         """
         try:
@@ -286,7 +297,7 @@ class Task:
             kwargs_json = json.dumps(kwargs) if kwargs else None
 
             self.__cursor__.execute(
-                "INSERT INTO tasks (func, type, trigger_type, trigger_args, args, kwargs, description, one_off, consumed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO tasks (func, type, trigger_type, trigger_args, args, kwargs, description, one_off, consumed, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     func_name,
                     "function",
@@ -297,6 +308,7 @@ class Task:
                     description,
                     one_off,
                     consumed,
+                    is_active,
                 ),
             )
             self.__conn__.commit()
@@ -311,8 +323,9 @@ class Task:
         :return: 任务列表
         """
         try:
-            self.__cursor__.execute("SELECT * FROM tasks WHERE consumed = 0")
-            # self.__cursor__.execute("SELECT * FROM tasks")
+            self.__cursor__.execute(
+                "SELECT * FROM tasks WHERE is_active = 1 AND (one_off = 0 OR consumed = 0)"
+            )
             return self.__cursor__.fetchall()
         except Exception as e:
             print(f"从数据库获取任务失败: {e}")
@@ -350,6 +363,124 @@ class Task:
         finally:
             if conn is not None:
                 conn.close()
+
+    def update_task_active(self, task_id, is_active=True):
+        """
+        更新任务的启用状态，并同步到调度器
+        :param task_id: 任务ID
+        :param is_active: 是否启用
+        :return: 是否更新成功
+        """
+        conn = None
+        try:
+            conn = _get_sqlite_connection()(TASK_DB)
+            cursor = conn.cursor()
+
+            # 更新数据库
+            cursor.execute(
+                "UPDATE tasks SET is_active = ? WHERE id = ?",
+                (is_active, task_id),
+            )
+            conn.commit()
+
+            # 同步调度器：根据任务ID查找对应的 job 并移除/重新加载
+            if not is_active:
+                # 停用：从调度器中移除对应的 job
+                job_id = self.task_id_to_job_id.get(task_id)
+                if job_id:
+                    self.scheduler.remove_job(job_id)
+                    try:
+                        del self.job_args[job_id]
+                    except:
+                        pass
+                    del self.task_id_to_job_id[task_id]
+            else:
+                # 启用：重新从数据库加载该任务
+                cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+                task = cursor.fetchone()
+                if task:
+                    self._load_single_task(task)
+
+            return True
+        except Exception as e:
+            print(f"更新任务启用状态失败: {e}")
+            return False
+        finally:
+            if conn is not None:
+                conn.close()
+
+    def _load_single_task(self, task):
+        """
+        从任务记录加载单个任务到调度器
+        :param task: 任务记录（元组/行对象）
+        """
+        function_map = {k: v["func"] for k, v in TASK_REGISTRY.items()}
+
+        task_id = task[0]
+        func_name = task[1]
+        trigger_type = task[3]
+        trigger_args = task[4]
+        args_json = task[5]
+        kwargs_json = task[6]
+        one_off = task[7]
+
+        # 解析参数
+        args = json.loads(args_json) if args_json else []
+        if isinstance(kwargs_json, str):
+            try:
+                parsed_kwargs = json.loads(kwargs_json) if kwargs_json else {}
+                if isinstance(parsed_kwargs, str):
+                    try:
+                        kwargs = json.loads(parsed_kwargs)
+                    except json.JSONDecodeError:
+                        kwargs = {}
+                else:
+                    kwargs = parsed_kwargs
+            except json.JSONDecodeError:
+                kwargs = {}
+        else:
+            kwargs = kwargs_json if kwargs_json else {}
+        trigger_args = json.loads(trigger_args)
+
+        # 获取函数对象
+        if func_name not in function_map:
+            print(f"未知函数: {func_name}，跳过该任务")
+            return
+        func = function_map[func_name]
+
+        # 创建触发器
+        if trigger_type == "cron":
+            trigger = CronTrigger(**trigger_args)
+        elif trigger_type == "interval":
+            trigger = IntervalTrigger(**trigger_args)
+        else:
+            print(f"未知触发器类型: {trigger_type}，跳过该任务")
+            return
+
+        # 特殊处理 random_daily_task
+        if func_name == "random_daily_task" and "func" in kwargs.keys():
+            func_key = kwargs["func"]
+            if isinstance(func_key, str) and func_key in function_map:
+                kwargs["func"] = function_map[func_key]
+            else:
+                print(f"未知函数: {func_key}，跳过该任务")
+                return
+
+        # 如果是一次性任务，使用包装器包装函数
+        if one_off:
+            wrapped_func = task_wrapper(func, task_id)
+        else:
+            wrapped_func = func
+
+        # 添加任务到调度器
+        try:
+            job = self.add_job(
+                wrapped_func, trigger, args=args, kwargs=kwargs
+            )
+            self.task_id_to_job_id[task_id] = job.id
+            self.log.info(f"{func_name}任务已添加到调度器，任务ID: {task_id}")
+        except Exception as e:
+            print(f"添加任务 {func_name} (ID: {task_id}) 失败: {e}")
 
 
 task_scheduler = Task()
@@ -633,10 +764,8 @@ def load_tasks_from_db():
             job = task_scheduler.add_job(
                 wrapped_func, trigger, args=args, kwargs=kwargs
             )
+            task_scheduler.task_id_to_job_id[task_id] = job.id
             task_scheduler.log.info(f"{func_name}任务已添加到调度器，任务ID: {task_id}")
-            # 更新任务下次运行时间
-            if hasattr(job, "next_run_time") and job.next_run_time:
-                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
         except Exception as e:
             print(f"添加任务 {func_name} (ID: {task_id}) 失败: {e}")
             print(f"参数: args={args}, kwargs={kwargs}")
