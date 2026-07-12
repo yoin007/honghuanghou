@@ -292,11 +292,15 @@ class Task:
         :param is_active: 是否启用
         :return: 任务ID
         """
+        conn = None
         try:
+            conn = _get_sqlite_connection()(TASK_DB)
+            cursor = conn.cursor()
+
             args_json = json.dumps(args) if args else None
             kwargs_json = json.dumps(kwargs) if kwargs else None
 
-            self.__cursor__.execute(
+            cursor.execute(
                 "INSERT INTO tasks (func, type, trigger_type, trigger_args, args, kwargs, description, one_off, consumed, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     func_name,
@@ -311,25 +315,34 @@ class Task:
                     is_active,
                 ),
             )
-            self.__conn__.commit()
-            return self.__cursor__.lastrowid
+            conn.commit()
+            return cursor.lastrowid
         except Exception as e:
             print(f"添加任务到数据库失败: {e}")
             return None
+        finally:
+            if conn is not None:
+                conn.close()
 
     def get_tasks_from_db(self):
         """
         从数据库获取所有启用的任务
         :return: 任务列表
         """
+        conn = None
         try:
-            self.__cursor__.execute(
+            conn = _get_sqlite_connection()(TASK_DB)
+            cursor = conn.cursor()
+            cursor.execute(
                 "SELECT * FROM tasks WHERE is_active = 1 AND (one_off = 0 OR consumed = 0)"
             )
-            return self.__cursor__.fetchall()
+            return cursor.fetchall()
         except Exception as e:
             print(f"从数据库获取任务失败: {e}")
             return []
+        finally:
+            if conn is not None:
+                conn.close()
 
     def get_available_funcs(self):
         """
@@ -366,24 +379,12 @@ class Task:
 
     def update_task_active(self, task_id, is_active=True):
         """
-        更新任务的启用状态，并同步到调度器
+        更新任务的启用状态到调度器（数据库更新由API层完成）
         :param task_id: 任务ID
         :param is_active: 是否启用
         :return: 是否更新成功
         """
-        conn = None
         try:
-            conn = _get_sqlite_connection()(TASK_DB)
-            cursor = conn.cursor()
-
-            # 更新数据库
-            cursor.execute(
-                "UPDATE tasks SET is_active = ? WHERE id = ?",
-                (is_active, task_id),
-            )
-            conn.commit()
-
-            # 同步调度器：根据任务ID查找对应的 job 并移除/重新加载
             if not is_active:
                 # 停用：从调度器中移除对应的 job
                 job_id = self.task_id_to_job_id.get(task_id)
@@ -396,8 +397,11 @@ class Task:
                     del self.task_id_to_job_id[task_id]
             else:
                 # 启用：重新从数据库加载该任务
+                conn = _get_sqlite_connection()(TASK_DB)
+                cursor = conn.cursor()
                 cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
                 task = cursor.fetchone()
+                conn.close()
                 if task:
                     self._load_single_task(task)
 
@@ -405,9 +409,6 @@ class Task:
         except Exception as e:
             print(f"更新任务启用状态失败: {e}")
             return False
-        finally:
-            if conn is not None:
-                conn.close()
 
     def _load_single_task(self, task):
         """
