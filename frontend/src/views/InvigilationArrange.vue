@@ -227,14 +227,16 @@
             <el-tag v-else-if="row.change_type === 'removed'" type="danger">取消</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="sent_status" label="状态" width="80">
+        <el-table-column prop="sent_status" label="状态" width="90">
           <template #default="{ row }">
             <el-tag v-if="row.sent_status === 'success'" type="success">成功</el-tag>
             <el-tag v-else-if="row.sent_status === 'failed'" type="danger">失败</el-tag>
             <el-tag v-else-if="row.sent_status === 'skipped'" type="info">跳过</el-tag>
+            <el-tag v-else-if="row.sent_status === 'pending'" type="info">排队中</el-tag>
+            <el-tag v-else-if="row.sent_status === 'sending'" type="warning">发送中</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="sent_at" label="发送时间" width="160" />
+        <el-table-column prop="sent_at" label="发送时间" width="170" />
         <el-table-column prop="error_message" label="错误信息" min-width="150" show-overflow-tooltip />
       </el-table>
     </el-dialog>

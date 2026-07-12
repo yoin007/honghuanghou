@@ -22,7 +22,7 @@ import io
 
 from models.datas_api.auth import User, get_current_user, is_admin_user
 from models.datas_api.moral.api_permission import require_configured_api_permission
-from utils.db_config import INVIGILATION_DB
+from utils.db_config import INVIGILATION_DB, QUEUES_DB
 from utils.sqlite_moral_db import MoralDatabase as SQLiteMoralDatabase
 from sendqueue import send_text
 
@@ -132,6 +132,24 @@ def get_invigilation_db():
     """获取监考安排数据库连接"""
     conn = get_sqlite_connection(INVIGILATION_DB, row_factory=sqlite3.Row)
     return conn
+
+
+def _ensure_notification_log_schema():
+    """确保通知日志表包含关联队列记录的字段（幂等）。"""
+    with get_invigilation_db() as db:
+        cursor = db.cursor()
+        try:
+            cursor.execute("ALTER TABLE invigilation_notification_log ADD COLUMN queue_row_id INTEGER")
+            db.commit()
+            logger.info("[invigilation] 已添加 queue_row_id 列到通知日志表")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                pass
+            else:
+                logger.warning(f"[invigilation] 通知日志表 schema 检查失败: {e}")
+
+
+_ensure_notification_log_schema()
 
 
 # ---------------------------------------------------------------------------
@@ -972,18 +990,26 @@ async def send_notifications(
 
             if teacher_wxid:
                 try:
-                    send_text(content, teacher_wxid, producer='invigilation')
-                    log_entry['sent_status'] = 'success'
-                    log_entry['error_message'] = None
+                    queue_row_id = send_text(content, teacher_wxid, producer='invigilation')
+                    log_entry['queue_row_id'] = queue_row_id
+                    # 消息实际是否送达，以独立消费进程的最终队列状态为准；
+                    # 这里先记录入队时间，前端展示时会优先取队列的 c_time。
+                    log_entry['sent_status'] = 'success' if queue_row_id else 'failed'
+                    log_entry['error_message'] = None if queue_row_id else '消息入队失败'
                     log_entry['sent_at'] = datetime.now().isoformat()
-                    success_count += 1
+                    if queue_row_id:
+                        success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
+                    log_entry['queue_row_id'] = None
                     log_entry['sent_status'] = 'failed'
                     log_entry['error_message'] = str(e)
                     log_entry['sent_at'] = datetime.now().isoformat()
                     failed_count += 1
                     logger.error(f"通知发送失败: {teacher_name} - {e}")
             else:
+                log_entry['queue_row_id'] = None
                 log_entry['sent_status'] = 'skipped'
                 log_entry['error_message'] = '未配置wxid'
                 log_entry['sent_at'] = None
@@ -1074,13 +1100,13 @@ async def send_notifications(
         for log in logs:
             cursor.execute("""
                 INSERT INTO invigilation_notification_log
-                (project_id, version_no, teacher_name, teacher_id, receiver, message, change_type, slots_json, sent_status, error_message, sent_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (project_id, version_no, teacher_name, teacher_id, receiver, message, change_type, slots_json, sent_status, error_message, sent_at, queue_row_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 log['project_id'], log['version_no'], log['teacher_name'],
                 log['teacher_id'], log['receiver'], log['message'],
                 log['change_type'], log['slots_json'], log['sent_status'],
-                log['error_message'], log['sent_at']
+                log['error_message'], log['sent_at'], log.get('queue_row_id')
             ))
 
         # 存快照到snapshot表（新版本）
@@ -1118,19 +1144,64 @@ async def get_notification_logs(
     project_id: int,
     user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/notification-logs", "GET"))
 ):
-    """获取项目的通知日志"""
+    """获取项目的通知日志。
+
+    后端写入日志时记录的是入队时间（p_time）；消息由独立消费进程异步发送，
+    实际送达时间写在 queues.db 的 c_time 中。这里把两者关联起来，
+    已完成的通知优先展示实际消费时间 c_time，未完成的展示入队时间并带上队列状态。
+    """
     with get_invigilation_db() as db:
         cursor = db.cursor()
-
         cursor.execute("""
             SELECT * FROM invigilation_notification_log
             WHERE project_id = ?
             ORDER BY sent_at DESC
         """, (project_id,))
-
         logs = [dict(row) for row in cursor.fetchall()]
 
-        return {"success": True, "data": logs}
+    # 收集关联的队列记录 id
+    queue_ids = [log.get("queue_row_id") for log in logs if log.get("queue_row_id")]
+    queue_map = {}
+    if queue_ids:
+        try:
+            conn = get_sqlite_connection(QUEUES_DB, timeout=10, row_factory=sqlite3.Row)
+            with conn:
+                placeholders = ",".join("?" * len(queue_ids))
+                rows = conn.execute(
+                    f"SELECT id, p_time, c_time, status, error_message FROM queues WHERE id IN ({placeholders})",
+                    queue_ids,
+                ).fetchall()
+                queue_map = {row["id"]: dict(row) for row in rows}
+        except Exception as e:
+            logger.warning(f"[invigilation] 读取队列库失败，将使用原始 sent_at: {e}")
+
+    for log in logs:
+        q = queue_map.get(log.get("queue_row_id"))
+        if not q:
+            continue
+
+        final_status = q.get("status")
+        c_time = q.get("c_time") or ""
+
+        # 已完成：用队列实际消费时间 c_time 作为发送时间，并用队列状态覆盖结果
+        if final_status in ("success", "failed", "expired"):
+            if c_time:
+                # 统一成 ISO 格式字符串，方便前端一致展示
+                log["sent_at"] = c_time.replace(" ", "T")
+            if final_status == "success":
+                log["sent_status"] = "success"
+            else:
+                log["sent_status"] = "failed"
+                queue_err = q.get("error_message") or ""
+                if queue_err:
+                    log["error_message"] = queue_err
+                elif final_status == "expired":
+                    log["error_message"] = log.get("error_message") or "消息已过期"
+        # 未完成：保留入队时间，但把状态同步为 pending / sending，让前端知道还在排队
+        elif final_status in ("pending", "sending"):
+            log["sent_status"] = final_status
+
+    return {"success": True, "data": logs}
 
 
 # =============================================================================

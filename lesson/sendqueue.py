@@ -135,8 +135,10 @@ class QueueDB:
                 record,
             )
             self._local.connection.commit()
+            return self._local.cursor.lastrowid
         except Exception as e:
             log.error(f"生产消息队列失败: {e}")
+            return None
 
     def __is_message_expired__(self, record):
         """
@@ -415,20 +417,24 @@ if DEBUG_MODE:
     # 调试模式：发送函数变为打印
     def send_text(content: str, receiver: str, aters: str = "", producer: str = "main"):
         _debug_send("send_text", content=content, receiver=receiver, aters=aters, producer=producer)
+        return None
 
     def send_image(path: str = "", receiver: str = "", producer: str = "main"):
         _debug_send("send_image", path=path, receiver=receiver, producer=producer)
+        return None
 
     def send_file(file_dict, receiver: str = "", producer: str = "main"):
         _debug_send("send_file", file_dict=file_dict, receiver=receiver, producer=producer)
+        return None
 
     def send_app_msg(xml_dict: dict, receiver: str, type: int = 13, producer: str = "main"):
         _debug_send("send_app_msg", xml_dict=xml_dict, receiver=receiver, type=type, producer=producer)
+        return None
 
 else:
     # 正常模式：实际发送消息
     def send_text(content: str, receiver: str, aters: str = "", producer: str = "main"):
-        """发送文本消息"""
+        """发送文本消息，返回队列记录 id（可用于查询实际消费时间 c_time）"""
         data = {
             "friend_id": receiver,
             "message": content,
@@ -436,18 +442,18 @@ else:
             "content_type": 1,
         }
         with QueueDB() as queue:
-            queue.__produce__(data, base_url + "send_message_250514.html", producer)
+            return queue.__produce__(data, base_url + "send_message_250514.html", producer)
 
     def send_image(path: str = "", receiver: str = "", producer: str = "main"):
-        """发送图片消息"""
+        """发送图片消息，返回队列记录 id"""
         if not (path.startswith("http://") or path.startswith("https://")):
             path = static_url + path
         data = {"friend_id": receiver, "message": path, "content_type": 2}
         with QueueDB() as queue:
-            queue.__produce__(data, base_url + "send_message_250514.html", producer)
+            return queue.__produce__(data, base_url + "send_message_250514.html", producer)
 
     def send_file(file_dict, receiver: str = "", producer: str = "main"):
-        """发送文件消息"""
+        """发送文件消息，返回队列记录 id"""
         if isinstance(file_dict, str):
             file_path = file_dict
             file_name = file_path.split("/")[-1]
@@ -463,17 +469,17 @@ else:
             "message": json.dumps(file_dict),
         }
         with QueueDB() as queue:
-            queue.__produce__(data, base_url + "send_message_250514.html", producer)
+            return queue.__produce__(data, base_url + "send_message_250514.html", producer)
 
     def send_app_msg(xml_dict: dict, receiver: str, type: int = 13, producer: str = "main"):
-        """发送应用消息"""
+        """发送应用消息，返回队列记录 id"""
         data = {
             "friend_id": receiver,
             "content_type": type,
             "message": json.dumps(xml_dict),
         }
         with QueueDB() as queue:
-            queue.__produce__(data, base_url + "send_message_250514.html", producer)
+            return queue.__produce__(data, base_url + "send_message_250514.html", producer)
 
 
 async def get_queue_info(msg=None):
