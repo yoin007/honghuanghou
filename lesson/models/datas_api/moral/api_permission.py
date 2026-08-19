@@ -970,6 +970,11 @@ DEFAULT_DATA_SCOPE_RULES = {
         "jiaowu": ["all"],
         "xuefa": ["all"],
     },
+    "/api/moral/admin/grades/promote/rollback": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+    },
     "/api/moral/ai-model-config": {
         "admin": ["all"],
     },

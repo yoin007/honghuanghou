@@ -27,6 +27,7 @@ from models.lesson.schedule_repository import ScheduleRepository
 from models.lesson.schedule_service import ScheduleService
 from models.lesson.teacher_directory import TeacherDirectory
 from utils.cache import cache
+from utils.sqlite_moral_db import MoralDatabase as MoralSQLiteDatabase
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -149,8 +150,46 @@ class Lesson:
     
     @property
     def class_template(self):
-        """获取班级模板"""
-        return self.repository.load_template("class")
+        """获取班级模板（从数据库实时读取，不含已归档年级）"""
+        columns = [
+            "class_code", "class_name", "leaders", "class_en",
+            "active", "studentCount", "established", "motto", "location", "ip",
+        ]
+        try:
+            with MoralSQLiteDatabase() as db:
+                rows = db.query_all(
+                    """
+                    SELECT c.class_code, c.class_name, c.leader_name, c.leader_names,
+                           c.is_active, c.established, c.motto, c.location
+                    FROM class c
+                    JOIN grade g ON c.grade_id = g.grade_id
+                    WHERE g.is_archived = 0 AND c.is_active = 1
+                    ORDER BY c.class_id
+                    """
+                )
+        except Exception as exc:
+            log.error(f"加载班级模板失败: {exc}")
+            rows = []
+
+        if not rows:
+            return pd.DataFrame(columns=columns)
+
+        data = []
+        for row in rows:
+            leaders = row.get("leader_names") or row.get("leader_name") or ""
+            data.append({
+                "class_code": row.get("class_name", ""),
+                "class_name": row.get("class_name", ""),
+                "leaders": leaders,
+                "class_en": "",
+                "active": int(row.get("is_active", 1)),
+                "studentCount": 0,
+                "established": row.get("established", ""),
+                "motto": row.get("motto", ""),
+                "location": row.get("location", ""),
+                "ip": "",
+            })
+        return pd.DataFrame(data)
     
     @property
     def students(self):

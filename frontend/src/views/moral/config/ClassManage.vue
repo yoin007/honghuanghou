@@ -12,6 +12,7 @@
         <el-select v-model="filterGradeId" placeholder="选择级号" clearable @change="fetchClasses" style="width: 200px">
           <el-option v-for="grade in gradeList" :key="grade.grade_id" :label="grade.grade_name" :value="grade.grade_id" />
         </el-select>
+        <el-checkbox v-model="showArchivedGrades" @change="handleShowArchivedChange" style="margin-left: 16px">显示毕业年级</el-checkbox>
       </div>
 
       <el-table :data="classList" v-loading="loading" stripe>
@@ -107,7 +108,10 @@ import { getGrades, getClasses, createClass, updateClass, deleteClass, getStuden
 
 const loading = ref(false)
 const classList = ref([])
+const allClassList = ref([])
 const gradeList = ref([])
+const allGradeList = ref([])
+const showArchivedGrades = ref(false)
 const teacherList = ref([])
 const filterGradeId = ref(null)
 
@@ -137,10 +141,26 @@ const studentLoading = ref(false)
 const studentsByClass = ref([])
 const currentClass = ref(null)
 
+const applyGradeFilter = () => {
+  gradeList.value = allGradeList.value.filter(g => showArchivedGrades.value || !g.is_archived)
+}
+
+const handleShowArchivedChange = () => {
+  applyGradeFilter()
+  const visibleGradeIds = new Set(gradeList.value.map(g => g.grade_id))
+  if (filterGradeId.value && !visibleGradeIds.has(filterGradeId.value)) {
+    filterGradeId.value = null
+  }
+  fetchClasses()
+}
+
 const fetchGrades = async () => {
   try {
     const res = await getGrades()
-    if (res.success) gradeList.value = res.data
+    if (res.success) {
+      allGradeList.value = res.data || []
+      applyGradeFilter()
+    }
   } catch (error) {
     console.error('获取级号列表失败:', error)
   }
@@ -157,13 +177,25 @@ const fetchTeachers = async () => {
   }
 }
 
+const applyClassFilter = () => {
+  const activeGradeIds = new Set(allGradeList.value.filter(g => !g.is_archived).map(g => g.grade_id))
+  classList.value = allClassList.value.filter(c => {
+    if (filterGradeId.value && c.grade_id !== filterGradeId.value) return false
+    if (showArchivedGrades.value) return true
+    return activeGradeIds.has(c.grade_id)
+  })
+}
+
 const fetchClasses = async () => {
   loading.value = true
   try {
     const params = {}
     if (filterGradeId.value) params.grade_id = filterGradeId.value
     const res = await getClasses(params)
-    if (res.success) classList.value = res.data
+    if (res.success) {
+      allClassList.value = res.data || []
+      applyClassFilter()
+    }
   } catch (error) {
     console.error('获取班级列表失败:', error)
   } finally {

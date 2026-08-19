@@ -8,7 +8,7 @@
 import json
 import logging
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, ConfigDict, field_validator
@@ -106,6 +106,7 @@ API_GRADE_CREATE = "/api/moral/admin/grades/create"
 API_GRADE_UPDATE = "/api/moral/admin/grades/{grade_id}"
 API_GRADE_PROMOTE_PREVIEW = "/api/moral/admin/grades/promote/preview"
 API_GRADE_PROMOTE_EXECUTE = "/api/moral/admin/grades/promote/execute"
+API_GRADE_PROMOTE_ROLLBACK = "/api/moral/admin/grades/promote/rollback"
 API_GRADES_ARCHIVED = "/api/moral/admin/grades/archived"
 API_CLASSES = "/api/moral/admin/classes"
 API_CLASS_CREATE = "/api/moral/admin/classes/create"
@@ -455,6 +456,123 @@ async def delete_grade(
 # API 路由 - 升年级管理
 # =============================================================================
 
+def _get_promotion_base_year(db) -> int:
+    """
+    升年级判断的基准年：取当前学年的起始年（start_date 的年份），而非自然年。
+
+    例：当前学年 2025-2026（start_date=2025-xx-xx）时基准年为 2025，
+    enrollment_year 距基准年满 2 年（高三）的年级毕业。
+    自然年在 8 月已翻年但学年未切换，直接用 datetime.now().year 会把
+    高二（如 2024 级）误判为毕业。
+    """
+    from datetime import date
+
+    start_date = db.query_value(
+        "SELECT start_date FROM school_year WHERE is_current = 1"
+    )
+    if start_date:
+        return int(str(start_date)[:4])
+    # 无当前学年配置时按学年惯例推算：9 月及以后视为新学年
+    today = date.today()
+    return today.year if today.month >= 9 else today.year - 1
+
+
+def _get_level_mapping(db) -> Dict[int, str]:
+    """读取 grade_level_config，返回 {years_after_enrollment: level_name}。"""
+    rows = db.query_all(
+        "SELECT years_after_enrollment, level_name FROM grade_level_config"
+    )
+    return {r['years_after_enrollment']: r['level_name'] for r in rows} if rows else {}
+
+
+def _compute_class_rename(
+    old_name: str,
+    current_level: str,
+    next_level: str
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    仅当 old_name 以 current_level 开头时，才替换为 next_level。
+    返回 (new_name, skip_reason)。
+    """
+    if not old_name:
+        return None, "班级名称为空"
+    if old_name.startswith(current_level):
+        new_name = next_level + old_name[len(current_level):]
+        return new_name, None
+    return None, f"名称不以'{current_level}'开头"
+
+
+def _build_class_rename_plan(
+    db,
+    promoting_grades: List[Dict[str, Any]],
+    graduating_grades: Optional[List[Dict[str, Any]]] = None
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    根据需升级和毕业的年级列表，计算班级名称变更计划。
+    - 升级年级：current_level -> next_level
+    - 毕业年级：current_level -> {enrollment_year}级
+    返回 (class_renames, skipped_renames)。
+    """
+    class_renames: List[Dict[str, Any]] = []
+    skipped_renames: List[Dict[str, Any]] = []
+
+    grade_targets: Dict[int, Dict[str, Any]] = {}
+
+    for g in promoting_grades or []:
+        grade_targets[g['grade_id']] = {
+            'current_level': g['current_level'],
+            'target_level': g['next_level'],
+            'grade_name': g['grade_name']
+        }
+
+    for g in graduating_grades or []:
+        grade_targets[g['grade_id']] = {
+            'current_level': g['current_level'],
+            'target_level': f"{g['enrollment_year']}级",
+            'grade_name': g['grade_name']
+        }
+
+    if not grade_targets:
+        return class_renames, skipped_renames
+
+    grade_ids = list(grade_targets.keys())
+    placeholders = ','.join('?' * len(grade_ids))
+    classes = db.query_all(
+        f"""SELECT c.class_id, c.class_name, c.grade_id, g.grade_name
+            FROM class c
+            JOIN grade g ON c.grade_id = g.grade_id
+            WHERE c.grade_id IN ({placeholders})
+            ORDER BY g.enrollment_year DESC, c.class_number""",
+        tuple(grade_ids)
+    )
+
+    for cls in classes:
+        target = grade_targets.get(cls['grade_id'])
+        if not target:
+            continue
+        new_name, reason = _compute_class_rename(
+            cls['class_name'], target['current_level'], target['target_level']
+        )
+        if new_name is not None:
+            class_renames.append({
+                'class_id': cls['class_id'],
+                'grade_id': cls['grade_id'],
+                'grade_name': cls['grade_name'],
+                'old_name': cls['class_name'],
+                'new_name': new_name
+            })
+        else:
+            skipped_renames.append({
+                'class_id': cls['class_id'],
+                'grade_id': cls['grade_id'],
+                'grade_name': cls['grade_name'],
+                'old_name': cls['class_name'],
+                'reason': reason
+            })
+
+    return class_renames, skipped_renames
+
+
 @router.get("/grades/promote/preview", summary="预览升年级情况")
 async def preview_grade_promotion(
     user: User = Depends(require_configured_api_permission(API_GRADE_PROMOTE_PREVIEW, allow_missing=False))
@@ -474,14 +592,15 @@ async def preview_grade_promotion(
     from datetime import datetime
 
     with get_moral_db() as db:
-        # 获取当前年份
-        current_year = datetime.now().year
+        # 基准年取当前学年起始年，而非自然年（8 月学年未切换时自然年已翻年）
+        current_year = _get_promotion_base_year(db)
 
         # 获取配置的年级层级映射（如果有）
+        # grade_level_config 按 years_after_enrollment（0=高一，1=高二，2=高三）映射层级名称
         level_config = db.query_all(
-            "SELECT grade_id, level_name FROM grade_level_config"
+            "SELECT years_after_enrollment, level_name FROM grade_level_config"
         )
-        level_map = {c['grade_id']: c['level_name'] for c in level_config} if level_config else {}
+        level_map = {c['years_after_enrollment']: c['level_name'] for c in level_config} if level_config else {}
 
         # 计算各年级的 years_after_enrollment
         grades = db.query_all(
@@ -499,15 +618,18 @@ async def preview_grade_promotion(
         for grade in grades:
             years_after = current_year - grade['enrollment_year']
             grade['years_after_enrollment'] = years_after
-            grade['current_level'] = level_map.get(grade['grade_id'], f"{years_after+1}年级")
+            grade['current_level'] = level_map.get(years_after, f"{years_after+1}年级")
 
             if years_after >= 2:
                 # 高三，即将毕业
                 graduating_grades.append(grade)
             else:
                 # 高一/高二，即将升年级
-                grade['next_level'] = level_map.get(grade['grade_id'], f"{years_after+2}年级")
+                grade['next_level'] = level_map.get(years_after + 1, f"{years_after+2}年级")
                 promoting_grades.append(grade)
+
+        # 计算班级名称升级计划
+        class_renames, skipped_renames = _build_class_rename_plan(db, promoting_grades, graduating_grades)
 
         # 获取即将毕业的学生详情
         graduating_students = []
@@ -562,6 +684,10 @@ async def preview_grade_promotion(
                 "graduating_students": graduating_students,
                 "graduating_count": len(graduating_students),
                 "promoting_grades": promoting_grades,
+                "class_renames": class_renames,
+                "skipped_renames": skipped_renames,
+                "rename_count": len(class_renames),
+                "skip_count": len(skipped_renames),
                 "has_next_year": next_school_year is not None
             }
         }
@@ -570,6 +696,207 @@ async def preview_grade_promotion(
 class PromoteExecuteRequest(BaseModel):
     """执行升年级请求"""
     next_year_id: Optional[int] = Field(None, description="下一学年ID（可选，用于结转）")
+
+
+def _build_promotion_snapshot(
+    db,
+    graduating_grade_ids: List[int],
+    class_renames: List[Dict[str, Any]],
+    next_year_id: Optional[int]
+) -> Dict[str, Any]:
+    """
+    在执行升年级前生成旧状态快照，用于后续回滚。
+
+    快照包含：
+    - 被归档的年级旧状态
+    - 被毕业的学生旧状态
+    - 被结束的班级履历
+    - 切换学年前的当前学年
+    - 任务结转前的 student_task_finish 记录
+    """
+    snapshot: Dict[str, Any] = {
+        'graduating_grade_ids': graduating_grade_ids,
+        'archived_grades': [],
+        'graduated_students': [],
+        'class_histories': [],
+        'school_year_before': None,
+        'school_year_after': next_year_id,
+        'task_snapshot': [],
+        'class_name_changes': class_renames or [],
+    }
+
+    if not graduating_grade_ids:
+        return snapshot
+
+    placeholders = ','.join('?' * len(graduating_grade_ids))
+
+    # 1. 年级归档前的状态（含年级主任，用于回滚时恢复）
+    snapshot['archived_grades'] = db.query_all(
+        f"""SELECT grade_id, is_archived, archived_at, leader_ids, leader_names
+            FROM grade WHERE grade_id IN ({placeholders})""",
+        tuple(graduating_grade_ids)
+    )
+
+    # 2. 学生毕业前的状态（仅在校）
+    snapshot['graduated_students'] = db.query_all(
+        f"""SELECT student_id, status, status_date
+            FROM student
+            WHERE grade_id IN ({placeholders}) AND status = '在校'""",
+        tuple(graduating_grade_ids)
+    )
+
+    # 3. 班级履历（未结束）
+    snapshot['class_histories'] = db.query_all(
+        f"""SELECT id, student_id, grade_id, end_date
+            FROM student_class_history
+            WHERE grade_id IN ({placeholders}) AND end_date IS NULL""",
+        tuple(graduating_grade_ids)
+    )
+
+    # 4. 切换学年前的当前学年
+    if next_year_id:
+        snapshot['school_year_before'] = db.query_one(
+            "SELECT year_id, year_name FROM school_year WHERE is_current = 1"
+        )
+
+        # 5. 可能被结转的任务快照
+        from_year = snapshot['school_year_before']
+        if from_year:
+            snapshot['task_snapshot'] = db.query_all(
+                """SELECT stf.id, stf.student_id, stf.task_id, stf.year_id,
+                          stf.is_carried_over, stf.carryover_count, stf.current_score,
+                          stf.status, stf.original_task_id, stf.original_year_id
+                   FROM student_task_finish stf
+                   JOIN grade_moral_task t ON stf.task_id = t.task_id
+                   JOIN student s ON stf.student_id = s.student_id
+                   WHERE stf.year_id = ?
+                     AND stf.status = 0
+                     AND t.can_carryover = 1
+                     AND t.is_active = 1
+                     AND s.status = '在校'""",
+                (from_year['year_id'],)
+            )
+
+    return snapshot
+
+
+def _restore_promotion_snapshot(db, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    根据快照回滚最近一次升年级操作。
+
+    回滚内容：
+    - 恢复学生状态为在校
+    - 恢复班级履历 end_date 为 NULL
+    - 恢复年级 is_archived=0
+    - 恢复学年 is_current 标记
+    - 恢复被结转的任务状态（year_id、score、carryover_count 等）
+    """
+    result = {
+        'restored_students': 0,
+        'restored_histories': 0,
+        'restored_grades': 0,
+        'restored_school_year': False,
+        'restored_tasks': 0,
+        'restored_class_names': 0,
+        'errors': []
+    }
+
+    # 1. 恢复学生状态
+    students = snapshot.get('graduated_students') or []
+    if students:
+        rows = [
+            (s.get('status', '在校'), s.get('status_date'), s['student_id'])
+            for s in students
+        ]
+        db.executemany(
+            "UPDATE student SET status = ?, status_date = ? WHERE student_id = ?",
+            rows
+        )
+        result['restored_students'] = len(students)
+
+    # 2. 恢复班级履历
+    histories = snapshot.get('class_histories') or []
+    if histories:
+        rows = [(h['end_date'], h['id']) for h in histories]
+        db.executemany(
+            "UPDATE student_class_history SET end_date = ? WHERE id = ?",
+            rows
+        )
+        result['restored_histories'] = len(histories)
+
+    # 3. 恢复年级归档状态
+    grades = snapshot.get('archived_grades') or []
+    if grades:
+        rows = [
+            (
+                g.get('is_archived', 0),
+                g.get('archived_at'),
+                g.get('leader_ids', ''),
+                g.get('leader_names', ''),
+                g['grade_id']
+            )
+            for g in grades
+        ]
+        db.executemany(
+            "UPDATE grade SET is_archived = ?, archived_at = ?, leader_ids = ?, leader_names = ? WHERE grade_id = ?",
+            rows
+        )
+        result['restored_grades'] = len(grades)
+
+    # 4. 恢复学年 current 标记
+    school_year_before = snapshot.get('school_year_before')
+    school_year_after = snapshot.get('school_year_after')
+    if school_year_before and school_year_after:
+        db.execute("UPDATE school_year SET is_current = 0")
+        db.execute(
+            "UPDATE school_year SET is_current = 1 WHERE year_id = ?",
+            (school_year_before['year_id'],)
+        )
+        result['restored_school_year'] = True
+
+    # 5. 恢复任务结转
+    task_snapshot = snapshot.get('task_snapshot') or []
+    if task_snapshot:
+        rows = [
+            (
+                t['year_id'],
+                t.get('is_carried_over', 0),
+                t.get('carryover_count', 0),
+                t.get('current_score'),
+                t.get('status', 0),
+                t['id']
+            )
+            for t in task_snapshot
+        ]
+        db.executemany(
+            """UPDATE student_task_finish
+               SET year_id = ?, is_carried_over = ?, carryover_count = ?,
+                   current_score = ?, status = ?
+               WHERE id = ?""",
+            rows
+        )
+        result['restored_tasks'] = len(task_snapshot)
+
+        # 删除由本次结转产生的结转日志
+        if school_year_before and school_year_after:
+            db.execute(
+                """DELETE FROM task_carryover_log
+                   WHERE from_year_id = ? AND to_year_id = ?""",
+                (school_year_before['year_id'], school_year_after)
+            )
+
+    # 6. 恢复班级名称
+    class_name_changes = snapshot.get('class_name_changes') or []
+    if class_name_changes:
+        rows = [(c['old_name'], c['class_id']) for c in class_name_changes]
+        db.executemany(
+            "UPDATE class SET class_name = ? WHERE class_id = ?",
+            rows
+        )
+        result['restored_class_names'] = len(class_name_changes)
+
+    return result
+
 
 
 @router.post("/grades/promote/execute", summary="执行升年级")
@@ -587,23 +914,24 @@ async def execute_grade_promotion(
     1. 高三学生（years_after_enrollment >= 2）→ status='毕业'
     2. 对应 grade 记录 → is_archived=1, archived_at=now()
     3. 更新学年 is_current 标记（如有下一学年）
+    4. 记录完整快照，用于回滚
 
     注意：grade_id 不变，年级层级由 enrollment_year 动态计算
     """
-    from datetime import datetime
-
     with get_moral_db() as db:
-        current_year = datetime.now().year
+        # 基准年取当前学年起始年，避免 8 月学年未切换时误把高二判为毕业
+        current_year = _get_promotion_base_year(db)
         today = date.today()
         archive_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         result = {
             'graduated_students': 0,
             'archived_grades': 0,
+            'renamed_classes': 0,
             'errors': []
         }
 
-        # 查询所有未归档的年级
+        # 查询所有未归档的年级，并确定即将毕业和升级的年级
         grades = db.query_all(
             """SELECT g.grade_id, g.grade_name, g.enrollment_year
                FROM grade g
@@ -611,49 +939,84 @@ async def execute_grade_promotion(
                ORDER BY g.enrollment_year"""
         )
 
+        level_map = _get_level_mapping(db)
+        graduating_grade_ids = []
+        graduating_grades = []
+        promoting_grades = []
         for grade in grades:
             years_after = current_year - grade['enrollment_year']
-
+            grade['years_after_enrollment'] = years_after
+            grade['current_level'] = level_map.get(years_after, f"{years_after+1}年级")
             if years_after >= 2:
-                # 高三，执行毕业和归档
-                try:
-                    # 标记该年级所有在校生为毕业
-                    graduated_count = db.query_value(
-                        """SELECT COUNT(*) FROM student
-                           WHERE grade_id = ? AND status = '在校'""",
-                        (grade['grade_id'],)
-                    )
+                graduating_grade_ids.append(grade['grade_id'])
+                graduating_grades.append(grade)
+            else:
+                grade['next_level'] = level_map.get(years_after + 1, f"{years_after+2}年级")
+                promoting_grades.append(grade)
 
-                    db.execute(
-                        """UPDATE student SET status = '毕业', status_date = ?
-                           WHERE grade_id = ? AND status = '在校'""",
-                        (today, grade['grade_id'])
-                    )
+        # 计算班级名称升级计划（在修改前）
+        class_renames, skipped_renames = _build_class_rename_plan(db, promoting_grades, graduating_grades)
 
-                    # 结束班级履历
-                    db.execute(
-                        """UPDATE student_class_history SET end_date = ?
-                           WHERE grade_id = ? AND end_date IS NULL""",
-                        (today, grade['grade_id'])
-                    )
+        # 生成旧状态快照（在修改前）
+        snapshot = _build_promotion_snapshot(
+            db, graduating_grade_ids, class_renames, request_data.next_year_id
+        )
 
-                    # 归档年级
-                    db.execute(
-                        """UPDATE grade SET is_archived = 1, archived_at = ?
-                           WHERE grade_id = ?""",
-                        (archive_time, grade['grade_id'])
-                    )
+        # 执行毕业和归档
+        for grade_id in graduating_grade_ids:
+            grade = next((g for g in grades if g['grade_id'] == grade_id), None)
+            if not grade:
+                continue
 
-                    result['graduated_students'] += graduated_count
-                    result['archived_grades'] += 1
+            try:
+                graduated_count = db.query_value(
+                    """SELECT COUNT(*) FROM student
+                       WHERE grade_id = ? AND status = '在校'""",
+                    (grade_id,)
+                )
 
-                    logger.info(
-                        f"年级归档：{grade['grade_name']}，毕业学生 {graduated_count} 人"
-                    )
+                db.execute(
+                    """UPDATE student SET status = '毕业', status_date = ?
+                       WHERE grade_id = ? AND status = '在校'""",
+                    (today, grade_id)
+                )
 
-                except Exception as e:
-                    result['errors'].append(f"{grade['grade_name']}: {str(e)}")
-                    logger.error(f"年级归档失败：{grade['grade_name']} - {e}")
+                db.execute(
+                    """UPDATE student_class_history SET end_date = ?
+                       WHERE grade_id = ? AND end_date IS NULL""",
+                    (today, grade_id)
+                )
+
+                db.execute(
+                    """UPDATE grade SET is_archived = 1, archived_at = ?,
+                       leader_ids = '', leader_names = ''
+                       WHERE grade_id = ?""",
+                    (archive_time, grade_id)
+                )
+
+                result['graduated_students'] += graduated_count
+                result['archived_grades'] += 1
+
+                logger.info(
+                    f"年级归档：{grade['grade_name']}，毕业学生 {graduated_count} 人"
+                )
+
+            except Exception as e:
+                result['errors'].append(f"{grade['grade_name']}: {str(e)}")
+                logger.error(f"年级归档失败：{grade['grade_name']} - {e}")
+
+        # 升级班级名称
+        for rename in class_renames:
+            try:
+                db.execute(
+                    "UPDATE class SET class_name = ? WHERE class_id = ?",
+                    (rename['new_name'], rename['class_id'])
+                )
+                logger.info(f"班级名称升级：{rename['old_name']} -> {rename['new_name']}")
+            except Exception as e:
+                result['errors'].append(f"班级名称升级 {rename['old_name']}: {str(e)}")
+                logger.error(f"班级名称升级失败：{rename['old_name']} - {e}")
+        result['renamed_classes'] = len(class_renames)
 
         # 更新学年标记（如果提供了下一学年ID）
         if request_data.next_year_id:
@@ -662,33 +1025,35 @@ async def execute_grade_promotion(
                 (request_data.next_year_id,)
             )
             if next_year:
-                # 取消当前学年标记
                 db.execute("UPDATE school_year SET is_current = 0")
-                # 设置新学年为当前
                 db.execute(
                     "UPDATE school_year SET is_current = 1 WHERE year_id = ?",
                     (request_data.next_year_id,)
                 )
 
-                # 执行任务结转（如果有未完成任务）
-                try:
-                    # 获取旧学年ID
-                    old_year = db.query_one("SELECT year_id FROM school_year WHERE is_current = 0 ORDER BY start_date DESC LIMIT 1")
-                    if old_year and old_year['year_id'] != request_data.next_year_id:
+                # 执行任务结转（旧学年取切换前的当前学年，见快照）
+                old_year = snapshot.get('school_year_before')
+                if old_year and old_year['year_id'] != request_data.next_year_id:
+                    try:
                         from .carryover import execute_task_carryover
-                        carryover_result = execute_task_carryover(db, old_year['year_id'], request_data.next_year_id)
+                        carryover_result = execute_task_carryover(
+                            db, old_year['year_id'], request_data.next_year_id
+                        )
                         result['carryover'] = carryover_result
                         logger.info(f"任务结转完成：{carryover_result}")
-                except Exception as e:
-                    result['errors'].append(f"任务结转: {str(e)}")
-                    logger.error(f"任务结转失败：{e}")
+                    except Exception as e:
+                        result['errors'].append(f"任务结转: {str(e)}")
+                        logger.error(f"任务结转失败：{e}")
 
-        # 记录操作日志
+        # 记录操作日志，快照放入 old_data 供回滚使用
         log_operation(
             db, user.username, user.role, 'PROMOTE', 'grade', None,
+            old_data=snapshot,
             new_data={
                 'graduated_students': result['graduated_students'],
                 'archived_grades': result['archived_grades'],
+                'renamed_classes': result['renamed_classes'],
+                'skipped_renames': skipped_renames,
                 'next_year_id': request_data.next_year_id
             },
             ip_address=request.client.host if request.client else None
@@ -696,8 +1061,87 @@ async def execute_grade_promotion(
 
         return {
             "success": True,
-            "message": f"升年级完成：毕业 {result['graduated_students']} 名学生，归档 {result['archived_grades']} 个年级",
+            "message": f"升年级完成：毕业 {result['graduated_students']} 名学生，归档 {result['archived_grades']} 个年级，变更 {result['renamed_classes']} 个班级名称",
             "data": result
+        }
+
+
+@router.post("/grades/promote/rollback", summary="撤销最近一次升年级")
+async def rollback_grade_promotion(
+    request: Request,
+    user: User = Depends(require_configured_api_permission(API_GRADE_PROMOTE_ROLLBACK, allow_missing=False))
+):
+    """
+    撤销最近一次升年级操作
+
+    权限要求：xuefa/admin
+
+    回滚内容：
+    - 恢复毕业学生为在校状态
+    - 恢复班级履历 end_date
+    - 恢复年级 is_archived=0
+    - 恢复学年 is_current 标记
+    - 恢复被结转的任务状态并删除结转日志
+
+    注意：若升年级后已发生大量新数据变更，回滚可能覆盖这些变更，请谨慎使用。
+    """
+    with get_moral_db() as db:
+        # 查找最近一次升年级操作日志
+        log = db.query_one(
+            """SELECT id, old_data, new_data, operator, operator_role
+               FROM moral_operation_log
+               WHERE operation = 'PROMOTE' AND table_name = 'grade'
+               ORDER BY id DESC LIMIT 1"""
+        )
+
+        if not log:
+            raise HTTPException(400, "未找到可回滚的升年级记录")
+
+        old_data_raw = log.get('old_data')
+        if not old_data_raw:
+            raise HTTPException(400, "升年级记录缺少快照，无法回滚")
+
+        try:
+            snapshot = json.loads(old_data_raw)
+        except Exception as e:
+            logger.error(f"解析升年级快照失败：{e}")
+            raise HTTPException(500, "升年级快照解析失败")
+
+        if snapshot.get('rolled_back_at'):
+            raise HTTPException(400, "最近一次升年级已被回滚，不能重复回滚")
+
+        # 执行回滚
+        rollback_result = _restore_promotion_snapshot(db, snapshot)
+
+        # 标记原快照已回滚
+        snapshot['rolled_back_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        snapshot['rolled_back_by'] = user.username
+        db.execute(
+            "UPDATE moral_operation_log SET old_data = ? WHERE id = ?",
+            (json.dumps(snapshot, ensure_ascii=False), log['id'])
+        )
+
+        # 记录回滚操作日志
+        log_operation(
+            db, user.username, user.role, 'PROMOTE_ROLLBACK', 'grade', None,
+            old_data={
+                'promote_log_id': log['id'],
+                'promote_operator': log.get('operator'),
+                'promote_new_data': log.get('new_data')
+            },
+            new_data=rollback_result,
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {
+            "success": True,
+            "message": (
+                f"升年级已撤销：恢复 {rollback_result['restored_students']} 名学生、"
+                f"{rollback_result['restored_grades']} 个年级、"
+                f"{rollback_result['restored_class_names']} 个班级名称、"
+                f"{rollback_result['restored_tasks']} 条任务结转"
+            ),
+            "data": rollback_result
         }
 
 

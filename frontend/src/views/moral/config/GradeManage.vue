@@ -4,7 +4,10 @@
       <template #header>
         <div class="card-header">
           <span>级号管理</span>
-          <el-button type="primary" @click="handleAdd">新增级号</el-button>
+          <div>
+            <el-checkbox v-model="showArchivedGrades" @change="applyGradeFilter" style="margin-right: 16px">显示毕业年级</el-checkbox>
+            <el-button type="primary" @click="handleAdd">新增级号</el-button>
+          </div>
         </div>
       </template>
 
@@ -86,6 +89,8 @@ import { getGrades, createGrade, updateGrade, deleteGrade, getClasses, getTeache
 
 const loading = ref(false)
 const gradeList = ref([])
+const allGradeList = ref([])
+const showArchivedGrades = ref(false)
 const teacherList = ref([])
 const dialogVisible = ref(false)
 const formRef = ref(null)
@@ -106,11 +111,18 @@ const classLoading = ref(false)
 const classByGrade = ref([])
 const currentGrade = ref(null)
 
+const applyGradeFilter = () => {
+  gradeList.value = allGradeList.value.filter(g => showArchivedGrades.value || !g.is_archived)
+}
+
 const fetchGrades = async () => {
   loading.value = true
   try {
     const res = await getGrades()
-    if (res.success) gradeList.value = res.data
+    if (res.success) {
+      allGradeList.value = res.data || []
+      applyGradeFilter()
+    }
   } catch (error) {
     console.error('获取级号列表失败:', error)
   } finally {

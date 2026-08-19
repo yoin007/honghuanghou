@@ -28,6 +28,7 @@
           <el-option label="转出" value="转出" />
           <el-option label="毕业" value="毕业" />
         </el-select>
+        <el-checkbox v-model="showArchivedGrades" @change="handleShowArchivedChange" style="margin-left: 16px">显示毕业年级</el-checkbox>
       </div>
 
       <el-table :data="studentList" v-loading="loading" stripe>
@@ -204,9 +205,12 @@ const canUpdateStudent = ref(false)  // 是否可以编辑学生信息
 const loading = ref(false)
 const studentList = ref([])
 const gradeList = ref([])
+const allGradeList = ref([])
 const classList = ref([])
+const allClassList = ref([])
+const showArchivedGrades = ref(false)
 const filterGradeClass = ref([])
-const filterStatus = ref(null)
+const filterStatus = ref('在校')
 
 const isEdit = ref(false)
 
@@ -273,19 +277,44 @@ const getStatusType = (status) => {
   }
 }
 
+const applyGradeFilter = () => {
+  gradeList.value = allGradeList.value.filter(g => showArchivedGrades.value || !g.is_archived)
+}
+
 const fetchGrades = async () => {
   try {
     const res = await getGrades()
-    if (res.success) gradeList.value = res.data
+    if (res.success) {
+      allGradeList.value = res.data || []
+      applyGradeFilter()
+    }
   } catch (error) {
     console.error('获取级号列表失败:', error)
   }
 }
 
+const applyClassFilter = () => {
+  const activeGradeIds = new Set(allGradeList.value.filter(g => !g.is_archived).map(g => g.grade_id))
+  classList.value = allClassList.value.filter(c => showArchivedGrades.value || activeGradeIds.has(c.grade_id))
+}
+
+const handleShowArchivedChange = () => {
+  applyGradeFilter()
+  applyClassFilter()
+  const visibleGradeIds = new Set(gradeList.value.map(g => g.grade_id))
+  if (filterGradeClass.value.length && !visibleGradeIds.has(filterGradeClass.value[0])) {
+    filterGradeClass.value = []
+  }
+  handleFilterChange()
+}
+
 const fetchAllClasses = async () => {
   try {
     const res = await getClasses()
-    if (res.success) classList.value = res.data
+    if (res.success) {
+      allClassList.value = res.data || []
+      applyClassFilter()
+    }
   } catch (error) {
     console.error('获取班级列表失败:', error)
   }
@@ -535,8 +564,9 @@ onMounted(async () => {
   canUpdateStudent.value = hasApiPermissionSync('/api/moral/admin/students/update')
   // 班主任(student_manage_own_class)不能修改班级，只有 student_manage 全权限可以
   canChangeClass.value = hasApiPermissionSync('/api/moral/admin/classes/update')
-  fetchGrades()
-  fetchAllClasses()
+  // 先加载级号，再按活跃级号过滤班级
+  await fetchGrades()
+  await fetchAllClasses()
   fetchStudents()
 })
 

@@ -360,6 +360,13 @@ export function executeGradePromotion(data = {}) {
 }
 
 /**
+ * 撤销最近一次升年级
+ */
+export function rollbackGradePromotion() {
+  return httpClient.post('/api/moral/admin/grades/promote/rollback')
+}
+
+/**
  * 获取已归档年级列表
  */
 export function getArchivedGrades() {
@@ -1320,6 +1327,7 @@ export default {
   // 升年级管理
   previewGradePromotion,
   executeGradePromotion,
+  rollbackGradePromotion,
   getArchivedGrades,
 
   // 处分管理

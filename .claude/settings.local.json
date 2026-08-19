@@ -279,7 +279,8 @@
       "Bash(chmod +x /Users/yoin/bdsync/program/honghuanghou/scripts/package.sh)",
       "Bash(/Users/yoin/bdsync/program/honghuanghou/scripts/package.sh)",
       "Bash(./scripts/package.sh:*)",
-      "Bash(git log *)"
+      "Bash(git log *)",
+      "Bash(gep_recall *)"
     ]
   }
 }
