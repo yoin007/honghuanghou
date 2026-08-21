@@ -131,6 +131,8 @@ TABLE_DISPLAY_NAMES = {
         "teacher_todo_group_member": "群组成员",
         "semester_evaluation_record": "学期末评价记录",
         "moral_evaluation": "德育评价",
+        "student_class_history": "学生班级变动记录",
+        "teacher_teaching_class": "教师任教班级",
     },
     "member.db": {
         "permission": "微信权限配置",
@@ -151,6 +153,7 @@ TABLE_DISPLAY_NAMES = {
     },
     "homework.db": {
         "homework": "作业记录",
+        "announcements": "公告",
     },
     "daily.db": {
         "daily": "每日记录",

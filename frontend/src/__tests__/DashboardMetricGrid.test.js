@@ -51,4 +51,19 @@ describe('DashboardMetricGrid', () => {
     const wrapper = mount(DashboardMetricGrid)
     expect(wrapper.props('accents')).toEqual(['#38bdf8', '#fbbf24', '#34d399', '#f472b6', '#f87171'])
   })
+
+  it('renders sub text only when provided', () => {
+    const cards = [
+      { label: '总记录数', value: 9930, unit: '条', sub: '业务 5300 · 日志 4295 · 其他 335' },
+      { label: '教师账号', value: 65, unit: '人' }
+    ]
+    const wrapper = mount(DashboardMetricGrid, { props: { cards } })
+
+    const cardElements = wrapper.findAll('.metric-card')
+    expect(cardElements[0].find('.metric-sub').exists()).toBe(true)
+    expect(cardElements[0].find('.metric-sub').text()).toBe('业务 5300 · 日志 4295 · 其他 335')
+    // 无 sub 的卡片不渲染该行，且第一个 small 仍是单位
+    expect(cardElements[1].find('.metric-sub').exists()).toBe(false)
+    expect(cardElements[1].find('small').text()).toBe('人')
+  })
 })

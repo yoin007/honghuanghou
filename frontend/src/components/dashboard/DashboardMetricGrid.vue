@@ -10,6 +10,7 @@
     >
       <span>{{ card.label }}</span>
       <strong>{{ card.value }}<small>{{ card.unit }}</small></strong>
+      <span v-if="card.sub" class="metric-sub">{{ card.sub }}</span>
       <i></i>
     </button>
   </section>
@@ -77,6 +78,12 @@ const handleClick = (card) => {
   margin-left: 5px;
   color: #cbd5e1;
   font-size: 14px;
+}
+
+.metric-sub {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
 }
 
 .metric-card i {

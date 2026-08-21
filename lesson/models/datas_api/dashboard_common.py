@@ -37,8 +37,8 @@ def date_range(start_date: date, end_date: date) -> List[date]:
     return [start_date + timedelta(days=offset) for offset in range(days + 1)]
 
 
-def metric(label: str, value, unit: str = "", route: str = "") -> Dict[str, object]:
-    return {"label": label, "value": value, "unit": unit, "route": route}
+def metric(label: str, value, unit: str = "", route: str = "", sub: str = "") -> Dict[str, object]:
+    return {"label": label, "value": value, "unit": unit, "route": route, "sub": sub}
 
 
 def normalize_top_n(top_n: int = 5) -> int:

@@ -1144,6 +1144,43 @@ async def get_invigilation_dashboard_summary(
 
 import glob as glob_module
 
+# 「总记录数」指标表分类：日志（*_log 后缀）/ 配置·其他（下方显式集合）/ 业务数据（其余兜底）。
+# 新增表默认落入业务数据，归类调整只需改这个 dict。
+SYSTEM_RECORD_CATEGORY_LABELS = ("业务数据", "日志", "配置·其他")
+SYSTEM_CONFIG_OTHER_TABLES = {
+    "moral.db": {
+        # 基础字典/业务配置
+        "school_year", "semester", "grade", "class", "role",
+        "grade_level_config", "moral_config", "profile_config",
+        "punishment_period_config", "semester_carryover_config",
+        "daily_event_type", "school_event_type",
+        # 权限/菜单配置
+        "api_permission_config", "api_permission_module",
+        "api_permission_resource_type", "menu_permission_config",
+        "data_visibility_config",
+        # 规则/AI/提醒配置
+        "warning_config", "violation_escalation_rule",
+        "ai_consultation_template", "ai_model_config",
+        "birthday_reminder_config",
+        # 待办/任务定义、运维与批处理元数据、暂存
+        "teacher_todo_series", "teacher_todo_group", "grade_moral_task",
+        "backup_history", "semester_evaluation_batch_job", "pending_daily_record",
+    },
+    "invigilation.db": {"exam_project", "invigilation_snapshot"},
+    "task.db": {"tasks"},
+}
+
+
+def _classify_system_table(db_name: str, table_name: str):
+    """返回 业务数据/日志/配置·其他；sqlite_ 内部表返回 None（不计入统计）。"""
+    if table_name.startswith("sqlite_"):
+        return None
+    if table_name.endswith("_log"):
+        return "日志"
+    if table_name in SYSTEM_CONFIG_OTHER_TABLES.get(db_name, set()):
+        return "配置·其他"
+    return "业务数据"
+
 
 def _get_system_sqlite_db(db_path: str):
     """获取系统运维驾驶舱数据库连接（用于 moral.db / task.db 统计）"""
@@ -1317,11 +1354,27 @@ async def get_system_dashboard_summary(user: User = Depends(require_configured_a
     except Exception:
         pass
 
-    # 计算表记录总数
-    total_records = 0
+    # 计算表记录总数（按业务/日志/配置分类），并取记录数 Top 10 表
+    category_totals = {label: 0 for label in SYSTEM_RECORD_CATEGORY_LABELS}
+    all_tables = []
     for db in db_files:
-        if db["exists"]:
-            total_records += sum(t["count"] for t in db["tables"])
+        if not db["exists"]:
+            continue
+        for t in db["tables"]:
+            category = _classify_system_table(db["name"], t["name"])
+            if category is None:
+                continue
+            category_totals[category] += t["count"]
+            all_tables.append({"db": db["name"], "name": t["name"], "count": t["count"], "category": category})
+
+    total_records = sum(category_totals.values())
+
+    # 懒导入避免循环依赖，补中文表名，缺失回退英文表名
+    from models.datas_api.moral.database_admin import TABLE_DISPLAY_NAMES
+
+    top_tables = sorted(all_tables, key=lambda x: x["count"], reverse=True)[:10]
+    for item in top_tables:
+        item["display_name"] = TABLE_DISPLAY_NAMES.get(item["db"], {}).get(item["name"], item["name"])
 
     return {
         "success": True,
@@ -1329,7 +1382,13 @@ async def get_system_dashboard_summary(user: User = Depends(require_configured_a
             "cards": [
                 _metric("数据库文件", len([d for d in db_files if d["exists"]]), "个"),
                 _metric("总大小", round(total_size_kb / 1024, 2), "MB"),
-                _metric("总记录数", total_records, "条"),
+                _metric(
+                    "总记录数",
+                    total_records,
+                    "条",
+                    "/moral/config/database",
+                    sub=f"业务 {category_totals['业务数据']} · 日志 {category_totals['日志']} · 其他 {category_totals['配置·其他']}",
+                ),
                 _metric("活跃用户", user_count, "人", "/member-manage"),
                 _metric("教师账号", teacher_stats.get("teacher", 0), "人", "/teacher-manage"),
                 _metric("权限风险", len(api_permission_risks), "项", "/moral/config/api-permission"),
@@ -1347,6 +1406,7 @@ async def get_system_dashboard_summary(user: User = Depends(require_configured_a
                 "db_files": db_files,
                 "api_permission_risks": api_permission_risks,
                 "recent_operations": recent_operations,
+                "top_tables": top_tables,
             },
             "task_stats": task_stats,
             "updated_at": _now_text(),

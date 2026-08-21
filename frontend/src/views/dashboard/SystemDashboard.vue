@@ -72,6 +72,17 @@
         </div>
         <DashboardEmptyStrip v-else text="暂无敏感操作记录。" />
       </DashboardPanelSection>
+
+      <DashboardPanelSection eyebrow="TOP TABLES" title="记录数 Top 10 表" :min-height="240">
+        <div v-if="topTables.length" class="db-list">
+          <div v-for="t in topTables" :key="t.db + '.' + t.name" class="db-row">
+            <strong>{{ t.display_name || t.name }}</strong>
+            <span>{{ t.count }} 条</span>
+            <small>{{ t.db }}</small>
+          </div>
+        </div>
+        <DashboardEmptyStrip v-else text="暂无表记录统计。" />
+      </DashboardPanelSection>
     </section>
   </div>
 </template>
@@ -103,6 +114,7 @@ const isEmpty = (items = [], field = 'value') => !items?.some(item => Number(ite
 const dbFiles = computed(() => summary.value.tables?.db_files || [])
 const apiRisks = computed(() => summary.value.tables?.api_permission_risks || [])
 const recentOps = computed(() => summary.value.tables?.recent_operations || [])
+const topTables = computed(() => summary.value.tables?.top_tables || [])
 
 const roleNames = {
     admin: '管理员',
