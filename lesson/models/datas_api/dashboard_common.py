@@ -2,7 +2,7 @@
 """Shared helpers for dashboard routes and services."""
 
 from datetime import date, datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from models.datas_api.auth import User, is_admin_user
 from models.datas_api.moral.base import has_user_role
@@ -10,6 +10,16 @@ from models.datas_api.moral.base import has_user_role
 
 def now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_current_semester(db) -> Optional[Dict[str, object]]:
+    """获取系统当前学期（status=1）。
+
+    驾驶舱默认以当前学期为统计单位；若未设置当前学期则返回 None。
+    """
+    return db.query_one(
+        "SELECT semester_id, semester_name, start_date, end_date FROM semester WHERE status = 1 LIMIT 1"
+    )
 
 
 def is_jiaowu(user: User) -> bool:

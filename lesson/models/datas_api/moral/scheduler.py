@@ -322,11 +322,77 @@ def profile_update_check_task():
                 logger.error(f"生成画像失败：{student['student_id']}，错误：{e}")
 
 
+def _get_base_score(db) -> float:
+    """读取德育基础分配置，默认 80。"""
+    val = db.query_value(
+        "SELECT config_value FROM moral_config WHERE config_key = 'evaluation_base_score'"
+    )
+    try:
+        return float(val) if val is not None else 80.0
+    except (ValueError, TypeError):
+        return 80.0
+
+
+def _real_time_score_cte(semester_id: int, base_score: float) -> str:
+    """实时计算学生德育总分的 CTE（与 dashboard_moral.py 口径一致）。"""
+    return f"""
+    student_score AS (
+        SELECT
+            s.student_id,
+            s.class_id,
+            ( {base_score}
+              + COALESCE((SELECT SUM(score) FROM student_daily_record dr
+                          WHERE dr.student_id = s.student_id
+                            AND dr.semester_id = {semester_id}
+                            AND dr.is_deleted = 0), 0)
+              + COALESCE((SELECT SUM(score) FROM student_school_record sr
+                          WHERE sr.student_id = s.student_id
+                            AND sr.semester_id = {semester_id}
+                            AND sr.is_deleted = 0), 0)
+              + COALESCE((SELECT SUM(stf.current_score)
+                            FROM student_task_finish stf
+                            JOIN semester sem ON sem.semester_id = {semester_id}
+                           WHERE stf.student_id = s.student_id
+                             AND stf.status = 1
+                             AND stf.finish_date >= sem.start_date
+                             AND stf.finish_date <= sem.end_date), 0)
+              + COALESCE((SELECT SUM(ced.score_assigned)
+                            FROM collective_event_distribution ced
+                            JOIN collective_event ce ON ced.event_id = ce.event_id
+                           WHERE ced.student_id = s.student_id
+                             AND ce.semester_id = {semester_id}
+                             AND ced.is_participant = 1), 0)
+              - COALESCE((SELECT SUM(ABS(score_deduct))
+                            FROM punishment_record pr
+                           WHERE pr.student_id = s.student_id
+                             AND pr.semester_id = {semester_id}
+                             AND pr.is_revoked = 0), 0)
+            ) AS total_score
+        FROM student s
+        WHERE s.status = '在校'
+    )
+    """
+
+
+def _has_active_warning(db, student_id, rule_id, semester_id) -> bool:
+    """同一学生 + 同一规则 + 同一学期是否已有活跃预警。"""
+    row = db.query_one(
+        """SELECT id FROM warning_log
+           WHERE student_id = ? AND rule_id = ? AND semester_id = ?
+             AND status = 'active'
+           LIMIT 1""",
+        (student_id, rule_id, semester_id),
+    )
+    return row is not None
+
+
 def warning_check_task():
     """
     每日预警检查任务（10:00执行）
 
-    检查德育分过低、扣分过多、违纪次数过多的学生
+    两阶段：
+    1. 产生新预警：检查阈值，对触发且尚无 active 预警的学生新增记录
+    2. 检查消除：活跃预警中已恢复的 → 自动标记为 resolved
     """
     logger.info("执行预警检查任务")
 
@@ -338,105 +404,260 @@ def warning_check_task():
         )
 
         if not current_semester:
+            logger.info("无当前学期，跳过预警检查")
             return
 
         semester_id = current_semester['semester_id']
+        base_score = _get_base_score(db)
+        score_cte = _real_time_score_cte(semester_id, base_score)
 
-        # 获取预警配置
         warning_configs = db.query_all(
-            "SELECT * FROM warning_config WHERE is_active = 1"
+            "SELECT * FROM warning_config WHERE is_active = 1 AND is_deleted = 0"
         )
+
+        stats = {"new": 0, "resolved": 0}
+        today = date.today()
 
         for config in warning_configs:
             trigger_type = config['trigger_type']
             trigger_value = config['trigger_value']
+            rule_id = config['id']
+            rule_name = config.get('rule_name', trigger_type)
+            time_window_days = config.get('time_window_days')  # None 表示学期级/不限制
 
-            if trigger_type == 'score_threshold':
-                # 德育分过低预警（< 50）或扣分过多预警（累计扣分 > 20）
-                if trigger_value < 60:  # 低分预警
-                    low_score_students = db.query_all(
-                        """SELECT me.student_id, s.name, me.total_score, c.class_name, c.leader_name
-                        FROM moral_evaluation me
-                        JOIN student s ON me.student_id = s.student_id
+            # 跳过累进处罚类型（escalation_* 由事件驱动，不走定时任务产生/消除）
+            if trigger_type.startswith("escalation_"):
+                continue
+
+            # 构建时间窗口过滤条件（用于日常记录类规则）
+            window_start = None
+            if time_window_days and time_window_days > 0:
+                window_start = (today - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
+
+            # ===== 阶段一：产生新预警 =====
+            if trigger_type == 'score_threshold' and trigger_value > 0:
+                # === 低分预警：当前总分 < 阈值（始终看当前状态，不受时间窗口影响） ===
+                at_risk = db.query_all(
+                    f"""WITH {score_cte}
+                        SELECT ss.student_id, s.name, ss.total_score, c.class_name
+                        FROM student_score ss
+                        JOIN student s ON ss.student_id = s.student_id
                         JOIN class c ON s.class_id = c.class_id
-                        WHERE me.semester_id = ? AND me.total_score < ?""",
-                        (semester_id, trigger_value)
+                        WHERE ss.total_score < ?""",
+                    (trigger_value,),
+                )
+                warning_type_label = "德育分过低"
+                for student in at_risk:
+                    if _has_active_warning(db, student['student_id'], rule_id, semester_id):
+                        continue
+                    message = (
+                        f"【德育预警】\n"
+                        f"学生：{student['name']}（{student['student_id']}）\n"
+                        f"班级：{student['class_name']}\n"
+                        f"当前总分：{student['total_score']}分\n"
+                        f"预警类型：{warning_type_label}\n"
+                        f"阈值：{trigger_value}分\n"
+                        f"请及时关注并采取干预措施。"
                     )
+                    db.execute(
+                        """INSERT INTO warning_log
+                           (student_id, rule_id, semester_id, warning_level, message, status)
+                           VALUES (?, ?, ?, 'warning', ?, 'active')""",
+                        (student['student_id'], rule_id, semester_id, message),
+                    )
+                    stats["new"] += 1
+                    logger.warning(f"预警产生：{student['name']} {warning_type_label}（{student['total_score']}分）")
 
-                    for student in low_score_students:
-                        # 检查是否已有预警记录
-                        existing = db.query_one(
-                            """SELECT id FROM warning_log
-                            WHERE student_id = ? AND semester_id = ?
-                            AND rule_id = ? AND DATE(created_at) = ?""",
-                            (student['student_id'], semester_id, config['id'], date.today())
-                        )
+            elif trigger_type == 'score_threshold' and trigger_value < 0:
+                # === 扣分过多：时间窗口内日常记录负分累计绝对值 >= 阈值 ===
+                # 只统计日常记录中的负向分（score < 0），不包含学校/任务/集体/处分
+                threshold_abs = abs(trigger_value)
+                if window_start:
+                    date_condition = "AND dr.record_date >= ?"
+                    date_params = [window_start]
+                    window_desc = f"近{time_window_days}天"
+                else:
+                    date_condition = "AND dr.semester_id = ?"
+                    date_params = [semester_id]
+                    window_desc = "本学期"
 
-                        if not existing:
-                            message = (
-                                f"【德育预警】\n"
-                                f"学生：{student['name']}（{student['student_id']}）\n"
-                                f"班级：{student['class_name']}\n"
-                                f"当前总分：{student['total_score']}分\n"
-                                f"预警类型：德育分过低\n"
-                                f"阈值：{trigger_value}分\n"
-                                f"请及时关注并采取干预措施。"
-                            )
-
-                            db.execute(
-                                """INSERT INTO warning_log
-                                (student_id, rule_id, semester_id, warning_level, message)
-                                VALUES (?, ?, ?, 'warning', ?)""",
-                                (student['student_id'], config['id'], semester_id, message)
-                            )
-
-                            logger.warning(f"预警：{student['name']} 德育分过低（{student['total_score']}分）")
+                at_risk = db.query_all(
+                    f"""SELECT dr.student_id, s.name,
+                               ABS(SUM(CASE WHEN dr.score < 0 THEN dr.score ELSE 0 END)) as deduction_total,
+                               c.class_name
+                        FROM student_daily_record dr
+                        JOIN student s ON dr.student_id = s.student_id
+                        JOIN class c ON s.class_id = c.class_id
+                        JOIN daily_event_type det ON dr.event_id = det.event_id
+                        WHERE det.event_type = 2
+                          AND dr.is_deleted = 0
+                          AND s.status = '在校'
+                          {date_condition}
+                        GROUP BY dr.student_id
+                        HAVING ABS(SUM(CASE WHEN dr.score < 0 THEN dr.score ELSE 0 END)) >= ?""",
+                    date_params + [threshold_abs],
+                )
+                for student in at_risk:
+                    if _has_active_warning(db, student['student_id'], rule_id, semester_id):
+                        continue
+                    deduct = int(student['deduction_total'] or 0)
+                    message = (
+                        f"【德育预警】\n"
+                        f"学生：{student['name']}（{student['student_id']}）\n"
+                        f"班级：{student['class_name']}\n"
+                        f"{window_desc}累计扣分：{deduct}分\n"
+                        f"预警类型：扣分过多\n"
+                        f"阈值：{threshold_abs}分\n"
+                        f"请及时关注并采取干预措施。"
+                    )
+                    db.execute(
+                        """INSERT INTO warning_log
+                           (student_id, rule_id, semester_id, warning_level, message, status)
+                           VALUES (?, ?, ?, 'warning', ?, 'active')""",
+                        (student['student_id'], rule_id, semester_id, message),
+                    )
+                    stats["new"] += 1
+                    logger.warning(f"预警产生：{student['name']} 扣分过多（{window_desc}扣{deduct}分）")
 
             elif trigger_type == 'count_threshold':
-                # 违纪次数过多预警
-                high_negative_students = db.query_all(
-                    """SELECT dr.student_id, s.name, COUNT(*) as negative_count,
-                           c.class_name, c.leader_name
-                    FROM student_daily_record dr
-                    JOIN student s ON dr.student_id = s.student_id
-                    JOIN class c ON s.class_id = c.class_id
-                    JOIN daily_event_type det ON dr.event_id = det.event_id
-                    WHERE dr.semester_id = ?
-                    AND det.event_type = 2  -- 消极事件
-                    AND dr.is_deleted = 0
-                    AND s.status = '在校'
-                    GROUP BY dr.student_id
-                    HAVING COUNT(*) >= ?""",
-                    (semester_id, trigger_value)
+                # === 违纪次数过多：时间窗口内消极记录数 >= 阈值 ===
+                if window_start:
+                    date_condition = "AND dr.record_date >= ?"
+                    date_params = [window_start]
+                    window_desc = f"近{time_window_days}天"
+                else:
+                    date_condition = "AND dr.semester_id = ?"
+                    date_params = [semester_id]
+                    window_desc = "本学期"
+
+                at_risk = db.query_all(
+                    f"""SELECT dr.student_id, s.name, COUNT(*) as negative_count,
+                               c.class_name
+                        FROM student_daily_record dr
+                        JOIN student s ON dr.student_id = s.student_id
+                        JOIN class c ON s.class_id = c.class_id
+                        JOIN daily_event_type det ON dr.event_id = det.event_id
+                        WHERE det.event_type = 2
+                          AND dr.is_deleted = 0
+                          AND s.status = '在校'
+                          {date_condition}
+                        GROUP BY dr.student_id
+                        HAVING COUNT(*) >= ?""",
+                    date_params + [trigger_value],
                 )
-
-                for student in high_negative_students:
-                    existing = db.query_one(
-                        """SELECT id FROM warning_log
-                        WHERE student_id = ? AND semester_id = ?
-                        AND rule_id = ? AND DATE(created_at) = ?""",
-                        (student['student_id'], semester_id, config['id'], date.today())
+                for student in at_risk:
+                    if _has_active_warning(db, student['student_id'], rule_id, semester_id):
+                        continue
+                    message = (
+                        f"【德育预警】\n"
+                        f"学生：{student['name']}（{student['student_id']}）\n"
+                        f"班级：{student['class_name']}\n"
+                        f"{window_desc}违纪次数：{student['negative_count']}次\n"
+                        f"预警类型：违纪次数过多\n"
+                        f"阈值：{trigger_value}次\n"
+                        f"请及时关注并采取干预措施。"
                     )
+                    db.execute(
+                        """INSERT INTO warning_log
+                           (student_id, rule_id, semester_id, warning_level, message, status)
+                           VALUES (?, ?, ?, 'warning', ?, 'active')""",
+                        (student['student_id'], rule_id, semester_id, message),
+                    )
+                    stats["new"] += 1
+                    logger.warning(f"预警产生：{student['name']} 违纪次数过多（{window_desc}{student['negative_count']}次）")
 
-                    if not existing:
-                        message = (
-                            f"【德育预警】\n"
-                            f"学生：{student['name']}（{student['student_id']}）\n"
-                            f"班级：{student['class_name']}\n"
-                            f"违纪次数：{student['negative_count']}次\n"
-                            f"预警类型：违纪次数过多\n"
-                            f"阈值：{trigger_value}次\n"
-                            f"请及时关注并采取干预措施。"
-                        )
+            # ===== 阶段二：检查自动消除 =====
+            if trigger_type == 'score_threshold' and trigger_value > 0:
+                # 低分预警恢复：总分 >= 阈值
+                sql = f"""
+                    WITH {score_cte}
+                    SELECT wl.id
+                    FROM warning_log wl
+                    JOIN student_score ss ON wl.student_id = ss.student_id
+                    WHERE wl.rule_id = ?
+                      AND wl.semester_id = ?
+                      AND wl.status = 'active'
+                      AND ss.total_score >= ?
+                """
+                params = [rule_id, semester_id, trigger_value]
+                rows = db.query_all(sql, params)
+                ids_to_resolve = [r["id"] for r in (rows or [])]
 
-                        db.execute(
-                            """INSERT INTO warning_log
-                            (student_id, rule_id, semester_id, warning_level, message)
-                            VALUES (?, ?, ?, 'warning', ?)""",
-                            (student['student_id'], config['id'], semester_id, message)
-                        )
+            elif trigger_type == 'score_threshold' and trigger_value < 0:
+                # 扣分过多恢复：窗口内累计扣分 < 阈值
+                threshold_abs = abs(trigger_value)
+                if window_start:
+                    date_condition = "AND dr.record_date >= ?"
+                    date_params = [window_start]
+                else:
+                    date_condition = "AND dr.semester_id = wl.semester_id"
+                    date_params = []
 
-                        logger.warning(f"预警：{student['name']} 违纪次数过多（{student['negative_count']}次）")
+                sql = f"""
+                    SELECT wl.id
+                    FROM warning_log wl
+                    WHERE wl.rule_id = ?
+                      AND wl.semester_id = ?
+                      AND wl.status = 'active'
+                      AND (
+                        SELECT COALESCE(ABS(SUM(CASE WHEN dr.score < 0 THEN dr.score ELSE 0 END)), 0)
+                        FROM student_daily_record dr
+                        JOIN daily_event_type det ON dr.event_id = det.event_id
+                        WHERE dr.student_id = wl.student_id
+                          AND det.event_type = 2
+                          AND dr.is_deleted = 0
+                          {date_condition}
+                      ) < ?
+                """
+                rows = db.query_all(sql, [rule_id, semester_id] + date_params + [threshold_abs])
+                ids_to_resolve = [r["id"] for r in (rows or [])]
+
+            elif trigger_type == 'count_threshold':
+                # 违纪次数恢复：窗口内消极记录数 < 阈值
+                if window_start:
+                    date_condition = "AND dr.record_date >= ?"
+                    date_params = [window_start]
+                else:
+                    date_condition = "AND dr.semester_id = wl.semester_id"
+                    date_params = []
+
+                sql = f"""
+                    SELECT wl.id
+                    FROM warning_log wl
+                    WHERE wl.rule_id = ?
+                      AND wl.semester_id = ?
+                      AND wl.status = 'active'
+                      AND (
+                        SELECT COUNT(*)
+                        FROM student_daily_record dr
+                        JOIN daily_event_type det ON dr.event_id = det.event_id
+                        WHERE dr.student_id = wl.student_id
+                          AND det.event_type = 2
+                          AND dr.is_deleted = 0
+                          {date_condition}
+                      ) < ?
+                """
+                rows = db.query_all(sql, [rule_id, semester_id] + date_params + [trigger_value])
+                ids_to_resolve = [r["id"] for r in (rows or [])]
+            else:
+                ids_to_resolve = []
+
+            if ids_to_resolve:
+                placeholders = ",".join(["?"] * len(ids_to_resolve))
+                db.execute(
+                    f"""UPDATE warning_log
+                        SET status = 'resolved',
+                            resolved_at = datetime('now', 'localtime'),
+                            resolved_reason = 'auto_recovered'
+                        WHERE id IN ({placeholders})""",
+                    ids_to_resolve,
+                )
+                stats["resolved"] += len(ids_to_resolve)
+                logger.info(f"预警自动消除：规则 '{rule_name}' 消除 {len(ids_to_resolve)} 条")
+
+        logger.info(
+            f"预警检查完成：新增 {stats['new']} 条，自动消除 {stats['resolved']} 条"
+        )
 
 
 def punishment_expire_reminder_task():

@@ -9,6 +9,7 @@ from typing import Dict, List
 from models.datas_api.auth import User
 from models.datas_api.moral.base import get_moral_db, get_teacher_class_id, has_user_role
 from models.datas_api.dashboard_common import (
+    get_current_semester,
     is_moral_manager,
     metric,
     safe_count,
@@ -39,6 +40,11 @@ def build_overview_cards(user: User) -> List[Dict[str, object]]:
         if is_moral_manager(user) or has_user_role(user, "cleader"):
             conditions = ["dr.is_deleted = 0"]
             params = []
+            # 默认当前学期
+            current_semester = get_current_semester(db)
+            if current_semester:
+                conditions.append("dr.semester_id = ?")
+                params.append(current_semester['semester_id'])
             if not is_moral_manager(user) and has_user_role(user, "cleader"):
                 my_class_id = get_teacher_class_id(user, db)
                 if my_class_id:

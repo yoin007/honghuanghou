@@ -368,6 +368,15 @@ const routes = [
     }
   },
   {
+    path: '/moral/warnings',
+    name: 'MoralWarnings',
+    component: () => import('../views/moral/WarningList.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '德育预警'
+    }
+  },
+  {
     path: '/moral/collective',
     name: 'MoralCollective',
     component: () => import('../views/moral/Collective.vue'),
@@ -474,6 +483,15 @@ const routes = [
     meta: {
       requiresAuth: true,
       title: '累进规则管理'
+    }
+  },
+  {
+    path: '/moral/config/warning',
+    name: 'MoralConfigWarning',
+    component: () => import('../views/moral/config/WarningRuleConfig.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '预警规则配置'
     }
   },
   {

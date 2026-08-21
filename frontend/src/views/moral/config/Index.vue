@@ -50,6 +50,14 @@
         </div>
       </el-card>
 
+      <el-card shadow="hover" class="config-card" @click="navigateTo('warning')">
+        <div class="card-content">
+          <el-icon class="card-icon"><Bell /></el-icon>
+          <div class="card-title">预警规则</div>
+          <div class="card-count">{{ stats.warningRuleCount }} 条规则</div>
+        </div>
+      </el-card>
+
       <el-card shadow="hover" class="config-card" @click="navigateTo('config')">
         <div class="card-content">
           <el-icon class="card-icon"><Setting /></el-icon>
@@ -85,8 +93,8 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { School, User, Calendar, Document, Notebook, Setting, Warning, House } from '@element-plus/icons-vue'
-import { getGrades, getClasses, getStudents, getSemesters, getDailyEventTypes, getSchoolEventTypes, getEscalationRules } from '@/api/modules/moral'
+import { School, User, Calendar, Document, Notebook, Setting, Warning, House, Bell } from '@element-plus/icons-vue'
+import { getGrades, getClasses, getStudents, getSemesters, getDailyEventTypes, getSchoolEventTypes, getEscalationRules, getWarningConfigList } from '@/api/modules/moral'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -99,21 +107,23 @@ const stats = reactive({
   studentCount: 0,
   semesterCount: 0,
   eventTypeCount: 0,
-  escalationCount: 0
+  escalationCount: 0,
+  warningRuleCount: 0
 })
 
 const currentSemester = ref(null)
 
 const fetchStats = async () => {
   try {
-    const [grades, classes, students, semesters, dailyTypes, schoolTypes, escalationRules] = await Promise.all([
+    const [grades, classes, students, semesters, dailyTypes, schoolTypes, escalationRules, warningRules] = await Promise.all([
       getGrades(),
       getClasses(),
       getStudents({ page_size: 1 }),
       getSemesters(),
       getDailyEventTypes(),
       getSchoolEventTypes(),
-      getEscalationRules()
+      getEscalationRules(),
+      getWarningConfigList().catch(() => ({ success: false, data: [] }))
     ])
 
     stats.gradeCount = grades.success ? (grades.data?.length || 0) : 0
@@ -122,6 +132,7 @@ const fetchStats = async () => {
     stats.semesterCount = semesters.success ? (semesters.data?.length || 0) : 0
     stats.eventTypeCount = (dailyTypes.success ? (dailyTypes.data?.length || 0) : 0) + (schoolTypes.success ? (schoolTypes.data?.length || 0) : 0)
     stats.escalationCount = escalationRules.success ? (escalationRules.data?.length || 0) : 0
+    stats.warningRuleCount = warningRules.success ? (warningRules.data?.length || 0) : 0
 
     if (semesters.success && semesters.data) {
       currentSemester.value = semesters.data.find(s => s.is_current)
@@ -139,6 +150,7 @@ const navigateTo = (type) => {
     'semester': '/moral/config/semester',
     'event-type': '/moral/config/event-type',
     'escalation': '/moral/config/escalation',
+    'warning': '/moral/config/warning',
     'config': '/moral/config/settings',
     'operation-log': '/moral/config/operation-log'
   }

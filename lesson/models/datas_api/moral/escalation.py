@@ -230,20 +230,27 @@ def check_and_trigger_escalation(
     )
 
     if warning_config:
-        db.execute(
-            """INSERT INTO warning_log
-            (student_id, rule_id, semester_id, warning_level, message)
-            VALUES (?, ?, ?, ?, ?)""",
-            (student_id, warning_config['id'], semester_id, f'escalation_{result.action}', result.message)
-        )
-        result.warning_log_id = db.lastrowid()
+        rule_id_for_warning = warning_config['id']
     else:
-        # 如果没有对应的warning_config，直接插入
+        rule_id_for_warning = rule['rule_id']
+
+    # 同一学生 + 同一规则 + 同一学期 + 同级别 已有活跃预警则不重复产生
+    existing = db.query_one(
+        """SELECT id FROM warning_log
+           WHERE student_id = ? AND rule_id = ? AND semester_id = ?
+             AND warning_level = ? AND status = 'active'
+           LIMIT 1""",
+        (student_id, rule_id_for_warning, semester_id, f'escalation_{result.action}'),
+    )
+    if existing:
+        result.warning_log_id = existing['id']
+    else:
         db.execute(
             """INSERT INTO warning_log
-            (student_id, rule_id, semester_id, warning_level, message)
-            VALUES (?, ?, ?, ?, ?)""",
-            (student_id, rule['rule_id'], semester_id, f'escalation_{result.action}', result.message)
+               (student_id, rule_id, semester_id, warning_level, message, status)
+               VALUES (?, ?, ?, ?, ?, 'active')""",
+            (student_id, rule_id_for_warning, semester_id,
+             f'escalation_{result.action}', result.message),
         )
         result.warning_log_id = db.lastrowid()
 

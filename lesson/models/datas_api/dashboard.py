@@ -23,6 +23,7 @@ from models.datas_api.moral.api_permission import (
 from models.datas_api.dashboard_common import (
     current_week_range as _current_week_range,
     date_range as _date_range,
+    get_current_semester as _get_current_semester,
     is_jiaowu as _is_jiaowu,
     is_moral_manager as _is_moral_manager,
     metric as _metric,
@@ -49,11 +50,13 @@ from models.datas_api.dashboard_teaching import (
     week_start_from_schedule_filename as _week_start_from_schedule_filename,
 )
 from models.datas_api.dashboard_moral import (
-    class_score_rank as _class_score_rank,
     class_score_rank_all as _class_score_rank_all,
     daily_event_mix as _daily_event_mix,
     daily_record_trend as _daily_record_trend,
     score_distribution as _score_distribution,
+    get_avg_moral_score as _get_avg_moral_score,
+    get_low_score_students as _get_low_score_students,
+    get_eval_stats as _get_eval_stats,
 )
 from models.datas_api.dashboard_class import (
     build_gender_mix as _build_gender_mix,
@@ -149,10 +152,15 @@ async def get_dashboard_overview(user: User = Depends(require_configured_api_per
     ]
     alerts = []
     with get_moral_db() as db:
-        if _is_moral_manager(user):
-            low_score = _safe_count(db, "SELECT COUNT(*) FROM moral_evaluation WHERE total_score < 60")
-            if low_score:
-                alerts.append({"level": "warning", "title": "低分学生关注", "message": f"当前有 {low_score} 名学生德育分低于 60 分"})
+        current_semester = _get_current_semester(db)
+        if _is_moral_manager(user) and current_semester:
+            eval_stats = _get_eval_stats(db, semester_id=current_semester['semester_id'])
+            if eval_stats.get('low_count', 0) > 0:
+                alerts.append({
+                    "level": "warning",
+                    "title": "低分学生关注",
+                    "message": f"当前有 {eval_stats['low_count']} 名学生德育分低于 60 分",
+                })
     return {
         "success": True,
         "data": {
@@ -219,6 +227,25 @@ async def get_moral_dashboard_summary(
 
         where_clause = " AND ".join(conditions)
 
+        # 解析出可见的班级 ID 列表（供实时计算德育分时使用）
+        visible_class_ids = None
+        if class_filter:
+            visible_class_ids = [int(item) for item in class_filter if item]
+        elif grade_filter:
+            visible_class_ids = [int(item) for item in scope.get('my_grade_class_ids', []) if item]
+
+        # 学期/时间范围过滤：有日期范围按日期，无日期范围默认当前学期
+        current_semester = _get_current_semester(db)
+        has_date_range = bool(start_date or end_date)
+        current_semester_id = current_semester['semester_id'] if current_semester else None
+
+        if not has_date_range and current_semester:
+            daily_semester_clause = " AND dr.semester_id = ?"
+            daily_semester_param = (current_semester['semester_id'],)
+        else:
+            daily_semester_clause = ""
+            daily_semester_param = ()
+
         # 时间过滤条件
         time_conditions = []
         time_params = []
@@ -232,17 +259,18 @@ async def get_moral_dashboard_summary(
 
         student_count = _safe_count(db, f"SELECT COUNT(*) FROM student s WHERE {where_clause}", tuple(params))
 
-        # 日常记录统计（带时间筛选）
-        daily_where = f"dr.is_deleted = 0 AND {where_clause}"
+        # 日常记录统计（带学期和时间筛选）
+        daily_where = f"dr.is_deleted = 0 AND {where_clause}{daily_semester_clause}"
         if time_clause:
             daily_where += f" AND {time_clause}"
+        daily_params = tuple(params) + daily_semester_param + tuple(time_params)
         daily_count = _safe_count(
             db,
             f"""SELECT COUNT(*)
                 FROM student_daily_record dr
                 JOIN student s ON dr.student_id = s.student_id
                 WHERE {daily_where}""",
-            tuple(params + time_params),
+            daily_params,
         )
         # 正向记录数（event_type=1）
         positive_count = _safe_count(
@@ -252,7 +280,7 @@ async def get_moral_dashboard_summary(
                 JOIN daily_event_type det ON dr.event_id = det.event_id
                 JOIN student s ON dr.student_id = s.student_id
                 WHERE {daily_where} AND det.event_type = 1""",
-            tuple(params + time_params),
+            daily_params,
         )
         # 需改进记录数（event_type=2）
         negative_count = _safe_count(
@@ -262,7 +290,7 @@ async def get_moral_dashboard_summary(
                 JOIN daily_event_type det ON dr.event_id = det.event_id
                 JOIN student s ON dr.student_id = s.student_id
                 WHERE {daily_where} AND det.event_type = 2""",
-            tuple(params + time_params),
+            daily_params,
         )
         # 本周新增记录数
         week_start = _current_week_range()["start"].isoformat()
@@ -274,29 +302,26 @@ async def get_moral_dashboard_summary(
                 WHERE dr.is_deleted = 0 AND dr.record_date >= ? AND {where_clause}""",
             tuple([week_start] + list(params)),
         )
-        avg_score = db.query_value(
-            f"""SELECT AVG(me.total_score)
-                FROM moral_evaluation me
-                JOIN student s ON me.student_id = s.student_id
-                WHERE {where_clause}""",
-            tuple(params),
-        )
-        low_students = db.query_all(
-            f"""SELECT s.student_id, s.name, c.class_name, me.total_score, me.level
-                FROM moral_evaluation me
-                JOIN student s ON me.student_id = s.student_id
-                JOIN class c ON s.class_id = c.class_id
-                WHERE {where_clause} AND me.total_score < 60
-                ORDER BY me.total_score ASC
-                LIMIT {top_n}""",
-            tuple(params),
-        )
-        query_params = tuple(params)
-        # 班级得分对比：根据角色过滤班级范围
-        class_score_rank_data = _class_score_rank_all(db, class_filter, grade_filter, top_n)
+        # 平均德育分（实时计算，仅在有学期且无自定义日期范围时）
+        if not has_date_range and current_semester_id:
+            avg_score = _get_avg_moral_score(db, visible_class_ids, current_semester_id)
+            low_students = _get_low_score_students(
+                db, visible_class_ids, current_semester_id, limit=top_n
+            )
+        else:
+            avg_score = 0.0
+            low_students = []
 
-        # 教师德育记录分布（使用topN参数，带时间筛选）
-        teacher_where = f"dr.is_deleted = 0 AND dr.recorder IS NOT NULL AND dr.recorder != '' AND {where_clause}"
+        # 班级得分对比（实时计算）：有日期范围或无学期时跳过
+        if not has_date_range and current_semester_id:
+            class_score_rank_data = _class_score_rank_all(
+                db, class_filter, grade_filter, top_n, semester_id=current_semester_id,
+            )
+        else:
+            class_score_rank_data = []
+
+        # 教师德育记录分布（使用topN参数，带学期和时间筛选）
+        teacher_where = f"dr.is_deleted = 0 AND dr.recorder IS NOT NULL AND dr.recorder != '' AND {where_clause}{daily_semester_clause}"
         if start_date:
             teacher_where += " AND dr.record_date >= ?"
         if end_date:
@@ -309,7 +334,7 @@ async def get_moral_dashboard_summary(
             GROUP BY dr.recorder
             ORDER BY value DESC
             LIMIT {top_n}""",
-            tuple(params + time_params),
+            daily_params,
         )
 
         # 事件分布占比（各类事件数量）
@@ -322,19 +347,37 @@ async def get_moral_dashboard_summary(
             GROUP BY det.event_id
             ORDER BY value DESC
             LIMIT 20""",
-            tuple(params + time_params),
+            daily_params,
         )
 
-        # 日常表现正负占比（带时间筛选）
-        daily_where_for_mix = f"dr.is_deleted = 0 AND {where_clause}"
+        # 日常表现正负占比（带学期和时间筛选）
+        daily_where_for_mix = f"dr.is_deleted = 0 AND {where_clause}{daily_semester_clause}"
         if time_clause:
             daily_where_for_mix += f" AND {time_clause}"
 
+        # 趋势图：semester 过滤通过 daily_semester_clause 加到 where_clause
+        trend_where = f"{where_clause}{daily_semester_clause}"
+        trend_params = tuple(params) + daily_semester_param
+
+        # 分数段分布（实时计算）
+        if not has_date_range and current_semester_id:
+            score_dist_data = _score_distribution(
+                db, class_ids=visible_class_ids, semester_id=current_semester_id,
+            )
+        else:
+            score_dist_data = [
+                {"name": "90分以上", "value": 0},
+                {"name": "80-89分", "value": 0},
+                {"name": "70-79分", "value": 0},
+                {"name": "60-69分", "value": 0},
+                {"name": "60分以下", "value": 0},
+            ]
+
         charts = {
-            "score_distribution": _score_distribution(db, where_clause, query_params),
-            "daily_event_mix": _daily_event_mix(db, daily_where_for_mix, tuple(params + time_params)),
+            "score_distribution": score_dist_data,
+            "daily_event_mix": _daily_event_mix(db, daily_where_for_mix, daily_params),
             "daily_event_distribution": event_distribution or [],
-            "daily_record_trend": _daily_record_trend(db, where_clause, query_params, start_date, end_date),
+            "daily_record_trend": _daily_record_trend(db, trend_where, trend_params, start_date, end_date),
             "class_score_rank": class_score_rank_data,
             "teacher_record_distribution": teacher_record_distribution or [],
         }
@@ -628,18 +671,20 @@ async def get_class_dashboard_summary(
             (class_id,)
         )
 
-        # 德育评价统计
-        eval_stats = db.query_one(
-            """SELECT
-                AVG(total_score) AS avg_score,
-                MIN(total_score) AS min_score,
-                MAX(total_score) AS max_score,
-                COUNT(*) AS evaluated_count,
-                SUM(CASE WHEN total_score < 60 THEN 1 ELSE 0 END) AS low_count,
-                SUM(CASE WHEN total_score >= 60 THEN 1 ELSE 0 END) AS pass_count
-            FROM moral_evaluation WHERE class_id = ?""",
-            (class_id,)
-        )
+        # 德育评价统计（实时计算，与 moral/evaluation 口径一致）
+        current_semester = _get_current_semester(db)
+        current_semester_id = current_semester['semester_id'] if current_semester else None
+        if current_semester_id:
+            eval_stats = _get_eval_stats(db, class_ids=[class_id], semester_id=current_semester_id)
+            low_students = _get_low_score_students(
+                db, class_ids=[class_id], semester_id=current_semester_id, limit=top_n,
+            )
+        else:
+            eval_stats = {
+                "avg_score": 0.0, "min_score": 0.0, "max_score": 0.0,
+                "evaluated_count": 0, "low_count": 0, "pass_count": 0,
+            }
+            low_students = []
         class_stats = _compute_class_stats(students, eval_stats)
         student_count = class_stats["student_count"]
         male_count = class_stats["male_count"]
@@ -648,15 +693,6 @@ async def get_class_dashboard_summary(
         avg_score = class_stats["avg_score"]
         low_count = class_stats["low_count"]
         unevaluated_count = class_stats["unevaluated_count"]
-
-        low_students = db.query_all(
-            """SELECT s.student_id, s.name, me.total_score
-            FROM moral_evaluation me
-            JOIN student s ON me.student_id = s.student_id
-            WHERE me.class_id = ? AND me.total_score < 60
-            ORDER BY me.total_score ASC LIMIT ?""",
-            (class_id, top_n)
-        )
 
         # 本月/本周生日学生
         today = date.today()
@@ -882,62 +918,38 @@ async def get_grade_dashboard_summary(
         male_count = sum(1 for s in students if s["gender"] == "男")
         female_count = sum(1 for s in students if s["gender"] == "女")
 
-        # 德育评价统计
-        eval_stats = db.query_one(
-            f"""SELECT
-                AVG(total_score) AS avg_score,
-                MIN(total_score) AS min_score,
-                MAX(total_score) AS max_score,
-                COUNT(*) AS evaluated_count,
-                SUM(CASE WHEN total_score < 60 THEN 1 ELSE 0 END) AS low_count
-            FROM moral_evaluation WHERE class_id IN ({','.join(map(str, class_ids))})"""
-        )
-        avg_score = eval_stats["avg_score"] or 0
-        low_count = eval_stats["low_count"] or 0
+        # 德育评价统计（实时计算，与 moral/evaluation 口径一致）
+        current_semester = _get_current_semester(db)
+        current_semester_id = current_semester['semester_id'] if current_semester else None
 
-        # 低分学生
-        low_students = db.query_all(
-            f"""SELECT s.student_id, s.name, s.class_id, c.class_name, me.total_score
-            FROM moral_evaluation me
-            JOIN student s ON me.student_id = s.student_id
-            JOIN class c ON s.class_id = c.class_id
-            WHERE me.class_id IN ({','.join(map(str, class_ids))}) AND me.total_score < 60
-            ORDER BY me.total_score ASC LIMIT {top_n}"""
-        )
+        if current_semester_id:
+            eval_stats = _get_eval_stats(db, class_ids=class_ids, semester_id=current_semester_id)
+            low_students = _get_low_score_students(
+                db, class_ids=class_ids, semester_id=current_semester_id, limit=top_n,
+            )
+            class_comparison = _class_score_rank_all(
+                db, class_filter=class_ids, top_n=len(class_ids), semester_id=current_semester_id,
+            )
+            # 分数段分布
+            sd = _score_distribution(db, class_ids=class_ids, semester_id=current_semester_id)
+            score_band = [
+                {"label": "优秀(90+)", "count": sd[0]["value"]},
+                {"label": "良好(80-89)", "count": sd[1]["value"]},
+                {"label": "中等(70-79)", "count": sd[2]["value"]},
+                {"label": "及格(60-69)", "count": sd[3]["value"]},
+                {"label": "不及格(<60)", "count": sd[4]["value"]},
+            ]
+        else:
+            eval_stats = {
+                "avg_score": 0.0, "min_score": 0.0, "max_score": 0.0,
+                "evaluated_count": 0, "low_count": 0,
+            }
+            low_students = []
+            class_comparison = []
+            score_band = []
 
-        # 班级对比数据
-        class_comparison = db.query_all(
-            f"""SELECT c.class_name, AVG(me.total_score) AS avg_score, COUNT(*) AS student_count
-            FROM moral_evaluation me
-            JOIN class c ON me.class_id = c.class_id
-            WHERE me.class_id IN ({','.join(map(str, class_ids))})
-            GROUP BY me.class_id
-            ORDER BY avg_score DESC"""
-        )
-
-        # 分数段分布
-        score_band = db.query_all(
-            f"""SELECT
-                CASE
-                    WHEN total_score >= 90 THEN '优秀(90+)'
-                    WHEN total_score >= 80 THEN '良好(80-89)'
-                    WHEN total_score >= 70 THEN '中等(70-79)'
-                    WHEN total_score >= 60 THEN '及格(60-69)'
-                    ELSE '不及格(<60)'
-                END AS label,
-                COUNT(*) AS count
-            FROM moral_evaluation
-            WHERE class_id IN ({','.join(map(str, class_ids))})
-            GROUP BY label
-            ORDER BY
-                CASE label
-                    WHEN '优秀(90+)' THEN 1
-                    WHEN '良好(80-89)' THEN 2
-                    WHEN '中等(70-79)' THEN 3
-                    WHEN '及格(60-69)' THEN 4
-                    ELSE 5
-                END"""
-        )
+        avg_score = eval_stats.get("avg_score", 0) or 0
+        low_count = eval_stats.get("low_count", 0) or 0
 
         # 本月生日学生
         today = date.today()
@@ -1046,8 +1058,13 @@ async def get_teacher_workbench(
     # 发布统计（作业、公告）
     publication_stats = _get_teacher_publication_stats(target_teacher, _get_homework_db)
 
-    # 德育参与（自己创建的日常记录、点滴记录）
-    moral_stats = _get_teacher_moral_stats(target_teacher, get_moral_db, _safe_count)
+    # 德育参与（自己创建的日常记录、点滴记录，默认当前学期）
+    with get_moral_db() as db:
+        current_semester = _get_current_semester(db)
+    moral_stats = _get_teacher_moral_stats(
+        target_teacher, get_moral_db, _safe_count,
+        semester_id=current_semester['semester_id'] if current_semester else None
+    )
 
     # 监考任务（近期监考安排）
     invigilation_tasks = _get_teacher_invigilation_tasks(target_teacher, today_str, _get_invigilation_db)

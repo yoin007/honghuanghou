@@ -225,15 +225,22 @@
       eyebrow="WARNING ALERT"
       title="德育预警"
     >
+      <template #header-extra>
+        <div class="warning-header-actions">
+          <span class="warning-count">{{ warningSummary.active_count }} 条活跃</span>
+          <el-button link type="primary" size="small" @click.stop="handleMarkAllRead">全部已读</el-button>
+          <el-button link type="primary" size="small" @click.stop="go('/moral/warnings')">查看全部 →</el-button>
+        </div>
+      </template>
       <div class="warning-list">
         <div v-for="warning in warnings" :key="warning.id" class="warning-row" @click="handleWarningClick(warning)">
           <div class="warning-info">
             <strong>{{ warning.student_name }}</strong>
-            <span>{{ warning.class_name }} · {{ warning.warning_level === 'warning' ? '一般预警' : '严重预警' }}</span>
+            <span>{{ warning.class_name }} · {{ warningSourceLabel(warning) }} · {{ formatWarningLevel(warning.warning_level) }}</span>
           </div>
           <div class="warning-meta">
             <span class="warning-date">{{ warning.created_at?.slice(0, 10) }}</span>
-            <el-tag type="danger" size="small">未读</el-tag>
+            <el-tag type="danger" size="small" effect="dark">未读</el-tag>
           </div>
         </div>
       </div>
@@ -280,8 +287,9 @@ import DashboardMetricGrid from '@/components/dashboard/DashboardMetricGrid.vue'
 import DashboardPanelSection from '@/components/dashboard/DashboardPanelSection.vue'
 import DashboardTopNSelect from '@/components/dashboard/DashboardTopNSelect.vue'
 import { PieChart } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { getMoralDashboardSummary, getAllClassesScoreTrend, getClassRecordCompare } from '@/api/modules/dashboard'
-import { getExpiringPunishments, getWarnings, markWarningRead } from '@/api/modules/moral'
+import { getExpiringPunishments, getWarnings, markWarningRead, markAllWarningsRead } from '@/api/modules/moral'
 import { basePieOption, baseHorizontalBarOption, baseLineOption, buildAdaptiveValueAxis } from '@/utils/charting'
 import { useDashboardRequest } from '@/composables/useDashboardRequest'
 
@@ -289,6 +297,7 @@ const router = useRouter()
 const summary = ref({ cards: [], charts: {}, tables: {} })
 const expiringPunishments = ref({ expiring_soon: [], already_expired: [] })
 const warnings = ref([])
+const warningSummary = ref({ active_count: 0, resolved_count: 0, total: 0 })
 const topN = ref(50) // 默认50，获取全部班级对比
 const moralTrendUnit = ref('week')
 const allClassTrendData = ref({ periods: [], labels: [], classes: [] })
@@ -624,13 +633,39 @@ const fetchExpiringPunishments = async () => {
 
 const fetchWarnings = async () => {
   try {
-    const res = await getWarnings({ is_read: 0, days: 30, page_size: 10 })
+    const res = await getWarnings({ is_read: 0, status: 'active', days: 30, page_size: 10 })
     if (res.success && res.data) {
       warnings.value = res.data
+      warningSummary.value = res.summary || { active_count: 0, resolved_count: 0, total: 0 }
     }
   } catch (e) {
     // 静默失败
   }
+}
+
+const formatWarningLevel = (level) => {
+  if (!level) return '预警'
+  if (level === 'warning') return '一般'
+  if (level === 'error') return '严重'
+  if (level.startsWith('escalation_')) {
+    const map = {
+      'escalation_warning': '累进预警',
+      'escalation_criticism': '通报批评',
+      'escalation_demerit': '记过处分',
+      'escalation_probation': '留校察看',
+    }
+    return map[level] || '累进处罚'
+  }
+  return level
+}
+
+const warningSourceLabel = (warning) => {
+  const type = warning?.trigger_type
+  if (!type) return '预警'
+  if (type === 'score_threshold') return '低分'
+  if (type === 'count_threshold') return '违纪'
+  if (type.startsWith('escalation_')) return '累进'
+  return '预警'
 }
 
 const handleWarningClick = async (warning) => {
@@ -639,6 +674,16 @@ const handleWarningClick = async (warning) => {
     warnings.value = warnings.value.filter(w => w.id !== warning.id)
   } catch (e) {
     console.error('标记预警已读失败:', e)
+  }
+}
+
+const handleMarkAllRead = async () => {
+  try {
+    await markAllWarningsRead()
+    warnings.value = []
+    ElMessage.success('已全部标记为已读')
+  } catch (e) {
+    ElMessage.error('操作失败')
   }
 }
 
@@ -1000,6 +1045,18 @@ p {
 }
 
 /* ===== 德育预警区块 ===== */
+
+.warning-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.warning-count {
+  color: #fb7185;
+  font-weight: 500;
+}
 
 .warning-list {
   display: grid;

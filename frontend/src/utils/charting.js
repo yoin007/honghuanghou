@@ -1,6 +1,6 @@
 import { use, init } from 'echarts/core'
 import { BarChart, LineChart, PieChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { GridComponent, LegendComponent, TooltipComponent, TitleComponent, MarkLineComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
 use([
@@ -10,6 +10,8 @@ use([
   GridComponent,
   LegendComponent,
   TooltipComponent,
+  TitleComponent,
+  MarkLineComponent,
   CanvasRenderer
 ])
 

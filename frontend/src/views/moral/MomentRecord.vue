@@ -26,7 +26,8 @@
         <el-form-item label="记录类型">
           <el-select v-model="filterForm.record_type" placeholder="全部" clearable style="width: 120px">
             <el-option label="点滴" value="moment" />
-            <el-option label="观察" value="observation" />
+            <el-option label="总结" value="summary" />
+            <!-- <el-option label="观察" value="observation" /> -->
             <el-option label="备注" value="note" />
           </el-select>
         </el-form-item>

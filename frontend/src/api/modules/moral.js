@@ -476,6 +476,86 @@ export function markAllWarningsRead() {
   return httpClient.post('/api/moral/warnings/mark-all-read')
 }
 
+/**
+ * 标记单条预警已消除
+ */
+export function resolveWarning(warningId) {
+  return httpClient.post(`/api/moral/warnings/${warningId}/resolve`)
+}
+
+/**
+ * 批量标记消除
+ */
+export function batchResolveWarnings() {
+  return httpClient.post('/api/moral/warnings/batch-resolve')
+}
+
+// =============================================================================
+// 预警规则配置 API
+// =============================================================================
+
+/**
+ * 获取预警规则列表
+ */
+export function getWarningConfigList(params) {
+  return httpClient.get('/api/moral/warning-config', { params })
+}
+
+/**
+ * 创建预警规则
+ */
+export function createWarningRule(data) {
+  return httpClient.post('/api/moral/warning-config', data)
+}
+
+/**
+ * 更新预警规则
+ */
+export function updateWarningRule(id, data) {
+  return httpClient.put(`/api/moral/warning-config/${id}`, data)
+}
+
+/**
+ * 删除预警规则
+ */
+export function deleteWarningRule(id) {
+  return httpClient.delete(`/api/moral/warning-config/${id}`)
+}
+
+// =============================================================================
+// 预警处置记录 API
+// =============================================================================
+
+/**
+ * 获取某条预警的处置记录列表
+ */
+export function getWarningHandles(warningId) {
+  return httpClient.get(`/api/moral/warnings/${warningId}/handles`)
+}
+
+/**
+ * 新增处置记录
+ * @param {number} warningId
+ * @param {Object} data - handle_type, handle_date, content, effect, follow_up_date, resolve_warning
+ */
+export function createWarningHandle(warningId, data) {
+  return httpClient.post(`/api/moral/warnings/${warningId}/handles`, data)
+}
+
+/**
+ * 更新处置记录
+ */
+export function updateWarningHandle(warningId, handleId, data) {
+  return httpClient.put(`/api/moral/warnings/${warningId}/handles/${handleId}`, data)
+}
+
+/**
+ * 删除处置记录
+ */
+export function deleteWarningHandle(warningId, handleId) {
+  return httpClient.delete(`/api/moral/warnings/${warningId}/handles/${handleId}`)
+}
+
 // =============================================================================
 // 处分撤销申请 API
 // =============================================================================

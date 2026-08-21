@@ -61,6 +61,7 @@ const STATIC_RESOURCE_CONFIG = {
       { key: 'moral-lifebook', label: '一生一册', route: '/moral/lifebook', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 80 },
       { key: 'moral-profile', label: '学生画像', route: '/moral/profile', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 90 },
       { key: 'moral-consultation', label: 'AI诊疗', route: '/moral/consultation', roles: ['cleader', 'g_leader', 'xuefa', 'admin'], sort_order: 95 },
+      { key: 'moral-warnings', label: '德育预警', route: '/moral/warnings', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 96 },
       { key: 'moral-birthday', label: '生日提醒', route: '/moral/birthday', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 100 },
       { key: 'moral-student-manage', label: '学生管理', route: '/moral/config/student', roles: ['g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 110 },
       { key: 'moral-config', label: '德育配置', route: '/moral/config', roles: ['xuefa', 'jiaowu', 'admin'], sort_order: 120 },

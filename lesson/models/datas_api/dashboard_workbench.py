@@ -100,28 +100,39 @@ def get_teacher_publication_stats(teacher_name: str, homework_db_conn) -> Dict[s
     }
 
 
-def get_teacher_moral_stats(teacher_name: str, moral_db, safe_count) -> Dict[str, int]:
+def get_teacher_moral_stats(teacher_name: str, moral_db, safe_count, semester_id: int = None) -> Dict[str, int]:
     """获取教师德育参与统计（日常记录、点滴记录）。
 
     Args:
         teacher_name: 教师用户名
         moral_db: moral.db 上下文管理器
         safe_count: 安全计数辅助函数
+        semester_id: 可选学期 ID，默认当前学期
 
     Returns:
         {"daily_created": int, "moment_created": int}
     """
     with moral_db() as db:
+        daily_conditions = ["recorder = ?", "is_deleted = 0"]
+        daily_params = [teacher_name]
+        moment_conditions = ["recorder = ?"]
+        moment_params = [teacher_name]
+        if semester_id:
+            daily_conditions.append("semester_id = ?")
+            daily_params.append(semester_id)
+            moment_conditions.append("semester_id = ?")
+            moment_params.append(semester_id)
+
         daily_created = safe_count(
             db,
-            "SELECT COUNT(*) FROM student_daily_record WHERE recorder = ? AND is_deleted = 0",
-            (teacher_name,)
+            f"SELECT COUNT(*) FROM student_daily_record WHERE {' AND '.join(daily_conditions)}",
+            tuple(daily_params)
         )
         # moment_record 表没有 is_deleted 字段，只有 is_private
         moment_created = safe_count(
             db,
-            "SELECT COUNT(*) FROM moment_record WHERE recorder = ?",
-            (teacher_name,)
+            f"SELECT COUNT(*) FROM moment_record WHERE {' AND '.join(moment_conditions)}",
+            tuple(moment_params)
         )
 
     return {
