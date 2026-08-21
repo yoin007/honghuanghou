@@ -29,6 +29,8 @@ from .base import (
     record_in_scope,
 )
 from models.datas_api.auth import User, is_admin_user
+from utils.db_config import COLLEGES_DB
+from utils.sqlite_moral_db import MoralDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,7 @@ def parse_birthday(birthday_str) -> Optional[date]:
 API_STUDENT_LIST = "/api/moral/admin/students"
 API_STUDENT_CREATE = "/api/moral/admin/students/create"
 API_STUDENT_BATCH = "/api/moral/admin/students/batch"
+API_STUDENT_ADMISSION_BATCH = "/api/moral/admin/students/admission-batch"
 API_STUDENT_UPDATE = "/api/moral/admin/students/update"
 
 API_TEACHERS = "/api/moral/admin/teachers"
@@ -252,6 +255,21 @@ class StudentUpdate(BaseModel):
     birthday: Optional[date] = Field(None, description="出生日期")
     roomid: Optional[str] = Field(None, description="宿舍号")
     rpid: Optional[str] = Field(None, description="床位号")
+    university_name: Optional[str] = Field(None, description="录取院校（毕业学生）")
+    university_major: Optional[str] = Field(None, description="录取专业（毕业学生）")
+
+
+class StudentAdmissionItem(BaseModel):
+    """批量导入录取信息单项"""
+    student_id: str = Field(..., description="学号")
+    name: Optional[str] = Field(None, description="姓名（仅用于核对，不写入）")
+    university_name: str = Field(..., description="录取院校")
+    university_major: Optional[str] = Field(None, description="录取专业")
+
+
+class StudentAdmissionBatchImport(BaseModel):
+    """批量导入毕业学生录取信息"""
+    students: List[StudentAdmissionItem] = Field(..., description="录取信息列表")
 
 
 class SchoolYearCreate(BaseModel):
@@ -1928,6 +1946,84 @@ async def batch_import_students(
         }
 
 
+@router.post("/students/admission-batch", summary="批量导入毕业学生录取信息")
+async def batch_import_admissions(
+    data: StudentAdmissionBatchImport,
+    request: Request,
+    user: User = Depends(check_student_manage_permission(API_STUDENT_ADMISSION_BATCH))
+):
+    """
+    批量导入毕业学生的录取院校/专业
+
+    按学号只更新录取两列，不改动其他字段。仅允许毕业状态的学生。
+    响应附带 not_in_library：本次填写的院校/专业不在标准院校库中的清单，
+    用于提示核对笔误（确属库外院校可忽略），不影响入库。
+    """
+    with get_moral_db() as db:
+        update_scope = _student_manage_scope(db, user, API_STUDENT_ADMISSION_BATCH)
+        if not update_scope.get("can_all"):
+            raise HTTPException(403, "权限不足：需要学生管理权限")
+
+        success_count = 0
+        errors = []
+        school_names = set()
+        major_names = set()
+
+        for item in data.students:
+            try:
+                student = db.query_one(
+                    "SELECT student_id, name, status FROM student WHERE student_id = ?",
+                    (item.student_id,)
+                )
+                if not student:
+                    errors.append(f"学号 {item.student_id}: 学生不存在")
+                    continue
+                if student['status'] != '毕业':
+                    errors.append(f"学号 {item.student_id}: 非毕业状态（{student['status']}），不能导入录取信息")
+                    continue
+                # 姓名核对，防止 Excel 行错位写到别人头上
+                if item.name and item.name.strip() and item.name.strip() != student['name']:
+                    errors.append(f"学号 {item.student_id}: 姓名不匹配（填写 {item.name.strip()}，系统 {student['name']}）")
+                    continue
+
+                db.execute(
+                    "UPDATE student SET university_name = ?, university_major = ? WHERE student_id = ?",
+                    (item.university_name.strip(), (item.university_major or '').strip() or None, item.student_id)
+                )
+                success_count += 1
+                school_names.add(item.university_name.strip())
+                if item.university_major and item.university_major.strip():
+                    major_names.add(item.university_major.strip())
+            except Exception as e:
+                errors.append(f"学号 {item.student_id}: {str(e)}")
+
+        # 与标准院校库比对，收集库外名称供人工核对
+        not_in_library = {"schools": [], "majors": []}
+        if school_names or major_names:
+            with MoralDatabase(COLLEGES_DB) as cdb:
+                known_schools = {r['school_name'] for r in cdb.query_all("SELECT school_name FROM schools")}
+                known_majors = {r['zymc'] for r in cdb.query_all("SELECT DISTINCT zymc FROM zyk")}
+            not_in_library["schools"] = sorted(school_names - known_schools)
+            not_in_library["majors"] = sorted(major_names - known_majors)
+
+        log_operation(
+            db, user.username, user.role, 'BATCH_IMPORT', 'student', None,
+            new_data={'admission_updated': success_count, 'errors': len(errors)},
+            ip_address=request.client.host if request.client else None
+        )
+
+        return {
+            "success": True,
+            "data": {
+                "success_count": success_count,
+                "error_count": len(errors),
+                "errors": errors[:10] if errors else [],
+                "not_in_library": not_in_library
+            },
+            "message": f"导入完成：成功 {success_count} 条，失败 {len(errors)} 条"
+        }
+
+
 @router.put("/students/{student_id}", summary="更新学生信息")
 async def update_student(
     student_id: str,
@@ -1982,6 +2078,14 @@ async def update_student(
         if update_data.rpid is not None:
             updates.append("rpid = ?")
             params.append(update_data.rpid)
+
+        if update_data.university_name is not None:
+            updates.append("university_name = ?")
+            params.append(update_data.university_name)
+
+        if update_data.university_major is not None:
+            updates.append("university_major = ?")
+            params.append(update_data.university_major)
 
         if update_data.class_id is not None:
             # 获取新班级的年级ID

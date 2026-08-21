@@ -34,13 +34,14 @@ class TestDailyRecordAPI:
     def client(self):
         """创建测试客户端"""
         from main import app
-        from models.datas_api.auth import get_current_user
+        from models.datas_api.auth import get_current_user, get_current_user_optional
 
         # 创建模拟用户
         mock_user = create_mock_user(role='xuefa', username='test_xuefa')
 
-        # 使用 FastAPI 的 dependency_overrides
+        # 使用 FastAPI 的 dependency_overrides（权限链走 get_current_user_optional，两个都要覆盖）
         app.dependency_overrides[get_current_user] = lambda: mock_user
+        app.dependency_overrides[get_current_user_optional] = lambda: mock_user
 
         with TestClient(app) as client:
             yield client
@@ -116,13 +117,14 @@ class TestBirthdayAPI:
     def client(self):
         """创建测试客户端"""
         from main import app
-        from models.datas_api.auth import get_current_user
+        from models.datas_api.auth import get_current_user, get_current_user_optional
 
         # 创建模拟用户
         mock_user = create_mock_user(role='xuefa', username='test_xuefa')
 
-        # 使用 FastAPI 的 dependency_overrides
+        # 使用 FastAPI 的 dependency_overrides（权限链走 get_current_user_optional，两个都要覆盖）
         app.dependency_overrides[get_current_user] = lambda: mock_user
+        app.dependency_overrides[get_current_user_optional] = lambda: mock_user
 
         with TestClient(app) as client:
             yield client

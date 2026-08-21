@@ -29,6 +29,7 @@ apscheduler>=3.10.0
 
 # AI API
 openai>=1.0.0
+zai-sdk>=0.2.3
 
 # 数据库
 mysql-connector-python>=8.0.0

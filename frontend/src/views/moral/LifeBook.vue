@@ -66,6 +66,9 @@
             <el-tag :type="selectedStudent.status === '在校' ? 'success' : 'info'" size="small" style="margin-left: 8px">
               {{ selectedStudent.status }}
             </el-tag>
+            <span v-if="selectedStudent.university_name" class="student-meta" style="margin-left: 8px">
+              录取：{{ selectedStudent.university_name }}{{ selectedStudent.university_major ? ' · ' + selectedStudent.university_major : '' }}
+            </span>
           </div>
           <div class="stats-info">
             <el-tag type="primary">点滴 {{ stats.moment_count }}</el-tag>

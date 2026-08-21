@@ -42,3 +42,5 @@ lesson/storage/*
 *.db-lock
 
 setting.local.json
+.evolver
+.evolver/

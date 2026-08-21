@@ -1159,6 +1159,27 @@ export function updateStudentStatus(studentId, status) {
 }
 
 /**
+ * 搜索录取院校（colleges.db 院校库）
+ */
+export function searchColleges(params = {}) {
+  return httpClient.get('/api/moral/colleges/search', { params })
+}
+
+/**
+ * 搜索录取专业（colleges.db 专业库）
+ */
+export function searchCollegeMajors(params = {}) {
+  return httpClient.get('/api/moral/colleges/majors/search', { params })
+}
+
+/**
+ * 批量导入毕业学生录取信息
+ */
+export function batchImportAdmissions(data) {
+  return httpClient.post('/api/moral/admin/students/admission-batch', data)
+}
+
+/**
  * 获取即时记录列表
  */
 export function getMomentRecords(params = {}) {

@@ -63,6 +63,7 @@ from .semester_evaluation import router as semester_evaluation_router
 from .warning import router as warning_router
 from .warning_config_api import router as warning_config_router
 from .warning_handle_api import router as warning_handle_router
+from .colleges import router as colleges_router
 
 from .pending_record import router as pending_record_router
 
@@ -179,6 +180,7 @@ router.include_router(semester_evaluation_router)
 router.include_router(warning_router)
 router.include_router(warning_config_router)
 router.include_router(warning_handle_router)
+router.include_router(colleges_router)
 router.include_router(pending_record_router)
 
 __all__ = [

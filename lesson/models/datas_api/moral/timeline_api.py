@@ -105,6 +105,7 @@ async def search_students_for_timeline(
         offset = (page - 1) * page_size
         data_query = f"""
             SELECT s.student_id, s.name, s.gender, s.birthday, s.status,
+                   s.university_name, s.university_major,
                    c.class_name, g.grade_name, g.is_archived as grade_archived
             FROM student s
             JOIN class c ON s.class_id = c.class_id

@@ -38,5 +38,17 @@ def ensure_sqlite_schema(conn: sqlite3.Connection):
         cursor.execute("ALTER TABLE grade ADD COLUMN leader_names TEXT DEFAULT ''")
         print("已为 grade 表添加 leader_names 字段")
 
+    # 检查 student 表是否有录取院校/专业字段（毕业学生录取信息）
+    cursor.execute("PRAGMA table_info(student)")
+    student_columns = [col[1] for col in cursor.fetchall()]
+
+    if 'university_name' not in student_columns:
+        cursor.execute("ALTER TABLE student ADD COLUMN university_name TEXT")
+        print("已为 student 表添加 university_name 字段")
+
+    if 'university_major' not in student_columns:
+        cursor.execute("ALTER TABLE student ADD COLUMN university_major TEXT")
+        print("已为 student 表添加 university_major 字段")
+
     conn.commit()
     print("数据库迁移完成")

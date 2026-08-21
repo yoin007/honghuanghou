@@ -8,6 +8,8 @@
             <el-button @click="handleExport">导出</el-button>
             <el-button @click="downloadTemplate" v-if="canBatchImport">下载模板</el-button>
             <el-button type="success" @click="handleImport" v-if="canBatchImport">批量导入</el-button>
+            <el-button type="warning" plain @click="downloadAdmissionTemplate" v-if="canImportAdmission">下载录取模板</el-button>
+            <el-button type="warning" @click="handleAdmissionImport" v-if="canImportAdmission">导入录取</el-button>
             <el-button type="primary" @click="handleAdd" v-if="canCreateStudent">新增学生</el-button>
           </div>
         </div>
@@ -44,6 +46,11 @@
         <el-table-column prop="rpid" label="床号" width="60" />
         <el-table-column prop="class_name" label="班级" width="120" />
         <el-table-column prop="grade_name" label="级号" width="100" />
+        <el-table-column v-if="showAdmissionColumn" prop="university_name" label="录取院校" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.university_name || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)" size="small">{{ row.status }}</el-tag>
@@ -111,6 +118,42 @@
         <el-form-item label="床号">
           <el-input v-model="form.rpid" placeholder="床位号（如1）" maxlength="10" />
         </el-form-item>
+        <template v-if="form.status === '毕业'">
+          <el-form-item label="录取院校">
+            <el-select
+              v-model="form.university_name"
+              filterable
+              remote
+              clearable
+              allow-create
+              default-first-option
+              :remote-method="searchCollegeOptions"
+              :loading="collegeSearching"
+              placeholder="输入关键词搜索院校，无结果可直接回车填写"
+              no-data-text="无匹配院校，可直接输入后回车"
+              style="width: 100%"
+            >
+              <el-option v-for="c in collegeOptions" :key="c.value" :value="c.value" :label="c.label" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="录取专业">
+            <el-select
+              v-model="form.university_major"
+              filterable
+              remote
+              clearable
+              allow-create
+              default-first-option
+              :remote-method="searchMajorOptions"
+              :loading="majorSearching"
+              placeholder="输入关键词搜索专业，无结果可直接回车填写"
+              no-data-text="无匹配专业，可直接输入后回车"
+              style="width: 100%"
+            >
+              <el-option v-for="m in majorOptions" :key="m.value" :value="m.value" :label="m.label" />
+            </el-select>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -133,6 +176,10 @@
           <el-tag :type="getStatusType(currentStudent?.status)">{{ currentStudent?.status }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="入学时间">{{ currentStudent?.created_at }}</el-descriptions-item>
+        <template v-if="currentStudent?.status === '毕业'">
+          <el-descriptions-item label="录取院校">{{ currentStudent?.university_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="录取专业">{{ currentStudent?.university_major || '-' }}</el-descriptions-item>
+        </template>
       </el-descriptions>
     </el-dialog>
 
@@ -183,14 +230,38 @@
         <el-button type="primary" @click="handleImportSubmit" :loading="importLoading">导入</el-button>
       </template>
     </el-dialog>
+
+    <!-- 导入录取信息对话框 -->
+    <el-dialog v-model="admissionDialogVisible" title="批量导入录取信息" width="500px">
+      <el-alert type="info" :closable="false" style="margin-bottom: 20px">
+        <template #title>
+          请上传Excel文件，格式要求：学号、姓名、录取院校、录取专业（专业可选）。仅支持毕业状态的学生，姓名仅用于核对。
+        </template>
+      </el-alert>
+      <el-upload
+        ref="admissionUploadRef"
+        :auto-upload="false"
+        :limit="1"
+        accept=".xlsx,.xls"
+        :on-change="handleAdmissionFileChange"
+        drag
+      >
+        <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+        <div class="el-upload__text">拖拽文件至此处或 <em>点击上传</em></div>
+      </el-upload>
+      <template #footer>
+        <el-button @click="admissionDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleAdmissionImportSubmit" :loading="admissionLoading">导入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { getGrades, getClasses, getStudents, createStudent, updateStudent, updateStudentStatus, batchCreateStudents } from '@/api/modules/moral'
+import { getGrades, getClasses, getStudents, createStudent, updateStudent, updateStudentStatus, batchCreateStudents, searchColleges, searchCollegeMajors, batchImportAdmissions } from '@/api/modules/moral'
 import ExcelJS from 'exceljs'
 import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
@@ -201,6 +272,7 @@ const canCreateStudent = ref(false)
 const canBatchImport = ref(false)
 const canChangeClass = ref(false)  // 是否可以修改学生班级
 const canUpdateStudent = ref(false)  // 是否可以编辑学生信息
+const canImportAdmission = ref(false)  // 是否可以批量导入录取信息
 
 const loading = ref(false)
 const studentList = ref([])
@@ -229,8 +301,45 @@ const form = reactive({
   birthday: '',
   roomid: '',
   rpid: '',
-  classSelection: []
+  classSelection: [],
+  status: '在校',
+  university_name: '',
+  university_major: ''
 })
+
+// 录取院校/专业远程搜索下拉
+const collegeOptions = ref([])
+const collegeSearching = ref(false)
+const majorOptions = ref([])
+const majorSearching = ref(false)
+
+const searchCollegeOptions = async (query) => {
+  collegeSearching.value = true
+  try {
+    const res = await searchColleges({ keyword: query || '', limit: 20 })
+    if (res.success) {
+      collegeOptions.value = (res.data || []).map(c => ({ value: c.school_name, label: c.school_name }))
+    }
+  } catch (error) {
+    console.error('搜索院校失败:', error)
+  } finally {
+    collegeSearching.value = false
+  }
+}
+
+const searchMajorOptions = async (query) => {
+  majorSearching.value = true
+  try {
+    const res = await searchCollegeMajors({ keyword: query || '', limit: 20 })
+    if (res.success) {
+      majorOptions.value = (res.data || []).map(m => ({ value: m.zymc, label: m.zymc }))
+    }
+  } catch (error) {
+    console.error('搜索专业失败:', error)
+  } finally {
+    majorSearching.value = false
+  }
+}
 const rules = {
   student_id: [{ required: true, message: '请输入学号', trigger: 'blur' }],
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
@@ -276,6 +385,14 @@ const getStatusType = (status) => {
     default: return ''
   }
 }
+
+// 当前列表可能包含毕业学生时才显示录取院校列
+const showAdmissionColumn = computed(() => {
+  if (filterStatus.value === '毕业') return true
+  // "显示毕业年级" + 状态筛选为全部时，结果中含毕业学生
+  const noStatusFilter = !filterStatus.value || filterStatus.value === ''
+  return showArchivedGrades.value && noStatusFilter
+})
 
 const applyGradeFilter = () => {
   gradeList.value = allGradeList.value.filter(g => showArchivedGrades.value || !g.is_archived)
@@ -361,7 +478,10 @@ const handleAdd = () => {
     birthday: '',
     roomid: '',
     rpid: '',
-    classSelection: filterGradeClass.value.length === 2 ? [...filterGradeClass.value] : []
+    classSelection: filterGradeClass.value.length === 2 ? [...filterGradeClass.value] : [],
+    status: '在校',
+    university_name: '',
+    university_major: ''
   })
   dialogVisible.value = true
 }
@@ -376,8 +496,16 @@ const handleEdit = (row) => {
     birthday: row.birthday,
     roomid: row.roomid || '',
     rpid: row.rpid || '',
-    classSelection: row.grade_id && row.class_id ? [row.grade_id, row.class_id] : []
+    classSelection: row.grade_id && row.class_id ? [row.grade_id, row.class_id] : [],
+    status: row.status || '在校',
+    university_name: row.university_name || '',
+    university_major: row.university_major || ''
   })
+  // 回显已填值，否则远程下拉选中项显示为原始值
+  if (form.status === '毕业') {
+    if (form.university_name) collegeOptions.value = [{ value: form.university_name, label: form.university_name }]
+    if (form.university_major) majorOptions.value = [{ value: form.university_major, label: form.university_major }]
+  }
   dialogVisible.value = true
 }
 
@@ -396,6 +524,11 @@ const handleSubmit = async () => {
 
     let res
     if (isEdit.value) {
+      // 录取字段始终携带（空传 ''），否则后端 is not None 判断会跳过，清空操作失效
+      if (form.status === '毕业') {
+        data.university_name = form.university_name || ''
+        data.university_major = form.university_major || ''
+      }
       res = await updateStudent(form.student_id, data)
     } else {
       res = await createStudent({
@@ -562,6 +695,7 @@ onMounted(async () => {
   canCreateStudent.value = hasApiPermissionSync('/api/moral/admin/students/create')
   canBatchImport.value = hasApiPermissionSync('/api/moral/admin/students/batch')
   canUpdateStudent.value = hasApiPermissionSync('/api/moral/admin/students/update')
+  canImportAdmission.value = hasApiPermissionSync('/api/moral/admin/students/admission-batch')
   // 班主任(student_manage_own_class)不能修改班级，只有 student_manage 全权限可以
   canChangeClass.value = hasApiPermissionSync('/api/moral/admin/classes/update')
   // 先加载级号，再按活跃级号过滤班级
@@ -607,7 +741,9 @@ const handleExport = async () => {
         { header: '班级', key: 'class_name', width: 16 },
         { header: '级号', key: 'grade_name', width: 14 },
         { header: '状态', key: 'status', width: 10 },
-        { header: '入学时间', key: 'created_at', width: 20 }
+        { header: '入学时间', key: 'created_at', width: 20 },
+        { header: '录取院校', key: 'university_name', width: 24 },
+        { header: '录取专业', key: 'university_major', width: 20 }
       ],
       rows: exportData.map(row => ({
         ...row,
@@ -618,7 +754,9 @@ const handleExport = async () => {
         class_name: row.class_name || '',
         grade_name: row.grade_name || '',
         status: row.status || '',
-        created_at: row.created_at || ''
+        created_at: row.created_at || '',
+        university_name: row.university_name || '',
+        university_major: row.university_major || ''
       }))
     })
     ElMessage.success(`导出成功，共 ${exportData.length} 条记录`)
@@ -626,6 +764,136 @@ const handleExport = async () => {
     console.error('导出失败:', error)
     ElMessage.error('导出失败')
   }
+}
+
+// ==================== 批量导入录取信息 ====================
+const admissionDialogVisible = ref(false)
+const admissionUploadRef = ref(null)
+const admissionFile = ref(null)
+const admissionLoading = ref(false)
+
+const handleAdmissionImport = () => {
+  admissionFile.value = null
+  admissionDialogVisible.value = true
+}
+
+const handleAdmissionFileChange = (file) => {
+  admissionFile.value = file.raw
+}
+
+const parseAdmissionRows = async (file) => {
+  const workbook = new ExcelJS.Workbook()
+  const data = await file.arrayBuffer()
+  await workbook.xlsx.load(data)
+  const worksheet = workbook.worksheets[0]
+  if (!worksheet) return []
+
+  const headerMap = {}
+  worksheet.getRow(1).eachCell((cell, colNumber) => {
+    const header = normalizeHeader(getCellValue(cell))
+    if (header) headerMap[header] = colNumber
+  })
+
+  const valueOf = (row, names) => {
+    for (const name of names) {
+      const col = headerMap[name]
+      if (col) return getCellValue(row.getCell(col))
+    }
+    return ''
+  }
+
+  const rows = []
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return
+    rows.push({
+      student_id: String(valueOf(row, ['学号', 'student_id']) || '').trim(),
+      name: String(valueOf(row, ['姓名', 'name']) || '').trim(),
+      university_name: String(valueOf(row, ['录取院校', '院校', 'university_name']) || '').trim(),
+      university_major: String(valueOf(row, ['录取专业', '专业', 'university_major']) || '').trim()
+    })
+  })
+
+  return rows
+}
+
+const handleAdmissionImportSubmit = async () => {
+  if (!admissionFile.value) {
+    ElMessage.warning('请先选择文件')
+    return
+  }
+  admissionLoading.value = true
+  try {
+    const jsonData = await parseAdmissionRows(admissionFile.value)
+    if (jsonData.length === 0) {
+      ElMessage.warning('文件中没有数据')
+      return
+    }
+
+    const students = jsonData
+      .filter(s => s.student_id && s.university_name)
+      .map(s => ({
+        student_id: s.student_id,
+        name: s.name || null,
+        university_name: s.university_name,
+        university_major: s.university_major || null
+      }))
+
+    if (students.length === 0) {
+      ElMessage.warning('没有有效数据：学号和录取院校为必填项')
+      return
+    }
+
+    const res = await batchImportAdmissions({ students })
+    if (res.success) {
+      const { success_count, error_count, errors, not_in_library } = res.data
+      // 结果明细（失败原因 / 库外名称核对提示）用弹窗展示，引导人工处理
+      const sections = []
+      if (error_count > 0 && errors?.length) {
+        sections.push(`失败 ${error_count} 条：\n${errors.join('\n')}`)
+      }
+      const outside = [
+        ...(not_in_library?.schools || []).map(n => `院校「${n}」`),
+        ...(not_in_library?.majors || []).map(n => `专业「${n}」`)
+      ]
+      if (outside.length) {
+        sections.push(`以下名称不在标准院校库，请核对是否有笔误（确属库外院校可忽略）：\n${outside.join('、')}`)
+      }
+      if (sections.length) {
+        await ElMessageBox.alert(sections.join('\n\n'), `导入完成：成功 ${success_count} 条`, {
+          type: error_count > 0 ? 'warning' : 'info',
+          confirmButtonText: '知道了'
+        })
+      } else {
+        ElMessage.success(`导入完成：成功 ${success_count} 条`)
+      }
+      admissionDialogVisible.value = false
+      fetchStudents()
+    }
+  } catch (error) {
+    console.error('导入录取信息失败:', error)
+    ElMessage.error('导入失败，请检查文件格式')
+  } finally {
+    admissionLoading.value = false
+  }
+}
+
+// 下载录取信息导入模板
+const downloadAdmissionTemplate = async () => {
+  await downloadRowsAsExcel({
+    filename: '录取信息导入模板',
+    sheetName: '录取信息导入模板',
+    columns: [
+      { header: '学号', key: 'student_id', width: 16 },
+      { header: '姓名', key: 'name', width: 12 },
+      { header: '录取院校', key: 'university_name', width: 24 },
+      { header: '录取专业', key: 'university_major', width: 20 }
+    ],
+    rows: [
+      { student_id: '20220101', name: '张三', university_name: '浙江大学', university_major: '计算机科学与技术' },
+      { student_id: '20220102', name: '李四', university_name: '武汉大学', university_major: '法学' }
+    ]
+  })
+  ElMessage.success('模板下载成功')
 }
 
 // 下载导入模板
