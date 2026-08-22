@@ -192,7 +192,7 @@ class TestSecurityUtils:
         assert verify_password("", hashed) is True
 
     def test_teacher_directory_add_teacher_does_not_write_raw_pwd(self, monkeypatch):
-        """教师目录新增默认账号时不再写入 raw_pwd。"""
+        """教师目录新增默认账号时不写 raw_pwd 明文（raw_pwd 为必填参数，显式传空串）。"""
         from models.lesson import teacher_directory
 
         captured = {}
@@ -209,7 +209,7 @@ class TestSecurityUtils:
         directory = teacher_directory.TeacherDirectory()
         assert directory.add_teacher("wx-1", "张老师", "语文") == "OK"
 
-        assert "raw_pwd" not in captured
+        assert captured.get("raw_pwd") == ""
         assert captured["password_hash"] == "666666"
         assert captured["is_password_changed"] == 0
         assert captured["updated_wxid"] == "wx-1"

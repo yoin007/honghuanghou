@@ -41,9 +41,8 @@ def _timeline_scope(db, user: User, api_path: str = API_TIMELINE) -> dict:
 
 
 def _ensure_timeline_student_access(db, user: User, student: dict, api_path: str = API_TIMELINE) -> None:
+    """范围校验（毕业/归档学生仍在原班原级范围内，可正常查看一生一册）"""
     scope = _timeline_scope(db, user, api_path)
-    if (student['status'] != '在校' or student.get('grade_archived')) and not scope.get("can_all"):
-        raise HTTPException(403, "只能查看在校学生档案，已归档学生需管理员权限")
     if not record_in_scope(student, scope, username=user.username):
         raise HTTPException(403, "只能查看授权范围内学生的一生一册")
 
@@ -105,6 +104,7 @@ async def search_students_for_timeline(
         offset = (page - 1) * page_size
         data_query = f"""
             SELECT s.student_id, s.name, s.gender, s.birthday, s.status,
+                   s.entrance_score, s.gaokao_score,
                    s.university_name, s.university_major,
                    c.class_name, g.grade_name, g.is_archived as grade_archived
             FROM student s

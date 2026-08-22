@@ -110,6 +110,8 @@ class TeacherDirectory:
                 subject=subject,
                 course=subject[:2] if subject else "",
                 password_hash=default_password,
+                # is_password_changed=0 时登录兼容逻辑回退读取 pwd 字段，无需存明文
+                raw_pwd="",
                 role="teacher",
                 level=10,
                 notice=1,

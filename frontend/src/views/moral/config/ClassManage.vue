@@ -156,7 +156,7 @@ const handleShowArchivedChange = () => {
 
 const fetchGrades = async () => {
   try {
-    const res = await getGrades()
+    const res = await getGrades({ include_archived: 1 })
     if (res.success) {
       allGradeList.value = res.data || []
       applyGradeFilter()
@@ -189,7 +189,7 @@ const applyClassFilter = () => {
 const fetchClasses = async () => {
   loading.value = true
   try {
-    const params = {}
+    const params = { include_archived: 1 }
     if (filterGradeId.value) params.grade_id = filterGradeId.value
     const res = await getClasses(params)
     if (res.success) {

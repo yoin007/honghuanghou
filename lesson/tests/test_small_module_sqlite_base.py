@@ -9,7 +9,7 @@ import sqlite3
 import os
 import tempfile
 import shutil
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 class TestFileGatherSqliteBase:
@@ -62,9 +62,10 @@ class TestFileGatherSqliteBase:
             fg = fg_module.FileGatherDB(db_path=db_path)
             # _get_connection 在 _init_db 中被调用
             # 验证 sqlite_base 被调用
+            # （__init__ 会先经 _get_config_value 连 moral.db 读配置，
+            #   故只断言 filegather 库路径的连接存在且带 row_factory）
             assert len(calls) >= 1
-            assert calls[0][0] == db_path
-            assert "row_factory" in calls[0][1]
+            assert any(c[0] == db_path and "row_factory" in c[1] for c in calls)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -209,8 +210,8 @@ class TestFileGatherSqliteBase:
             from models.filegather_db import FileGatherDB
 
             fg = FileGatherDB(db_path=db_path)
-            old_time = (datetime.now(UTC) - timedelta(days=5)).isoformat()
-            recent_time = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+            old_time = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+            recent_time = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 
             with fg._get_connection() as conn:
                 conn.execute(
@@ -250,8 +251,8 @@ class TestFileGatherSqliteBase:
             from models.filegather_db import FileGatherDB
 
             fg = FileGatherDB(db_path=db_path)
-            old_time = (datetime.now(UTC) - timedelta(days=5)).isoformat()
-            recent_time = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+            old_time = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+            recent_time = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 
             with fg._get_connection() as conn:
                 for idx in range(25):

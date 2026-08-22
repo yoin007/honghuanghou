@@ -118,7 +118,7 @@ const applyGradeFilter = () => {
 const fetchGrades = async () => {
   loading.value = true
   try {
-    const res = await getGrades()
+    const res = await getGrades({ include_archived: 1 })
     if (res.success) {
       allGradeList.value = res.data || []
       applyGradeFilter()
@@ -216,7 +216,7 @@ const handleViewClasses = async (row) => {
   classDialogVisible.value = true
   classLoading.value = true
   try {
-    const res = await getClasses({ grade_id: row.grade_id })
+    const res = await getClasses({ grade_id: row.grade_id, include_archived: 1 })
     if (res.success) classByGrade.value = res.data
   } catch (error) {
     console.error('获取班级列表失败:', error)

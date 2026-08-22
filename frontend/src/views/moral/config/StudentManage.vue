@@ -21,7 +21,7 @@
           :options="gradeClassOptions"
           placeholder="选择级号/班级"
           clearable
-          @change="handleFilterChange"
+          @change="handleGradeClassChange"
           style="width: 250px"
         />
         <el-select v-model="filterStatus" placeholder="学生状态" clearable @change="fetchStudents" style="width: 120px; margin-left: 10px">
@@ -46,6 +46,21 @@
         <el-table-column prop="rpid" label="床号" width="60" />
         <el-table-column prop="class_name" label="班级" width="120" />
         <el-table-column prop="grade_name" label="级号" width="100" />
+        <el-table-column prop="middle_school" label="初中毕业学校" min-width="130" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.middle_school || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column v-if="showAdmissionColumn" prop="entrance_score" label="中考成绩" width="110">
+          <template #default="{ row }">
+            {{ row.status === '毕业' ? (row.entrance_score || '-') : '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column v-if="showAdmissionColumn" prop="gaokao_score" label="高考成绩" width="110">
+          <template #default="{ row }">
+            {{ row.status === '毕业' ? (row.gaokao_score || '-') : '-' }}
+          </template>
+        </el-table-column>
         <el-table-column v-if="showAdmissionColumn" prop="university_name" label="录取院校" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
             {{ row.university_name || '-' }}
@@ -118,6 +133,15 @@
         <el-form-item label="床号">
           <el-input v-model="form.rpid" placeholder="床位号（如1）" maxlength="10" />
         </el-form-item>
+        <el-form-item label="初中毕业学校">
+          <el-input v-model="form.middle_school" placeholder="如：金华四中" maxlength="50" />
+        </el-form-item>
+        <el-form-item label="中考成绩">
+          <el-input v-model="form.entrance_score" placeholder="如：632" maxlength="20" />
+        </el-form-item>
+        <el-form-item label="高考成绩">
+          <el-input v-model="form.gaokao_score" placeholder="如：658" maxlength="20" />
+        </el-form-item>
         <template v-if="form.status === '毕业'">
           <el-form-item label="录取院校">
             <el-select
@@ -176,7 +200,10 @@
           <el-tag :type="getStatusType(currentStudent?.status)">{{ currentStudent?.status }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="入学时间">{{ currentStudent?.created_at }}</el-descriptions-item>
+        <el-descriptions-item label="初中毕业学校">{{ currentStudent?.middle_school || '-' }}</el-descriptions-item>
         <template v-if="currentStudent?.status === '毕业'">
+          <el-descriptions-item label="中考成绩">{{ currentStudent?.entrance_score || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="高考成绩">{{ currentStudent?.gaokao_score || '-' }}</el-descriptions-item>
           <el-descriptions-item label="录取院校">{{ currentStudent?.university_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="录取专业">{{ currentStudent?.university_major || '-' }}</el-descriptions-item>
         </template>
@@ -303,6 +330,9 @@ const form = reactive({
   rpid: '',
   classSelection: [],
   status: '在校',
+  middle_school: '',
+  entrance_score: '',
+  gaokao_score: '',
   university_name: '',
   university_major: ''
 })
@@ -400,7 +430,7 @@ const applyGradeFilter = () => {
 
 const fetchGrades = async () => {
   try {
-    const res = await getGrades()
+    const res = await getGrades({ include_archived: 1 })
     if (res.success) {
       allGradeList.value = res.data || []
       applyGradeFilter()
@@ -422,12 +452,12 @@ const handleShowArchivedChange = () => {
   if (filterGradeClass.value.length && !visibleGradeIds.has(filterGradeClass.value[0])) {
     filterGradeClass.value = []
   }
-  handleFilterChange()
+  handleGradeClassChange()
 }
 
 const fetchAllClasses = async () => {
   try {
-    const res = await getClasses()
+    const res = await getClasses({ include_archived: 1 })
     if (res.success) {
       allClassList.value = res.data || []
       applyClassFilter()
@@ -469,6 +499,17 @@ const handleFilterChange = () => {
   fetchStudents()
 }
 
+// 切换级联节点时自动对齐状态筛选：毕业级默认查「毕业」，现役级恢复「在校」
+const handleGradeClassChange = () => {
+  const grade = allGradeList.value.find(g => g.grade_id === filterGradeClass.value[0])
+  if (grade && grade.is_archived) {
+    if (filterStatus.value !== '毕业') filterStatus.value = '毕业'
+  } else if (filterStatus.value === '毕业') {
+    filterStatus.value = '在校'
+  }
+  handleFilterChange()
+}
+
 const handleAdd = () => {
   isEdit.value = false
   Object.assign(form, {
@@ -480,6 +521,9 @@ const handleAdd = () => {
     rpid: '',
     classSelection: filterGradeClass.value.length === 2 ? [...filterGradeClass.value] : [],
     status: '在校',
+    middle_school: '',
+    entrance_score: '',
+    gaokao_score: '',
     university_name: '',
     university_major: ''
   })
@@ -498,6 +542,10 @@ const handleEdit = (row) => {
     rpid: row.rpid || '',
     classSelection: row.grade_id && row.class_id ? [row.grade_id, row.class_id] : [],
     status: row.status || '在校',
+    middle_school: row.middle_school || '',
+    // 成绩列是 NUMERIC，后端可能返回数字；转字符串避免提交时类型不符
+    entrance_score: row.entrance_score == null ? '' : String(row.entrance_score),
+    gaokao_score: row.gaokao_score == null ? '' : String(row.gaokao_score),
     university_name: row.university_name || '',
     university_major: row.university_major || ''
   })
@@ -524,6 +572,10 @@ const handleSubmit = async () => {
 
     let res
     if (isEdit.value) {
+      // 档案字段与录取字段一样始终携带（空传 ''），否则后端 is not None 判断会跳过，清空操作失效
+      data.middle_school = form.middle_school || ''
+      data.entrance_score = form.entrance_score || ''
+      data.gaokao_score = form.gaokao_score || ''
       // 录取字段始终携带（空传 ''），否则后端 is not None 判断会跳过，清空操作失效
       if (form.status === '毕业') {
         data.university_name = form.university_name || ''
@@ -531,8 +583,12 @@ const handleSubmit = async () => {
       }
       res = await updateStudent(form.student_id, data)
     } else {
+      // 新增时也始终携带，后端对空串跳过写入
       res = await createStudent({
         ...data,
+        middle_school: form.middle_school || '',
+        entrance_score: form.entrance_score || '',
+        gaokao_score: form.gaokao_score || '',
         student_id: form.student_id
       })
     }
@@ -742,6 +798,9 @@ const handleExport = async () => {
         { header: '级号', key: 'grade_name', width: 14 },
         { header: '状态', key: 'status', width: 10 },
         { header: '入学时间', key: 'created_at', width: 20 },
+        { header: '初中毕业学校', key: 'middle_school', width: 20 },
+        { header: '中考成绩', key: 'entrance_score', width: 12 },
+        { header: '高考成绩', key: 'gaokao_score', width: 12 },
         { header: '录取院校', key: 'university_name', width: 24 },
         { header: '录取专业', key: 'university_major', width: 20 }
       ],
@@ -755,6 +814,9 @@ const handleExport = async () => {
         grade_name: row.grade_name || '',
         status: row.status || '',
         created_at: row.created_at || '',
+        middle_school: row.middle_school || '',
+        entrance_score: row.entrance_score == null ? '' : String(row.entrance_score),
+        gaokao_score: row.gaokao_score == null ? '' : String(row.gaokao_score),
         university_name: row.university_name || '',
         university_major: row.university_major || ''
       }))

@@ -229,6 +229,9 @@ class StudentCreate(BaseModel):
     gender: Optional[str] = Field(None, description="性别")
     class_id: int = Field(..., description="班级ID")
     birthday: Optional[date] = Field(None, description="出生日期")
+    middle_school: Optional[str] = Field(None, description="初中毕业学校")
+    entrance_score: Optional[str] = Field(None, description="中考成绩")
+    gaokao_score: Optional[str] = Field(None, description="高考成绩")
 
 
 class StudentBatchItem(BaseModel):
@@ -255,6 +258,9 @@ class StudentUpdate(BaseModel):
     birthday: Optional[date] = Field(None, description="出生日期")
     roomid: Optional[str] = Field(None, description="宿舍号")
     rpid: Optional[str] = Field(None, description="床位号")
+    middle_school: Optional[str] = Field(None, description="初中毕业学校")
+    entrance_score: Optional[str] = Field(None, description="中考成绩")
+    gaokao_score: Optional[str] = Field(None, description="高考成绩（毕业学生）")
     university_name: Optional[str] = Field(None, description="录取院校（毕业学生）")
     university_major: Optional[str] = Field(None, description="录取专业（毕业学生）")
 
@@ -312,16 +318,21 @@ async def get_teachers_for_config(user: User = Depends(require_configured_api_pe
 
 
 @router.get("/grades", summary="获取级号列表")
-async def get_grades(user: User = Depends(require_configured_api_permission(API_GRADES, allow_missing=False))):
-    """获取级号列表"""
+async def get_grades(
+    include_archived: int = Query(0, description="1=包含已归档（毕业）级号"),
+    user: User = Depends(require_configured_api_permission(API_GRADES, allow_missing=False))
+):
+    """获取级号列表（默认仅现役级号，学生数计入在校+毕业）"""
     with get_moral_db() as db:
+        archive_condition = "" if include_archived else " AND g.is_archived = 0"
         visible_class_ids = _visible_class_ids_for_lookup(db, user, include_teaching=True)
         if visible_class_ids is None:
             grades = db.query_all(
                 "SELECT g.*, "
                 "(SELECT COUNT(*) FROM class WHERE grade_id = g.grade_id) as class_count, "
-                "(SELECT COUNT(*) FROM student WHERE grade_id = g.grade_id AND status = '在校') as student_count "
-                "FROM grade g ORDER BY g.enrollment_year DESC"
+                "(SELECT COUNT(*) FROM student WHERE grade_id = g.grade_id "
+                "AND status IN ('在校', '毕业')) as student_count "
+                f"FROM grade g WHERE 1=1{archive_condition} ORDER BY g.enrollment_year DESC"
             )
         elif not visible_class_ids:
             grades = []
@@ -330,11 +341,11 @@ async def get_grades(user: User = Depends(require_configured_api_permission(API_
             grades = db.query_all(
                 f"""SELECT g.*,
                     COUNT(DISTINCT c.class_id) as class_count,
-                    COUNT(DISTINCT CASE WHEN s.status = '在校' THEN s.student_id END) as student_count
+                    COUNT(DISTINCT CASE WHEN s.status IN ('在校', '毕业') THEN s.student_id END) as student_count
                    FROM grade g
                    JOIN class c ON c.grade_id = g.grade_id
                    LEFT JOIN student s ON s.class_id = c.class_id
-                   WHERE c.class_id IN ({placeholders})
+                   WHERE c.class_id IN ({placeholders}){archive_condition}
                    GROUP BY g.grade_id
                    ORDER BY g.enrollment_year DESC""",
                 tuple(visible_class_ids),
@@ -1006,8 +1017,7 @@ async def execute_grade_promotion(
                 )
 
                 db.execute(
-                    """UPDATE grade SET is_archived = 1, archived_at = ?,
-                       leader_ids = '', leader_names = ''
+                    """UPDATE grade SET is_archived = 1, archived_at = ?
                        WHERE grade_id = ?""",
                     (archive_time, grade_id)
                 )
@@ -1196,6 +1206,7 @@ async def get_archived_grades(
 async def get_classes(
     grade_id: Optional[int] = Query(None),
     is_active: Optional[int] = Query(None),
+    include_archived: int = Query(0, description="1=包含已归档（毕业）级下的班级"),
     for_record_input: Optional[int] = Query(None, description="是否用于录入记录场景（1=任教+管理班级）"),
     for_evaluation: Optional[int] = Query(None, description="是否用于德育评价场景（1=只管理班级）"),
     user: User = Depends(require_configured_api_permission(API_CLASSES, allow_missing=False))
@@ -1203,6 +1214,7 @@ async def get_classes(
     """获取班级列表
 
     场景说明：
+    - 默认只返回现役级下的班级，include_archived=1 时包含毕业级班级
     - for_record_input=1：日常事件/点滴记录，班主任看任教+管理班级
     - for_evaluation=1：德育评价，班主任只看管理班级
     - admin/jiaowu/xuefa/g_leader：始终看相应范围班级
@@ -1210,6 +1222,9 @@ async def get_classes(
     with get_moral_db() as db:
         conditions = ["c.is_active = 1"]
         params = []
+
+        if not include_archived:
+            conditions.append("g.is_archived = 0")
 
         visible_class_ids = _visible_class_ids_for_lookup(
             db,
@@ -1231,7 +1246,8 @@ async def get_classes(
 
         classes = db.query_all(
             f"""SELECT c.*, g.grade_name,
-                (SELECT COUNT(*) FROM student WHERE class_id = c.class_id AND status = '在校') as student_count
+                (SELECT COUNT(*) FROM student WHERE class_id = c.class_id
+                 AND status IN ('在校', '毕业')) as student_count
                 FROM class c
                 JOIN grade g ON c.grade_id = g.grade_id
                 WHERE {where_clause}
@@ -1727,18 +1743,46 @@ async def get_students(
         }
 
 
-def check_student_manage_permission(api_path: str):
+def check_student_manage_permission(api_path: str, *, allow_own_grade: bool = False):
     """
     学生管理权限检查
 
-    允许有 student_manage 或 student_manage_own_class 权限的用户访问
+    允许有 student_manage 或 student_manage_own_class 权限的用户访问；
+    allow_own_grade=True 时额外放行 student_manage_own_grade（年级主任），
+    用于年级主任维护本年级（含已归档毕业年级）学生档案。
     """
     async def check(user: User = Depends(require_configured_api_permission(api_path, allow_missing=False))):
         with get_moral_db() as db:
             has_full_permission = _has_scoped_permission(db, user, api_path, 'student_manage')
             has_own_class_permission = _has_scoped_permission(db, user, api_path, 'student_manage_own_class')
+            has_own_grade_permission = (
+                allow_own_grade and _has_scoped_permission(db, user, api_path, 'student_manage_own_grade')
+            )
 
-            if not has_full_permission and not has_own_class_permission:
+            if not has_full_permission and not has_own_class_permission and not has_own_grade_permission:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="权限不足：需要学生管理权限"
+                )
+        return user
+    return check
+
+
+def check_student_admission_permission(api_path: str):
+    """
+    毕业生录取信息权限检查
+
+    在学生管理权限基础上额外放行年级主任（student_manage_own_grade），
+    用于毕业班班主任/年级主任补录毕业生录取信息。
+    """
+    async def check(user: User = Depends(require_configured_api_permission(api_path, allow_missing=False))):
+        with get_moral_db() as db:
+            allowed = (
+                _has_scoped_permission(db, user, api_path, 'student_manage')
+                or _has_scoped_permission(db, user, api_path, 'student_manage_own_class')
+                or _has_scoped_permission(db, user, api_path, 'student_manage_own_grade')
+            )
+            if not allowed:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="权限不足：需要学生管理权限"
@@ -1796,12 +1840,25 @@ async def create_student(
             except ValueError:
                 pass
 
+        # 可选档案字段：仅非空时写入，避免落空串脏数据
+        extra_columns, extra_params = [], []
+        for field in ("middle_school", "entrance_score", "gaokao_score"):
+            value = getattr(student, field)
+            if value:
+                extra_columns.append(field)
+                extra_params.append(value)
+
+        insert_columns = (
+            "student_id, name, gender, class_id, grade_id, original_grade_id, "
+            "birthday, enrollment_date" + (", " + ", ".join(extra_columns) if extra_columns else "")
+        )
+        insert_values = "?, ?, ?, ?, ?, ?, ?, ?" + (", " + ", ".join("?" * len(extra_columns)) if extra_columns else "")
         db.execute(
-            """INSERT INTO student
-            (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '在校')""",
+            f"""INSERT INTO student
+            ({insert_columns}, status)
+            VALUES ({insert_values}, '在校')""",
             (student.student_id, student.name, student.gender, student.class_id,
-             grade_id, grade_id, student.birthday, enrollment_date)
+             grade_id, grade_id, student.birthday, enrollment_date, *extra_params)
         )
 
         # 创建班级履历
@@ -1950,18 +2007,22 @@ async def batch_import_students(
 async def batch_import_admissions(
     data: StudentAdmissionBatchImport,
     request: Request,
-    user: User = Depends(check_student_manage_permission(API_STUDENT_ADMISSION_BATCH))
+    user: User = Depends(check_student_admission_permission(API_STUDENT_ADMISSION_BATCH))
 ):
     """
     批量导入毕业学生的录取院校/专业
 
     按学号只更新录取两列，不改动其他字段。仅允许毕业状态的学生。
+    管理员可导入全部；班主任限本班（含已归档毕业班）；年级主任限本年级（含已归档年级）。
     响应附带 not_in_library：本次填写的院校/专业不在标准院校库中的清单，
     用于提示核对笔误（确属库外院校可忽略），不影响入库。
     """
     with get_moral_db() as db:
         update_scope = _student_manage_scope(db, user, API_STUDENT_ADMISSION_BATCH)
-        if not update_scope.get("can_all"):
+        can_all = update_scope.get("can_all")
+        my_class_ids = set(update_scope.get("my_class_ids") or [])
+        my_grade_ids = set(update_scope.get("my_grade_ids") or [])
+        if not can_all and not my_class_ids and not my_grade_ids:
             raise HTTPException(403, "权限不足：需要学生管理权限")
 
         success_count = 0
@@ -1972,11 +2033,15 @@ async def batch_import_admissions(
         for item in data.students:
             try:
                 student = db.query_one(
-                    "SELECT student_id, name, status FROM student WHERE student_id = ?",
+                    "SELECT student_id, name, status, class_id, grade_id FROM student WHERE student_id = ?",
                     (item.student_id,)
                 )
                 if not student:
                     errors.append(f"学号 {item.student_id}: 学生不存在")
+                    continue
+                if not can_all and student['class_id'] not in my_class_ids and student['grade_id'] not in my_grade_ids:
+                    # 统一文案，避免通过报错枚举他班学生
+                    errors.append(f"学号 {item.student_id}: 无权录入该学生")
                     continue
                 if student['status'] != '毕业':
                     errors.append(f"学号 {item.student_id}: 非毕业状态（{student['status']}），不能导入录取信息")
@@ -2029,7 +2094,7 @@ async def update_student(
     student_id: str,
     update_data: StudentUpdate,
     request: Request,
-    user: User = Depends(check_student_manage_permission(API_STUDENT_UPDATE))
+    user: User = Depends(check_student_manage_permission(API_STUDENT_UPDATE, allow_own_grade=True))
 ):
     """
     更新学生基本信息
@@ -2037,6 +2102,7 @@ async def update_student(
     权限说明：
     - admin/jiaowu/xuefa (student_manage): 可编辑所有学生
     - cleader (student_manage_own_class): 只能编辑自己班级的学生
+    - g_leader (student_manage_own_grade): 只能编辑本年级（含已归档毕业年级）的学生
     - teacher: 无编辑权限
     """
     with get_moral_db() as db:
@@ -2078,6 +2144,18 @@ async def update_student(
         if update_data.rpid is not None:
             updates.append("rpid = ?")
             params.append(update_data.rpid)
+
+        if update_data.middle_school is not None:
+            updates.append("middle_school = ?")
+            params.append(update_data.middle_school)
+
+        if update_data.entrance_score is not None:
+            updates.append("entrance_score = ?")
+            params.append(update_data.entrance_score)
+
+        if update_data.gaokao_score is not None:
+            updates.append("gaokao_score = ?")
+            params.append(update_data.gaokao_score)
 
         if update_data.university_name is not None:
             updates.append("university_name = ?")

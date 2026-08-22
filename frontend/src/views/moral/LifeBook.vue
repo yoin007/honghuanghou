@@ -12,7 +12,7 @@
           <el-input v-model="filterForm.student_name" placeholder="输入姓名搜索" clearable style="width: 150px" />
         </el-form-item>
         <el-form-item label="包含已归档">
-          <el-switch v-model="filterForm.include_archived" :active-value="1" :inactive-value="0" />
+          <el-switch v-model="filterForm.include_archived" :active-value="1" :inactive-value="0" @change="handleIncludeArchivedChange" />
           <span class="hint">毕业/转出/休学学生</span>
         </el-form-item>
         <el-form-item class="search-btn">
@@ -66,6 +66,12 @@
             <el-tag :type="selectedStudent.status === '在校' ? 'success' : 'info'" size="small" style="margin-left: 8px">
               {{ selectedStudent.status }}
             </el-tag>
+            <span v-if="selectedStudent.status === '毕业' && selectedStudent.entrance_score" class="student-meta" style="margin-left: 8px">
+              中考：{{ selectedStudent.entrance_score }}
+            </span>
+            <span v-if="selectedStudent.status === '毕业' && selectedStudent.gaokao_score" class="student-meta" style="margin-left: 8px">
+              高考：{{ selectedStudent.gaokao_score }}
+            </span>
             <span v-if="selectedStudent.university_name" class="student-meta" style="margin-left: 8px">
               录取：{{ selectedStudent.university_name }}{{ selectedStudent.university_major ? ' · ' + selectedStudent.university_major : '' }}
             </span>
@@ -283,7 +289,9 @@ const getTagType = (type) => {
 
 const fetchClasses = async () => {
   try {
-    const res = await getClasses({ for_record_input: 1 })
+    const params = { for_record_input: 1 }
+    if (filterForm.include_archived) params.include_archived = 1
+    const res = await getClasses(params)
     if (res.success) {
       classList.value = res.data
     }
@@ -328,6 +336,17 @@ const handleClassChange = () => {
 }
 
 const handleSearch = () => {
+  studentPagination.page = 1
+  fetchStudents()
+}
+
+// 切换「包含已归档」：班级下拉同步含/不含毕业班；关闭时清掉已不在列表中的班级
+const handleIncludeArchivedChange = async () => {
+  await fetchClasses()
+  if (!filterForm.include_archived && filterForm.class_id &&
+      !classList.value.some(c => c.class_id === filterForm.class_id)) {
+    filterForm.class_id = null
+  }
   studentPagination.page = 1
   fetchStudents()
 }

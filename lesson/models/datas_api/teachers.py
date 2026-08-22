@@ -5,7 +5,7 @@ import logging
 import os
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from models.datas_api.auth import (
     User,
     get_current_user,
@@ -16,6 +16,7 @@ from models.datas_api.auth import (
     is_admin_user
 )
 from models.datas_api.moral.api_permission import require_configured_api_permission
+from models.datas_api.moral.base import log_operation
 from utils.teacher_db import (
     create_teacher_record,
     update_teacher_record,
@@ -90,7 +91,8 @@ class TeacherUpdate(BaseModel):
 
 class PasswordChangeRequest(BaseModel):
     old_password: str
-    new_password: str
+    # 6-64 位：下限防弱密码，上限防 bcrypt 72 字节静默截断
+    new_password: str = Field(min_length=6, max_length=64)
 
 
 class TeachingClassItem(BaseModel):
@@ -188,6 +190,8 @@ async def create_teacher(
             course=teacher.course,
             notice=teacher.notice,
             password_hash=str(hashed_password),
+            # 管理员创建的教师直接以哈希验证（is_password_changed=1），不存明文
+            raw_pwd="",
             role=teacher.role,
             level=final_level,
             active=1,
@@ -547,11 +551,7 @@ async def teacher_change_password(
     request: PasswordChangeRequest,
     current_user: User = Depends(require_configured_api_permission("/api/teachers/change-password", "POST", allow_missing=False))
 ):
-    """教师修改自己的密码（统一鉴权 + 本人校验）"""
-    # 统一鉴权已完成角色和等级校验，此处保留"本人操作"业务判断
-    if is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="管理员请使用管理员接口修改密码")
-
+    """教师/管理员修改自己的密码（统一鉴权 + 验证旧密码）"""
     username = current_user.username if hasattr(current_user, 'username') else current_user.get('username')
 
     users_data = get_users_dict()
@@ -579,6 +579,19 @@ async def teacher_change_password(
             is_password_changed=1,
         )
         logger.info(f"Teacher {username} changed password")
+        # 审计落库：只记操作人与对象，任何密码内容都不入日志
+        try:
+            with SQLiteMoralDatabase() as db:
+                log_operation(
+                    db,
+                    operator=username,
+                    operator_role=str(current_user.role),
+                    operation="修改密码",
+                    table_name="teacher",
+                    record_id=0,
+                )
+        except Exception as audit_err:
+            logger.warning(f"Failed to write password change audit log: {audit_err}")
         return {"message": "密码修改成功", "success": True}
 
     except HTTPException:

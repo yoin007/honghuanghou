@@ -147,9 +147,17 @@ async def get_moment_records(
             if scope == "own":
                 scope_conditions.append("mr.recorder = ?")
                 scope_params.append(user.username)
-            elif scope == "own_class" and view_scope.get("my_class_id"):
-                scope_conditions.append("mr.class_id = ?")
-                scope_params.append(view_scope["my_class_id"])
+            elif scope == "own_class":
+                # 支持多人班主任：过滤所有班主任班级（含已归档年级的毕业班）
+                my_class_ids = view_scope.get("my_class_ids") or (
+                    [view_scope["my_class_id"]] if view_scope.get("my_class_id") is not None else []
+                )
+                if my_class_ids:
+                    placeholders = ", ".join(["?"] * len(my_class_ids))
+                    scope_conditions.append(f"mr.class_id IN ({placeholders})")
+                    scope_params.extend(my_class_ids)
+                else:
+                    scope_conditions.append("1 = 0")
             elif scope == "own_grade":
                 my_grade_class_ids = view_scope.get("my_grade_class_ids") or []
                 if my_grade_class_ids:

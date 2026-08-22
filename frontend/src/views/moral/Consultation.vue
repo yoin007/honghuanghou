@@ -429,7 +429,7 @@ const fetchStudentsForCreate = async () => {
       else currentScope.value = 'all'
     }
 
-    const params = { page_size: 500 }
+    const params = { page_size: 500, status: '在校' }
     if (currentScope.value === 'own_class') params.for_record_input = 1
 
     const res = await getStudents(params)

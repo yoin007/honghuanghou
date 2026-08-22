@@ -6,7 +6,7 @@
 import pytest
 import jwt
 import bcrypt
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, timezone
 
 
 # 测试配置
@@ -41,9 +41,9 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     """创建访问令牌"""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.now(UTC) + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(UTC) + timedelta(minutes=TEST_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=TEST_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, TEST_SECRET_KEY, algorithm=TEST_ALGORITHM)
 
@@ -177,7 +177,7 @@ class TestJWTToken:
         # 验证exp是一个有效的数字时间戳
         assert isinstance(payload["exp"], (int, float))
         # 验证过期时间在未来
-        now = datetime.now(UTC).timestamp()
+        now = datetime.now(timezone.utc).timestamp()
         assert payload["exp"] > now
 
     def test_decode_expired_token(self):

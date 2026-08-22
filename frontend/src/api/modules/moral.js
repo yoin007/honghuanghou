@@ -781,8 +781,8 @@ export function getTeachersForConfig(params = {}) {
 /**
  * 获取级号列表
  */
-export function getGrades() {
-  return httpClient.get('/api/moral/admin/grades')
+export function getGrades(params = {}) {
+  return httpClient.get('/api/moral/admin/grades', { params })
 }
 
 // =============================================================================

@@ -11,6 +11,7 @@
                 <div class="auth-actions">
                   <template v-if="isLoggedIn">
                     <span class="user-greeting hidden-xs-only">你好, {{ username }}</span>
+                    <el-button size="small" plain @click="showChangePassword = true">修改密码</el-button>
                     <el-button type="danger" size="small" @click="$emit('logout')">退出</el-button>
                   </template>
                   <el-button v-else type="primary" size="small" @click="$emit('login-click')">登录</el-button>
@@ -34,10 +35,16 @@
         </div>
       </el-footer>
     </el-container>
+
+    <!-- 全局修改密码对话框 -->
+    <ChangePasswordDialog v-model="showChangePassword" />
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue'
+import ChangePasswordDialog from './ChangePasswordDialog.vue'
+
 defineProps({
   isLoggedIn: {
     type: Boolean,
@@ -50,6 +57,8 @@ defineProps({
 })
 
 defineEmits(['logout', 'login-click'])
+
+const showChangePassword = ref(false)
 </script>
 
 <style scoped>

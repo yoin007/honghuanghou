@@ -777,10 +777,31 @@ def check_class_access(user: User, class_id: int, db: SQLiteMoralDatabase) -> bo
     return False
 
 
-def get_teacher_class_id(user: User, db: SQLiteMoralDatabase) -> Optional[int]:
-    """获取班主任管理的班级ID（向后兼容，返回第一个）。
+def prefer_active_class_id(db: SQLiteMoralDatabase, class_ids: List[int]) -> Optional[int]:
+    """从候选班级中优先返回现役（未归档年级）班级，无现役时回退最小 ID。
 
-    改进：支持多人班主任，返回用户作为班主任的第一个班级ID。
+    一人两岗（毕业班班主任接任新班级）时，单数消费点默认落在现役班级。
+    """
+    if not class_ids:
+        return None
+    placeholders = ", ".join(["?"] * len(class_ids))
+    row = db.query_one(
+        f"""SELECT c.class_id FROM class c
+            JOIN grade g ON c.grade_id = g.grade_id
+            WHERE c.class_id IN ({placeholders}) AND g.is_archived = 0
+            ORDER BY c.class_id LIMIT 1""",
+        tuple(class_ids)
+    )
+    if row and row.get('class_id') is not None:
+        return row['class_id']
+    return sorted(class_ids)[0]
+
+
+def get_teacher_class_id(user: User, db: SQLiteMoralDatabase) -> Optional[int]:
+    """获取班主任管理的班级ID（优先现役班级）。
+
+    改进：支持多人班主任；一人两岗时优先返回未归档年级的班级，
+    全部已归档时回退第一个，保证仍可管理毕业班。
     若需要获取所有班主任班级，请使用 get_teacher_class_ids。
 
     Args:
@@ -791,7 +812,21 @@ def get_teacher_class_id(user: User, db: SQLiteMoralDatabase) -> Optional[int]:
         班级ID，如果不是班主任或未关联班级则返回 None
     """
     class_ids = get_teacher_class_ids(user, db)
-    return class_ids[0] if class_ids else None
+    return prefer_active_class_id(db, class_ids)
+
+
+def prefer_active_grade_id(db: SQLiteMoralDatabase, grade_ids: List[int]) -> Optional[int]:
+    """从候选年级中优先返回未归档年级，无则回退最小 ID（一人两岗时默认现役年级）。"""
+    if not grade_ids:
+        return None
+    placeholders = ", ".join(["?"] * len(grade_ids))
+    row = db.query_one(
+        f"SELECT grade_id FROM grade WHERE grade_id IN ({placeholders}) AND is_archived = 0 ORDER BY grade_id LIMIT 1",
+        tuple(grade_ids)
+    )
+    if row and row.get('grade_id') is not None:
+        return row['grade_id']
+    return sorted(grade_ids)[0]
 
 
 def get_class_leader_ids(class_id: int, db: SQLiteMoralDatabase) -> List[str]:
@@ -945,7 +980,7 @@ def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     # 方式1：通过 leader_ids 字段匹配（多人支持）
     for uid in user_candidates:
         rows = db.query_all(
-            "SELECT class_id FROM class WHERE leader_ids LIKE ? AND is_active = 1",
+            "SELECT class_id, leader_ids FROM class WHERE leader_ids LIKE ? AND is_active = 1",
             (f'%{uid}%',)
         )
         for row in rows:
@@ -958,7 +993,7 @@ def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     # 方式2：通过 leader_names 字段匹配（多人支持）
     for name in teacher_names:
         rows = db.query_all(
-            "SELECT class_id FROM class WHERE leader_names LIKE ? AND is_active = 1",
+            "SELECT class_id, leader_names FROM class WHERE leader_names LIKE ? AND is_active = 1",
             (f'%{name}%',)
         )
         for row in rows:
@@ -984,7 +1019,7 @@ def get_teacher_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
         if my_class:
             class_ids.add(my_class['class_id'])
 
-    return list(class_ids)
+    return sorted(class_ids)
 
 
 def get_grade_leader_ids(grade_id: int, db: SQLiteMoralDatabase) -> List[str]:
@@ -1095,7 +1130,7 @@ def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     # 方式1：通过 grade.leader_ids 字段匹配（多人支持）
     for uid in user_candidates:
         rows = db.query_all(
-            "SELECT grade_id FROM grade WHERE leader_ids LIKE ?",
+            "SELECT grade_id, leader_ids FROM grade WHERE leader_ids LIKE ?",
             (f'%{uid}%',)
         )
         for row in rows:
@@ -1107,7 +1142,7 @@ def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
     # 方式2：通过 grade.leader_names 字段匹配（多人支持）
     for name in teacher_names:
         rows = db.query_all(
-            "SELECT grade_id FROM grade WHERE leader_names LIKE ?",
+            "SELECT grade_id, leader_names FROM grade WHERE leader_names LIKE ?",
             (f'%{name}%',)
         )
         for row in rows:
@@ -1128,7 +1163,7 @@ def get_teacher_grade_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:
                 if row.get('grade_id'):
                     grade_ids.add(row['grade_id'])
 
-    return list(grade_ids)
+    return sorted(grade_ids)
 
 
 def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[int]:

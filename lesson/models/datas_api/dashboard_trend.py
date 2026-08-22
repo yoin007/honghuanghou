@@ -1447,7 +1447,7 @@ async def get_all_classes_score_trend(
                 (top_n,)
             )
         else:
-            # 年级主任只能查看本年级班级
+            # 年级主任只能查看本年级班级（一人两岗：排除已归档年级，避免毕业班混入现役排名）
             my_grade_ids = scope.get('my_grade_ids', [])
             if my_grade_ids:
                 grade_ids_str = ','.join(map(str, my_grade_ids))
@@ -1455,7 +1455,7 @@ async def get_all_classes_score_trend(
                     f"""SELECT c.class_id, c.class_code, c.class_name, c.grade_id, g.grade_name
                         FROM class c
                         JOIN grade g ON c.grade_id = g.grade_id
-                        WHERE c.is_active = 1 AND c.grade_id IN ({grade_ids_str})
+                        WHERE c.is_active = 1 AND g.is_archived = 0 AND c.grade_id IN ({grade_ids_str})
                         ORDER BY g.grade_id, c.class_code
                         LIMIT {top_n}"""
                 )

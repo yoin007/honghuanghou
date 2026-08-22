@@ -15,6 +15,8 @@ from models.datas_api.moral.base import (
     get_teacher_class_id,
     has_user_role,
     get_record_data_scope,
+    prefer_active_class_id,
+    prefer_active_grade_id,
 )
 from models.datas_api.moral.api_permission import (
     check_configured_api_permission,
@@ -641,7 +643,7 @@ async def get_class_dashboard_summary(
                 class_id = managed_class_id
                 class_id_resolved_from_owner = True
             if not class_id and scope.get('my_class_ids'):
-                class_id = scope['my_class_ids'][0]
+                class_id = prefer_active_class_id(db, scope['my_class_ids'])
                 class_id_resolved_from_owner = True
             elif not class_id and scope.get('can_all'):
                 first_class = db.query_one("SELECT class_id FROM class WHERE is_active = 1 ORDER BY class_id LIMIT 1")
@@ -806,9 +808,10 @@ async def get_grade_list(user: User = Depends(require_configured_api_permission(
             own_permissions=[]
         )
 
-        # 从 grade 表获取年级列表
+        # 从 grade 表获取年级列表：现役级在前（按入学年份倒序），已毕业级殿后
         grades = db.query_all(
-            "SELECT grade_id, grade_name FROM grade ORDER BY grade_name"
+            "SELECT grade_id, grade_name, enrollment_year, is_archived "
+            "FROM grade ORDER BY is_archived ASC, enrollment_year DESC"
         )
 
         # 转换为前端格式
@@ -823,6 +826,8 @@ async def get_grade_list(user: User = Depends(require_configured_api_permission(
                 "grade_id": g["grade_id"],
                 "grade_id_int": g["grade_id"],
                 "grade_name": grade_name,
+                "enrollment_year": g["enrollment_year"],
+                "is_archived": g["is_archived"] or 0,
                 "class_count": class_count
             })
 
@@ -872,7 +877,7 @@ async def get_grade_dashboard_summary(
                     grade_id_int = grade_row["grade_id"]
         else:
             if scope.get('my_grade_ids'):
-                grade_id_int = scope['my_grade_ids'][0]
+                grade_id_int = prefer_active_grade_id(db, scope['my_grade_ids'])
             elif scope.get('can_all'):
                 first_grade = db.query_one("SELECT grade_id FROM grade ORDER BY grade_id LIMIT 1")
                 if first_grade:

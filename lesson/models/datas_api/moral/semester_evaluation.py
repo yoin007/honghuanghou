@@ -1047,8 +1047,15 @@ async def api_get_semester_evaluation_list(
                 if grade_class_ids:
                     conditions.append(f"ser.class_id IN ({','.join(map(str, grade_class_ids))})")
             elif scope.get('can_own_class'):
-                conditions.append("ser.class_id = ?")
-                params.append(scope.get('my_class_id'))
+                # 支持多人班主任：过滤所有班主任班级（含已归档年级的毕业班）
+                my_class_ids = scope.get('my_class_ids') or (
+                    [scope['my_class_id']] if scope.get('my_class_id') is not None else []
+                )
+                if my_class_ids:
+                    conditions.append(f"ser.class_id IN ({','.join(['?'] * len(my_class_ids))})")
+                    params.extend(my_class_ids)
+                else:
+                    conditions.append("1 = 0")
 
         # 分页查询
         offset = (page - 1) * pageSize

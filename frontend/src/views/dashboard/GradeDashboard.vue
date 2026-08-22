@@ -9,8 +9,10 @@
       description="年级整体数据、班级对比、德育表现和出勤事务汇总。"
     >
       <div v-if="_isManager" class="filter-console">
-        <el-select v-model="selectedGradeId" placeholder="选择年级" @change="onGradeChange" style="width: 140px">
-          <el-option v-for="g in gradeList" :key="g.grade_id" :label="g.grade_name" :value="g.grade_id" />
+        <el-select v-model="selectedGradeId" placeholder="选择年级" @change="onGradeChange" style="width: 160px">
+          <el-option v-for="g in gradeList" :key="g.grade_id"
+                     :label="g.is_archived ? `${g.grade_name}（已毕业）` : g.grade_name"
+                     :value="g.grade_id" />
         </el-select>
       </div>
       <DashboardTimeChip :value="summary.updated_at" />
@@ -562,7 +564,8 @@ async function loadGradeList() {
     if (res.success) {
       gradeList.value = res.data || []
       if (gradeList.value.length > 0 && !selectedGradeId.value) {
-        const firstGrade = gradeList.value[0]
+        // 默认选中第一个现役级（后端已按现役在前、已毕业殿后排序）
+        const firstGrade = gradeList.value.find(g => !g.is_archived) || gradeList.value[0]
         selectedGradeId.value = firstGrade.grade_id // 直接使用数据库 ID
         gradeInfo.value = firstGrade
         fetchSummary()
