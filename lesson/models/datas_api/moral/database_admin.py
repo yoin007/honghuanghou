@@ -74,6 +74,8 @@ CLEARABLE_TABLES = {
         ("teacher_todo_reminder_log", "待办提醒日志"),
         ("teacher_todo_group_member", "群组成员"),
         ("semester_evaluation_record", "学期末评价记录"),
+        # 任教班级可由"初始化任教班级"从课表重建，每学期换课后可清空重灌
+        ("teacher_teaching_class", "教师任教班级"),
         # ("moral_evaluation", "德育评价"),
     ],
     "task.db": [("tasks", "任务记录")],
