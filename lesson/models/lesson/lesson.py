@@ -289,7 +289,7 @@ class Lesson:
             "c_month": self.c_month,
             "week_info": self.week_info,
             "members": self.members,
-            "teacher_template": self.teacher_template,
+            # teacher_template 不缓存：每次读取实时查库，保证改 teacher 表后立即生效
             "class_template": self.class_template,
             "students": self.students,
             "replace_dict": self.replace_dict,
