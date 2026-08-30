@@ -30,10 +30,13 @@ export const scheduleApi = {
   /**
    * 获取今日课程表
    * @param {string} date 可选，指定日期
+   * @param {boolean} nextWeek 可选，是否查询下周课表
    * @returns {Promise}
    */
-  getTodays(date = null) {
-    const params = date ? { date, _ts: Date.now() } : { _ts: Date.now() }
+  getTodays(date = null, nextWeek = false) {
+    const params = { _ts: Date.now() }
+    if (date) params.date = date
+    if (nextWeek) params.next_week = true
     return httpClient.get('/api/todays', { params })
   },
 

@@ -136,10 +136,11 @@ async def get_class_schedule(class_name: str):
 
 
 @router.get("/todays")
-async def get_todays_schedule(date: str = None):
-    """获取指定日期的课程，默认今日"""
-    # 尝试从缓存获取
-    cache_key = f"api:todays:{date or 'today'}"
+async def get_todays_schedule(date: str = None, next_week: bool = False):
+    """获取指定日期的课程，默认今日；next_week=True 时查询下周课表"""
+    # 尝试从缓存获取（下周与本周使用不同缓存键，避免串数据）
+    week_prefix = "next:" if next_week else ""
+    cache_key = f"api:todays:{week_prefix}{date or 'today'}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -147,7 +148,7 @@ async def get_todays_schedule(date: str = None):
     l = Lesson()
 
     def get_schedule_for_date(target_date):
-        df = l.get_cache_data("current_schedule")
+        df = l.get_cache_data("next_schedule" if next_week else "current_schedule")
         if df is None or df.empty:
             return pd.DataFrame()
         if "date" not in df.columns:

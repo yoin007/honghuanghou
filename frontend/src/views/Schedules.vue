@@ -41,7 +41,22 @@
     </div>
     
     <div class="schedules-container">
-      <h2>本周课表</h2>
+      <div class="schedule-title-row">
+        <h2>{{ weekOffset === 0 ? '本周课表' : '下周课表' }}</h2>
+        <div class="week-switch">
+          <el-button
+            :type="weekOffset === 0 ? 'primary' : 'default'"
+            size="small"
+            @click="handleWeekToggle(0)"
+          >本周</el-button>
+          <el-button
+            v-if="hasNextWeek"
+            :type="weekOffset === 1 ? 'primary' : 'default'"
+            size="small"
+            @click="handleWeekToggle(1)"
+          >下周</el-button>
+        </div>
+      </div>
       
       <div class="week-tabs">
         <div
@@ -107,12 +122,22 @@ const todays = ref([])
 const loading = ref(false)
 const selectedDate = ref('')
 const weekHasClass = ref({}) // 记录一周各天是否有课
+const weekOffset = ref(0) // 0=本周 1=下周
 
-const getWeekDays = () => {
+// 本地日期格式化（避免 toISOString 的 UTC 偏移问题）
+const toLocalDateStr = (date) => {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const getWeekDays = (offset = 0) => {
   const today = new Date()
   const dayOfWeek = today.getDay()
   const monday = new Date(today)
-  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + offset * 7)
+  monday.setHours(0, 0, 0, 0)
 
   const days = []
   const labels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
@@ -120,14 +145,14 @@ const getWeekDays = () => {
   for (let i = 0; i < 7; i++) {
     const date = new Date(monday)
     date.setDate(monday.getDate() + i)
-    const dateStr = `${date.getMonth() + 1}-${date.getDate()}`
+    const dateStr = toLocalDateStr(date)
     const isToday = date.toDateString() === today.toDateString()
     const isPast = date < new Date(today.setHours(0, 0, 0, 0))
 
     days.push({
-      date: date.toISOString().split('T')[0],
+      date: dateStr,
       label: labels[i],
-      dateStr: dateStr,
+      dateStr: `${date.getMonth() + 1}-${date.getDate()}`,
       isToday,
       isPast,
       hasClass: true // 默认显示，后续根据数据动态调整
@@ -137,7 +162,7 @@ const getWeekDays = () => {
   return days
 }
 
-const weekDays = ref(getWeekDays())
+const weekDays = ref(getWeekDays(0))
 
 const getScheduleDownloadUrl = (rawUrl) => {
   const urlText = typeof rawUrl === 'string' ? rawUrl.trim() : ''
@@ -171,6 +196,12 @@ const allSchedules = computed(() => {
   return schedules.value
 })
 
+// 下周课表是否已排好（/api/schedules 返回 [当前课表, 下周课表]）
+const hasNextWeek = computed(() => {
+  const list = schedules.value
+  return Array.isArray(list) && list[1] && String(list[1]).trim() !== ''
+})
+
 const validSchedules = computed(() => {
   return schedules.value.filter(url => url && url.trim() !== '')
 })
@@ -194,22 +225,23 @@ const visibleWeekDays = computed(() => {
   return weekDays.value.filter(day => day.hasClass)
 })
 
-const fetchWeekSchedule = async () => {
+const fetchWeekSchedule = async (offset = weekOffset.value) => {
   // 获取一周7天的课表数据，判断哪些天有课
   const today = new Date()
   const dayOfWeek = today.getDay()
   const monday = new Date(today)
-  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + offset * 7)
+  monday.setHours(0, 0, 0, 0)
 
   const hasClassMap = {}
 
   for (let i = 0; i < 7; i++) {
     const date = new Date(monday)
     date.setDate(monday.getDate() + i)
-    const dateStr = date.toISOString().split('T')[0]
+    const dateStr = toLocalDateStr(date)
 
     try {
-      const response = await scheduleApi.getTodays(dateStr)
+      const response = await scheduleApi.getTodays(dateStr, offset === 1)
       const data = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : [])
       // 判断是否有课：数据不为空且有实际课程内容（不只是空行）
       const hasRealClass = data.some(row => {
@@ -232,10 +264,10 @@ const fetchWeekSchedule = async () => {
   weekHasClass.value = hasClassMap
 }
 
-const fetchTodays = async (date = null) => {
+const fetchTodays = async (date = null, nextWeek = weekOffset.value === 1) => {
   loading.value = true
   try {
-    const response = await scheduleApi.getTodays(date)
+    const response = await scheduleApi.getTodays(date, nextWeek)
     if (Array.isArray(response.data)) {
       todays.value = response.data
     } else {
@@ -278,6 +310,28 @@ const handleDateChange = (date) => {
   fetchTodays(date)
 }
 
+// 切换本周/下周课表
+const handleWeekToggle = async (offset) => {
+  if (weekOffset.value === offset) return
+  weekOffset.value = offset
+  weekDays.value = getWeekDays(offset)
+  loading.value = true
+  try {
+    await fetchWeekSchedule(offset)
+  } finally {
+    loading.value = false
+  }
+  // 默认选中日期：本周优先今天（若有课），否则第一个有课的日期
+  const today = weekDays.value.find(d => d.isToday)
+  if (offset === 0 && today && today.hasClass) {
+    selectedDate.value = today.date
+  } else {
+    const firstDayWithClass = weekDays.value.find(d => d.hasClass)
+    selectedDate.value = firstDayWithClass ? firstDayWithClass.date : weekDays.value[0].date
+  }
+  await fetchTodays(selectedDate.value)
+}
+
 const classColumns = computed(() => {
   if (!todays.value || todays.value.length === 0) return []
   const allKeys = Object.keys(todays.value[0] || {})
@@ -308,7 +362,7 @@ const tableRowClassName = ({ rowIndex }) => {
 
 onMounted(async () => {
   const today = new Date()
-  selectedDate.value = today.toISOString().split('T')[0]
+  selectedDate.value = toLocalDateStr(today)
 
   // 先获取一周课表数据，判断哪些天有课
   await fetchWeekSchedule()
@@ -334,6 +388,23 @@ onMounted(async () => {
 .schedules-container h2 {
   margin-bottom: 20px;
   text-align: center;
+}
+
+.schedule-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.schedule-title-row h2 {
+  margin-bottom: 0;
+}
+
+.week-switch {
+  display: flex;
+  gap: 8px;
 }
 
 .week-tabs {
