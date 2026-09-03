@@ -252,6 +252,22 @@ class ScheduleService:
             self.notify_admins(f"更新课表失败: {exc}", log_level="error")
             return None
 
+    # 课表中的非班级元数据列，diff 和班级列校验时忽略
+    SCHEDULE_META_COLUMNS = {"style", "date", "week", "order"}
+
+    def get_unmatched_class_columns(self, df_schedule: pd.DataFrame) -> list:
+        """获取课表中未在班级模板登记的班级列"""
+        class_list = self.get_cache_data("class_template")["class_name"].tolist()
+        unmatched = []
+        for column in df_schedule.columns:
+            if column in self.SCHEDULE_META_COLUMNS:
+                continue
+            if str(column).startswith("Unnamed"):
+                continue
+            if column not in class_list and column not in unmatched:
+                unmatched.append(column)
+        return unmatched
+
     def schedule_diff(self, old_df, new_df):
         old_df_teacher = self.replace_subject_teacher(old_df)
         new_df_teacher = self.replace_subject_teacher(new_df)

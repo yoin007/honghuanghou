@@ -430,6 +430,10 @@ class Lesson:
     def schedule_diff(self, old_df, new_df):
         """比较课表差异"""
         return self.schedule_service.schedule_diff(old_df, new_df)
+
+    def get_unmatched_class_columns(self, df_schedule: pd.DataFrame) -> list:
+        """获取课表中未在班级模板登记的班级列"""
+        return self.schedule_service.get_unmatched_class_columns(df_schedule)
     
     @error_handler
     def get_class_schedule(self, class_name:str, week_next:bool=False) -> pd.DataFrame:
@@ -522,6 +526,12 @@ async def _update_schedule(l: Lesson, title: str, temp_file: str, new_name: str,
     if rsp != "ok":
         l.notify_admins(f"{rsp}", log_level="error")
         return False
+    unmatched_columns = l.get_unmatched_class_columns(schedule_data)
+    if unmatched_columns:
+        l.notify_admins(
+            f"警告：以下班级列未在班级模板中登记，这些列的调整将不会通知对应老师：{'、'.join(unmatched_columns)}",
+            log_level="warning",
+        )
 
     # 判断是否为微调模式
     diff_flag = 1 if "微调" in content else 0
