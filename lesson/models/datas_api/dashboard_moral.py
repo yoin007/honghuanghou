@@ -225,8 +225,8 @@ def class_score_rank_all(
     base_score = _get_base_score(db)
     cte = _real_time_score_cte(semester_id, base_score)
 
-    # 班级过滤条件（基于 class 表）
-    class_conditions = ["c.is_active = 1"]
+    # 班级过滤条件（基于 class 表）；默认排除已归档（毕业）年级，避免毕业班混入现役对比
+    class_conditions = ["c.is_active = 1", "g.is_archived = 0"]
     class_params = []
 
     if class_filter:
@@ -258,6 +258,7 @@ def class_score_rank_all(
                    COUNT(*) AS student_count
             FROM student_score ss
             JOIN class c ON ss.class_id = c.class_id
+            JOIN grade g ON c.grade_id = g.grade_id
             WHERE {class_where}
             GROUP BY c.class_id, c.class_name
             ORDER BY avg_score DESC

@@ -53,6 +53,24 @@
             <el-radio-button label="week">按周</el-radio-button>
             <el-radio-button label="month">按月</el-radio-button>
           </el-radio-group>
+          <el-select
+            v-model="selectedClassFilter"
+            placeholder="筛选班级"
+            size="small"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            clearable
+            filterable
+            style="width: 180px"
+          >
+            <el-option
+              v-for="cls in allClassTrendClassOptions"
+              :key="cls"
+              :label="cls"
+              :value="cls"
+            />
+          </el-select>
         </div>
       </div>
       <DashboardChart
@@ -273,7 +291,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import DashboardChart from '@/components/dashboard/DashboardChart.vue'
 import DashboardEmptyStrip from '@/components/dashboard/DashboardEmptyStrip.vue'
@@ -301,6 +319,7 @@ const warningSummary = ref({ active_count: 0, resolved_count: 0, total: 0 })
 const topN = ref(50) // 默认50，获取全部班级对比
 const moralTrendUnit = ref('week')
 const allClassTrendData = ref({ periods: [], labels: [], classes: [] })
+const selectedClassFilter = ref([])
 const allClassTrendLoading = ref(false)
 const classRecordCompareData = ref({ classes: [] })
 const classRecordCompareLoading = ref(false)
@@ -506,6 +525,16 @@ const teacherRecordOption = computed(() => {
   })
 })
 
+const allClassTrendClassOptions = computed(() => {
+  const data = allClassTrendData.value
+  return [...(data.classes || [])].sort((a, b) => {
+    const gradeOrder = { '高一年级': 1, '高二年级': 2, '高三年级': 3 }
+    const aGrade = gradeOrder[a.grade_name] || 0
+    const bGrade = gradeOrder[b.grade_name] || 0
+    return aGrade * 1000 - bGrade * 1000 + a.class_code.localeCompare(b.class_code)
+  }).map(c => c.class_name)
+})
+
 const allClassTrendOption = computed(() => {
   const data = allClassTrendData.value
   if (!data.periods?.length) return null
@@ -518,16 +547,20 @@ const allClassTrendOption = computed(() => {
     return aGrade * 1000 - bGrade * 1000 + a.class_code.localeCompare(b.class_code)
   })
 
+  const visibleClasses = selectedClassFilter.value?.length
+    ? sortedClasses.filter(c => selectedClassFilter.value.includes(c.class_name))
+    : sortedClasses
+
   // 预定义颜色数组
   const colors = ['#38bdf8', '#34d399', '#fbbf24', '#a78bfa', '#f472b6',
                   '#fb7185', '#22d3ee', '#84cc16', '#f59e0b', '#818cf8']
 
-  const totalScores = sortedClasses.flatMap(cls => cls.trend?.total_scores || [])
+  const totalScores = visibleClasses.flatMap(cls => cls.trend?.total_scores || [])
 
   return {
     tooltip: { trigger: 'axis' },
     legend: {
-      data: sortedClasses.map(c => c.class_name),
+      data: visibleClasses.map(c => c.class_name),
       type: 'scroll',
       top: 10,
       height: 28,
@@ -549,7 +582,7 @@ const allClassTrendOption = computed(() => {
         axisLabel: { color: '#94a3b8' }
       })
     },
-    series: sortedClasses.map((cls, idx) => ({
+    series: visibleClasses.map((cls, idx) => ({
       name: cls.class_name,
       type: 'line',
       smooth: true,
@@ -756,6 +789,11 @@ const fetchSummary = () => {
     data => { summary.value = data }
   )
 }
+
+watch(allClassTrendData, (data) => {
+  const classNames = new Set(data.classes?.map(c => c.class_name) || [])
+  selectedClassFilter.value = selectedClassFilter.value?.filter(name => classNames.has(name)) || []
+})
 
 onMounted(() => {
   fetchSummary()
@@ -1130,6 +1168,23 @@ p {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.trend-controls .el-select {
+  width: 180px;
+}
+
+.trend-controls .el-select :deep(.el-input__wrapper) {
+  background: rgba(15, 23, 42, 0.74);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.32) inset;
+}
+
+.trend-controls .el-select :deep(.el-input__inner) {
+  color: #e2e8f0;
+}
+
+.trend-controls .el-select :deep(.el-input__inner::placeholder) {
+  color: #94a3b8;
 }
 
 .trend-controls :deep(.el-radio-button__inner) {

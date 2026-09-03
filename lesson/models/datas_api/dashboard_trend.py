@@ -1441,7 +1441,7 @@ async def get_all_classes_score_trend(
                 """SELECT c.class_id, c.class_code, c.class_name, c.grade_id, g.grade_name
                    FROM class c
                    JOIN grade g ON c.grade_id = g.grade_id
-                   WHERE c.is_active = 1
+                   WHERE c.is_active = 1 AND g.is_archived = 0
                    ORDER BY g.grade_id, c.class_code
                    LIMIT ?""",
                 (top_n,)
@@ -1687,7 +1687,7 @@ async def get_class_record_compare(
                 """SELECT c.class_id, c.class_code, c.class_name, c.grade_id, g.grade_name
                    FROM class c
                    JOIN grade g ON c.grade_id = g.grade_id
-                   WHERE c.is_active = 1
+                   WHERE c.is_active = 1 AND g.is_archived = 0
                    ORDER BY g.grade_id, c.class_code"""
             )
         else:
@@ -1698,7 +1698,7 @@ async def get_class_record_compare(
                     f"""SELECT c.class_id, c.class_code, c.class_name, c.grade_id, g.grade_name
                         FROM class c
                         JOIN grade g ON c.grade_id = g.grade_id
-                        WHERE c.is_active = 1 AND c.grade_id IN ({grade_ids_str})
+                        WHERE c.is_active = 1 AND g.is_archived = 0 AND c.grade_id IN ({grade_ids_str})
                         ORDER BY g.grade_id, c.class_code"""
                 )
             else:
