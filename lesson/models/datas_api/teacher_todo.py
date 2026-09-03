@@ -64,6 +64,7 @@ class TodoCreate(BaseModel):
     wechat_notify_enabled: Optional[int] = Field(1, ge=0, le=1, description="微信通知开关")
     remind_before_minutes: Optional[int] = Field(30, ge=0, description="提前提醒分钟数")
     reminder_interval: Optional[int] = Field(2, ge=1, le=60, description="提醒间隔（分钟）")
+    reminder_count: Optional[int] = Field(2, ge=1, le=10, description="提醒次数")
     notify_creator: Optional[int] = Field(1, ge=0, le=1, description="提醒创建者")
     notify_assignees: Optional[int] = Field(1, ge=0, le=1, description="提醒协作教师")
     assignee_group_ids: Optional[List[int]] = Field(None, description="协作群组ID列表")
@@ -82,6 +83,7 @@ class TodoUpdate(BaseModel):
     wechat_notify_enabled: Optional[int] = Field(None, ge=0, le=1)
     remind_before_minutes: Optional[int] = Field(None, ge=0)
     reminder_interval: Optional[int] = Field(None, ge=1, le=60)
+    reminder_count: Optional[int] = Field(None, ge=1, le=10)
     notify_creator: Optional[int] = Field(None, ge=0, le=1)
     notify_assignees: Optional[int] = Field(None, ge=0, le=1)
     assignee_group_ids: Optional[List[int]] = Field(None)
@@ -171,7 +173,7 @@ async def get_todos(
                        t.title, t.description, t.todo_type, t.creator_teacher_id, t.creator_name,
                        t.start_date, t.end_date,
                        t.recurrence_rule_json, t.time_of_day, t.wechat_notify_enabled,
-                       t.remind_before_minutes, t.reminder_interval, t.notify_creator, t.notify_assignees
+                       t.remind_before_minutes, t.reminder_interval, t.reminder_count, t.notify_creator, t.notify_assignees
                 FROM teacher_todo_occurrence o
                 JOIN teacher_todo_series t ON o.todo_series_id = t.id
                 WHERE {where_clause}
@@ -245,13 +247,13 @@ async def create_todo(
             """INSERT INTO teacher_todo_series
                (title, description, creator_teacher_id, creator_name, todo_type,
                 start_date, end_date, recurrence_rule_json, time_of_day,
-                wechat_notify_enabled, remind_before_minutes, reminder_interval, notify_creator, notify_assignees,
+                wechat_notify_enabled, remind_before_minutes, reminder_interval, reminder_count, notify_creator, notify_assignees,
                 is_active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
             (todo.title, todo.description, teacher_id, teacher_name, todo.todo_type,
              todo.start_date, todo.end_date,
              json.dumps(todo.recurrence_rule.dict()) if todo.recurrence_rule else None,
-             time_of_day, todo.wechat_notify_enabled, todo.remind_before_minutes, todo.reminder_interval,
+             time_of_day, todo.wechat_notify_enabled, todo.remind_before_minutes, todo.reminder_interval, todo.reminder_count,
              todo.notify_creator, todo.notify_assignees)
         )
         series_id = db.lastrowid()
@@ -359,6 +361,9 @@ async def update_todo(
         if "reminder_interval" in payload:
             updates.append("reminder_interval = ?")
             params.append(todo.reminder_interval)
+        if "reminder_count" in payload:
+            updates.append("reminder_count = ?")
+            params.append(todo.reminder_count)
         if "notify_creator" in payload:
             updates.append("notify_creator = ?")
             params.append(todo.notify_creator)
@@ -903,6 +908,8 @@ def ensure_teacher_todo_schema(db):
             time_of_day TEXT DEFAULT '08:00',
             wechat_notify_enabled INTEGER DEFAULT 1,
             remind_before_minutes INTEGER DEFAULT 30,
+            reminder_interval INTEGER DEFAULT 2,
+            reminder_count INTEGER DEFAULT 2,
             notify_creator INTEGER DEFAULT 1,
             notify_assignees INTEGER DEFAULT 1,
             is_active INTEGER DEFAULT 1,
@@ -981,6 +988,7 @@ def ensure_teacher_todo_schema(db):
         ("teacher_todo_series", "notify_creator", "ALTER TABLE teacher_todo_series ADD COLUMN notify_creator INTEGER DEFAULT 1"),
         ("teacher_todo_series", "notify_assignees", "ALTER TABLE teacher_todo_series ADD COLUMN notify_assignees INTEGER DEFAULT 1"),
         ("teacher_todo_series", "reminder_interval", "ALTER TABLE teacher_todo_series ADD COLUMN reminder_interval INTEGER DEFAULT 2"),
+        ("teacher_todo_series", "reminder_count", "ALTER TABLE teacher_todo_series ADD COLUMN reminder_count INTEGER DEFAULT 2"),
         ("teacher_todo_occurrence", "scheduled_at", "ALTER TABLE teacher_todo_occurrence ADD COLUMN scheduled_at TEXT"),
         ("teacher_todo_occurrence", "due_at", "ALTER TABLE teacher_todo_occurrence ADD COLUMN due_at TEXT"),
         ("teacher_todo_occurrence", "is_overdue", "ALTER TABLE teacher_todo_occurrence ADD COLUMN is_overdue INTEGER DEFAULT 0"),

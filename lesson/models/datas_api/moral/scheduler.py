@@ -802,8 +802,8 @@ def teacher_todo_reminder_task():
     流程：
     1. 查询需要发送提醒的待办（scheduled_at - remind_before_minutes <= 当前时间）
     2. 检查已发送次数和上次发送时间
-    3. 若次数<3且距上次>=2分钟，发送微信提醒
-    4. 若次数=3且仍pending，标记为逾期
+    3. 若次数 < 配置提醒次数且距上次 >= 间隔时间，发送微信提醒
+    4. 若次数达到配置提醒次数且仍 pending，标记为逾期
     5. 记录提醒日志
     """
     # logger.info("执行教师待办提醒任务")
@@ -811,8 +811,6 @@ def teacher_todo_reminder_task():
     from .base import get_moral_db
     from models.datas_api.teacher_todo import ensure_teacher_todo_schema, ensure_future_occurrences
     from sendqueue import send_text
-
-    MAX_REMINDERS = 3  # 最大提醒次数
 
     with get_moral_db() as db:
         ensure_teacher_todo_schema(db)
@@ -823,6 +821,7 @@ def teacher_todo_reminder_task():
         remindables = db.query_all(
             """SELECT o.id as occurrence_id, o.todo_series_id, o.scheduled_at, o.occurrence_date,
                    t.title, t.description, t.wechat_notify_enabled, t.remind_before_minutes,
+                   t.reminder_interval, t.reminder_count,
                    t.notify_creator, t.notify_assignees, t.creator_teacher_id, t.creator_name,
                    t.time_of_day
             FROM teacher_todo_occurrence o
@@ -876,14 +875,15 @@ def teacher_todo_reminder_task():
                 )
                 sent_count = reminder_stats['sent_count'] or 0
                 last_remind_time_str = reminder_stats['last_remind_time']
+                max_reminders = todo.get('reminder_count') or 2
 
-                # 检查是否已发送3次，标记逾期
-                if sent_count >= MAX_REMINDERS:
+                # 检查是否已达到配置提醒次数，标记逾期
+                if sent_count >= max_reminders:
                     db.execute(
                         """UPDATE teacher_todo_occurrence SET is_overdue = 1 WHERE id = ?""",
                         (todo['occurrence_id'],)
                     )
-                    logger.info(f"待办 {todo['title']} 已发送3次提醒仍未完成，标记为逾期")
+                    logger.info(f"待办 {todo['title']} 已发送{max_reminders}次提醒仍未完成，标记为逾期")
                     continue
 
                 # 检查距离上次提醒是否>=间隔时间
@@ -964,13 +964,13 @@ def teacher_todo_reminder_task():
 
                 logger.info(f"已发送待办提醒（第{next_sequence}次）：{title} → 教师 {teacher_id}")
 
-                # 如果是第3次提醒且发送成功，标记逾期
-                if is_sent == 1 and next_sequence >= MAX_REMINDERS:
+                # 如果达到配置提醒次数且发送成功，标记逾期
+                if is_sent == 1 and next_sequence >= max_reminders:
                     db.execute(
                         """UPDATE teacher_todo_occurrence SET is_overdue = 1 WHERE id = ?""",
                         (todo['occurrence_id'],)
                     )
-                    logger.info(f"待办 {title} 已发送{MAX_REMINDERS}次提醒，标记为逾期")
+                    logger.info(f"待办 {title} 已发送{max_reminders}次提醒，标记为逾期")
 
 
 def semester_evaluation_task():

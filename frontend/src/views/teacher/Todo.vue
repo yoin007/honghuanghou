@@ -80,6 +80,7 @@
             </div>
             <div class="todo-actions">
               <el-button link type="primary" @click="handleEdit(todo)" v-if="canEdit(todo)">编辑</el-button>
+              <el-button link type="success" @click="handleCopy(todo)" v-if="canCopy(todo)">复制</el-button>
               <el-button link type="danger" @click="handleDelete(todo)" v-if="canDelete(todo)">删除</el-button>
             </div>
           </div>
@@ -126,6 +127,10 @@
         <el-form-item label="提醒间隔" v-if="todoForm.wechat_notify_enabled">
           <el-input-number v-model="todoForm.reminder_interval" :min="1" :max="60" :step="1" style="width: 100%" />
           <span style="margin-left: 8px; color: #909399">分钟</span>
+        </el-form-item>
+        <el-form-item label="提醒次数" v-if="todoForm.wechat_notify_enabled">
+          <el-input-number v-model="todoForm.reminder_count" :min="1" :max="10" :step="1" style="width: 100%" />
+          <span style="margin-left: 8px; color: #909399">次</span>
         </el-form-item>
         <el-form-item label="通知对象" v-if="todoForm.wechat_notify_enabled">
           <el-checkbox v-model="todoForm.notify_creator" :true-label="1" :false-label="0">通知创建者</el-checkbox>
@@ -228,6 +233,7 @@ const todoForm = reactive({
   wechat_notify_enabled: 1,
   remind_before_minutes: 30,
   reminder_interval: 2,
+  reminder_count: 2,
   notify_creator: 1,
   notify_assignees: 1,
   assignee_group_ids: [],
@@ -321,6 +327,7 @@ const goGroups = () => {
 
 const canEdit = (todo) => todo.is_creator === true || todo.is_creator === 1
 const canDelete = (todo) => todo.is_creator === true || todo.is_creator === 1
+const canCopy = canEdit
 
 const fetchTodos = async () => {
   loading.value = true
@@ -375,6 +382,7 @@ const handleAdd = () => {
   todoForm.wechat_notify_enabled = 1
   todoForm.remind_before_minutes = 30
   todoForm.reminder_interval = 2
+  todoForm.reminder_count = 2
   todoForm.notify_creator = 1
   todoForm.notify_assignees = 1
   todoForm.assignee_group_ids = []
@@ -394,6 +402,35 @@ const handleEdit = (todo) => {
   todoForm.wechat_notify_enabled = todo.wechat_notify_enabled ?? 1
   todoForm.remind_before_minutes = todo.remind_before_minutes ?? 30
   todoForm.reminder_interval = todo.reminder_interval ?? 2
+  todoForm.reminder_count = todo.reminder_count ?? 2
+  todoForm.notify_creator = todo.notify_creator ?? 1
+  todoForm.notify_assignees = todo.notify_assignees ?? 1
+  todoForm.recurrence_rule = {
+    unit: todo.todo_type,
+    weekday: null,
+    day_of_month: null,
+    month: null,
+    day: null,
+    ...(todo.recurrence_rule || {})
+  }
+  todoForm.assignee_teacher_ids = todo.assignee_teacher_ids || []
+  todoForm.assignee_group_ids = []
+  dialogVisible.value = true
+}
+
+const handleCopy = (todo) => {
+  dialogTitle.value = '复制待办'
+  editingSeriesId.value = null
+  todoForm.title = `${todo.title} 的副本`
+  todoForm.description = todo.description || ''
+  todoForm.todo_type = todo.todo_type
+  todoForm.start_date = todo.start_date
+  todoForm.end_date = todo.end_date || ''
+  todoForm.time_of_day = todo.time_of_day || (todo.scheduled_at ? todo.scheduled_at.slice(11, 16) : '08:00')
+  todoForm.wechat_notify_enabled = todo.wechat_notify_enabled ?? 1
+  todoForm.remind_before_minutes = todo.remind_before_minutes ?? 30
+  todoForm.reminder_interval = todo.reminder_interval ?? 2
+  todoForm.reminder_count = todo.reminder_count ?? 2
   todoForm.notify_creator = todo.notify_creator ?? 1
   todoForm.notify_assignees = todo.notify_assignees ?? 1
   todoForm.recurrence_rule = {
@@ -428,6 +465,7 @@ const handleSubmit = async () => {
     wechat_notify_enabled: todoForm.wechat_notify_enabled,
     remind_before_minutes: todoForm.remind_before_minutes,
     reminder_interval: todoForm.reminder_interval,
+    reminder_count: todoForm.reminder_count,
     notify_creator: todoForm.notify_creator,
     notify_assignees: todoForm.notify_assignees,
     assignee_group_ids: todoForm.assignee_group_ids || null,
