@@ -68,12 +68,17 @@
                 <el-tag v-if="todo.todo_type !== 'one_off'" size="small" type="info">
                   {{ todoTypeLabel(todo.todo_type) }}
                 </el-tag>
-                <el-tooltip v-if="(todo.attachments || []).length > 0" :content="`${todo.attachments.length} 个附件`" placement="top">
-                  <span class="attachment-indicator">
-                    <el-icon><Paperclip /></el-icon>
-                    <span class="attachment-count">{{ todo.attachments.length }}</span>
-                  </span>
-                </el-tooltip>
+                <template v-if="(todo.attachments || []).length > 0">
+                  <el-tooltip :content="`${todo.attachments.length} 个附件`" placement="top">
+                    <span class="attachment-indicator">
+                      <el-icon><Paperclip /></el-icon>
+                      <span class="attachment-count">{{ todo.attachments.length }}</span>
+                    </span>
+                  </el-tooltip>
+                  <el-button link type="primary" size="small" @click="openAttachmentView(todo)">
+                    查看附件
+                  </el-button>
+                </template>
               </div>
               <div class="todo-meta">
                 <span v-if="todo.description" class="todo-desc">{{ todo.description }}</span>
@@ -93,6 +98,22 @@
         </div>
       </div>
     </el-card>
+
+    <!-- 附件查看对话框 -->
+    <el-dialog v-model="attachmentDialogVisible" :title="attachmentViewTitle" width="480px">
+      <el-empty v-if="attachmentViewList.length === 0" description="暂无附件" />
+      <div v-else class="attachment-view-list">
+        <div v-for="att in attachmentViewList" :key="att.id" class="attachment-view-item">
+          <div class="attachment-view-name" :title="att.original_name || att.name">
+            <el-icon><Document /></el-icon>
+            <span>{{ att.original_name || att.name }}</span>
+          </div>
+          <el-button link type="primary" size="small" @click="downloadAttachment(att)">
+            下载
+          </el-button>
+        </div>
+      </div>
+    </el-dialog>
 
     <!-- 新增/编辑对话框 -->
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="550px">
@@ -209,10 +230,12 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Paperclip } from '@element-plus/icons-vue'
+import { Paperclip, Document } from '@element-plus/icons-vue'
 import AttachmentUpload from '@/components/AttachmentUpload.vue'
 import { getTodos, createTodo, updateTodo, deleteTodo, completeOccurrence, reopenOccurrence, getGroups } from '@/api/modules/teacherTodo'
 import { teacherApi } from '@/api/modules/teacher'
+import { fetchAttachmentBlob } from '@/api/modules/moral'
+import { downloadBlob } from '@/utils/filegather'
 
 const loading = ref(false)
 const router = useRouter()
@@ -235,6 +258,10 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('新增待办')
 const formRef = ref(null)
 const editingSeriesId = ref(null)
+
+const attachmentDialogVisible = ref(false)
+const attachmentViewTitle = ref('')
+const attachmentViewList = ref([])
 
 const todoForm = reactive({
   title: '',
@@ -344,6 +371,21 @@ const goGroups = () => {
 const canEdit = (todo) => todo.is_creator === true || todo.is_creator === 1
 const canDelete = (todo) => todo.is_creator === true || todo.is_creator === 1
 const canCopy = canEdit
+
+const openAttachmentView = (todo) => {
+  attachmentViewTitle.value = `${todo.title} 的附件`
+  attachmentViewList.value = todo.attachments || []
+  attachmentDialogVisible.value = true
+}
+
+const downloadAttachment = async (att) => {
+  try {
+    const res = await fetchAttachmentBlob(att.id, false)
+    downloadBlob(res.data, att.original_name || att.name || `attachment_${att.id}`)
+  } catch (e) {
+    ElMessage.error('下载失败')
+  }
+}
 
 const fetchTodos = async () => {
   loading.value = true
@@ -699,5 +741,35 @@ onMounted(() => {
 
 .attachment-count {
   margin-left: 4px;
+}
+
+.attachment-view-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.attachment-view-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+.attachment-view-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  color: #303133;
+}
+
+.attachment-view-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
