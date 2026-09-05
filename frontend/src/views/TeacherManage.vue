@@ -8,6 +8,7 @@
             <el-button type="success" @click="handleInitTeachingClasses" :icon="Setting" :loading="initLoading" v-if="isAdmin">初始化任教班级</el-button>
             <el-button type="primary" @click="handleAdd" :icon="Plus" v-if="isAdmin">添加教师</el-button>
             <el-button type="warning" @click="handleChangeMyPassword" :icon="Lock" v-if="!isAdmin">修改密码</el-button>
+            <el-button @click="handleExport" :icon="Download">导出</el-button>
             <el-button type="info" @click="fetchTeachers" :icon="Refresh" :loading="loading">刷新</el-button>
           </div>
         </div>
@@ -316,12 +317,13 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
-import { Plus, Refresh, Lock, Search, Setting } from '@element-plus/icons-vue'
+import { Plus, Refresh, Lock, Search, Setting, Download } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { teacherApi } from '@/api/modules/teacher'
 import { getClasses } from '@/api/modules/moral'
 import { useAuthStore } from '../stores/auth'
 import { formatDateTimeLocal } from '@/utils/time'
+import { downloadRowsAsExcel } from '@/utils/filegather'
 
 // 使用 Pinia auth store
 const authStore = useAuthStore()
@@ -503,13 +505,12 @@ const getIdentityType = (identityType) => {
   return map[identityType] || 'warning'
 }
 
-// 计算分页数据
-const updatePagination = () => {
-  // 过滤数据
-  let filteredData = allTeachers.value
+// 当前筛选后的全部教师数据（不受分页影响）
+const filteredTeachers = computed(() => {
+  let data = allTeachers.value
   if (searchKeyword.value) {
     const keyword = searchKeyword.value.toLowerCase()
-    filteredData = filteredData.filter(teacher =>
+    data = data.filter(teacher =>
       teacher.username.toLowerCase().includes(keyword) ||
       (teacher.teacher_id && teacher.teacher_id.toLowerCase().includes(keyword)) ||
       (teacher.wxid && teacher.wxid.toLowerCase().includes(keyword)) ||
@@ -521,20 +522,25 @@ const updatePagination = () => {
   }
   // 通知状态筛选
   if (noticeFilter.value !== '') {
-    filteredData = filteredData.filter(teacher => teacher.notice === noticeFilter.value)
+    data = data.filter(teacher => teacher.notice === noticeFilter.value)
   }
   // 登录权限筛选
   if (activeFilter.value !== '') {
-    filteredData = filteredData.filter(teacher => teacher.active === activeFilter.value)
+    data = data.filter(teacher => teacher.active === activeFilter.value)
   }
   if (identityFilter.value !== '') {
-    filteredData = filteredData.filter(teacher => teacher.identity_type === identityFilter.value)
+    data = data.filter(teacher => teacher.identity_type === identityFilter.value)
   }
-  // 分页
+  return data
+})
+
+// 计算分页数据
+const updatePagination = () => {
+  const data = filteredTeachers.value
   const start = (currentPage.value - 1) * pageSize.value
   const end = start + pageSize.value
-  teacherList.value = filteredData.slice(start, end)
-  total.value = filteredData.length
+  teacherList.value = data.slice(start, end)
+  total.value = data.length
 }
 
 // 获取教师列表
@@ -590,6 +596,56 @@ const handleReset = () => {
   identityFilter.value = ''
   currentPage.value = 1
   updatePagination()
+}
+
+// 导出当前筛选后的教师列表
+const handleExport = async () => {
+  const rows = filteredTeachers.value.map(teacher => ({
+    teacher_id: teacher.teacher_id,
+    username: teacher.username,
+    identity_type: getIdentityText(teacher.identity_type),
+    wxid: teacher.wxid,
+    subject: teacher.subject,
+    course: teacher.course,
+    role: getRoleText(teacher.role),
+    level: teacher.level || 1,
+    active: teacher.active ? '允许' : '禁止',
+    notice: teacher.notice ? '启用' : '禁用',
+    score: teacher.score,
+    balance: teacher.balance,
+    model: teacher.model,
+    ai_flag: teacher.ai_flag ? '是' : '否',
+    birthday: teacher.birthday,
+    is_password_changed: teacher.is_password_changed ? '已加密' : '兼容明文',
+    note: teacher.note,
+    updated_at: teacher.updated_at
+  }))
+
+  await downloadRowsAsExcel({
+    filename: `教师列表_${new Date().toISOString().slice(0, 10)}`,
+    sheetName: '教师列表',
+    columns: [
+      { header: 'ID', key: 'teacher_id', width: 18 },
+      { header: '用户名', key: 'username', width: 14 },
+      { header: '身份', key: 'identity_type', width: 12 },
+      { header: '微信ID', key: 'wxid', width: 22 },
+      { header: '任教展示', key: 'subject', width: 16 },
+      { header: '课程', key: 'course', width: 12 },
+      { header: '角色', key: 'role', width: 14 },
+      { header: '等级', key: 'level', width: 10 },
+      { header: '登录权限', key: 'active', width: 12 },
+      { header: '通知', key: 'notice', width: 10 },
+      { header: '积分', key: 'score', width: 10 },
+      { header: '余额', key: 'balance', width: 10 },
+      { header: '模块', key: 'model', width: 18 },
+      { header: 'AI', key: 'ai_flag', width: 8 },
+      { header: '生日', key: 'birthday', width: 12 },
+      { header: '密码状态', key: 'is_password_changed', width: 14 },
+      { header: '备注', key: 'note', width: 24 },
+      { header: '更新时间', key: 'updated_at', width: 20 }
+    ],
+    rows
+  })
 }
 
 // 添加教师
