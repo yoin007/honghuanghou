@@ -16,6 +16,11 @@ from pydantic import BaseModel, Field
 
 from .moral.base import get_moral_db
 from .moral.api_permission import require_configured_api_permission
+from .moral.attachments import (
+    link_attachments,
+    update_record_attachments,
+    get_attachments,
+)
 from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
@@ -69,6 +74,7 @@ class TodoCreate(BaseModel):
     notify_assignees: Optional[int] = Field(1, ge=0, le=1, description="提醒协作教师")
     assignee_group_ids: Optional[List[int]] = Field(None, description="协作群组ID列表")
     assignee_teacher_ids: Optional[List[str]] = Field(None, description="关联教师ID列表")
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
 
 class TodoUpdate(BaseModel):
@@ -88,6 +94,7 @@ class TodoUpdate(BaseModel):
     notify_assignees: Optional[int] = Field(None, ge=0, le=1)
     assignee_group_ids: Optional[List[int]] = Field(None)
     assignee_teacher_ids: Optional[List[str]] = Field(None)
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
     is_active: Optional[int] = Field(None, ge=0, le=1)
 
 
@@ -192,6 +199,7 @@ async def get_todos(
             )
             occ["assignees"] = assignees or []
             occ["is_creator"] = occ["creator_teacher_id"] in identity["aliases"]
+            occ["attachments"] = get_attachments(db, "teacher_todo_series", occ["todo_series_id"])
             items.append(occ)
 
         # 统计
@@ -257,6 +265,9 @@ async def create_todo(
              todo.notify_creator, todo.notify_assignees)
         )
         series_id = db.lastrowid()
+
+        if todo.attachment_ids:
+            link_attachments(db, "teacher_todo_series", series_id, todo.attachment_ids, user.username)
 
         # 插入 assignee（创建者 + 群组成员 + 手动添加，去重）
         all_assignees = set([teacher_id])
@@ -417,6 +428,9 @@ async def update_todo(
                 rule,
                 _validate_time_of_day(updated.get("time_of_day")),
             )
+
+        if todo.attachment_ids is not None:
+            update_record_attachments(db, "teacher_todo_series", series_id, todo.attachment_ids, user.username)
 
         return {
             "success": True,
@@ -608,6 +622,7 @@ async def get_upcoming_todos(
             )
             item["assignees"] = assignees or []
             item["is_creator"] = item["creator_teacher_id"] in identity["aliases"]
+            item["attachments"] = get_attachments(db, "teacher_todo_series", item["series_id"])
 
         return {
             "success": True,

@@ -105,6 +105,15 @@
           </el-table-column>
           <el-table-column prop="record_date" label="时间" width="160" />
           <el-table-column prop="remark" label="备注" show-overflow-tooltip />
+          <el-table-column label="附件" width="80" align="center">
+            <template #default="{ row }">
+              <el-tooltip v-if="(row.attachments || []).length > 0" :content="`${row.attachments.length} 个附件`" placement="top">
+                <el-icon><Paperclip /></el-icon>
+                <span class="attachment-count">{{ row.attachments.length }}</span>
+              </el-tooltip>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="120" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateDailyRecord && row.can_edit">编辑</el-button>
@@ -240,6 +249,12 @@
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="recordForm.remark" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="附件">
+          <AttachmentUpload
+            v-model="recordForm.attachment_ids"
+            :existing-attachments="recordForm.attachments"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -392,7 +407,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Paperclip } from '@element-plus/icons-vue'
 import {
   getDailyRecords,
   getDailyEventTypes,
@@ -414,6 +429,7 @@ import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
 import { useAuthStore } from '@/stores/auth'
 import MoralScopeTabs from '@/components/MoralScopeTabs.vue'
+import AttachmentUpload from '@/components/AttachmentUpload.vue'
 
 // 当前用户角色
 const authStore = useAuthStore()
@@ -464,7 +480,9 @@ const recordForm = reactive({
   student_ids: [],
   event_id: null,
   record_date: '',
-  remark: ''
+  remark: '',
+  attachment_ids: [],
+  attachments: []
 })
 
 // 拉取全量教师列表
@@ -636,7 +654,9 @@ const handleAdd = () => {
     student_ids: [],
     event_id: null,
     record_date: getGMT8TimeString(),
-    remark: ''
+    remark: '',
+    attachment_ids: [],
+    attachments: []
   })
   classStudents.value = []
   dialogVisible.value = true
@@ -665,7 +685,9 @@ const handleEdit = async (row) => {
     student_ids: [row.student_id],
     event_id: row.event_id,
     record_date: row.record_date,
-    remark: row.remark
+    remark: row.remark,
+    attachment_ids: (row.attachments || []).map(a => a.id),
+    attachments: row.attachments || []
   })
   dialogVisible.value = true
 }
@@ -692,7 +714,8 @@ const handleSubmit = async () => {
       const updateData = {
         remark: recordForm.remark,
         event_id: recordForm.event_id,
-        record_date: recordForm.record_date
+        record_date: recordForm.record_date,
+        attachment_ids: recordForm.attachment_ids
       }
       const res = await updateDailyRecord(recordForm.record_id, updateData)
       if (res.success) {
@@ -707,13 +730,21 @@ const handleSubmit = async () => {
 
     const results = []
     let escalationMessages = []
+    const multiStudent = recordForm.student_ids.length > 1
+    if (multiStudent && recordForm.attachment_ids.length > 0) {
+      ElMessage.warning('批量创建学生记录时暂不支持附件，请逐条添加')
+    }
     for (const studentId of recordForm.student_ids) {
-      const res = await createDailyRecord({
+      const payload = {
         student_id: studentId,
         event_id: recordForm.event_id,
         record_date: recordForm.record_date,
         remark: recordForm.remark
-      })
+      }
+      if (!multiStudent) {
+        payload.attachment_ids = recordForm.attachment_ids
+      }
+      const res = await createDailyRecord(payload)
       results.push(res.success)
       if (res.success && res.message && res.message.includes('触发累进处罚')) {
         escalationMessages.push(res.message.replace('记录创建成功，', ''))
@@ -1019,5 +1050,11 @@ onMounted(async () => {
 
 .record-tabs {
   margin-bottom: 16px;
+}
+
+.attachment-count {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #606266;
 }
 </style>

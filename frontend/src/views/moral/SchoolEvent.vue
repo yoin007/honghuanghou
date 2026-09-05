@@ -65,6 +65,15 @@
           </template>
         </el-table-column>
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
+        <el-table-column label="附件" width="80" align="center">
+          <template #default="{ row }">
+            <el-tooltip v-if="(row.attachments || []).length > 0" :content="`${row.attachments.length} 个附件`" placement="top">
+              <el-icon><Paperclip /></el-icon>
+              <span class="attachment-count">{{ row.attachments.length }}</span>
+            </el-tooltip>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateSchoolRecord">编辑</el-button>
@@ -154,6 +163,12 @@
         <el-form-item label="证明材料">
           <el-input v-model="recordForm.evidence" placeholder="相关证明材料链接" />
         </el-form-item>
+        <el-form-item label="附件">
+          <AttachmentUpload
+            v-model="recordForm.attachment_ids"
+            :existing-attachments="recordForm.attachments"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -166,6 +181,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Paperclip } from '@element-plus/icons-vue'
 import {
   getSchoolRecords,
   getSchoolEventTypes,
@@ -179,6 +195,7 @@ import {
 import { getGMT8DateString } from '@/utils/time'
 import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
+import AttachmentUpload from '@/components/AttachmentUpload.vue'
 
 // API权限
 const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
@@ -221,7 +238,9 @@ const recordForm = reactive({
   event_id: null,
   event_date: '',
   description: '',
-  evidence: ''
+  evidence: '',
+  attachment_ids: [],
+  attachments: []
 })
 
 // 表单校验规则
@@ -335,7 +354,9 @@ const handleAdd = () => {
     event_id: null,
     event_date: getGMT8DateString(), // 东八区当前日期
     description: '',
-    evidence: ''
+    evidence: '',
+    attachment_ids: [],
+    attachments: []
   })
   classStudents.value = []
   dialogVisible.value = true
@@ -365,7 +386,9 @@ const handleEdit = async (row) => {
     event_id: row.event_id,
     event_date: row.event_date,
     description: row.description,
-    evidence: row.evidence
+    evidence: row.evidence,
+    attachment_ids: (row.attachments || []).map(a => a.id),
+    attachments: row.attachments || []
   })
   dialogVisible.value = true
 }
@@ -396,7 +419,8 @@ const handleSubmit = async () => {
       const res = await updateSchoolRecord(recordForm.record_id, {
         event_date: recordForm.event_date,
         description: recordForm.description,
-        evidence: recordForm.evidence
+        evidence: recordForm.evidence,
+        attachment_ids: recordForm.attachment_ids
       })
       if (res.success) {
         ElMessage.success('更新成功')
@@ -408,14 +432,22 @@ const handleSubmit = async () => {
 
     // 新增模式：批量为每个学生创建记录
     const results = []
+    const multiStudent = recordForm.student_ids.length > 1
+    if (multiStudent && recordForm.attachment_ids.length > 0) {
+      ElMessage.warning('批量创建学生记录时暂不支持附件，请逐条添加')
+    }
     for (const studentId of recordForm.student_ids) {
-      const res = await createSchoolRecord({
+      const payload = {
         student_id: studentId,
         event_id: recordForm.event_id,
         event_date: recordForm.event_date,
         description: recordForm.description,
         evidence: recordForm.evidence
-      })
+      }
+      if (!multiStudent) {
+        payload.attachment_ids = recordForm.attachment_ids
+      }
+      const res = await createSchoolRecord(payload)
       results.push(res.success)
     }
     const successCount = results.filter(r => r).length
@@ -522,5 +554,11 @@ onMounted(async () => {
 .score-negative {
   color: #f56c6c;
   font-weight: bold;
+}
+
+.attachment-count {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #606266;
 }
 </style>

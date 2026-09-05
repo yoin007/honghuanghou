@@ -5,9 +5,12 @@
 自动检测操作系统并返回对应的路径配置
 """
 
-import platform
+import logging
 import os
+import platform
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def get_system() -> str:
@@ -106,3 +109,30 @@ def get_lesson_dir(config: dict) -> Optional[str]:
     if path:
         return normalize_path(path)
     return None
+
+
+def get_filegather_storage_root() -> str:
+    """
+    获取文件收集与附件存储根目录。
+
+    优先读取 lesson/config/lesson.yaml 中的 filegather_storage_dir 跨平台配置；
+    未配置或读取失败时回退到 <lesson>/storage/filegather。
+
+    Returns:
+        str: 存储根目录绝对路径
+    """
+    try:
+        from config.config import Config
+        path = Config().get_cross_platform_path("filegather_storage_dir", "lesson.yaml")
+        if path:
+            return normalize_path(path)
+    except Exception as exc:
+        logger.warning(f"读取 lesson.yaml filegather_storage_dir 失败: {exc}")
+
+    fallback = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "storage",
+        "filegather",
+    )
+    logger.warning(f"使用默认存储路径: {fallback}")
+    return fallback

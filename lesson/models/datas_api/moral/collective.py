@@ -23,6 +23,11 @@ from .base import (
     has_user_role,
 )
 from .api_permission import require_configured_api_permission
+from .attachments import (
+    link_attachments,
+    update_record_attachments,
+    get_attachments,
+)
 from models.datas_api.auth import is_admin_user
 from models.datas_api.auth import User
 
@@ -49,6 +54,7 @@ class CollectiveEventCreate(BaseModel):
     score: int = Field(..., description="每人得分/扣分")
     class_id: int = Field(..., description="班级ID")
     description: Optional[str] = Field(None, description="事件描述")
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
 
 class CollectiveEventUpdate(BaseModel):
@@ -58,6 +64,7 @@ class CollectiveEventUpdate(BaseModel):
     event_date: Optional[date] = Field(None, description="事件日期")
     score: Optional[int] = Field(None, description="每人得分/扣分")
     description: Optional[str] = Field(None, description="事件描述")
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
 
 class DistributionUpdate(BaseModel):
@@ -161,6 +168,10 @@ async def get_collective_events(
         """
         params.extend([page_size, offset])
         events = db.query_all(data_query, tuple(params))
+        for event_item in events:
+            event_item["attachments"] = get_attachments(
+                db, "collective_event", event_item["event_id"]
+            )
 
         return {
             "success": True,
@@ -223,6 +234,9 @@ async def create_collective_event(
         )
 
         event_id = db.lastrowid()
+
+        if event.attachment_ids:
+            link_attachments(db, "collective_event", event_id, event.attachment_ids, user.username)
 
         # 获取班级所有在校学生
         students = db.query_all(
@@ -298,6 +312,7 @@ async def get_collective_event(
         )
 
         event['distributions'] = distributions
+        event['attachments'] = get_attachments(db, "collective_event", event_id)
 
         return {"success": True, "data": event}
 
@@ -383,6 +398,9 @@ async def update_collective_event(
             ip_address=request.client.host if request.client else None
         )
 
+        if event.attachment_ids is not None:
+            update_record_attachments(db, "collective_event", event_id, event.attachment_ids, user.username)
+
         return {"success": True, "message": "事件更新成功"}
 
 
@@ -411,6 +429,9 @@ async def delete_collective_event(
             WHERE ced.event_id = ?""",
             (event_id,)
         )
+
+        # 清理关联附件
+        update_record_attachments(db, "collective_event", event_id, [], user.username)
 
         # 删除分配记录
         db.execute(

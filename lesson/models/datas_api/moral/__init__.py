@@ -66,6 +66,7 @@ from .warning_handle_api import router as warning_handle_router
 from .colleges import router as colleges_router
 
 from .pending_record import router as pending_record_router
+from .attachments import router as attachments_router
 
 from fastapi import APIRouter
 from fastapi import Depends
@@ -182,6 +183,7 @@ router.include_router(warning_config_router)
 router.include_router(warning_handle_router)
 router.include_router(colleges_router)
 router.include_router(pending_record_router)
+router.include_router(attachments_router)
 
 __all__ = [
     'router',

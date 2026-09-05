@@ -58,6 +58,15 @@
         </el-table-column>
         <el-table-column prop="participant_count" label="参与人数" width="100" />
         <el-table-column prop="event_date" label="事件日期" width="120" />
+        <el-table-column label="附件" width="80" align="center">
+          <template #default="{ row }">
+            <el-tooltip v-if="(row.attachments || []).length > 0" :content="`${row.attachments.length} 个附件`" placement="top">
+              <el-icon><Paperclip /></el-icon>
+              <span class="attachment-count">{{ row.attachments.length }}</span>
+            </el-tooltip>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="创建人" width="100">
           <template #default="{ row }">
             {{ row.created_by || '-' }}
@@ -128,6 +137,12 @@
         <el-form-item label="描述">
           <el-input v-model="eventForm.description" type="textarea" :rows="3" placeholder="事件描述" />
         </el-form-item>
+        <el-form-item label="附件">
+          <AttachmentUpload
+            v-model="eventForm.attachment_ids"
+            :existing-attachments="eventForm.attachments"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -192,7 +207,9 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Paperclip } from '@element-plus/icons-vue'
 import { useApiPermission } from '@/composables/useApiPermission'
+import AttachmentUpload from '@/components/AttachmentUpload.vue'
 import {
   getGrades,
   getClasses,
@@ -241,7 +258,9 @@ const eventForm = reactive({
   class_id: null,
   score: 5,
   event_date: new Date().toISOString().split('T')[0],
-  description: ''
+  description: '',
+  attachment_ids: [],
+  attachments: []
 })
 
 const rules = {
@@ -344,6 +363,8 @@ const handleAdd = () => {
   eventForm.score = 5
   eventForm.event_date = new Date().toISOString().split('T')[0]
   eventForm.description = ''
+  eventForm.attachment_ids = []
+  eventForm.attachments = []
   dialogVisible.value = true
 }
 
@@ -356,6 +377,8 @@ const handleEdit = (row) => {
   eventForm.score = row.score
   eventForm.event_date = row.event_date
   eventForm.description = row.description || ''
+  eventForm.attachment_ids = (row.attachments || []).map(a => a.id)
+  eventForm.attachments = row.attachments || []
   dialogVisible.value = true
 }
 
@@ -370,7 +393,8 @@ const handleSubmit = async () => {
         event_type: eventForm.event_type,
         event_date: eventForm.event_date,
         score: eventForm.score,
-        description: eventForm.description
+        description: eventForm.description,
+        attachment_ids: eventForm.attachment_ids
       })
       ElMessage.success('更新成功')
     } else {
@@ -501,5 +525,11 @@ onMounted(() => {
   margin-left: 10px;
   color: #909399;
   font-size: 12px;
+}
+
+.attachment-count {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #606266;
 }
 </style>

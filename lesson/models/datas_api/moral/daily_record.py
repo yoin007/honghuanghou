@@ -37,6 +37,11 @@ from .base import (
 )
 from .evaluation import calculate_evaluation
 from .escalation import check_and_trigger_escalation
+from .attachments import (
+    link_attachments,
+    update_record_attachments,
+    get_attachments,
+)
 from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
@@ -98,6 +103,7 @@ class DailyRecordCreate(BaseModel):
     event_id: int = Field(..., description="事件类型ID")
     record_date: Optional[datetime] = Field(None, description="记录时间（精确到分钟），不传则默认当前时间")
     remark: Optional[str] = Field(None, description="备注")
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
     def validate_record_date(self, current_time: datetime) -> datetime:
         """验证记录时间不能超过当前时间"""
@@ -113,6 +119,7 @@ class DailyRecordUpdate(BaseModel):
     record_date: Optional[datetime] = Field(None, description="记录时间")
     remark: Optional[str] = Field(None, description="备注")
     is_deleted: Optional[int] = Field(None, description="是否删除")
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
 
 class DailyRecordResponse(BaseModel):
@@ -351,6 +358,9 @@ async def get_daily_records(
                 delete_scope,
                 username=user.username,
             ))
+            record_item["attachments"] = get_attachments(
+                db, "student_daily_record", record_item["record_id"]
+            )
 
         return {
             "success": True,
@@ -461,6 +471,10 @@ async def create_daily_record(
 
         # 重新计算德育评价总分
         calculate_evaluation(db, record.student_id, semester_id, class_id, grade_id)
+
+        # 关联附件
+        if record.attachment_ids:
+            link_attachments(db, "student_daily_record", record_id, record.attachment_ids, user.username)
 
         # 构建返回数据
         response_data = {"record_id": record_id}
@@ -695,6 +709,10 @@ async def update_daily_record(
         calculate_evaluation(db, old_record['student_id'], old_record['semester_id'],
                              old_record['class_id'], old_record['grade_id'])
 
+        # 关联附件
+        if update_data.attachment_ids is not None:
+            update_record_attachments(db, "student_daily_record", record_id, update_data.attachment_ids, user.username)
+
         return {"success": True, "message": "记录更新成功"}
 
 
@@ -738,6 +756,9 @@ async def delete_daily_record(
 
         # 检查关联处分是否需要复核
         check_related_punishments(db, record_id, old_record['student_id'], old_record['event_id'], old_record['semester_id'])
+
+        # 清理关联附件
+        update_record_attachments(db, "student_daily_record", record_id, [], user.username)
 
         # 记录操作日志
         log_operation(

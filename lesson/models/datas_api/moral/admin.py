@@ -30,6 +30,7 @@ from .base import (
 )
 from models.datas_api.auth import User, is_admin_user
 from utils.db_config import COLLEGES_DB
+from utils.paths import get_filegather_storage_root
 from utils.sqlite_moral_db import MoralDatabase
 
 logger = logging.getLogger(__name__)
@@ -2372,6 +2373,9 @@ async def get_system_config(
                    ORDER BY period_days ASC"""
             ) or []
 
+            # 文件存储根目录由 lesson.yaml 跨平台配置决定，不再通过接口写入
+            result["filegather_storage_dir"] = get_filegather_storage_root()
+
             return {"success": True, "data": result}
         else:
             # DEFAULT_CONFIG 无 punishment_types，动态补充
@@ -2383,6 +2387,10 @@ async def get_system_config(
                    WHERE is_active = 1
                    ORDER BY period_days ASC"""
             ) or []
+
+            # 文件存储根目录由 lesson.yaml 跨平台配置决定，不再通过接口写入
+            result["filegather_storage_dir"] = get_filegather_storage_root()
+
             return {"success": True, "data": result}
 
 
@@ -2401,7 +2409,6 @@ class ConfigUpdate(BaseModel):
     daily_record_roles: Optional[str] = Field(None, description="日常记录角色（逗号分隔）")
     student_profile_roles: Optional[str] = Field(None, description="学生画像角色（逗号分隔）")
     ai_consultation_roles: Optional[str] = Field(None, description="AI诊疗角色（逗号分隔）")
-    filegather_storage_dir: Optional[str] = Field(None, description="文件收集系统存储根目录（自动创建 uploads 和 done 子目录）")
 
 
 @router.put("/config", summary="更新系统配置")

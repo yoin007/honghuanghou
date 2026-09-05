@@ -6,6 +6,7 @@
 """
 
 import logging
+import os
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -18,6 +19,7 @@ from .base import (
     record_in_scope,
 )
 from .api_permission import require_configured_api_permission
+from .attachments import get_attachments, get_attachment_export_files
 from models.datas_api.auth import User
 
 router = APIRouter(prefix="/timeline", tags=["一生一册"])
@@ -192,7 +194,8 @@ async def get_student_timeline(
                     "recorder": m['recorder'],
                     "source": "点滴记录",
                     "tags": tags,
-                    "record_type": m['record_type']
+                    "record_id": m['record_id'],
+                    "record_type": "moment_record"
                 })
 
         # 2. 日常表现记录
@@ -217,7 +220,9 @@ async def get_student_timeline(
                     "score": d['score'],
                     "recorder": d['recorder'],
                     "source": "日常表现",
-                    "event_type": "积极" if d['event_type'] == 1 else "消极"
+                    "event_type": "积极" if d['event_type'] == 1 else "消极",
+                    "record_id": d['record_id'],
+                    "record_type": "student_daily_record"
                 })
 
         # 3. 校级事件
@@ -241,7 +246,9 @@ async def get_student_timeline(
                     "content": s['proof'] or "",
                     "score": s['score'],
                     "recorder": None,
-                    "source": "校级事件"
+                    "source": "校级事件",
+                    "record_id": s['record_id'],
+                    "record_type": "student_school_record"
                 })
 
         # 4. 处分记录
@@ -263,7 +270,9 @@ async def get_student_timeline(
                     "score": None,
                     "recorder": None,
                     "source": "处分记录",
-                    "revoke_date": p['revoke_date']
+                    "revoke_date": p['revoke_date'],
+                    "record_id": p['id'],
+                    "record_type": "punishment_record"
                 })
 
         # 5. 任务完成
@@ -292,7 +301,8 @@ async def get_student_timeline(
         if not type_filter or 'collective' in type_filter:
             collective_records = db.query_all("""
                 SELECT ced.id, ced.score_assigned, ced.is_participant, ced.remark,
-                       ce.event_name, ce.event_type, ce.event_date, 'collective' as source
+                       ce.event_name, ce.event_type, ce.event_date, ce.event_id,
+                       'collective' as source
                 FROM collective_event_distribution ced
                 JOIN collective_event ce ON ced.event_id = ce.event_id
                 WHERE ced.student_id = ?
@@ -310,11 +320,22 @@ async def get_student_timeline(
                     "score": c['score_assigned'] if c['is_participant'] == 1 else 0,
                     "recorder": None,
                     "source": "集体事件",
-                    "event_type": c['event_type']
+                    "event_type": c['event_type'],
+                    "record_id": c['event_id'],
+                    "record_type": "collective_event"
                 })
 
         # 按日期排序
         timeline.sort(key=lambda x: x['date'] or '', reverse=True)
+
+        # 关联附件：图片/文档/音频（德育任务无附件功能）
+        for item in timeline:
+            record_type = item.get("record_type")
+            record_id = item.get("record_id")
+            if record_type and record_id:
+                item["attachments"] = get_attachments(db, record_type, record_id)
+            else:
+                item["attachments"] = []
 
         # 统计信息
         stats = {
@@ -443,7 +464,9 @@ def _get_timeline_data(db, student_id: str, user: User):
             "content": m['content'],
             "score": None,
             "recorder": m['recorder'],
-            "source": "点滴记录"
+            "source": "点滴记录",
+            "record_id": m['record_id'],
+            "record_type": "moment_record",
         })
 
     # 2. 日常表现记录
@@ -465,7 +488,9 @@ def _get_timeline_data(db, student_id: str, user: User):
             "score": d['score'],
             "recorder": d['recorder'],
             "source": "日常表现",
-            "event_type": "积极" if d['event_type'] == 1 else "消极"
+            "event_type": "积极" if d['event_type'] == 1 else "消极",
+            "record_id": d['record_id'],
+            "record_type": "student_daily_record",
         })
 
     # 3. 校级事件
@@ -486,7 +511,9 @@ def _get_timeline_data(db, student_id: str, user: User):
             "content": s['proof'] or "",
             "score": s['score'],
             "recorder": None,
-            "source": "校级事件"
+            "source": "校级事件",
+            "record_id": s['record_id'],
+            "record_type": "student_school_record",
         })
 
     # 4. 处分记录
@@ -507,7 +534,9 @@ def _get_timeline_data(db, student_id: str, user: User):
             "content": p['reason'],
             "score": -abs(p['score_deduct'] or 0),
             "recorder": None,
-            "source": "处分记录"
+            "source": "处分记录",
+            "record_id": p['id'],
+            "record_type": "punishment_record",
         })
 
     # 5. 任务完成
@@ -534,7 +563,8 @@ def _get_timeline_data(db, student_id: str, user: User):
     # 6. 集体事件
     collective_records = db.query_all("""
         SELECT ced.id, ced.score_assigned, ced.is_participant, ced.remark,
-               ce.event_name, ce.event_type, ce.event_date, 'collective' as source
+               ce.event_name, ce.event_type, ce.event_date, ce.event_id,
+               'collective' as source
         FROM collective_event_distribution ced
         JOIN collective_event ce ON ced.event_id = ce.event_id
         WHERE ced.student_id = ?
@@ -550,11 +580,22 @@ def _get_timeline_data(db, student_id: str, user: User):
             "score": c['score_assigned'] if c['is_participant'] == 1 else 0,
             "recorder": None,
             "source": "集体事件",
-            "event_type": c['event_type']
+            "event_type": c['event_type'],
+            "record_id": c['event_id'],
+            "record_type": "collective_event"
         })
 
     # 按日期排序
     timeline.sort(key=lambda x: x['date'] or '', reverse=True)
+
+    # 关联附件：图片/文档/音频
+    for item in timeline:
+        record_type = item.get("record_type")
+        record_id = item.get("record_id")
+        if record_type and record_id:
+            item["attachments"] = get_attachments(db, record_type, record_id)
+        else:
+            item["attachments"] = []
 
     # 统计和分数汇总
     stats = {
@@ -585,6 +626,134 @@ def _get_timeline_data(db, student_id: str, user: User):
     return student, timeline, stats, score_summary
 
 
+def _build_lifebook_excel(
+    db,
+    student: dict,
+    timeline: List[dict],
+    stats: dict,
+    score_summary: dict,
+    user_name: str,
+    timeline_sheet_name: str = "时光轴明细",
+) -> io.BytesIO:
+    """
+    构造一生一册 Excel 文件。
+
+    时光轴 Sheet 增加“附件”列：
+    - 图片类型直接插入缩略图；
+    - 文档/音频类型仅显示文件名。
+    """
+    from openpyxl.drawing.image import Image as OpenpyxlImage
+    from openpyxl.utils import get_column_letter
+
+    output = io.BytesIO()
+
+    student_df = pd.DataFrame([{
+        "学号": student['student_id'],
+        "姓名": student['name'],
+        "班级": student['class_name'],
+        "年级": student['grade_name'],
+        "性别": student['gender'],
+        "生日": student['birthday'],
+        "状态": student['status'],
+        "导出日期": dt.now().strftime('%Y-%m-%d %H:%M'),
+        "导出人": user_name
+    }])
+
+    timeline_rows = []
+    for item in timeline:
+        attachment_texts = []
+        for att in item.get("attachments") or []:
+            if att.get("file_type") == "image":
+                attachment_texts.append(f"[图片] {att.get('original_name', '')}")
+            else:
+                attachment_texts.append(f"[{att.get('file_type', '文件')}] {att.get('original_name', '')}")
+        timeline_rows.append({
+            "日期": item['date'],
+            "类型": item['type'],
+            "标题": item['title'],
+            "内容": item['content'],
+            "分数": item.get('score'),
+            "记录人": item.get('recorder'),
+            "来源": item['source'],
+            "附件": "\n".join(attachment_texts) if attachment_texts else "",
+        })
+    timeline_df = pd.DataFrame(timeline_rows)
+
+    score_df = pd.DataFrame([score_summary])
+    stats_df = pd.DataFrame([stats])
+
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        student_df.to_excel(writer, sheet_name='学生信息', index=False)
+        timeline_df.to_excel(writer, sheet_name=timeline_sheet_name, index=False)
+        score_df.to_excel(writer, sheet_name='分数汇总', index=False)
+        stats_df.to_excel(writer, sheet_name='分类统计', index=False)
+
+        ws = writer.sheets[timeline_sheet_name]
+
+        # 列宽
+        column_widths = {
+            "A": 14, "B": 12, "C": 24, "D": 40,
+            "E": 10, "F": 12, "G": 12, "H": 50,
+        }
+        for col, width in column_widths.items():
+            ws.column_dimensions[col].width = width
+
+        # 附件列索引（H）
+        attachment_col = len(timeline_df.columns)  # 1-based
+        attachment_col_letter = get_column_letter(attachment_col)
+
+        # 插入图片/文件名
+        for row_idx, item in enumerate(timeline, start=2):  # 数据从第 2 行开始
+            record_type = item.get("record_type")
+            record_id = item.get("record_id")
+            if not record_type or not record_id:
+                continue
+
+            files = get_attachment_export_files(db, record_type, record_id)
+            if not files:
+                continue
+
+            cell = ws.cell(row=row_idx, column=attachment_col)
+            cell.alignment = cell.alignment.copy(wrapText=True, vertical="top")
+
+            image_count = 0
+            text_lines = []
+            for f in files:
+                if f.get("file_type") == "image":
+                    img_path = f.get("thumbnail_abs_path") or f.get("abs_path")
+                    if not img_path or not os.path.exists(img_path):
+                        text_lines.append(f"[图片] {f.get('original_name', '')}")
+                        continue
+                    try:
+                        img = OpenpyxlImage(img_path)
+                        # 限制显示尺寸，避免撑爆单元格
+                        max_px = 120
+                        if img.width > max_px or img.height > max_px:
+                            ratio = min(max_px / img.width, max_px / img.height)
+                            img.width = int(img.width * ratio)
+                            img.height = int(img.height * ratio)
+                        # 水平错开，避免重叠
+                        img.anchor = f"{attachment_col_letter}{row_idx}"
+                        ws.add_image(img)
+                        image_count += 1
+                    except Exception as exc:
+                        logger.warning(f"Excel 嵌入图片失败 {img_path}: {exc}")
+                        text_lines.append(f"[图片] {f.get('original_name', '')}")
+                else:
+                    text_lines.append(f"[{f.get('file_type', '文件')}] {f.get('original_name', '')}")
+
+            if text_lines:
+                cell.value = "\n".join(text_lines)
+
+            # 有图片时适当增高行高
+            if image_count:
+                current_height = ws.row_dimensions[row_idx].height or 15
+                ws.row_dimensions[row_idx].height = max(current_height, image_count * 90)
+
+    output.seek(0)
+    return output
+
+
 @router.get("/export/{student_id}/xlsx", summary="导出学生档案 Excel")
 async def export_lifebook_xlsx(
     student_id: str,
@@ -593,49 +762,10 @@ async def export_lifebook_xlsx(
     """导出一生一册为 Excel 多Sheet文件"""
     with get_moral_db() as db:
         student, timeline, stats, score_summary = _get_timeline_data(db, student_id, user)
-
-        output = io.BytesIO()
-
-        # Sheet 1: 学生信息
-        student_df = pd.DataFrame([{
-            "学号": student['student_id'],
-            "姓名": student['name'],
-            "班级": student['class_name'],
-            "年级": student['grade_name'],
-            "性别": student['gender'],
-            "生日": student['birthday'],
-            "状态": student['status'],
-            "导出日期": dt.now().strftime('%Y-%m-%d %H:%M'),
-            "导出人": user.username
-        }])
-
-        # Sheet 2: 时光轴明细
-        timeline_df = pd.DataFrame([
-            {
-                "日期": item['date'],
-                "类型": item['type'],
-                "标题": item['title'],
-                "内容": item['content'],
-                "分数": item.get('score'),
-                "记录人": item.get('recorder'),
-                "来源": item['source']
-            }
-            for item in timeline
-        ])
-
-        # Sheet 3: 分数汇总
-        score_df = pd.DataFrame([score_summary])
-
-        # Sheet 4: 分类统计
-        stats_df = pd.DataFrame([stats])
-
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            student_df.to_excel(writer, sheet_name='学生信息', index=False)
-            timeline_df.to_excel(writer, sheet_name='时光轴明细', index=False)
-            score_df.to_excel(writer, sheet_name='分数汇总', index=False)
-            stats_df.to_excel(writer, sheet_name='分类统计', index=False)
-
-        output.seek(0)
+        output = _build_lifebook_excel(
+            db, student, timeline, stats, score_summary, user.username,
+            timeline_sheet_name="时光轴明细",
+        )
 
         filename = f"一生一册_{student['name']}_{student['class_name']}_{dt.now().strftime('%Y%m%d')}.xlsx"
 
@@ -683,38 +813,10 @@ async def export_class_lifebooks(
                 try:
                     student_data, timeline_data, stats_data, score_data = _get_timeline_data(db, student['student_id'], user)
 
-                    # 生成单个 Excel
-                    excel_buffer = io.BytesIO()
-
-                    student_df = pd.DataFrame([{
-                        "学号": student['student_id'],
-                        "姓名": student['name'],
-                        "班级": student['class_name'],
-                        "导出日期": dt.now().strftime('%Y-%m-%d'),
-                        "导出人": user.username
-                    }])
-
-                    timeline_df = pd.DataFrame([
-                        {
-                            "日期": item['date'],
-                            "类型": item['type'],
-                            "标题": item['title'],
-                            "内容": item['content'],
-                            "分数": item.get('score')
-                        }
-                        for item in timeline_data
-                    ])
-
-                    score_df = pd.DataFrame([score_data])
-                    stats_df = pd.DataFrame([stats_data])
-
-                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                        student_df.to_excel(writer, sheet_name='学生信息', index=False)
-                        timeline_df.to_excel(writer, sheet_name='时光轴', index=False)
-                        score_df.to_excel(writer, sheet_name='分数汇总', index=False)
-                        stats_df.to_excel(writer, sheet_name='统计', index=False)
-
-                    excel_buffer.seek(0)
+                    excel_buffer = _build_lifebook_excel(
+                        db, student_data, timeline_data, stats_data, score_data, user.username,
+                        timeline_sheet_name="时光轴",
+                    )
                     zipf.writestr(f"{student['name']}.xlsx", excel_buffer.read())
 
                 except Exception as e:

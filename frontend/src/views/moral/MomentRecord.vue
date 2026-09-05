@@ -73,6 +73,15 @@
           </template>
         </el-table-column>
         <el-table-column prop="record_date" label="记录日期" width="120" />
+        <el-table-column label="附件" width="80" align="center">
+          <template #default="{ row }">
+            <el-tooltip v-if="(row.attachments || []).length > 0" :content="`${row.attachments.length} 个附件`" placement="top">
+              <el-icon><Paperclip /></el-icon>
+              <span class="attachment-count">{{ row.attachments.length }}</span>
+            </el-tooltip>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="handleEdit(row)" v-if="canUpdateMomentRecord && row.can_edit">编辑</el-button>
@@ -135,6 +144,12 @@
         <el-form-item label="记录日期" prop="record_date">
           <el-date-picker v-model="form.record_date" type="date" placeholder="选择日期" value-format="YYYY-MM-DD" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="附件">
+          <AttachmentUpload
+            v-model="form.attachment_ids"
+            :existing-attachments="form.attachments"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -147,11 +162,13 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Paperclip } from '@element-plus/icons-vue'
 import { getMomentRecords, createMomentRecord, updateMomentRecord, deleteMomentRecord, getClasses, getStudents } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
 import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
 import MoralScopeTabs from '@/components/MoralScopeTabs.vue'
+import AttachmentUpload from '@/components/AttachmentUpload.vue'
 
 const { hasApiPermissionSync, loadMyPermissions } = useApiPermission()
 const canCreateMomentRecord = ref(false)
@@ -189,7 +206,9 @@ const form = reactive({
   content: '',
   record_type: 'moment',
   tags: [],
-  record_date: getGMT8DateString() // 东八区当前日期
+  record_date: getGMT8DateString(), // 东八区当前日期
+  attachment_ids: [],
+  attachments: []
 })
 
 const rules = {
@@ -297,7 +316,9 @@ const handleAdd = () => {
     content: '',
     record_type: 'moment',
     tags: [],
-    record_date: getGMT8DateString() // 东八区当前日期
+    record_date: getGMT8DateString(), // 东八区当前日期
+    attachment_ids: [],
+    attachments: []
   })
   dialogVisible.value = true
 }
@@ -310,7 +331,9 @@ const handleEdit = (row) => {
     content: row.content,
     record_type: row.record_type,
     tags: parseTags(row.tags),
-    record_date: row.record_date
+    record_date: row.record_date,
+    attachment_ids: (row.attachments || []).map(a => a.id),
+    attachments: row.attachments || []
   })
   dialogVisible.value = true
 }
@@ -325,7 +348,8 @@ const handleSubmit = async () => {
       content: form.content,
       record_type: form.record_type,
       tags: form.tags,
-      record_date: form.record_date
+      record_date: form.record_date,
+      attachment_ids: form.attachment_ids
     }
 
     let res
@@ -456,5 +480,11 @@ onMounted(async () => {
 
 .tag-item {
   margin-right: 4px;
+}
+
+.attachment-count {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #606266;
 }
 </style>

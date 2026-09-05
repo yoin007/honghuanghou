@@ -21,6 +21,13 @@ lesson_dir:
   Windows: D:/lesson                         # Windows
   Linux: /home/user/lesson                   # Linux
 
+# 文件收集/附件存储根目录 - 跨平台配置
+# 根据操作系统自动选择对应路径
+filegather_storage_dir:
+  Darwin: /Users/yourname/path/to/filegather    # macOS
+  Windows: D:/storage/filegather                 # Windows
+  Linux: /home/user/filegather                   # Linux
+
 # 周次偏移量 (用于计算当前周次，正数向后，负数向前)
 week_change: -8
 

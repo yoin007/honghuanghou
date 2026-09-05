@@ -30,6 +30,7 @@ from websocket import websocket_endpoint, manager
 from utils.database import init_db_optimization
 from utils.monitor import init_monitor
 from utils.db_integrity import check_database_integrity_on_startup
+from utils.paths import get_filegather_storage_root
 from models.api import bailian_req
 
 log = LogConfig().get_logger()
@@ -221,12 +222,9 @@ static_dir = config.get_cross_platform_path("lesson_dir", "lesson.yaml")
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-# 待完善记录图片目录（从 moral_config 读取 filegather_storage_dir，在其下创建 images 子目录）
+# 待完善记录图片目录（从 lesson.yaml 读取 filegather_storage_dir，在其下创建 images 子目录）
 def _get_pending_upload_dir():
-    from models.datas_api.moral.base import get_moral_db
-    with get_moral_db() as db:
-        row = db.query_one("SELECT config_value FROM moral_config WHERE config_key = 'filegather_storage_dir'")
-        base_dir = row["config_value"] if row and row.get("config_value") else os.path.join(os.path.dirname(__file__), "storage", "filegather")
+    base_dir = get_filegather_storage_root()
     img_dir = os.path.join(base_dir, "images")
     os.makedirs(img_dir, exist_ok=True)
     return img_dir

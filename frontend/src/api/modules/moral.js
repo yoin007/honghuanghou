@@ -161,6 +161,39 @@ export function uploadPendingImages(formData) {
 }
 
 /**
+ * 上传通用附件
+ * @param {FormData} formData 包含 files 和可选 record_type
+ */
+export function uploadAttachments(formData) {
+  return httpClient.post('/api/moral/attachments/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/**
+ * 删除附件
+ * @param {number} attachmentId 附件ID
+ */
+export function deleteAttachment(attachmentId) {
+  return httpClient.delete(`/api/moral/attachments/${attachmentId}`)
+}
+
+/**
+ * 拉取附件 Blob（图片预览/文件下载）
+ * 附件接口需 Authorization 头鉴权，<img src>/<a href> 等原生请求无法携带，
+ * 必须走 axios 拿 Blob 再 createObjectURL。
+ * 注意：响应拦截器对 Blob 不解包，返回完整 axios response，数据在 res.data
+ * @param {number} attachmentId 附件ID
+ * @param {boolean} thumbnail 是否缩略图
+ */
+export function fetchAttachmentBlob(attachmentId, thumbnail = false) {
+  return httpClient.get(`/api/moral/attachments/${attachmentId}`, {
+    params: thumbnail ? { thumbnail: 1 } : {},
+    responseType: 'blob'
+  })
+}
+
+/**
  * 搜索教师（用于任课教师选择）
  */
 export function searchTeachers(keyword) {
@@ -1566,6 +1599,11 @@ export default {
   checkApiPermission,
   initApiPermissions,
   getApiGroups,
+
+  // 通用附件
+  uploadAttachments,
+  deleteAttachment,
+  fetchAttachmentBlob,
 
   // 集体事件
   getCollectiveEvents,

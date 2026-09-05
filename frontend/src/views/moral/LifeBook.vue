@@ -164,6 +164,24 @@
                 </span>
               </div>
               <div class="content-body">{{ item.content }}</div>
+              <div v-if="item.attachments && item.attachments.length" class="content-attachments">
+                <template v-for="att in item.attachments" :key="att.id">
+                  <el-image
+                    v-if="att.file_type === 'image' && (urls[`${att.id}_t`] || urls[`${att.id}`])"
+                    :src="urls[`${att.id}_t`] || urls[`${att.id}`]"
+                    fit="cover"
+                    class="attachment-img"
+                    @click="openPreview(item, att)"
+                  />
+                  <div v-else-if="att.file_type !== 'image'" class="attachment-doc" @click="downloadAttachment(att)">
+                    <el-icon class="attachment-doc-icon">
+                      <Headset v-if="att.file_type === 'audio'" />
+                      <Document v-else />
+                    </el-icon>
+                    <span class="attachment-doc-name" :title="att.original_name">{{ att.original_name }}</span>
+                  </div>
+                </template>
+              </div>
               <div v-if="item.tags && item.tags.length" class="content-tags">
                 <el-tag v-for="tag in item.tags" :key="tag" size="small" effect="plain">{{ tag }}</el-tag>
               </div>
@@ -177,13 +195,23 @@
         <el-button @click="handleBack">返回学生列表</el-button>
       </div>
     </el-card>
+
+    <el-image-viewer
+      v-if="previewVisible"
+      :url-list="previewUrls"
+      :initial-index="previewIndex"
+      teleported
+      @close="previewVisible = false"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ElMessage, ElImageViewer } from 'element-plus'
+import { Document, Headset } from '@element-plus/icons-vue'
 import { getClasses, searchTimeline, getStudentTimeline, exportLifebookXlsx, exportClassLifebooks } from '@/api/modules/moral'
+import { useAttachmentUrls } from '@/composables/useAttachmentUrls'
 
 const classList = ref([])
 const studentList = ref([])
@@ -197,6 +225,43 @@ const studentLoading = ref(false)
 const timelineLoading = ref(false)
 const exportLoading = ref(false)
 const exportClassLoading = ref(false)
+
+// 附件接口需 Authorization 头，图片/下载统一走 Blob 对象 URL
+const { urls, ensure, revoke, download } = useAttachmentUrls()
+const previewVisible = ref(false)
+const previewUrls = ref([])
+const previewIndex = ref(0)
+
+// 时光轴加载后预取图片缩略图；切换学生时释放旧 URL
+watch(timeline, (list) => {
+  const alive = new Set()
+  list.forEach(item => {
+    (item.attachments || []).forEach(att => {
+      if (att.file_type === 'image') {
+        alive.add(att.id)
+        ensure(att.id, true).catch(() => null)
+      }
+    })
+  })
+  Object.keys(urls).forEach(k => {
+    if (k.endsWith('_t') && !alive.has(Number(k.slice(0, -2)))) {
+      revoke(Number(k.slice(0, -2)), true)
+    }
+  })
+})
+
+async function openPreview(item, att) {
+  const imgs = (item.attachments || []).filter(a => a.file_type === 'image')
+  const idx = imgs.findIndex(a => a.id === att.id)
+  await Promise.all(imgs.map(a => ensure(a.id, false).catch(() => null)))
+  previewUrls.value = imgs.map(a => urls[a.id]).filter(Boolean)
+  previewIndex.value = Math.min(Math.max(0, idx), previewUrls.value.length - 1)
+  previewVisible.value = true
+}
+
+function downloadAttachment(att) {
+  download(att).catch(() => {})
+}
 
 const filterForm = reactive({
   class_id: null,
@@ -703,6 +768,60 @@ onMounted(() => {
   }
 }
 
+.content-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.attachment-img {
+  width: 96px;
+  height: 96px;
+  border-radius: 6px;
+  border: 1px solid #ebeef5;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.attachment-img:hover {
+  transform: scale(1.04);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  border-color: #c6e2ff;
+}
+
+.attachment-doc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 6px 10px;
+  background: #f5f7fa;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.attachment-doc:hover {
+  background: #ecf5ff;
+  border-color: #b3d8ff;
+}
+
+.attachment-doc-icon {
+  font-size: 16px;
+  color: #409eff;
+  flex-shrink: 0;
+}
+
+.attachment-doc-name {
+  font-size: 13px;
+  color: #606266;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 打印样式 */
 @media print {
   body.print-lifebook .filter-card,
@@ -734,6 +853,20 @@ onMounted(() => {
 
   body.print-lifebook .timeline-item {
     break-inside: avoid;
+  }
+
+  body.print-lifebook .content-attachments {
+    break-inside: avoid;
+  }
+
+  body.print-lifebook .attachment-img {
+    width: 120px;
+    height: 120px;
+  }
+
+  body.print-lifebook .attachment-doc {
+    background: none;
+    border: 1px solid #ccc;
   }
 }
 </style>

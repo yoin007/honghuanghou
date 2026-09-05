@@ -39,6 +39,7 @@ from .base import (
 from .evaluation import calculate_evaluation
 from .escalation import check_and_trigger_escalation
 from models.datas_api.auth import User, is_admin_user
+from utils.paths import get_filegather_storage_root
 from utils.teacher_db import get_teacher_by_name
 
 logger = logging.getLogger(__name__)
@@ -54,14 +55,8 @@ API_PENDING_COMPLETE_WX = "/api/moral/pending-records/{record_id}/complete-wx"
 
 # 上传图片存储目录
 def _get_pending_image_dir():
-    """获取待完善记录图片存储目录，从 moral_config 读取 filegather_storage_dir，在其下创建 images 子目录"""
-    from models.datas_api.moral.base import get_moral_db
-    with get_moral_db() as db:
-        row = db.query_one("SELECT config_value FROM moral_config WHERE config_key = 'filegather_storage_dir'")
-        base_dir = row["config_value"] if row and row.get("config_value") else ""
-    if not base_dir:
-        # 回退到默认路径
-        base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "storage", "filegather")
+    """获取待完善记录图片存储目录（在存储根目录下创建 images 子目录）。"""
+    base_dir = get_filegather_storage_root()
     upload_dir = os.path.join(base_dir, "images")
     os.makedirs(upload_dir, exist_ok=True)
     return upload_dir

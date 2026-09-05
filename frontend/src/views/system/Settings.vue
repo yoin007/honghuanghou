@@ -5,11 +5,8 @@
       <el-tab-pane label="文件存储配置" name="storage">
         <el-form :model="storageConfig" label-width="180px" v-loading="storageLoading">
           <el-form-item label="文件存储目录">
-            <el-input v-model="storageConfig.filegather_storage_dir" placeholder="如: /data/filegather" style="width: 400px" />
-            <span class="hint">文件收集系统根目录（自动创建 uploads 和 done 子目录）</span>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="handleStorageSave" :loading="storageSaving">保存配置</el-button>
+            <el-input v-model="storageConfig.filegather_storage_dir" disabled style="width: 400px" />
+            <span class="hint">由 lesson/config/lesson.yaml 配置，修改后需重启后端生效</span>
           </el-form-item>
         </el-form>
       </el-tab-pane>
@@ -80,7 +77,6 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   getSystemConfig,
-  updateSystemConfig,
   getAiModelConfigs,
   getAvailableModels,
   updateAiModelConfig,
@@ -92,7 +88,6 @@ const activeTab = ref('storage')
 
 // ==================== 文件存储配置 ====================
 const storageLoading = ref(false)
-const storageSaving = ref(false)
 const storageConfig = ref({
   filegather_storage_dir: ''
 })
@@ -108,23 +103,6 @@ const fetchStorageConfig = async () => {
     console.error('获取存储配置失败:', error)
   } finally {
     storageLoading.value = false
-  }
-}
-
-const handleStorageSave = async () => {
-  storageSaving.value = true
-  try {
-    const res = await updateSystemConfig({
-      filegather_storage_dir: storageConfig.value.filegather_storage_dir
-    })
-    if (res.success) {
-      ElMessage.success('文件存储配置保存成功')
-    }
-  } catch (error) {
-    ElMessage.error('保存失败')
-    console.error('保存存储配置失败:', error)
-  } finally {
-    storageSaving.value = false
   }
 }
 

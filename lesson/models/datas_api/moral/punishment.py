@@ -28,6 +28,11 @@ from .base import (
 )
 from .api_permission import require_configured_api_permission
 from .punishment_period import get_period_config_by_type, calculate_expire_date
+from .attachments import (
+    link_attachments,
+    update_record_attachments,
+    get_attachments,
+)
 from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
@@ -85,6 +90,7 @@ class PunishmentCreate(BaseModel):
     punishment_reason: Optional[str] = Field(None, description="处分原因")
     evidence: Optional[str] = Field(None, description="证据材料")
     score_deduct: Optional[int] = Field(None, description="扣分")
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
 
 class PunishmentRevoke(BaseModel):
@@ -189,6 +195,9 @@ async def get_punishments(
             )
             record_item["can_edit"] = flags["can_edit"]
             record_item["can_revoke"] = flags["can_delete"]
+            record_item["attachments"] = get_attachments(
+                db, "punishment_record", record_item["record_id"]
+            )
 
         return {
             "success": True,
@@ -297,6 +306,9 @@ async def create_punishment(
             student_info['grade_id'],
         )
 
+        if punishment.attachment_ids:
+            link_attachments(db, "punishment_record", record_id, punishment.attachment_ids, user.username)
+
         return {"success": True, "message": "处分记录创建成功", "data": {"id": record_id}}
 
 
@@ -350,6 +362,9 @@ async def update_punishment(
             old_record.get('class_id'),
             old_record.get('grade_id'),
         )
+
+        if punishment.attachment_ids is not None:
+            update_record_attachments(db, "punishment_record", record_id, punishment.attachment_ids, user.username)
 
         return {"success": True, "message": "处分记录更新成功"}
 

@@ -68,6 +68,12 @@
                 <el-tag v-if="todo.todo_type !== 'one_off'" size="small" type="info">
                   {{ todoTypeLabel(todo.todo_type) }}
                 </el-tag>
+                <el-tooltip v-if="(todo.attachments || []).length > 0" :content="`${todo.attachments.length} 个附件`" placement="top">
+                  <span class="attachment-indicator">
+                    <el-icon><Paperclip /></el-icon>
+                    <span class="attachment-count">{{ todo.attachments.length }}</span>
+                  </span>
+                </el-tooltip>
               </div>
               <div class="todo-meta">
                 <span v-if="todo.description" class="todo-desc">{{ todo.description }}</span>
@@ -184,6 +190,12 @@
             <el-option v-for="t in teacherList" :key="t.teacher_id || t.username" :label="teacherLabel(t)" :value="t.teacher_id || t.username" />
           </el-select>
         </el-form-item>
+        <el-form-item label="附件">
+          <AttachmentUpload
+            v-model="todoForm.attachment_ids"
+            :existing-attachments="todoForm.attachments"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -197,6 +209,8 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Paperclip } from '@element-plus/icons-vue'
+import AttachmentUpload from '@/components/AttachmentUpload.vue'
 import { getTodos, createTodo, updateTodo, deleteTodo, completeOccurrence, reopenOccurrence, getGroups } from '@/api/modules/teacherTodo'
 import { teacherApi } from '@/api/modules/teacher'
 
@@ -237,7 +251,9 @@ const todoForm = reactive({
   notify_creator: 1,
   notify_assignees: 1,
   assignee_group_ids: [],
-  assignee_teacher_ids: []
+  assignee_teacher_ids: [],
+  attachment_ids: [],
+  attachments: []
 })
 
 const rules = {
@@ -387,6 +403,8 @@ const handleAdd = () => {
   todoForm.notify_assignees = 1
   todoForm.assignee_group_ids = []
   todoForm.assignee_teacher_ids = []
+  todoForm.attachment_ids = []
+  todoForm.attachments = []
   dialogVisible.value = true
 }
 
@@ -415,6 +433,8 @@ const handleEdit = (todo) => {
   }
   todoForm.assignee_teacher_ids = todo.assignee_teacher_ids || []
   todoForm.assignee_group_ids = []
+  todoForm.attachment_ids = (todo.attachments || []).map(a => a.id)
+  todoForm.attachments = todo.attachments || []
   dialogVisible.value = true
 }
 
@@ -443,6 +463,8 @@ const handleCopy = (todo) => {
   }
   todoForm.assignee_teacher_ids = todo.assignee_teacher_ids || []
   todoForm.assignee_group_ids = []
+  todoForm.attachment_ids = []
+  todoForm.attachments = []
   dialogVisible.value = true
 }
 
@@ -469,7 +491,8 @@ const handleSubmit = async () => {
     notify_creator: todoForm.notify_creator,
     notify_assignees: todoForm.notify_assignees,
     assignee_group_ids: todoForm.assignee_group_ids || null,
-    assignee_teacher_ids: todoForm.assignee_teacher_ids
+    assignee_teacher_ids: todoForm.assignee_teacher_ids,
+    attachment_ids: todoForm.attachment_ids
   }
 
   if (todoForm.todo_type !== 'one_off') {
@@ -664,5 +687,17 @@ onMounted(() => {
 .todo-actions {
   display: flex;
   gap: 8px;
+}
+
+.attachment-indicator {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  color: #909399;
+  font-size: 13px;
+}
+
+.attachment-count {
+  margin-left: 4px;
 }
 </style>

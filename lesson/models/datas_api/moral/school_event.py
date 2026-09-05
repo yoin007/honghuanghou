@@ -29,6 +29,11 @@ from .base import (
     record_action_flags,
     target_student_in_scope,
 )
+from .attachments import (
+    link_attachments,
+    update_record_attachments,
+    get_attachments,
+)
 from models.datas_api.auth import User
 
 logger = logging.getLogger(__name__)
@@ -98,6 +103,7 @@ class SchoolRecordCreate(BaseModel):
     event_date: Optional[date] = Field(None, description="事件日期，不传则默认今天")
     description: Optional[str] = Field(None, description="事件描述")
     evidence: Optional[str] = Field(None, description="证明材料")
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
     def validate_event_date(self, current_date: date) -> date:
         """验证事件日期不能超过今天"""
@@ -113,6 +119,7 @@ class SchoolRecordUpdate(BaseModel):
     description: Optional[str] = None
     evidence: Optional[str] = None
     is_deleted: Optional[int] = None
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
 
 class SchoolEventTypeCreate(BaseModel):
@@ -258,6 +265,9 @@ async def get_school_records(
                 delete_scope,
                 username=user.username,
             ))
+            record_item["attachments"] = get_attachments(
+                db, "student_school_record", record_item["record_id"]
+            )
 
         return {
             "success": True,
@@ -352,6 +362,9 @@ async def create_school_record(
             ip_address=request.client.host if request.client else None
         )
 
+        if record.attachment_ids:
+            link_attachments(db, "student_school_record", record_id, record.attachment_ids, user.username)
+
         return {"success": True, "message": "记录创建成功", "data": {"record_id": record_id}}
 
 
@@ -419,6 +432,9 @@ async def update_school_record(
             ip_address=request.client.host if request.client else None
         )
 
+        if update_data.attachment_ids is not None:
+            update_record_attachments(db, "student_school_record", record_id, update_data.attachment_ids, user.username)
+
         return {"success": True, "message": "记录更新成功"}
 
 
@@ -455,6 +471,9 @@ async def delete_school_record(
             old_record.get('class_id'),
             old_record.get('grade_id'),
         )
+
+        # 清理关联附件
+        update_record_attachments(db, "student_school_record", record_id, [], user.username)
 
         log_operation(
             db, user.username, user.role, 'DELETE', 'student_school_record',

@@ -17,6 +17,7 @@ from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
 from utils.db_config import FILEGATHER_DB, MORAL_DB
+from utils.paths import get_filegather_storage_root
 
 
 def _get_sqlite_connection():
@@ -96,16 +97,11 @@ class FileGatherDB:
         """
         self.db_path = db_path or FILEGATHER_DB
 
-        # 从 moral_config 读取存储路径配置（单一配置项）
-        config_storage_dir = _get_config_value('filegather_storage_dir')
-
-        # 优先使用传入参数，否则使用配置值，最后使用默认路径
+        # 优先使用传入参数，否则从 lesson.yaml 解析跨平台存储根目录
         if storage_root:
             self.storage_root = storage_root
-        elif config_storage_dir:
-            self.storage_root = config_storage_dir
         else:
-            self.storage_root = DEFAULT_STORAGE_ROOT
+            self.storage_root = get_filegather_storage_root()
 
         # 基于根目录创建子目录
         self.uploads_dir = os.path.join(self.storage_root, "uploads")

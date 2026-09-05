@@ -25,6 +25,11 @@ from .base import (
     target_student_in_scope,
 )
 from .api_permission import require_configured_api_permission
+from .attachments import (
+    link_attachments,
+    update_record_attachments,
+    get_attachments,
+)
 from models.datas_api.auth import User
 
 router = APIRouter(prefix="/moment-records", tags=["点滴记录"])
@@ -79,6 +84,7 @@ class MomentRecordCreate(BaseModel):
     record_date: Optional[date] = Field(None, description="记录日期，不传则默认今天")
     record_type: str = Field(default="moment", description="记录类型")
     tags: Optional[List[str]] = Field(default=None, description="标签列表")
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
     def validate_record_date(self, current_date: date) -> date:
         """验证记录日期不能超过今天"""
@@ -94,6 +100,7 @@ class MomentRecordUpdate(BaseModel):
     record_date: Optional[date] = Field(None, description="记录日期")
     record_type: Optional[str] = Field(None, description="记录类型")
     tags: Optional[List[str]] = Field(None, description="标签列表")
+    attachment_ids: Optional[List[int]] = Field(None, description="附件ID列表，最多3个")
 
 
 @router.get("", summary="获取点滴记录列表")
@@ -230,6 +237,9 @@ async def get_moment_records(
                 delete_scope,
                 username=user.username,
             ))
+            record_item["attachments"] = get_attachments(
+                db, "moment_record", record_item["record_id"]
+            )
 
         return {
             "success": True,
@@ -300,6 +310,10 @@ async def create_moment_record(
             tags_json,
             semester_id
         ))
+        record_id = db.lastrowid()
+
+        if record.attachment_ids:
+            link_attachments(db, "moment_record", record_id, record.attachment_ids, user.username)
 
         log_operation(
             db, user.username, user.role, 'CREATE', 'moment_record',
@@ -308,7 +322,7 @@ async def create_moment_record(
             ip_address=request.client.host if request.client else None
         )
 
-        return {"success": True, "message": "点滴记录创建成功"}
+        return {"success": True, "message": "点滴记录创建成功", "data": {"record_id": record_id}}
 
 
 @router.put("/{record_id}", summary="更新点滴记录")
@@ -375,6 +389,9 @@ async def update_moment_record(
             ip_address=request.client.host if request.client else None
         )
 
+        if update_data.attachment_ids is not None:
+            update_record_attachments(db, "moment_record", record_id, update_data.attachment_ids, user.username)
+
         return {"success": True, "message": "记录更新成功"}
 
 
@@ -405,6 +422,9 @@ async def delete_moment_record(
 
         if not record_in_scope(record, action_scope, username=user.username):
             raise HTTPException(403, "只能删除自己创建的记录")
+
+        # 清理关联附件
+        update_record_attachments(db, "moment_record", record_id, [], user.username)
 
         db.execute("DELETE FROM moment_record WHERE record_id = ?", (record_id,))
 

@@ -93,6 +93,15 @@
           </template>
         </el-table-column>
         <el-table-column prop="revoke_date" label="撤销日期" width="120" />
+        <el-table-column label="附件" width="80" align="center">
+          <template #default="{ row }">
+            <el-tooltip v-if="(row.attachments || []).length > 0" :content="`${row.attachments.length} 个附件`" placement="top">
+              <el-icon><Paperclip /></el-icon>
+              <span class="attachment-count">{{ row.attachments.length }}</span>
+            </el-tooltip>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="handleApplyRevoke(row)" v-if="canApplyRevoke && row.is_revoked === 0 && row.expire_date && isExpired(row.expire_date)">代申请撤销</el-button>
@@ -176,6 +185,12 @@
         </el-form-item>
         <el-form-item label="证明材料">
           <el-input v-model="recordForm.evidence" placeholder="相关证明材料链接" />
+        </el-form-item>
+        <el-form-item label="附件">
+          <AttachmentUpload
+            v-model="recordForm.attachment_ids"
+            :existing-attachments="recordForm.attachments"
+          />
         </el-form-item>
         <el-form-item label="德育扣分">
           <el-input-number v-model="recordForm.score_deduct" :min="-100" :max="-1" />
@@ -331,6 +346,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Paperclip } from '@element-plus/icons-vue'
 import {
   getPunishments,
   createPunishment,
@@ -349,6 +365,7 @@ import { getGMT8DateString } from '@/utils/time'
 import { downloadRowsAsExcel } from '@/utils/filegather'
 import { useApiPermission } from '@/composables/useApiPermission'
 import { useRouter } from 'vue-router'
+import AttachmentUpload from '@/components/AttachmentUpload.vue'
 
 const router = useRouter()
 
@@ -395,7 +412,9 @@ const recordForm = reactive({
   punishment_date: '',
   punishment_reason: '',
   evidence: '',
-  score_deduct: -10
+  score_deduct: -10,
+  attachment_ids: [],
+  attachments: []
 })
 
 // 表单校验规则
@@ -586,7 +605,9 @@ const handleAdd = () => {
     punishment_date: getGMT8DateString(), // 东八区当前日期
     punishment_reason: '',
     evidence: '',
-    score_deduct: -10
+    score_deduct: -10,
+    attachment_ids: [],
+    attachments: []
   })
   classStudents.value = []
   dialogVisible.value = true
@@ -618,7 +639,9 @@ const handleEdit = async (row) => {
     punishment_date: row.punishment_date,
     punishment_reason: row.punishment_reason,
     evidence: row.evidence,
-    score_deduct: row.score_deduct
+    score_deduct: row.score_deduct,
+    attachment_ids: (row.attachments || []).map(a => a.id),
+    attachments: row.attachments || []
   })
   dialogVisible.value = true
 }
@@ -906,5 +929,11 @@ onMounted(async () => {
 .hint {
   color: #909399;
   font-size: 12px;
+}
+
+.attachment-count {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #606266;
 }
 </style>
