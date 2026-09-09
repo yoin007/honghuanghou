@@ -137,9 +137,9 @@ async def get_class_info(class_code: str):
             FROM class c
             LEFT JOIN student s ON c.class_id = s.class_id AND s.status = '在校'
             JOIN grade g ON c.grade_id = g.grade_id
-            WHERE c.class_code = ? AND c.is_active = 1
+            WHERE c.is_active = 1 AND (c.class_code = ? OR c.class_name = ?)
             GROUP BY c.class_id
-        """, (class_code,))
+        """, (class_code, class_code))
 
         if not class_info:
             raise HTTPException(status_code=404, detail="班级不存在")
@@ -176,9 +176,9 @@ async def get_students(
             SELECT s.student_id as sid, s.name, s.gender, s.roomid, s.rpid
             FROM student s
             JOIN class c ON s.class_id = c.class_id
-            WHERE c.class_code = ? AND s.status = '在校'
+            WHERE (c.class_code = ? OR c.class_name = ?) AND s.status = '在校'
             ORDER BY s.roomid, s.rpid, s.student_id
-        """, (class_code,))
+        """, (class_code, class_code))
 
     return {"students": [s['name'] for s in students] if students else []}
 
@@ -195,9 +195,9 @@ async def export_students_excel(
             SELECT s.student_id as sid, s.name, s.gender as sex, s.phone, s.roomid, s.rpid
             FROM student s
             JOIN class c ON s.class_id = c.class_id
-            WHERE c.class_code = ? AND s.status = '在校'
+            WHERE (c.class_code = ? OR c.class_name = ?) AND s.status = '在校'
             ORDER BY s.roomid, s.rpid, s.student_id
-        """, (class_code,))
+        """, (class_code, class_code))
 
     if not students:
         raise HTTPException(status_code=404, detail=f"未找到班级 {class_code} 的在校学生")
@@ -269,10 +269,10 @@ async def get_students_status(
                 s.is_active as active
             FROM student s
             JOIN class c ON s.class_id = c.class_id
-            WHERE c.class_name = ? AND s.status = '在校'
+            WHERE (c.class_code = ? OR c.class_name = ?) AND s.status = '在校'
             ORDER BY s.roomid, s.rpid, s.student_id
         """
-        students = db.query_all(query, (class_code,))
+        students = db.query_all(query, (class_code, class_code))
 
         if not students:
             return []
