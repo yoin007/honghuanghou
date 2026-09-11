@@ -593,8 +593,9 @@ def _get_homework_db():
     """获取作业数据库连接"""
     # 延迟导入避免循环依赖
     from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    from utils.db_config import DATABASES_DIR
 
-    db_path = os.path.join(os.path.dirname(__file__), "..", "..", "databases", "homework.db")
+    db_path = os.path.join(DATABASES_DIR, "homework.db")
     conn = get_sqlite_connection(db_path, row_factory=sqlite3.Row)
     return _ClosingSQLiteConnection(conn)
 
@@ -603,8 +604,9 @@ def _get_inout_db():
     """获取请假数据库连接"""
     # 延迟导入避免循环依赖
     from models.datas_api.repositories.sqlite_base import get_sqlite_connection
+    from utils.db_config import DATABASES_DIR
 
-    db_path = os.path.join(os.path.dirname(__file__), "..", "..", "databases", "inout.db")
+    db_path = os.path.join(DATABASES_DIR, "inout.db")
     conn = get_sqlite_connection(db_path, row_factory=sqlite3.Row)
     return _ClosingSQLiteConnection(conn)
 

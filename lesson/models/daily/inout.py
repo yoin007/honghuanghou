@@ -1,5 +1,5 @@
 import os
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
+from utils.db_config import DATABASES_DIR as DB_DIR
 # _*_ coding :utf-8 _*_
 # @Time : 2026/01/31 16:05
 # @Author : Tech_T

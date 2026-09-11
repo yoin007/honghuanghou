@@ -123,6 +123,10 @@ def get_filegather_storage_root() -> str:
     """
     try:
         from config.config import Config
+        from utils.db_config import DEMO_MODE, LESSON_DIR
+        # 演示模式下，上传的文件写入演示专用目录，与真实存储隔离
+        if DEMO_MODE:
+            return os.path.join(LESSON_DIR, "databases", "demo", "storage")
         path = Config().get_cross_platform_path("filegather_storage_dir", "lesson.yaml")
         if path:
             return normalize_path(path)

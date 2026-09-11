@@ -238,7 +238,7 @@
     <el-dialog v-model="importDialogVisible" title="批量导入学生" width="500px">
       <el-alert type="info" :closable="false" style="margin-bottom: 20px">
         <template #title>
-          请上传Excel文件，格式要求：学号、姓名、性别、生日、班级名称
+          请上传Excel文件，格式要求：学号、姓名、性别、生日、班级名称、初中毕业学校（选填）、中考成绩（选填）
         </template>
       </el-alert>
       <el-upload
@@ -683,7 +683,9 @@ const parseStudentRows = async (file) => {
       class_name: String(valueOf(row, ['班级', '班级名称', 'class_name']) || '').trim(),
       birthday: valueOf(row, ['生日', 'birthday']) || null,
       roomid: String(valueOf(row, ['宿舍', 'roomid']) || '').trim(),
-      rpid: String(valueOf(row, ['床号', '床位号', 'rpid']) || '').trim()
+      rpid: String(valueOf(row, ['床号', '床位号', 'rpid']) || '').trim(),
+      middle_school: String(valueOf(row, ['初中毕业学校', '初中学校', 'middle_school']) || '').trim(),
+      entrance_score: valueOf(row, ['中考成绩', 'entrance_score'])
     })
   })
 
@@ -713,7 +715,9 @@ const handleImportSubmit = async () => {
       class_name: row.class_name,
       birthday: row.birthday,
       roomid: row.roomid || null,
-      rpid: row.rpid || null
+      rpid: row.rpid || null,
+      middle_school: row.middle_school || null,
+      entrance_score: row.entrance_score === '' || row.entrance_score == null ? null : String(row.entrance_score).trim()
     })).filter(s => s.student_id && s.name && s.class_name)
 
     if (students.length === 0) {
@@ -970,12 +974,14 @@ const downloadTemplate = async () => {
       { header: '生日', key: 'birthday', width: 14 },
       { header: '宿舍', key: 'roomid', width: 10 },
       { header: '床号', key: 'rpid', width: 8 },
-      { header: '班级', key: 'class_name', width: 16 }
+      { header: '班级', key: 'class_name', width: 16 },
+      { header: '初中毕业学校', key: 'middle_school', width: 20 },
+      { header: '中考成绩', key: 'entrance_score', width: 10 }
     ],
     rows: [
-      { student_id: '20250101', name: '张三', gender: '男', birthday: '2008-05-15', roomid: 'A101', rpid: '1', class_name: '高一1班' },
-      { student_id: '20250102', name: '李四', gender: '女', birthday: '2008-03-20', roomid: 'A101', rpid: '2', class_name: '高一1班' },
-      { student_id: '20250103', name: '王五', gender: '男', birthday: '2008-07-10', roomid: 'B102', rpid: '3', class_name: '高一2班' }
+      { student_id: '20250101', name: '张三', gender: '男', birthday: '2008-05-15', roomid: 'A101', rpid: '1', class_name: '高一1班', middle_school: '育才初级中学', entrance_score: '586.5' },
+      { student_id: '20250102', name: '李四', gender: '女', birthday: '2008-03-20', roomid: 'A101', rpid: '2', class_name: '高一1班', middle_school: '实验中学', entrance_score: '602' },
+      { student_id: '20250103', name: '王五', gender: '男', birthday: '2008-07-10', roomid: 'B102', rpid: '3', class_name: '高一2班', middle_school: '', entrance_score: '' }
     ]
   })
   ElMessage.success('模板下载成功')

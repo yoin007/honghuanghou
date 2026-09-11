@@ -4,7 +4,7 @@
 
 from datetime import datetime
 import os
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
+from utils.db_config import DATABASES_DIR as DB_DIR
 import sqlite3
 import pandas as pd
 from sendqueue import send_text

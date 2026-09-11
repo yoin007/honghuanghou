@@ -244,6 +244,8 @@ class StudentBatchItem(BaseModel):
     birthday: Optional[str] = Field(None, description="出生日期 YYYY-MM-DD")
     roomid: Optional[str] = Field(None, description="宿舍号")
     rpid: Optional[str] = Field(None, description="床位号")
+    middle_school: Optional[str] = Field(None, description="初中毕业学校")
+    entrance_score: Optional[str] = Field(None, description="中考成绩")
 
 
 class StudentBatchImport(BaseModel):
@@ -1927,6 +1929,10 @@ async def batch_import_students(
                 # 解析生日（兼容多种格式）
                 birthday = parse_birthday(item.birthday)
 
+                # 初中学校/中考成绩：空串归一为 None
+                middle_school = item.middle_school.strip() if item.middle_school and item.middle_school.strip() else None
+                entrance_score = item.entrance_score.strip() if item.entrance_score and item.entrance_score.strip() else None
+
                 # 从学号提取入学年份
                 enrollment_date = date.today()
                 if len(item.student_id) >= 4:
@@ -1948,9 +1954,12 @@ async def batch_import_students(
 
                     db.execute(
                         """UPDATE student SET
-                        name = ?, gender = ?, class_id = ?, grade_id = ?, birthday = ?, roomid = ?, rpid = ?
+                        name = ?, gender = ?, class_id = ?, grade_id = ?, birthday = ?, roomid = ?, rpid = ?,
+                        middle_school = COALESCE(?, middle_school),
+                        entrance_score = COALESCE(?, entrance_score)
                         WHERE student_id = ?""",
-                        (item.name, item.gender, class_id, grade_id, birthday, item.roomid, item.rpid, item.student_id)
+                        (item.name, item.gender, class_id, grade_id, birthday, item.roomid, item.rpid,
+                         middle_school, entrance_score, item.student_id)
                     )
 
                     # 如果班级变更，记录班级履历
@@ -1967,9 +1976,9 @@ async def batch_import_students(
                     # 新学生，插入
                     db.execute(
                         """INSERT INTO student
-                        (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, roomid, rpid, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '在校')""",
-                        (item.student_id, item.name, item.gender, class_id, grade_id, grade_id, birthday, enrollment_date, item.roomid, item.rpid)
+                        (student_id, name, gender, class_id, grade_id, original_grade_id, birthday, enrollment_date, roomid, rpid, middle_school, entrance_score, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '在校')""",
+                        (item.student_id, item.name, item.gender, class_id, grade_id, grade_id, birthday, enrollment_date, item.roomid, item.rpid, middle_school, entrance_score)
                     )
 
                     # 创建班级履历

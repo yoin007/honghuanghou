@@ -70,6 +70,7 @@ class QueueDB:
                 row_factory=sqlite3.Row,
             )
             self._local.cursor = self._local.connection.cursor()
+            self.__create_table__()
         return self
 
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
