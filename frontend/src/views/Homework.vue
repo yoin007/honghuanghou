@@ -1,7 +1,10 @@
 <template>
   <div class="homework-container">
-    <h2>{{ classCode ? `${classCode}作业` : '作业' }}</h2>
-    
+    <div class="page-header">
+      <h2>{{ classCode ? `${classCode}作业` : '作业' }}</h2>
+      <el-button v-if="canPublish" type="primary" @click="openPublishDialog">发布作业</el-button>
+    </div>
+
     <div v-if="loading" class="loading-container">
       <el-loading />
     </div>
@@ -139,8 +142,7 @@
       </el-tabs>
     </template>
 
-    <el-dialog v-model="editDialogVisible" title="编辑作业" width="500px">
-      <el-form :model="editForm" label-width="80px">
+    <el-dialog v-model="editDialogVisible" title="编辑作业" width="500px">      <el-form :model="editForm" label-width="80px">
         <el-form-item label="学科">
           <el-select v-model="editForm.subject" placeholder="请选择学科">
             <el-option v-for="s in subjects" :key="s" :label="s" :value="s" />
@@ -176,13 +178,51 @@
         <el-button type="primary" @click="handleUpdate" :loading="updating">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="publishDialogVisible" title="发布作业" width="500px">
+      <el-form :model="publishForm" :rules="publishRules" ref="publishFormRef" label-width="80px">
+        <el-form-item label="学科" prop="subject">
+          <el-select v-model="publishForm.subject" placeholder="请选择学科">
+            <el-option v-for="s in subjects" :key="s" :label="s" :value="s" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="作业内容" prop="content">
+          <el-input v-model="publishForm.content" type="textarea" :rows="4" placeholder="请输入作业内容" />
+        </el-form-item>
+        <el-form-item label="上交日期" prop="deadline">
+          <el-date-picker
+            v-model="publishForm.deadline"
+            type="datetime"
+            placeholder="选择日期和时间"
+            format="YYYY-MM-DD HH:mm"
+            value-format="YYYY-MM-DD HH:mm"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="预计用时" prop="duration">
+          <el-input-number v-model="publishForm.duration" :min="1" :max="180" />
+          <span style="margin-left: 10px">分钟</span>
+        </el-form-item>
+        <el-form-item label="作业类型" prop="type">
+          <el-radio-group v-model="publishForm.type">
+            <el-radio value="日常">日常</el-radio>
+            <el-radio value="周末">周末</el-radio>
+            <el-radio value="假期">假期</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="publishDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handlePublish" :loading="publishing">发布</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { ElLoading, ElMessage, ElEmpty, ElTabs, ElTabPane, ElTable, ElTableColumn, ElTag, ElAlert, ElButton, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElInput, ElDatePicker, ElInputNumber, ElRadioGroup, ElRadio } from 'element-plus'
-import { getHomeworkList, updateHomework, deleteHomework, batchDeleteHomework } from '@/api/modules/homework'
+import { getHomeworkList, updateHomework, deleteHomework, batchDeleteHomework, publishHomework } from '@/api/modules/homework'
 import { useAuthStore } from '../stores/auth'
 import { formatDateMonthDay } from '@/utils/time'
 
@@ -199,6 +239,78 @@ const canModifyHomework = (row) => {
   // 非管理员：只能操作自己发布的作业
   const currentUsername = username.value || username || ''
   return row.teacher === currentUsername
+}
+
+// 发布作业按钮：仅教师/管理员可见
+const canPublish = computed(() => isAdmin.value || (role.value && role.value.includes('teacher')))
+
+const publishDialogVisible = ref(false)
+const publishing = ref(false)
+const publishFormRef = ref(null)
+const publishForm = ref({
+  subject: '',
+  content: '',
+  deadline: '',
+  duration: 30,
+  type: '日常'
+})
+const publishRules = {
+  subject: [{ required: true, message: '请选择学科', trigger: 'change' }],
+  content: [{ required: true, message: '请输入作业内容', trigger: 'blur' }],
+  deadline: [{ required: true, message: '请选择上交日期', trigger: 'change' }],
+  type: [{ required: true, message: '请选择作业类型', trigger: 'change' }]
+}
+
+const openPublishDialog = () => {
+  if (!getClassCode()) {
+    ElMessage.warning('请先选择班级')
+    return
+  }
+  publishForm.value = {
+    subject: '',
+    content: '',
+    deadline: '',
+    duration: 30,
+    type: activeTab.value === '周末' ? '周末' : '日常'
+  }
+  publishDialogVisible.value = true
+  nextTick(() => publishFormRef.value?.clearValidate())
+}
+
+const handlePublish = async () => {
+  const valid = await publishFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  if (new Date(publishForm.value.deadline).getTime() < Date.now()) {
+    ElMessage.error('上交时间不能早于当前时间')
+    return
+  }
+
+  publishing.value = true
+  try {
+    const response = await publishHomework({
+      classCode: getClassCode(),
+      subject: publishForm.value.subject,
+      teacher: username.value,
+      content: publishForm.value.content,
+      deadline: publishForm.value.deadline,
+      duration: publishForm.value.duration,
+      type: publishForm.value.type
+    })
+    if (response.data && (response.data.id || response.data.message)) {
+      ElMessage.success('作业发布成功')
+      publishDialogVisible.value = false
+      activeTab.value = publishForm.value.type === '周末' ? '周末' : activeTab.value
+      fetchHomework()
+    } else {
+      ElMessage.warning('发布结果未知，请刷新列表确认')
+    }
+  } catch (error) {
+    console.error('Publish homework error:', error)
+    ElMessage.error('发布失败：' + (error.response?.data?.detail || '未知错误'))
+  } finally {
+    publishing.value = false
+  }
 }
 
 const loading = ref(false)
@@ -476,8 +588,15 @@ onMounted(() => {
   border-radius: 4px;
 }
 
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
 .homework-container h2 {
-  margin: 0 0 10px 0;
+  margin: 0;
   font-size: 18px;
 }
 

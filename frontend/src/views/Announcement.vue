@@ -1,12 +1,13 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { ElMessage, ElTimeline, ElTimelineItem, ElCard, ElEmpty, ElButton, ElDialog, ElForm, ElFormItem, ElInput } from 'element-plus'
-import { getAnnouncements, updateAnnouncement, deleteAnnouncement } from '@/api/modules/announcement'
+import { getAnnouncements, updateAnnouncement, deleteAnnouncement, publishAnnouncement } from '@/api/modules/announcement'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
 const username = computed(() => authStore.username)
 const isAdmin = computed(() => authStore.isAdmin)
+const role = computed(() => authStore.role)
 
 const announcements = ref([])
 const loading = ref(false)
@@ -18,6 +19,58 @@ const editForm = ref({
   content: ''
 })
 const updating = ref(false)
+
+// 发布公告按钮：仅教师/管理员可见
+const canPublish = computed(() => isAdmin.value || (role.value && role.value.includes('teacher')))
+
+const publishDialogVisible = ref(false)
+const publishing = ref(false)
+const publishFormRef = ref(null)
+const publishForm = ref({
+  title: '',
+  content: ''
+})
+const publishRules = {
+  title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
+  content: [{ required: true, message: '请输入内容', trigger: 'blur' }]
+}
+
+const openPublishDialog = () => {
+  if (!getClassCode()) {
+    ElMessage.warning('请先选择班级')
+    return
+  }
+  publishForm.value = { title: '', content: '' }
+  publishDialogVisible.value = true
+  nextTick(() => publishFormRef.value?.clearValidate())
+}
+
+const handlePublish = async () => {
+  const valid = await publishFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  publishing.value = true
+  try {
+    const response = await publishAnnouncement({
+      classCode: getClassCode(),
+      title: publishForm.value.title,
+      author: username.value,
+      content: publishForm.value.content
+    })
+    if (response.data && (response.data.id || response.data.message)) {
+      ElMessage.success('公告发布成功')
+      publishDialogVisible.value = false
+      fetchAnnouncements()
+    } else {
+      ElMessage.warning('发布结果未知，请刷新列表确认')
+    }
+  } catch (error) {
+    console.error('Publish announcement error:', error)
+    ElMessage.error('发布失败：' + (error.response?.data?.detail || '未知错误'))
+  } finally {
+    publishing.value = false
+  }
+}
 
 const getClassCode = () => {
   const code = document.cookie.split('; ').find(row => row.startsWith('classCode='))
@@ -101,7 +154,10 @@ onMounted(() => {
 
 <template>
   <div class="announcement-container">
-    <h2>{{ classCode ? `${classCode}公告` : '公告' }}</h2>
+    <div class="page-header">
+      <h2>{{ classCode ? `${classCode}公告` : '公告' }}</h2>
+      <el-button v-if="canPublish" type="primary" @click="openPublishDialog">发布公告</el-button>
+    </div>
     <el-empty v-if="!loading && announcements.length === 0" description="暂无公告" />
     <el-timeline v-else>
       <el-timeline-item
@@ -141,6 +197,21 @@ onMounted(() => {
         <el-button type="primary" @click="handleUpdate" :loading="updating">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="publishDialogVisible" title="发布公告" width="500px">
+      <el-form :model="publishForm" :rules="publishRules" ref="publishFormRef" label-width="60px">
+        <el-form-item label="标题" prop="title">
+          <el-input v-model="publishForm.title" placeholder="请输入公告标题" />
+        </el-form-item>
+        <el-form-item label="内容" prop="content">
+          <el-input v-model="publishForm.content" type="textarea" :rows="6" placeholder="请输入公告内容" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="publishDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handlePublish" :loading="publishing">发布</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -151,8 +222,15 @@ onMounted(() => {
   margin: 0 auto;
 }
 
-h2 {
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 20px;
+}
+
+h2 {
+  margin: 0;
   color: #409EFF;
   text-align: center;
 }
