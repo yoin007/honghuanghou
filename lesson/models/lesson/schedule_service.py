@@ -269,6 +269,8 @@ class ScheduleService:
         return unmatched
 
     def schedule_diff(self, old_df, new_df):
+        if old_df is None or old_df.empty:
+            return [], [], {"class": {}, "teacher": {}}
         old_df_teacher = self.replace_subject_teacher(old_df)
         new_df_teacher = self.replace_subject_teacher(new_df)
         class_list = self.get_cache_data("class_template")["class_name"].tolist()
@@ -276,8 +278,14 @@ class ScheduleService:
 
         for column in class_list:
             for idx in new_df_teacher.index:
-                if old_df_teacher.loc[idx, column] != new_df_teacher.loc[idx, column]:
-                    diff_df.loc[idx, column] = f"{old_df_teacher.loc[idx, column]} -> {new_df_teacher.loc[idx, column]}"
+                # 新增行/列（如补充某天的课表）在旧课表中不存在，旧值按 "-"（无课）处理
+                if idx in old_df_teacher.index and column in old_df_teacher.columns:
+                    old_value = old_df_teacher.loc[idx, column]
+                else:
+                    old_value = "-"
+                new_value = new_df_teacher.loc[idx, column]
+                if old_value != new_value:
+                    diff_df.loc[idx, column] = f"{old_value} -> {new_value}"
 
         changes = []
         for column, row_dict in diff_df.to_dict().items():
@@ -293,12 +301,13 @@ class ScheduleService:
 
         diff_teachers = []
         for change in changes:
-            old_category = change[4]
-            new_category = change[5]
-            if old_category not in diff_teachers:
-                diff_teachers.append(self.get_subject_teacher(old_category))
-            if new_category not in diff_teachers:
-                diff_teachers.append(self.get_subject_teacher(new_category))
+            for category in (change[4], change[5]):
+                # "-" 表示无课（含新增行/列的旧值），不对应任何老师
+                if category == "-":
+                    continue
+                teacher = self.get_subject_teacher(category)
+                if teacher not in diff_teachers:
+                    diff_teachers.append(teacher)
 
         # 记录每个班级/老师课表中被调整的单元格 (order, week)，供图片渲染高亮
         class_highlights: dict = {}
@@ -309,6 +318,8 @@ class ScheduleService:
             week = change[6]
             class_highlights.setdefault(class_name, []).append((order, week))
             for category in (change[4], change[5]):
+                if category == "-":
+                    continue
                 teacher = self.get_subject_teacher(category)
                 cells = teacher_highlights.setdefault(teacher, [])
                 if (order, week) not in cells:
