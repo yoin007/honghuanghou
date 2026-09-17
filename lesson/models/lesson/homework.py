@@ -1,5 +1,6 @@
 import os
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
+# DB_DIR 由 utils.db_config 统一管理，demo_mode 开启时自动指向 databases/demo/
+from utils.db_config import DATABASES_DIR as DB_DIR
 # _*_ coding: utf-8 _*_
 # @Time : 2024/12/10
 # @Author : Tech_T

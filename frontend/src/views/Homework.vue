@@ -515,13 +515,11 @@ const handleUpdate = async () => {
   updating.value = true
   try {
     await updateHomework(editForm.value.id, {
-      homework: {
-        subject: editForm.value.subject,
-        content: editForm.value.content,
-        deadline: editForm.value.deadline,
-        duration: editForm.value.duration,
-        type: editForm.value.type
-      }
+      subject: editForm.value.subject,
+      content: editForm.value.content,
+      deadline: editForm.value.deadline,
+      duration: editForm.value.duration,
+      type: editForm.value.type
     })
     ElMessage.success('作业更新成功')
     editDialogVisible.value = false
