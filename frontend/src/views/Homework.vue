@@ -241,8 +241,8 @@ const canModifyHomework = (row) => {
   return row.teacher === currentUsername
 }
 
-// 发布作业按钮：仅教师/管理员可见
-const canPublish = computed(() => isAdmin.value || (role.value && role.value.includes('teacher')))
+// 发布作业按钮：教师/班主任/管理员可见（后端权限同样放行 cleader）
+const canPublish = computed(() => isAdmin.value || (role.value && (role.value.includes('teacher') || role.value.includes('cleader'))))
 
 const publishDialogVisible = ref(false)
 const publishing = ref(false)

@@ -13,7 +13,8 @@ def _get_sqlite_connection():
     from models.datas_api.repositories.sqlite_base import get_sqlite_connection
     return get_sqlite_connection
 
-DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "databases")
+# DB_DIR 由 utils.db_config 统一管理，demo_mode 开启时自动指向 databases/demo/
+from utils.db_config import DATABASES_DIR as DB_DIR
 
 logger = logging.getLogger(__name__)
 
