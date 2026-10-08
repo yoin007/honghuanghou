@@ -9,11 +9,12 @@ Provides helpers for querying inout.db leave records and enriching with student 
 import os
 from collections import Counter
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "databases")
+# DB_DIR 由 utils.db_config 统一管理，demo_mode 开启时自动指向 databases/demo/
+from utils.db_config import DATABASES_DIR as DB_DIR
 INOUT_DB_PATH = os.path.join(DB_DIR, "inout.db")
 
 
@@ -51,15 +52,26 @@ def _load_students_cache() -> pd.DataFrame:
     return students_df
 
 
+def _normalize_class_names(class_filter) -> Optional[List[str]]:
+    """班级过滤参数统一为去空白后的班级名列表；空值返回 None"""
+    if not class_filter:
+        return None
+    if isinstance(class_filter, str):
+        names = [class_filter]
+    else:
+        names = [str(n) for n in class_filter]
+    return [n.strip() for n in names if n and str(n).strip()]
+
+
 def query_active_leave_records(
-    class_filter: Optional[str] = None,
+    class_filter: Optional[Union[str, List[str]]] = None,
     student_ids: Optional[List[str]] = None,
     limit: int = 20,
 ) -> List[Dict[str, object]]:
     """Query active leave records from inout.db.
 
     Args:
-        class_filter: Optional class name to filter (cname).
+        class_filter: Optional class name (str) or list of class names to filter (cname).
         student_ids: Optional list of student IDs (sid) to filter.
         limit: Maximum records to return.
 
@@ -71,13 +83,15 @@ def query_active_leave_records(
     if not os.path.isfile(INOUT_DB_PATH):
         return []
 
+    class_names = _normalize_class_names(class_filter)
     students_df = _load_students_cache()
     sid_filter = [str(sid) for sid in student_ids] if student_ids else []
-    if class_filter:
+    if class_names:
         if students_df.empty or "cname" not in students_df.columns:
             return []
+        cname_series = students_df["cname"].astype(str).str.strip()
         class_student_sids = [
-            sid for sid in students_df.loc[students_df["cname"].astype(str).str.strip() == class_filter, "sid"].tolist()
+            sid for sid in students_df.loc[cname_series.isin(class_names), "sid"].tolist()
             if sid
         ]
         if not class_student_sids:
@@ -144,7 +158,7 @@ def query_active_leave_records(
         name = str(student.get("name") or "").strip()
 
         # Apply class filter if specified
-        if class_filter and class_name != class_filter:
+        if class_names and class_name not in class_names:
             continue
 
         result.append({

@@ -925,7 +925,7 @@ def teacher_todo_reminder_task():
                 message = (
                     f"【待办提醒】（第{next_sequence}次）\n"
                     f"标题：{title}\n"
-                    f"时间：{date_str} {time_str}\n"
+                    # f"时间：{date_str} {time_str}\n"
                     f"{todo['description'] or ''}\n\n"
                     f"— 数字天龙"
                 )

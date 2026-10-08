@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 from functools import wraps
 from config.config import Config
 from config.log import LogConfig
+# 演示模式开关：demo 模式下学生数据从演示库读取
+from utils.db_config import DEMO_MODE
 from client import down_file
 from models.manage.member import Member, check_permission
 from sendqueue import send_app_msg, send_text, send_image, send_file
@@ -160,7 +162,7 @@ class Lesson:
                 rows = db.query_all(
                     """
                     SELECT c.class_code, c.class_name, c.leader_name, c.leader_names,
-                           c.is_active, c.established, c.motto, c.location
+                           c.is_active, c.established, c.motto, c.location, c.classroom_ip
                     FROM class c
                     JOIN grade g ON c.grade_id = g.grade_id
                     WHERE g.is_archived = 0 AND c.is_active = 1
@@ -187,17 +189,19 @@ class Lesson:
                 "established": row.get("established", ""),
                 "motto": row.get("motto", ""),
                 "location": row.get("location", ""),
-                "ip": "",
+                "ip": row.get("classroom_ip") or "",
             })
         return pd.DataFrame(data)
     
     @property
     def students(self):
-        """获取学生列表"""
+        """获取学生列表（demo 模式从演示库读取，避免学号体系与真实 Excel 混用）"""
+        if DEMO_MODE:
+            return self._load_students_from_db()
         stu_df = self.repository.load_template("students")
         if stu_df is None or stu_df.empty:
             return pd.DataFrame()
-        
+
         # 转换 roomid 和 rpid 为整数再转字符串，去除小数点
         def safe_int_str(x):
             try:
@@ -213,6 +217,25 @@ class Lesson:
             if col in stu_df.columns:
                 stu_df[col] = stu_df[col].apply(safe_int_str)
         return stu_df
+
+    def _load_students_from_db(self):
+        """演示模式：从演示库 student/class 表构造学生表（sid/name/cname）"""
+        try:
+            with MoralSQLiteDatabase() as db:
+                rows = db.query_all(
+                    """
+                    SELECT s.student_id AS sid, s.name, c.class_name AS cname
+                    FROM student s
+                    JOIN class c ON s.class_id = c.class_id
+                    JOIN grade g ON c.grade_id = g.grade_id
+                    WHERE g.is_archived = 0 AND s.status IN ('在校', '毕业')
+                    ORDER BY s.student_id
+                    """
+                )
+        except Exception as exc:
+            log.error(f"加载演示学生数据失败: {exc}")
+            rows = []
+        return pd.DataFrame(rows, columns=["sid", "name", "cname"])
     
 
     @property
@@ -303,7 +326,7 @@ class Lesson:
         # 清除相关 Redis 缓存，确保 API 返回最新数据
         cache.clear_pattern("api:schedule:*")
         cache.clear_pattern("api:todays:*")
-        cache.delete("api:class_codes")
+        cache.clear_pattern("api:class_codes*")
         # 清除课表模块的惰性缓存
         from models.datas_api.legacy_schedule import clear_schedule_module_cache
         clear_schedule_module_cache()

@@ -206,6 +206,7 @@ class ClassCreate(BaseModel):
     leader_names: Optional[str] = Field(None, max_length=200, description="班主任姓名列表（多人，逗号分隔）")
     leader_wxid: Optional[str] = Field(None, description="班主任微信ID")
     roomid: Optional[str] = Field(None, description="微信群ID")
+    classroom_ip: Optional[str] = Field(None, description="教室电脑IP（匹配后自动锁定本班）")
 
 
 class ClassUpdate(BaseModel):
@@ -221,6 +222,7 @@ class ClassUpdate(BaseModel):
     established: Optional[str] = Field(None, description="成立时间")
     motto: Optional[str] = Field(None, description="班级口号")
     location: Optional[str] = Field(None, description="教室位置")
+    classroom_ip: Optional[str] = Field(None, description="教室电脑IP（匹配后自动锁定本班）")
 
 
 class StudentCreate(BaseModel):
@@ -1293,10 +1295,10 @@ async def create_class(
 
         db.execute(
             """INSERT INTO class
-            (class_code, grade_id, class_number, class_name, leader_name, leader_names, leader_ids, leader_wxid, roomid)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (class_code, grade_id, class_number, class_name, leader_name, leader_names, leader_ids, leader_wxid, roomid, classroom_ip)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (cls.class_code, cls.grade_id, cls.class_number, cls.class_name,
-             cls.leader_name, cls.leader_names or '', leader_ids, cls.leader_wxid, cls.roomid)
+             cls.leader_name, cls.leader_names or '', leader_ids, cls.leader_wxid, cls.roomid, cls.classroom_ip or '')
         )
 
         class_id = db.lastrowid()
@@ -1372,6 +1374,9 @@ async def update_class(
         if cls.location is not None:
             updates.append("location = ?")
             params.append(cls.location)
+        if cls.classroom_ip is not None:
+            updates.append("classroom_ip = ?")
+            params.append(cls.classroom_ip)
 
         if not updates:
             return {"success": True, "message": "无需更新"}

@@ -385,10 +385,21 @@ async def get_moral_dashboard_summary(
         }
 
     # Batch47: 请假与出勤风险数据
-    leave_records = _query_active_leave_records(class_filter=class_filter, limit=50)
-    leave_stats = _compute_leave_stats(class_filter=class_filter)
-    leave_by_class = _build_leave_by_class_chart(limit=top_n) if not class_filter else []
-    leave_insights = _compute_attendance_risk_insights(leave_records, class_filter)
+    # class_filter 在此是班级ID列表，请假模块按班级名过滤，先映射成班级名
+    leave_class_filter = None
+    if class_filter:
+        id_list = [int(item) for item in class_filter if item]
+        if id_list:
+            with get_moral_db() as db:
+                rows = db.query_all(
+                    f"SELECT class_name FROM class WHERE class_id IN ({','.join(['?'] * len(id_list))})",
+                    tuple(id_list),
+                )
+            leave_class_filter = [r["class_name"] for r in rows]
+    leave_records = _query_active_leave_records(class_filter=leave_class_filter, limit=50)
+    leave_stats = _compute_leave_stats(class_filter=leave_class_filter)
+    leave_by_class = _build_leave_by_class_chart(limit=top_n) if not leave_class_filter else []
+    leave_insights = _compute_attendance_risk_insights(leave_records, leave_class_filter)
 
     # Batch50: 将 leave_by_class 添加到 charts
     charts["leave_by_class"] = leave_by_class

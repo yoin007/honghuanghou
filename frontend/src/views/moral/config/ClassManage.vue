@@ -31,6 +31,7 @@
         <el-table-column prop="established" label="成立时间" width="100" />
         <el-table-column prop="motto" label="班级口号" min-width="150" show-overflow-tooltip />
         <el-table-column prop="location" label="位置" width="60" />
+        <el-table-column prop="classroom_ip" label="教室IP" width="130" show-overflow-tooltip />
         <el-table-column prop="created_at" label="创建时间" width="180" />
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
@@ -72,6 +73,9 @@
         </el-form-item>
         <el-form-item label="教室位置">
           <el-input v-model="form.location" placeholder="如：A、B" maxlength="20" />
+        </el-form-item>
+        <el-form-item label="教室IP">
+          <el-input v-model="form.classroom_ip" placeholder="如：192.168.1.101，匹配后自动锁定本班" maxlength="15" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -126,7 +130,8 @@ const form = reactive({
   leader_names: [],
   established: '',
   motto: '',
-  location: ''
+  location: '',
+  classroom_ip: ''
 })
 const rules = {
   grade_id: [{ required: true, message: '请选择级号', trigger: 'change' }],
@@ -216,7 +221,8 @@ const handleAdd = () => {
     leader_names: [],
     established: `${year}-09-01`,
     motto: '',
-    location: ''
+    location: '',
+    classroom_ip: ''
   })
   dialogVisible.value = true
 }
@@ -248,7 +254,8 @@ const handleEdit = (row) => {
     leader_names: leaderNames,
     established: row.established || '',
     motto: row.motto || '',
-    location: row.location || ''
+    location: row.location || '',
+    classroom_ip: row.classroom_ip || ''
   })
   dialogVisible.value = true
 }
@@ -264,7 +271,8 @@ const handleSubmit = async () => {
       leader_names: form.leader_names.length > 0 ? form.leader_names.join(',') : null,
       established: form.established || null,
       motto: form.motto || null,
-      location: form.location || null
+      location: form.location || null,
+      classroom_ip: form.classroom_ip || null
     }
 
     let res

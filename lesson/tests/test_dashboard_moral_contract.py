@@ -499,6 +499,50 @@ class TestDashboardLeaveHelpers:
         assert result[0]["name"] == "张三"
         assert result[0]["class_name"] == "高二1班"
 
+    def test_query_active_leave_records_accepts_class_name_list(self, monkeypatch):
+        """class_filter 传班级名列表（如班主任多班视角）时不抛 Lengths must match 异常。"""
+        import pandas as pd
+
+        class FakeCursor:
+            def __init__(self):
+                self.sql = ""
+                self.params = ()
+
+            def execute(self, sql, params=None):
+                self.sql = sql
+                self.params = params or ()
+
+            def fetchall(self):
+                return [
+                    (1, "1001", "事假", "2", "已出校", "张老师", None, "2026-05-07 08:00:00"),
+                    (2, "1002", "病假", "1", "已请假", "张老师", None, "2026-05-07 09:00:00"),
+                ]
+
+        class FakeConn:
+            def __init__(self):
+                self.cursor_obj = FakeCursor()
+
+            def cursor(self):
+                return self.cursor_obj
+
+            def close(self):
+                pass
+
+        fake_conn = FakeConn()
+
+        monkeypatch.setattr(dashboard_leave.os.path, "isfile", lambda path: True)
+        monkeypatch.setattr(dashboard_leave, "_get_sqlite_connection", lambda: lambda *args, **kwargs: fake_conn)
+        monkeypatch.setattr(dashboard_leave, "_load_students_cache", lambda: pd.DataFrame([
+            {"sid": "1001", "name": "张三", "cname": "高二1班"},
+            {"sid": "1002", "name": "李四", "cname": "高二2班"},
+            {"sid": "1003", "name": "王五", "cname": "高三1班"},
+        ]))
+
+        result = dashboard_leave.query_active_leave_records(class_filter=["高二1班", "高二2班"], limit=20)
+
+        assert set(fake_conn.cursor_obj.params[:-1]) == {"1001", "1002"}
+        assert {r["name"] for r in result} == {"张三", "李四"}
+
     def test_query_active_leave_records_closes_connection_on_error(self, monkeypatch):
         """SQL 执行异常时仍关闭连接。"""
         import pandas as pd

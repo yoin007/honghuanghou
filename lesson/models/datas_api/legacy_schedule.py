@@ -85,12 +85,6 @@ def clear_schedule_module_cache():
 @router.get("/class-codes/")
 async def get_class_codes(request: Request, ip: str = None):
     """获取所有可用的班级代码"""
-    # 尝试从缓存获取
-    cache_key = "api:class_codes"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
     if ip:
         terminal_ip = ip
     else:
@@ -101,6 +95,12 @@ async def get_class_codes(request: Request, ip: str = None):
             terminal_ip = request.headers.get("x-real-ip") or (
                 request.client.host if request.client else ""
             )
+
+    # 缓存按终端 IP 区分：不同教室命中各自的锁定结果
+    cache_key = f"api:class_codes:{terminal_ip}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     l = Lesson()
     class_template = l.get_cache_data("class_template")
