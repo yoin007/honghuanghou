@@ -94,6 +94,7 @@ class WxMsg:
         self.thumb = ""
         self.is_at = self._is_at()
         self.sender = msg.get("sender", "")
+        self.quote_msgid = None  # 引用消息时被引用消息的 msg_id（type=22 时提取）
         self.parse_content()
 
     def event_callback(self, msg):
@@ -118,6 +119,7 @@ class WxMsg:
         self.msg_id = bizContent.get("TaskId", bizContent.get("msgId", ""))
         self.roomid = bizContent.get("ChatRoomId", "")
         self.sender = bizContent.get("ChatRoomId", "")
+        self.quote_msgid = None
         self.thumb = ""
 
     def parse_content(self):
@@ -414,6 +416,13 @@ class WxMsg:
             title = self.ext.get("title", "")
             display_name = self.ext.get("displayName", "")
             content = self.ext.get("content", "")
+            # 提取被引用消息的 msg_id，供「引用语音消息触发广播」等功能回查原消息
+            svrid = ""
+            for key in ("svrid", "msgSvrId", "msgsvrid", "msgId", "MsgSvrId"):
+                if self.ext.get(key):
+                    svrid = str(self.ext[key])
+                    break
+            self.quote_msgid = svrid or None
         else:
             try:
                 title = self.ext.title
@@ -421,6 +430,7 @@ class WxMsg:
                 content = self.ext.content
             except (AttributeError, TypeError):
                 title = display_name = content = ""
+            self.quote_msgid = getattr(self.ext, "svrid", None) or None
         self.content = f"{title} \n [引用消息] {display_name}: {content}"
 
     def _handle_group_chain(self):
@@ -613,6 +623,16 @@ class MessageDB:
             """SELECT * FROM messages WHERE content = :event_type
                ORDER BY create_time DESC LIMIT 1""",
             {"event_type": event_type},
+        )
+        result = self.__cursor__.fetchone()
+        return result if result else None
+
+    def select_latest_by_type(self, sender, msg_type):
+        """查询某发送者最近一条指定类型的消息"""
+        self.__cursor__.execute(
+            """SELECT * FROM messages WHERE sender = :sender AND type = :type
+               ORDER BY create_time DESC LIMIT 1""",
+            {"sender": sender, "type": msg_type},
         )
         result = self.__cursor__.fetchone()
         return result if result else None

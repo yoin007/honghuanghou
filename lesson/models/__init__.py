@@ -14,4 +14,5 @@ from models.application.application import *
 from models.network.ruijie import core_status, core_cmd
 from models.network.uac import query_uac_async, del_pc_user_async, add_pc_user_async, get_one_ip_async, black_ip_async, del_black_ip_async
 from models.network.ess import add_wifi_user, del_wifi_user, ess_online, ess_user, ess_mac_async, black_user_async, del_black_user_async
+from models.broadcast import broadcast_terminals, broadcast_voice, broadcast_bind, broadcast_unbind
 from sendqueue import get_queue_info
