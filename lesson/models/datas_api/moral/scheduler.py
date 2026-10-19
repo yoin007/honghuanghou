@@ -668,15 +668,14 @@ def punishment_expire_reminder_task():
 
     流程：
     1. 查询未来7天内到期且未撤销的处分
-    2. 发送提前提醒通知（班级公告）
+    2. 私聊提醒班主任（处分涉及学生隐私，不发班级公告）
     3. 查询今日已到期且未撤销的处分
-    4. 发送到期提醒通知（班级公告）
+    4. 私聊提醒班主任
     5. 记录提醒日志
     """
     logger.info("执行处分到期提醒任务")
 
     from .base import get_moral_db
-    from models.lesson.homework import Homework
 
     with get_moral_db() as db:
         today = date.today()
@@ -686,7 +685,7 @@ def punishment_expire_reminder_task():
         upcoming_expires = db.query_all(
             """SELECT p.id, p.student_id, p.punishment_date, p.expire_date,
                    p.level, p.can_apply_revoke, s.name as student_name,
-                   c.class_id, c.class_code, c.class_name, c.leader_name, c.leader_names
+                   c.class_id, c.class_code, c.class_name, c.leader_name, c.leader_names, c.leader_wxid
             FROM punishment_record p
             JOIN student s ON p.student_id = s.student_id
             JOIN class c ON p.class_id = c.class_id
@@ -705,9 +704,7 @@ def punishment_expire_reminder_task():
             days_until = (datetime.strptime(punishment['expire_date'], "%Y-%m-%d").date() - today).days
             student_name = punishment['student_name']
             class_name = punishment['class_name']
-            class_code = punishment['class_code']
 
-            # 发送班级公告
             content = (
                 f"【处分到期提醒】\n\n"
                 f"学生 {student_name} 的处分（{punishment['level']}）将于 {days_until} 天后到期。\n"
@@ -718,15 +715,7 @@ def punishment_expire_reminder_task():
                 f"{today.strftime('%Y-%m-%d')}"
             )
 
-            with Homework() as hw:
-                leader_names_str = punishment.get('leader_names', '')
-                leader_name = punishment.get('leader_name', '')
-                if leader_names_str:
-                    first_leader = leader_names_str.split(',')[0].strip()
-                    author = first_leader or "德育系统"
-                else:
-                    author = leader_name or "德育系统"
-                hw.add_announcement(class_code, "处分到期提醒", author, content, None, class_id=punishment['class_id'])
+            _notify_punishment_reminder(content, punishment['leader_wxid'])
 
             # 记录提醒日志
             db.execute(
@@ -735,7 +724,7 @@ def punishment_expire_reminder_task():
                  is_sent, sent_at, recipient_type, message)
                 VALUES (?, ?, ?, 'pre_expire', ?, 1, datetime('now','localtime'), 'class_teacher', ?)""",
                 (punishment['id'], punishment['student_id'], punishment['expire_date'],
-                 days_until, f"班级公告：{class_name}")
+                 days_until, f"班主任微信：{class_name}")
             )
 
             logger.info(f"已发送提前提醒：{student_name}（{class_name}），{days_until}天后到期")
@@ -744,7 +733,7 @@ def punishment_expire_reminder_task():
         today_expires = db.query_all(
             """SELECT p.id, p.student_id, p.punishment_date, p.expire_date,
                    p.level, p.can_apply_revoke, s.name as student_name,
-                   c.class_id, c.class_code, c.class_name, c.leader_name, c.leader_names
+                   c.class_id, c.class_code, c.class_name, c.leader_name, c.leader_names, c.leader_wxid
             FROM punishment_record p
             JOIN student s ON p.student_id = s.student_id
             JOIN class c ON p.class_id = c.class_id
@@ -761,7 +750,6 @@ def punishment_expire_reminder_task():
         for punishment in today_expires:
             student_name = punishment['student_name']
             class_name = punishment['class_name']
-            class_code = punishment['class_code']
 
             content = (
                 f"【处分已到期】\n\n"
@@ -775,15 +763,7 @@ def punishment_expire_reminder_task():
 
             content += f"— 德育评价系统\n{today.strftime('%Y-%m-%d')}"
 
-            with Homework() as hw:
-                leader_names_str = punishment.get('leader_names', '')
-                leader_name = punishment.get('leader_name', '')
-                if leader_names_str:
-                    first_leader = leader_names_str.split(',')[0].strip()
-                    author = first_leader or "德育系统"
-                else:
-                    author = leader_name or "德育系统"
-                hw.add_announcement(class_code, "处分已到期", author, content, None, class_id=punishment['class_id'])
+            _notify_punishment_reminder(content, punishment['leader_wxid'])
 
             db.execute(
                 """INSERT INTO punishment_expire_reminder
@@ -791,10 +771,22 @@ def punishment_expire_reminder_task():
                  is_sent, sent_at, recipient_type, message)
                 VALUES (?, ?, ?, 'expired', 1, datetime('now','localtime'), 'class_teacher', ?)""",
                 (punishment['id'], punishment['student_id'], punishment['expire_date'],
-                 f"班级公告：{class_name}")
+                 f"班主任微信：{class_name}")
             )
 
             logger.info(f"已发送到期提醒：{student_name}（{class_name}）")
+
+
+def _notify_punishment_reminder(content, leader_wxid):
+    """处分提醒私聊班主任；无微信 ID 时仅记录日志（调用方负责写库）。"""
+    if not leader_wxid:
+        logger.warning("班主任无微信 ID，处分提醒仅记录日志")
+        return
+    try:
+        from sendqueue import send_text
+        send_text(content, leader_wxid, producer="punishment_reminder")
+    except Exception as e:
+        logger.error(f"处分提醒微信发送失败：{e}")
 
 
 def teacher_todo_reminder_task():
