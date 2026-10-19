@@ -3,6 +3,7 @@
 
 import json
 import logging
+import os
 from time import sleep
 from typing import Optional, Dict, Any, Union
 
@@ -169,6 +170,61 @@ class Client:
                 return ""
         return ""
 
+    def down_voice(self, msg_id, dst_path="") -> str:
+        """下载语音消息并转换为wav
+
+        语音消息(type=3)的下载地址存于messages.db的ext字段，
+        实际内容为微信SILK编码（头部多1字节\\x02前缀）而非真正的mp3，
+        需剥离前缀后用pilk解码为wav才能播放。
+
+        Args:
+            msg_id: 消息ID
+            dst_path: 目标wav路径，为空则使用URL文件名
+        Returns:
+            str: 成功返回wav路径，失败返回""
+        """
+        try:
+            import pilk
+            from wxmsg import MessageDB
+        except ImportError as e:
+            self.LOG.error(f"缺少依赖: {e}")
+            return ""
+
+        with MessageDB() as msgdb:
+            msg = msgdb.select(msg_id)
+        # msg[3] 为 type，msg[8] 为 ext
+        if not msg or msg[3] != 3 or not str(msg[8] or "").startswith("http"):
+            self.LOG.error(f"消息 {msg_id} 不是语音消息或无下载地址")
+            return ""
+
+        url = msg[8]
+        try:
+            r = requests.get(url, timeout=30)
+            r.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            self.LOG.error(f"下载语音失败: {e}")
+            return ""
+
+        data = r.content
+        if data[1:10] != b"#!SILK_V3":
+            self.LOG.error(f"非SILK格式，文件头: {data[:10].hex()}")
+            return ""
+
+        if not dst_path:
+            name = url.split("/")[-1].split("?")[0] or f"voice_{msg_id}"
+            dst_path = os.path.splitext(name)[0] + ".wav"
+
+        # 剥离前缀写入临时silk文件，解码为wav后删除
+        silk_path = dst_path + ".silk.tmp"
+        try:
+            with open(silk_path, "wb") as f:
+                f.write(data[1:])
+            pilk.silk_to_wav(silk_path, dst_path, rate=24000)
+        finally:
+            if os.path.exists(silk_path):
+                os.remove(silk_path)
+        return dst_path
+
     def contact_info(self, content_type=0):
         """获取联系人信息
         Args:
@@ -310,6 +366,12 @@ def down_file(msg_id, dst_path=""):
         r = requests.get(res)
         f.write(r.content)
         return dst_path
+
+
+def down_voice(msg_id, dst_path=""):
+    """下载语音消息并转换为wav"""
+    c = Client()
+    return c.down_voice(msg_id, dst_path)
 
 
 if __name__ == "__main__":
