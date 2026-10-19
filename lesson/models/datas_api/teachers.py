@@ -305,7 +305,7 @@ async def get_teacher_teaching_classes(
                FROM teacher_teaching_class ttc
                LEFT JOIN class c ON ttc.class_id = c.class_id
                LEFT JOIN grade g ON c.grade_id = g.grade_id
-               WHERE ttc.teacher_id = ? AND ttc.is_active = 1
+               WHERE ttc.teacher_id = ? AND ttc.is_active = 1 AND c.class_id IS NOT NULL
                ORDER BY g.enrollment_year DESC, c.class_number""",
             (real_teacher_id,),
         )

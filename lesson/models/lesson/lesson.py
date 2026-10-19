@@ -831,6 +831,10 @@ def group_send(xlsx_file, sender):
         for _, row in df.iterrows():
             name = row["接收人"]
             wxids = l.get_wxids(name, notify=False)
+            if not wxids:
+                log.error(f"接收人 {name} 不在教师库或班级中，未通知")
+                failed.append(name)
+                continue
             for wxid in wxids:
                 if row["类型"] == "消息":
                     send_text(row["消息内容"], wxid, "", "lesson")
