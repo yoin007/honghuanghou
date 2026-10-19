@@ -161,11 +161,12 @@ class TestHomeworkRoutesContract:
             def __exit__(self, exc_type, exc, tb):
                 events.append("exit")
 
-            def get_announcement(self, class_code):
+            def get_announcement(self, class_code, class_id=None):
                 assert class_code == "202401"
                 return [{"title": "测试公告"}]
 
         monkeypatch.setattr(homework_module, "Homework", FakeHomework)
+        monkeypatch.setattr(homework_module, "_resolve_class", lambda identifier: None)
 
         result = await homework_module.get_class_announcements("202401")
 
@@ -185,10 +186,11 @@ class TestHomeworkRoutesContract:
             def __exit__(self, exc_type, exc, tb):
                 events.append("exit")
 
-            def get_announcement(self, class_code):
+            def get_announcement(self, class_code, class_id=None):
                 raise RuntimeError("db failed")
 
         monkeypatch.setattr(homework_module, "Homework", FakeHomework)
+        monkeypatch.setattr(homework_module, "_resolve_class", lambda identifier: None)
 
         with pytest.raises(RuntimeError, match="db failed"):
             await homework_module.get_class_announcements("202401")

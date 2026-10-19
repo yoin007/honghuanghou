@@ -237,11 +237,40 @@ async def delete_homework(hw_id: int, current_user: User = Depends(require_confi
 # Routes: Announcements
 # ============================================================
 
+def _resolve_class(identifier):
+    """把前端传入的班级标识（class_name 或 class_code）解析为班级记录。
+
+    返回 dict(class_id, class_code, class_name)，未匹配时返回 None。
+    """
+    if identifier is None:
+        return None
+    try:
+        from .moral.base import get_moral_db
+        with get_moral_db() as db:
+            row = db.query_one(
+                """SELECT class_id, class_code, class_name FROM class
+                   WHERE class_code = ? OR class_name = ?
+                   ORDER BY is_active DESC, class_id LIMIT 1""",
+                (str(identifier), str(identifier)),
+            )
+        return row
+    except Exception as e:
+        logger.warning(f"解析班级标识失败（{identifier}）：{e}")
+        return None
+
+
 @router.get("/announcements/{class_code}")
 async def get_class_announcements(class_code: str):
-    """获取指定班级的公告"""
+    """获取指定班级的公告（class_code 支持班级名或班级编码）"""
+    class_row = _resolve_class(class_code)
     with Homework() as n:
-        announcements = n.get_announcement(class_code)
+        if class_row:
+            announcements = n.get_announcement(
+                class_code, class_id=class_row["class_id"]
+            )
+        else:
+            # 班级已不存在（如毕业归档）：按原始值查询历史公告
+            announcements = n.get_announcement(class_code)
     return {"announcements": announcements}
 
 
@@ -249,13 +278,15 @@ async def get_class_announcements(class_code: str):
 async def create_announcement(announcement: AnnouncementForm, current_user: User = Depends(require_configured_api_permission("/api/announcement/", "POST", allow_missing=False))):
     """发布公告（统一鉴权已完成角色校验）"""
     try:
+        class_row = _resolve_class(announcement.classCode)
         with Homework() as n:
             n.add_announcement(
                 class_code=announcement.classCode,
                 title=announcement.title,
                 author=current_user.username,
                 content=announcement.content,
-                wxid=""
+                wxid="",
+                class_id=class_row["class_id"] if class_row else None,
             )
             result = {"id": n.cursor.lastrowid, "message": "公告发布成功"}
         return result

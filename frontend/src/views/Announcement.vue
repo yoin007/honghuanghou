@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, nextTick, onMounted } from 'vue'
-import { ElMessage, ElTimeline, ElTimelineItem, ElCard, ElEmpty, ElButton, ElDialog, ElForm, ElFormItem, ElInput } from 'element-plus'
+import { ElMessage, ElMessageBox, ElTimeline, ElTimelineItem, ElCard, ElEmpty, ElButton, ElDialog, ElForm, ElFormItem, ElInput } from 'element-plus'
 import { getAnnouncements, updateAnnouncement, deleteAnnouncement, publishAnnouncement } from '@/api/modules/announcement'
 import { useAuthStore } from '../stores/auth'
 
@@ -135,9 +135,18 @@ const handleUpdate = async () => {
   }
 }
 
-const handleDelete = async (annId) => {
+const handleDelete = async (ann) => {
   try {
-    await deleteAnnouncement(annId)
+    await ElMessageBox.confirm(
+      `确定删除公告「${ann.title}」吗？删除后不可恢复。`,
+      '删除确认',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await deleteAnnouncement(ann.id)
     ElMessage.success('公告删除成功')
     fetchAnnouncements()
   } catch (error) {
@@ -174,7 +183,7 @@ onMounted(() => {
               <h4>{{ announcement.title }}  ({{ announcement.author }})</h4>
               <div v-if="canManage(announcement.author)" class="card-actions">
                 <el-button size="small" type="primary" @click="openEditDialog(announcement)">编辑</el-button>
-                <el-button size="small" type="danger" @click="handleDelete(announcement.id)">删除</el-button>
+                <el-button size="small" type="danger" @click="handleDelete(announcement)">删除</el-button>
               </div>
             </div>
           </template>

@@ -145,6 +145,17 @@ class Homework:
             except:
                 pass
 
+        # 公告锚定 class_id（升年级/改名后仍可追溯班级）
+        try:
+            self.cursor.execute("SELECT class_id FROM announcements LIMIT 1")
+        except sqlite3.OperationalError:
+            try:
+                self.cursor.execute("ALTER TABLE announcements ADD COLUMN class_id INTEGER")
+                self.conn.commit()
+                log.info("表：announcements 添加 class_id 字段")
+            except:
+                pass
+
     def add_homework(
         self, class_code, subject, teacher, content, deadline, duration, type, wxid
     ):
@@ -212,28 +223,42 @@ class Homework:
                 result[subject] = subject_homework
         return result
 
-    def add_announcement(self, class_code, title, author, content, wxid):
+    def add_announcement(self, class_code, title, author, content, wxid, class_id=None):
         try:
             self.cursor.execute(
                 """
-            INSERT INTO announcements (class_code, title, author, content, wxid)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO announcements (class_code, title, author, content, wxid, class_id)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-                (class_code, title, author, content, wxid),
+                (class_code, title, author, content, wxid, class_id),
             )
             self.conn.commit()
         except sqlite3.IntegrityError as e:
             log.error("公告添加失败")
             raise e
 
-    def get_announcement(self, class_code):
+    def get_announcement(self, class_code, class_id=None):
+        """查询班级公告。
+
+        以 class_id 为主锚点；class_code 作为历史数据（未回填 class_id）的兼容匹配。
+        """
         try:
-            self.cursor.execute(
-                """
-            SELECT * FROM announcements WHERE class_code = ? AND deleted = 0 ORDER BY id DESC LIMIT 10
-            """,
-                (class_code,),
-            )
+            if class_id is not None:
+                self.cursor.execute(
+                    """
+                SELECT * FROM announcements
+                WHERE deleted = 0 AND (class_id = ? OR class_code = ?)
+                ORDER BY id DESC LIMIT 10
+                """,
+                    (class_id, str(class_code)),
+                )
+            else:
+                self.cursor.execute(
+                    """
+                SELECT * FROM announcements WHERE class_code = ? AND deleted = 0 ORDER BY id DESC LIMIT 10
+                """,
+                    (class_code,),
+                )
             rows = self.cursor.fetchall()
             if rows:
                 announcements = []

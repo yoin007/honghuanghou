@@ -230,16 +230,18 @@ def gk_countdown():
     try:
         with get_moral_db() as db:
             classes = db.query_all(
-                """SELECT class_code FROM class WHERE is_active = 1"""
+                """SELECT c.class_id, c.class_code FROM class c
+                   JOIN grade g ON c.grade_id = g.grade_id
+                   WHERE c.is_active = 1 AND g.is_archived = 0"""
             )
             class_codes = [c['class_code'] for c in classes]
 
         with Homework() as hw:
-            for class_code in class_codes:
+            for cls in classes:
                 try:
-                    hw.add_announcement(class_code, title, author, content, None)
+                    hw.add_announcement(cls['class_code'], title, author, content, None, class_id=cls['class_id'])
                 except Exception as e:
-                    log.error(f"发布公告失败（{class_code}）：{e}")
+                    log.error(f"发布公告失败（{cls['class_code']}）：{e}")
 
         log.info(f"已发布高考倒计时公告到 {len(class_codes)} 个班级")
     except Exception as e:

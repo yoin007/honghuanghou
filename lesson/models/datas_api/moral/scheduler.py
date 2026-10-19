@@ -78,14 +78,15 @@ def birthday_reminder_task():
         from collections import defaultdict
         class_students = defaultdict(list)
         for student in students:
-            class_students[student['class_code']].append(student)
+            class_students[student['class_id']].append(student)
 
         # 发布班级公告
         with Homework() as hw:
-            for class_code, class_student_list in class_students.items():
+            for class_id, class_student_list in class_students.items():
                 # 构建公告内容
                 student_names = [s['name'] for s in class_student_list]
                 class_name = class_student_list[0]['class_name']
+                class_code = class_student_list[0]['class_code']
 
                 # 获取班主任名称作为署名
                 leader_names_str = class_student_list[0].get('leader_names', '')
@@ -117,18 +118,18 @@ def birthday_reminder_task():
                 title = f"🎂 今日生日提醒"
 
                 try:
-                    hw.add_announcement(class_code, title, author, content, None)
+                    hw.add_announcement(class_code, title, author, content, None, class_id=class_id)
                     logger.info(f"已发布班级公告：{class_name}，作者：{author}，学生：{student_names}")
                 except Exception as e:
                     logger.error(f"发布公告失败（{class_name}）：{e}")
 
-        # 记录提醒日志
+        # 记录提醒日志（按学生所在班级分别记录）
         for student in students:
             db.execute(
                 """INSERT INTO birthday_reminder
                 (student_id, reminder_date, reminder_type, message, is_sent, recipient_type)
                 VALUES (?, ?, 'birthday', ?, 1, 'class')""",
-                (student['student_id'], date.today(), f"班级公告：{class_name}")
+                (student['student_id'], date.today(), f"班级公告：{student['class_name']}")
             )
 
 
@@ -186,7 +187,7 @@ def birthday_blessing_task():
         # 按班级分组
         class_students = defaultdict(list)
         for student in students:
-            class_students[student['class_code']].append(student)
+            class_students[student['class_id']].append(student)
 
         # 获取祝福模板
         template_config = db.query_one(
@@ -205,8 +206,9 @@ def birthday_blessing_task():
 
         # 发布班级祝福公告
         with Homework() as hw:
-            for class_code, class_student_list in class_students.items():
+            for class_id, class_student_list in class_students.items():
                 class_name = class_student_list[0]['class_name']
+                class_code = class_student_list[0]['class_code']
                 student_names = [s['name'] for s in class_student_list]
 
                 # 获取班主任名称作为署名
@@ -241,7 +243,7 @@ def birthday_blessing_task():
                 title = f"🎉 生日祝福"
 
                 try:
-                    hw.add_announcement(class_code, title, author, content, None)
+                    hw.add_announcement(class_code, title, author, content, None, class_id=class_id)
                     logger.info(f"已发布班级祝福公告：{class_name}，作者：{author}，学生：{student_names}")
 
                     # 记录发送日志
@@ -684,7 +686,7 @@ def punishment_expire_reminder_task():
         upcoming_expires = db.query_all(
             """SELECT p.id, p.student_id, p.punishment_date, p.expire_date,
                    p.level, p.can_apply_revoke, s.name as student_name,
-                   c.class_code, c.class_name, c.leader_name, c.leader_names
+                   c.class_id, c.class_code, c.class_name, c.leader_name, c.leader_names
             FROM punishment_record p
             JOIN student s ON p.student_id = s.student_id
             JOIN class c ON p.class_id = c.class_id
@@ -724,7 +726,7 @@ def punishment_expire_reminder_task():
                     author = first_leader or "德育系统"
                 else:
                     author = leader_name or "德育系统"
-                hw.add_announcement(class_code, "处分到期提醒", author, content, None)
+                hw.add_announcement(class_code, "处分到期提醒", author, content, None, class_id=punishment['class_id'])
 
             # 记录提醒日志
             db.execute(
@@ -742,7 +744,7 @@ def punishment_expire_reminder_task():
         today_expires = db.query_all(
             """SELECT p.id, p.student_id, p.punishment_date, p.expire_date,
                    p.level, p.can_apply_revoke, s.name as student_name,
-                   c.class_code, c.class_name, c.leader_name, c.leader_names
+                   c.class_id, c.class_code, c.class_name, c.leader_name, c.leader_names
             FROM punishment_record p
             JOIN student s ON p.student_id = s.student_id
             JOIN class c ON p.class_id = c.class_id
@@ -781,7 +783,7 @@ def punishment_expire_reminder_task():
                     author = first_leader or "德育系统"
                 else:
                     author = leader_name or "德育系统"
-                hw.add_announcement(class_code, "处分已到期", author, content, None)
+                hw.add_announcement(class_code, "处分已到期", author, content, None, class_id=punishment['class_id'])
 
             db.execute(
                 """INSERT INTO punishment_expire_reminder
