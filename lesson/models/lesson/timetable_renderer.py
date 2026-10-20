@@ -52,7 +52,6 @@ INFO_BAR = (234, 245, 253)
 HEADER_BLUE = (92, 165, 221)
 CELL_WHITE = (251, 253, 255)
 EMPTY_GRAY = (181, 199, 217)
-HIGHLIGHT_TEXT = (200, 30, 30)
 
 GROUP_STYLE = {
     "上午": ((233, 245, 254), "sun"),
@@ -69,7 +68,7 @@ CLASS_COLORS = {
 }
 
 # 未登记班级的兜底色板 (文字色, 底色), 按班级名哈希取色, 保证同一班级颜色固定
-# 8 色按色相环均匀分布 (避开红色区), 文字色不得使用红色系, 红色保留给调课高亮 (HIGHLIGHT_TEXT)
+# 8 色按色相环均匀分布 (避开红色区), 红色文字在粉彩底上可读性差, 故不纳入
 FALLBACK_PALETTE = [
     ((123, 54, 20), (246, 210, 193)),    # 橙
     ((123, 123, 20), (249, 249, 210)),   # 黄
@@ -316,7 +315,7 @@ class TimetableRenderer:
                           fill=BLUE, anchor="mm")
 
     def _draw_cell(self, draw, x, y, value, highlighted, class_colors):
-        """单个课表单元格: 空课显示 —, 有课绘制班级配色圆角块; 高亮只改文字颜色, 不动背景"""
+        """单个课表单元格: 空课显示 —, 有课绘制班级配色圆角块; 高亮 = 字体改黑色, 其余不动"""
         rect = [x + 2, y + 2, x + DAY_W - 2, y + ROW_H - 2]
         draw.rectangle(rect, fill=CELL_WHITE, outline=BORDER, width=1)
 
@@ -329,7 +328,7 @@ class TimetableRenderer:
         class_key = value.split()[0].split("-")[0]
         fg, bg = class_colors.get(class_key, FALLBACK_PALETTE[-1])
         if highlighted:
-            fg = HIGHLIGHT_TEXT
+            fg = (20, 20, 20)  # 高亮: 仅字体黑色
 
         # 色块内文字过长时自动缩小
         size = FONT_CELL
@@ -338,13 +337,8 @@ class TimetableRenderer:
             size -= 1
         pad = 9
         draw.rounded_rectangle([x + pad, y + 23, x + DAY_W - pad, y + ROW_H - 23], radius=12, fill=bg)
-        if highlighted:
-            # 红字 + 白色描边, 保证在任何班级底色上都清晰
-            draw.text((x + DAY_W // 2, y + ROW_H // 2), display, font=_font(size, bold=True),
-                      fill=HIGHLIGHT_TEXT, anchor="mm", stroke_width=2, stroke_fill="white")
-        else:
-            draw.text((x + DAY_W // 2, y + ROW_H // 2), display, font=_font(size, bold=True),
-                      fill=fg, anchor="mm")
+        draw.text((x + DAY_W // 2, y + ROW_H // 2), display, font=_font(size, bold=True),
+                  fill=fg, anchor="mm")
 
     @staticmethod
     def _scan_classes(df, grid_w):
