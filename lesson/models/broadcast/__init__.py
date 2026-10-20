@@ -5,11 +5,15 @@ token 和终端授权范围由广播服务器侧控制（api_users.json），
 本模块只维护「老师 wxid → token」映射（config/broadcast.yaml）。
 
 指令：
-    广播终端               查询自己授权范围内的终端
+    广播终端               查询全部终端（编号为播放用 UI 编号）
     广播 7 / 广播 2,3,7    引用语音消息，在指定终端播放
+    广播 7 强制           引用语音消息，强制在上课/考试期间播放
     广播全部               引用语音消息，在全部授权终端播放
     广播授权 老师名 token  （仅管理员）绑定老师与广播 token
     广播解绑 老师名        （仅管理员）解绑
+
+注意：广播服务器的终端列表接口返回的是 0-based 内部 ID，
+播放参数 member_ids 使用 UI 显示编号（1-based），二者相差 1。
 """
 import logging
 import os
@@ -76,7 +80,7 @@ def _api_get(path, token):
     )
 
 
-def _api_upload_play(token, wav_path, member_ids=None, name="微信广播"):
+def _api_upload_play(token, wav_path, member_ids=None, name="微信广播", force=False):
     # 定时精度为分钟，往后推 1 分钟确保任务能立即触发
     play_at = datetime.now() + timedelta(minutes=1)
     data = {
@@ -84,7 +88,7 @@ def _api_upload_play(token, wav_path, member_ids=None, name="微信广播"):
         "date": play_at.strftime("%Y-%m-%d"),
         "time": play_at.strftime("%H:%M"),
         "name": name,
-        "force": "false",
+        "force": "true" if force else "false",
     }
     if member_ids:
         data["member_ids"] = ",".join(str(i) for i in member_ids)
@@ -151,10 +155,12 @@ async def broadcast_terminals(record):
     if not data.get("ok"):
         send_text(f"查询终端失败：{data.get('msg', '未知错误')}", record.sender)
         return
-    lines = ["📢 你的授权终端："]
-    for t in data.get("terminals", []):
-        status = "🟢" if t.get("online") else "⚪"
-        lines.append(f"{status} {t['id']}. {t['name']}")
+    # 广播服务器返回 0-based 内部 ID，播放用 UI 编号（1-based），二者相差 1
+    lines = ["📢 终端列表（编号可直接用于广播指令）："]
+    for t in data.get("members", []):
+        lines.append(f"{t['id'] + 1}. {t['name']}")
+    for g in data.get("groups", []):
+        lines.append(f"{g['id'] + 1}. {g['name']}(分组)")
     lines.append("发送「广播 编号」并引用语音消息即可播放，如：广播 7")
     send_text("\n".join(lines), record.sender)
 
@@ -169,9 +175,11 @@ async def broadcast_voice(record):
     # 指令在引用消息标题行，如 "广播 7 \n [引用消息] ..."
     first_line = (record.content or "").split("\n")[0]
     arg = re.sub(r"^广播", "", first_line).strip()
+    force = "强制" in arg  # 上课/考试期间需加「强制」才会真正播放
+    arg = arg.replace("强制", "").strip()
     if arg and "全部" not in arg:
         if not re.fullmatch(r"[0-9,\s，、]+", arg):
-            send_text("指令格式：引用语音消息后发送「广播 7」或「广播全部」", record.sender)
+            send_text("指令格式：引用语音消息后发送「广播 7」或「广播全部」，上课期间可加「强制」", record.sender)
             return
         member_ids = [int(x) for x in re.split(r"[,，、\s]+", arg) if x]
         if not member_ids:
@@ -195,21 +203,36 @@ async def broadcast_voice(record):
             return
         user_name = _get_users().get(record.sender, {}).get("name", "老师")
         try:
-            r = _api_upload_play(token, wav_path, member_ids, name=f"{user_name}微信广播")
+            r = _api_upload_play(
+                token, wav_path, member_ids, name=f"{user_name}微信广播", force=force
+            )
         except requests.RequestException:
             send_text("广播服务器连接失败，请稍后再试", record.sender)
-            return
-        if r.status_code == 403:
-            send_text("所选终端不在你的授权范围，发送「广播终端」查看可用终端", record.sender)
             return
         try:
             data = r.json()
         except ValueError:
             data = {}
+        if r.status_code == 409:
+            # 上课/考试时段冲突，服务器要求显式 force=true
+            send_text(
+                f"{data.get('msg', '当前是上课/考试期间')}，如确需播放，请在指令中加「强制」",
+                record.sender,
+            )
+            return
+        if r.status_code == 403:
+            # 报文含具体越权终端列表，如「无权控制终端(UI编号): [7, 12]」
+            send_text(
+                f"所选终端不在你的授权范围（{data.get('msg', '未知')}），发送「广播终端」查看可用终端",
+                record.sender,
+            )
+            return
         if r.status_code == 200 and data.get("ok"):
             target = "、".join(map(str, member_ids)) if member_ids else "全部授权终端"
+            duration = data.get("duration")
+            length = f"，时长约{duration}秒" if duration else ""
             send_text(
-                f"✅ 广播任务已创建（终端：{target}），任务ID：{data.get('task_id')}，约1分钟后播放",
+                f"✅ 广播任务已创建（终端：{target}）{length}，任务ID：{data.get('task_id')}",
                 record.sender,
             )
         else:

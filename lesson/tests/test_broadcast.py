@@ -109,12 +109,19 @@ class TestBroadcastTerminals:
             broadcast,
             "_api_get",
             lambda path, token: fake_response(
-                200, {"ok": True, "terminals": [{"id": 7, "name": "监听音箱", "online": True}]}
+                200,
+                {
+                    "ok": True,
+                    "members": [{"id": 6, "name": "广播室监听音箱"}],
+                    "groups": [{"id": 1, "name": "教学区走廊"}],
+                },
             ),
         )
 
         await broadcast.broadcast_terminals(make_record("广播终端"))
-        assert any("7. 监听音箱" in m for m in sent)
+        # 服务器返回 0-based ID，展示用 UI 编号（1-based）
+        assert any("7. 广播室监听音箱" in m for m in sent)
+        assert any("2. 教学区走廊(分组)" in m for m in sent)
 
     async def test_403(self, config_state, sent, monkeypatch):
         config_state["users"] = {"wxid_teacher1": {"name": "张三", "token": "tok"}}
@@ -154,9 +161,9 @@ class TestBroadcastVoice:
             sys.modules, "client", type("C", (), {"down_voice": staticmethod(fake_down_voice)})
         )
 
-        def fake_upload_play(token, wav_path, member_ids=None, name=""):
-            uploaded.update(token=token, member_ids=member_ids, name=name)
-            return fake_response(200, {"ok": True, "task_id": 1574})
+        def fake_upload_play(token, wav_path, member_ids=None, name="", force=False):
+            uploaded.update(token=token, member_ids=member_ids, name=name, force=force)
+            return fake_response(200, {"ok": True, "task_id": 1574, "duration": 12})
 
         monkeypatch.setattr(broadcast, "_api_upload_play", fake_upload_play)
         return uploaded
@@ -230,12 +237,36 @@ class TestBroadcastVoice:
         config_state["users"] = {"wxid_teacher1": {"name": "张三", "token": "tok"}}
         self._patch_voice(monkeypatch)
         monkeypatch.setattr(
-            broadcast, "_api_upload_play", lambda *a, **k: fake_response(403, {})
+            broadcast,
+            "_api_upload_play",
+            lambda *a, **k: fake_response(403, {"ok": False, "msg": "无权控制终端(UI编号): [99]"}),
         )
 
         record = make_record("广播 99 \n [引用消息] 张三: [语音消息]", quote_msgid="voice_msg_1")
         await broadcast.broadcast_voice(record)
-        assert any("授权范围" in m for m in sent)
+        assert any("授权范围" in m and "[99]" in m for m in sent)
+
+    async def test_play_409_conflict(self, config_state, sent, monkeypatch):
+        config_state["users"] = {"wxid_teacher1": {"name": "张三", "token": "tok"}}
+        self._patch_voice(monkeypatch)
+        monkeypatch.setattr(
+            broadcast,
+            "_api_upload_play",
+            lambda *a, **k: fake_response(409, {"ok": False, "need_force": True, "msg": "当前是上课期间"}),
+        )
+
+        record = make_record("广播 7 \n [引用消息] 张三: [语音消息]", quote_msgid="voice_msg_1")
+        await broadcast.broadcast_voice(record)
+        assert any("上课" in m and "强制" in m for m in sent)
+
+    async def test_force_flag_parsed(self, config_state, sent, monkeypatch):
+        config_state["users"] = {"wxid_teacher1": {"name": "张三", "token": "tok"}}
+        uploaded = self._patch_voice(monkeypatch)
+
+        record = make_record("广播 7 强制 \n [引用消息] 张三: [语音消息]", quote_msgid="voice_msg_1")
+        await broadcast.broadcast_voice(record)
+        assert uploaded["member_ids"] == [7]
+        assert uploaded["force"] is True
 
     async def test_junk_arg_rejected(self, config_state, sent):
         config_state["users"] = {"wxid_teacher1": {"name": "张三", "token": "tok"}}

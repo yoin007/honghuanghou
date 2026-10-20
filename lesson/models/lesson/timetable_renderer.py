@@ -63,22 +63,22 @@ DEFAULT_BAND = (241, 247, 253)
 
 # 班级固定配色: 班级名 -> (文字色, 底色)
 CLASS_COLORS = {
-    "高二3": ((23, 90, 155), (218, 236, 255)),
-    "高二7": ((38, 115, 76), (221, 245, 229)),
-    "高二10": ((184, 81, 36), (255, 232, 214)),
+    "高二3": ((20, 47, 123), (210, 221, 249)),   # 蓝
+    "高二7": ((20, 123, 58), (210, 249, 224)),   # 绿
+    "高二10": ((123, 54, 20), (246, 210, 193)),  # 橙
 }
 
 # 未登记班级的兜底色板 (文字色, 底色), 按班级名哈希取色, 保证同一班级颜色固定
-# 注意: 调色板文字色不得使用红色系, 红色保留给调课高亮 (HIGHLIGHT_TEXT)
+# 8 色按色相环均匀分布 (避开红色区), 文字色不得使用红色系, 红色保留给调课高亮 (HIGHLIGHT_TEXT)
 FALLBACK_PALETTE = [
-    ((23, 90, 155), (218, 236, 255)),    # 蓝
-    ((38, 115, 76), (221, 245, 229)),    # 绿
-    ((184, 81, 36), (255, 232, 214)),    # 橙
-    ((100, 73, 167), (234, 229, 255)),   # 紫
-    ((139, 105, 13), (255, 242, 201)),   # 黄
-    ((23, 111, 121), (215, 245, 245)),   # 青
-    ((153, 82, 118), (251, 228, 239)),   # 粉
-    ((110, 138, 24), (239, 247, 211)),   # 青柠 (避开高亮红的暖色区)
+    ((123, 54, 20), (246, 210, 193)),    # 橙
+    ((123, 123, 20), (249, 249, 210)),   # 黄
+    ((54, 123, 20), (210, 246, 193)),    # 青柠
+    ((20, 123, 58), (210, 249, 224)),    # 绿
+    ((20, 116, 123), (193, 243, 246)),   # 青
+    ((20, 47, 123), (210, 221, 249)),    # 蓝
+    ((65, 20, 123), (216, 193, 246)),    # 紫
+    ((123, 20, 92), (249, 210, 237)),    # 粉
 ]
 
 EMPTY_MARKERS = {"", "-", "—", "nan", "None"}
@@ -94,10 +94,46 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return _FONT_CACHE[key]
 
 
+def _rgb_to_lab(rgb):
+    def f(c):
+        c /= 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (f(v) for v in rgb)
+    x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047
+    y = r * 0.2126 + g * 0.7152 + b * 0.0722
+    z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883
+
+    def g_(t):
+        return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+
+    fx, fy, fz = g_(x), g_(y), g_(z)
+    return (116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
+
+
+def _color_distance(c1, c2) -> float:
+    """CIE76 色距, 用于在同表内挑选可区分的底色"""
+    (l1, a1, b1), (l2, a2, b2) = _rgb_to_lab(c1), _rgb_to_lab(c2)
+    return ((l1 - l2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2) ** 0.5
+
+
+def _pick_palette_slot(start: int, used_bgs: set) -> int:
+    """为班级选色: 优先哈希槽位, 同表冲突则顺延; 调色板用尽时取与已用底色最远者"""
+    n = len(FALLBACK_PALETTE)
+    if len(used_bgs) < n:
+        idx = start
+        while FALLBACK_PALETTE[idx][1] in used_bgs:
+            idx = (idx + 1) % n
+        return idx
+    return max(
+        range(n),
+        key=lambda i: min(_color_distance(FALLBACK_PALETTE[i][1], u) for u in used_bgs),
+    )
+
+
 def _assign_class_colors(df: pd.DataFrame) -> dict:
     """为课表中出现班级分配配色。
 
-    已登记班级用固定色; 未登记班级按名字哈希取兜底色, 若与本表已用底色冲突则顺延取下一个,
+    已登记班级用固定色; 未登记班级按名字哈希取兜底色, 同表冲突则顺延取下一个,
     保证同一张表内不同班级不同色, 且同一班级在不同课表中颜色基本固定。
     """
     used_bgs = set()
@@ -113,10 +149,8 @@ def _assign_class_colors(df: pd.DataFrame) -> dict:
             if class_key in CLASS_COLORS:
                 pair = CLASS_COLORS[class_key]
             else:
-                idx = int(hashlib.md5(class_key.encode("utf-8")).hexdigest(), 16) % len(FALLBACK_PALETTE)
-                while FALLBACK_PALETTE[idx][1] in used_bgs and len(used_bgs) < len(FALLBACK_PALETTE):
-                    idx = (idx + 1) % len(FALLBACK_PALETTE)
-                pair = FALLBACK_PALETTE[idx]
+                start = int(hashlib.md5(class_key.encode("utf-8")).hexdigest(), 16) % len(FALLBACK_PALETTE)
+                pair = FALLBACK_PALETTE[_pick_palette_slot(start, used_bgs)]
             result[class_key] = pair
             used_bgs.add(pair[1])
     return result
@@ -304,7 +338,13 @@ class TimetableRenderer:
             size -= 1
         pad = 9
         draw.rounded_rectangle([x + pad, y + 23, x + DAY_W - pad, y + ROW_H - 23], radius=12, fill=bg)
-        draw.text((x + DAY_W // 2, y + ROW_H // 2), display, font=_font(size, bold=True), fill=fg, anchor="mm")
+        if highlighted:
+            # 红字 + 白色描边, 保证在任何班级底色上都清晰
+            draw.text((x + DAY_W // 2, y + ROW_H // 2), display, font=_font(size, bold=True),
+                      fill=HIGHLIGHT_TEXT, anchor="mm", stroke_width=2, stroke_fill="white")
+        else:
+            draw.text((x + DAY_W // 2, y + ROW_H // 2), display, font=_font(size, bold=True),
+                      fill=fg, anchor="mm")
 
     @staticmethod
     def _scan_classes(df, grid_w):
