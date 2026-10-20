@@ -18,6 +18,7 @@ class ScheduleNotifier:
         self.lesson = lesson
 
     async def process_and_send_image(self, df, png_name: str, title: str, wxid: str, producer: str, tips=False, highlight_cells=None):
+        """教师个人课表: 按 timetable_renderer 配置选择渲染引擎"""
         with ThreadPoolExecutor() as executor:
             df_png = await asyncio.get_event_loop().run_in_executor(
                 executor,
@@ -27,6 +28,7 @@ class ScheduleNotifier:
                 title,
                 "节次\\星期",
                 highlight_cells,
+                "auto",
             )
             if df_png:
                 pic_path = df_png[0][len(self.lesson.lesson_dir):].replace("\\", "/")

@@ -24,6 +24,7 @@ from client import down_file
 from models.manage.member import Member, check_permission
 from sendqueue import send_app_msg, send_text, send_image, send_file
 from models.lesson.image_renderer import ImageRenderer
+from models.lesson.timetable_renderer import TimetableRenderer
 from models.lesson.schedule_notifier import ScheduleNotifier
 from models.lesson.schedule_repository import ScheduleRepository
 from models.lesson.schedule_service import ScheduleService
@@ -77,6 +78,7 @@ class Lesson:
         self.create_c_month_dir(notify=True)
         self.old_schedule = None  # 旧的课程表, 用于对比更新
         self.image_renderer = ImageRenderer(os.path.join(self.lesson_dir, "temp"))
+        self.timetable_renderer = TimetableRenderer(os.path.join(self.lesson_dir, "temp"))
         self.teacher_directory = TeacherDirectory(
             class_provider=lambda: self.get_cache_data("class_template"),
             students_provider=lambda: self.get_cache_data("students"),
@@ -467,9 +469,36 @@ class Lesson:
         """获取教师课表"""
         return self.schedule_service.get_teacher_schedule(teacher_name, week_next)
 
-    def df_to_png(self, df: pd.DataFrame, png_name:str="temp.png", title:str="", index_name:str="节次\星期", highlight_cells=None):
-        """兼容旧入口：将 DataFrame 转换为 PNG 图片。"""
+    def df_to_png(self, df: pd.DataFrame, png_name:str="temp.png", title:str="", index_name:str="节次\星期", highlight_cells=None, engine:str="matplotlib"):
+        """兼容旧入口：将 DataFrame 转换为 PNG 图片。
+
+        Args:
+            engine: 渲染引擎。``"matplotlib"`` (默认) 通用表格/班级课表/某日课表;
+                ``"auto"`` 按 lesson.yaml 的 timetable_renderer 配置, 仅教师个人课表调用点使用;
+                ``"pillow"`` 强制清新风格。
+        """
+        if engine == "auto":
+            try:
+                engine = config.get_config("timetable_renderer", "lesson.yaml")
+            except (KeyError, FileNotFoundError):
+                engine = "matplotlib"
+        if engine == "pillow":
+            return self.timetable_renderer.render(df, png_name, title, highlight_cells, period_labels=self._period_labels())
         return self.image_renderer.dataframe_to_png(df, png_name, title, index_name, highlight_cells)
+
+    def _period_labels(self) -> dict:
+        """节次显示标签: order -> "第1节\\n8:00-8:45" (数据来自 time_table 配置)"""
+        time_table = self.get_cache_data("time_table")
+        if time_table is None or time_table.empty:
+            return None
+        labels = {}
+        for _, row in time_table.iterrows():
+            label = str(row["label"]) if pd.notna(row.get("label")) else str(row["order"])
+            time_range = str(row["time_table"]) if pd.notna(row.get("time_table")) else ""
+            text = f"{label}\n{time_range}" if time_range else label
+            labels[row["order"]] = text
+            labels[str(row["order"])] = text
+        return labels
         
     
     def current_teaching(self) -> dict:
@@ -693,7 +722,7 @@ async def teacher_schedule(record: any):
     if df.empty:
         send_text(f"您的课表为空", wxid, "", "lesson")
         return False
-    df_png = l.df_to_png(df, f"{wxid}.png", title=f"{name}{'下周' if week_next else '本周'}的课表")[0]
+    df_png = l.df_to_png(df, f"{wxid}.png", title=f"{name}{'下周' if week_next else '本周'}的课表", engine="auto")[0]
     pic_path = df_png[len(l.lesson_dir):].replace("\\", "/")
     send_image(pic_path, wxid, "lesson")
     return True
@@ -855,7 +884,7 @@ def group_send(xlsx_file, sender):
                             log.error(f"{name}{'下周' if week_next else '本周'}的课表为空")
                             failed.append(name)
                             continue
-                        df_png = l.df_to_png(df, f"{wxid}.png", title=f"{name}{'下周' if week_next else '本周'}的课表")[0]
+                        df_png = l.df_to_png(df, f"{wxid}.png", title=f"{name}{'下周' if week_next else '本周'}的课表", engine="auto")[0]
                         if not df_png:
                             log.error(f"生成{name}{'下周' if week_next else '本周'}的课表失败")
                             failed.append(name)

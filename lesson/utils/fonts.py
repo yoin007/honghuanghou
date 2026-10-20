@@ -1,10 +1,11 @@
-# -*- coding: utf-8 -*-
+# _*_ coding: utf-8 _*_
 """
 跨平台字体工具
 
 自动检测操作系统并返回合适的中文字体
 """
 
+import os
 import platform
 import logging
 from typing import Optional, List
@@ -97,6 +98,53 @@ def setup_matplotlib_chinese_font():
     except ImportError:
         logger.warning("matplotlib not installed, skipping font setup")
         return None
+
+
+def get_chinese_font_path(bold: bool = False) -> str:
+    """
+    获取 Pillow 可直接加载 (ImageFont.truetype) 的中文字体文件路径
+
+    Args:
+        bold: True 时优先返回粗体/中粗字体 (Windows 微软雅黑 Bold, macOS 黑体中粗)
+
+    Returns:
+        str: 字体文件绝对路径
+
+    Raises:
+        FileNotFoundError: 找不到任何候选中文字体
+    """
+    system = get_system()
+    if system == "Windows":
+        candidates = ([
+            r"C:\Windows\Fonts\msyhbd.ttc",  # 微软雅黑 Bold
+            r"C:\Windows\Fonts\msyh.ttc",  # 微软雅黑
+            r"C:\Windows\Fonts\simhei.ttf",  # 黑体
+        ] if bold else [
+            r"C:\Windows\Fonts\msyh.ttc",  # 微软雅黑
+            r"C:\Windows\Fonts\simhei.ttf",  # 黑体
+        ])
+    elif system == "Darwin":  # macOS
+        candidates = ([
+            "/System/Library/Fonts/STHeiti Medium.ttc",  # 黑体中粗, 作粗体用
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        ] if bold else [
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            "/System/Library/Fonts/STHeiti Medium.ttc",
+        ])
+    else:  # Linux
+        candidates = ([
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        ] if bold else [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        ])
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError(f"No Chinese font found, checked: {candidates}")
 
 
 def get_available_chinese_font() -> Optional[str]:
