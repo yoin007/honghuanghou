@@ -404,6 +404,15 @@ const routes = [
     }
   },
   {
+    path: '/moral/mentor',
+    name: 'MoralMentor',
+    component: () => import('../views/moral/MentorSystem.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '导师制'
+    }
+  },
+  {
     path: '/moral/lifebook',
     name: 'MoralLifeBook',
     component: () => import('../views/moral/LifeBook.vue'),

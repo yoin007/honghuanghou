@@ -650,6 +650,7 @@ const dataScopeOptions = [
   { value: 'teaching_classes', label: '任教班级' },
   { value: 'managed_classes', label: '管理班级' },
   { value: 'managed_grades', label: '管理年级' },
+  { value: 'mentor_students', label: '我的导生' },
   { value: 'all', label: '全校' }
 ]
 
@@ -657,6 +658,7 @@ const targetScopeOptions = [
   { value: 'teaching_classes', label: '任教班级' },
   { value: 'managed_classes', label: '管理班级' },
   { value: 'managed_grades', label: '管理年级' },
+  { value: 'mentor_students', label: '我的导生' },
   { value: 'all_students', label: '全校学生' }
 ]
 const fallbackResourceOptions = [

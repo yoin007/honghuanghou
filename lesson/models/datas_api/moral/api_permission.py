@@ -244,6 +244,26 @@ DEFAULT_OPERATION_SCOPE_RULES = {
         "cleader": ["own_created"],
         "teacher": ["own_created"],
     },
+    "/api/moral/mentor-roster/delete": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+    },
+    "/api/moral/mentor-talks/update": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["own_created"],
+    },
+    "/api/moral/mentor-talks/delete": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["own_created"],
+    },
     "/api/moral/timeline/export/{student_id}/xlsx": {
         "admin": ["all"],
         "jiaowu": ["all"],
@@ -621,6 +641,54 @@ DEFAULT_DATA_SCOPE_RULES = {
         "cleader": ["own_created", "managed_classes"],
         "teacher": ["own_created"],
     },
+    "/api/moral/mentor-roster": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+    },
+    "/api/moral/mentor-roster/my-students": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
+    },
+    "/api/moral/mentor-talks": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
+    },
+    "/api/moral/mentor-talks/statistics": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
+    },
+    "/api/moral/mentor-talks/not-talked": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
+    },
+    "/api/moral/mentor-talks/categories": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
+    },
+    "/api/moral/mentor-talks/student-status": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
+    },
     "/api/moral/moment-records/update": {
         "admin": ["all"],
         "jiaowu": ["all"],
@@ -898,6 +966,7 @@ DEFAULT_DATA_SCOPE_RULES = {
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
+        "teacher": ["mentor_students"],
     },
     "/api/moral/timeline/search": {
         "admin": ["all"],
@@ -905,6 +974,7 @@ DEFAULT_DATA_SCOPE_RULES = {
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
+        "teacher": ["mentor_students"],
     },
     "/api/moral/timeline/export/{student_id}/xlsx": {
         "admin": ["all"],
@@ -912,6 +982,7 @@ DEFAULT_DATA_SCOPE_RULES = {
         "xuefa": ["all"],
         "g_leader": ["managed_grades"],
         "cleader": ["managed_classes"],
+        "teacher": ["mentor_students"],
     },
     "/api/moral/timeline/export/class/{class_id}": {
         "admin": ["all"],
@@ -1076,6 +1147,25 @@ DEFAULT_TARGET_SCOPE_RULES = {
         "g_leader": ["teaching_classes", "managed_grades"],
         "cleader": ["teaching_classes", "managed_classes"],
         "teacher": ["teaching_classes"],
+    },
+    "/api/moral/mentor-roster/assign": {
+        "admin": ["all_students"],
+        "jiaowu": ["all_students"],
+        "xuefa": ["all_students"],
+        "g_leader": ["managed_grades"],
+    },
+    "/api/moral/mentor-roster/batch": {
+        "admin": ["all_students"],
+        "jiaowu": ["all_students"],
+        "xuefa": ["all_students"],
+        "g_leader": ["managed_grades"],
+    },
+    "/api/moral/mentor-talks/create": {
+        "admin": ["all_students"],
+        "jiaowu": ["all_students"],
+        "xuefa": ["all_students"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
     },
     "/api/moral/school-records/create": {
         "admin": ["all_students"],
@@ -1604,6 +1694,7 @@ DEFAULT_RESOURCE_TYPES = [
     # 学生资源域 (student_bound)
     {"resource_type": "daily_record", "resource_name": "日常表现记录", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 1},
     {"resource_type": "moment_record", "resource_name": "点滴记录", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 2},
+    {"resource_type": "mentor_record", "resource_name": "导师制", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 2},
     {"resource_type": "school_record", "resource_name": "校级事件", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 3},
     {"resource_type": "punishment_record", "resource_name": "处分记录", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 4},
     {"resource_type": "punishment_period", "resource_name": "处分期限配置", "resource_domain": "student_bound", "scope_schema": "student_scope", "sort_order": 5},
@@ -2461,6 +2552,91 @@ def _fix_incorrect_scope_rules(db) -> None:
             )
 
 
+def _merge_mentor_scope_rules(db) -> None:
+    """导师制升级迁移（幂等，只做加性修正、不覆盖管理员手工配置以外的内容）：
+
+    1. 一行一册 timeline 三条：data_scope_rules 追加 teacher: mentor_students
+       （启动回填只补空规则，老库已落库的行必须在此做加性合并）
+    2. 名单权限收敛：mentor-roster 的 allowed_roles 移除 teacher
+       （名单仅管理员/年级主任可见可配，教师通过 my-students 获取自己的导生）
+    3. 统计开放：mentor-talks/statistics、not-talked 的 allowed_roles 追加 teacher
+       （端点内收敛为只看自己名下数据）
+    """
+    # 1. timeline 追加导师范围
+    mentor_paths = (
+        "/api/moral/timeline",
+        "/api/moral/timeline/search",
+        "/api/moral/timeline/export/{student_id}/xlsx",
+    )
+    for api_path in mentor_paths:
+        row = db.query_one(
+            "SELECT id, data_scope_rules FROM api_permission_config WHERE api_path = ? LIMIT 1",
+            (api_path,),
+        )
+        if not row:
+            continue
+        try:
+            rules = json.loads(row.get("data_scope_rules") or "{}")
+        except Exception:
+            rules = {}
+        if not isinstance(rules, dict):
+            continue
+        teacher_scopes = rules.get("teacher")
+        if isinstance(teacher_scopes, list) and "mentor_students" in teacher_scopes:
+            continue
+        if isinstance(teacher_scopes, list):
+            teacher_scopes.append("mentor_students")
+        else:
+            teacher_scopes = ["mentor_students"]
+        rules["teacher"] = teacher_scopes
+        db.execute(
+            "UPDATE api_permission_config SET data_scope_rules = ? WHERE id = ?",
+            (_json_dict_dump(rules), row["id"]),
+        )
+        logger.info("[APIPermission] timeline 规则已追加 teacher: mentor_students -> %s", api_path)
+
+    # 2/3. allowed_roles 修正：{api_path: 是否应包含 teacher}
+    teacher_role_fixes = {
+        "/api/moral/mentor-roster": False,       # 收紧：名单教师不可见
+        "/api/moral/mentor-talks/statistics": True,   # 开放：教师看自己的统计
+        "/api/moral/mentor-talks/not-talked": True,   # 开放：教师看自己的未谈话学生
+    }
+    for api_path, should_have_teacher in teacher_role_fixes.items():
+        row = db.query_one(
+            "SELECT id, allowed_roles, min_level FROM api_permission_config WHERE api_path = ? LIMIT 1",
+            (api_path,),
+        )
+        if not row:
+            continue
+        try:
+            roles = json.loads(row.get("allowed_roles") or "[]")
+        except Exception:
+            roles = []
+        if not isinstance(roles, list):
+            continue
+        changed = False
+        if should_have_teacher and "teacher" not in roles:
+            roles.append("teacher")
+            changed = True
+        elif not should_have_teacher and "teacher" in roles:
+            roles = [r for r in roles if r != "teacher"]
+            changed = True
+        # 开放给 teacher 的接口：min_level 需降到教师等级（10）以下门槛不成立
+        if should_have_teacher and row.get("min_level") is not None and int(row["min_level"]) > 10:
+            db.execute(
+                "UPDATE api_permission_config SET min_level = ? WHERE id = ?",
+                (10, row["id"]),
+            )
+            logger.info("[APIPermission] %s min_level 已降为 10", api_path)
+        if changed:
+            db.execute(
+                "UPDATE api_permission_config SET allowed_roles = ? WHERE id = ?",
+                (_json_dump(roles), row["id"]),
+            )
+            action = "追加" if should_have_teacher else "移除"
+            logger.info("[APIPermission] %s allowed_roles 已%s teacher", api_path, action)
+
+
 def apply_permission_fix_on_startup() -> None:
     """启动时应用权限范围修复。
 
@@ -2473,6 +2649,7 @@ def apply_permission_fix_on_startup() -> None:
             ensure_api_permission_schema(db)
             # 应用修复
             _fix_incorrect_scope_rules(db)
+            _merge_mentor_scope_rules(db)
             logger.info("[APIPermission] Permission scope fix applied on startup")
     except Exception as e:
         logger.warning(f"[APIPermission] Permission fix failed on startup: {e}")

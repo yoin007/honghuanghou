@@ -58,6 +58,7 @@ const STATIC_RESOURCE_CONFIG = {
       { key: 'moral-collective', label: '集体事件', route: '/moral/collective', roles: ['xuefa', 'admin'], sort_order: 50 },
       { key: 'moral-evaluation', label: '评价查询', route: '/moral/evaluation', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 60 },
       { key: 'moral-moment', label: '点滴记录', route: '/moral/moment', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 70 },
+      { key: 'moral-mentor', label: '导师制', route: '/moral/mentor', roles: ['teacher', 'cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 75 },
       { key: 'moral-lifebook', label: '一生一册', route: '/moral/lifebook', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 80 },
       { key: 'moral-profile', label: '学生画像', route: '/moral/profile', roles: ['cleader', 'g_leader', 'xuefa', 'jiaowu', 'admin'], sort_order: 90 },
       { key: 'moral-consultation', label: 'AI诊疗', route: '/moral/consultation', roles: ['cleader', 'g_leader', 'xuefa', 'admin'], sort_order: 95 },

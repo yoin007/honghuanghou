@@ -38,6 +38,23 @@
           <span class="hint">提前多少天提醒班主任</span>
         </el-form-item>
 
+        <el-divider content-position="left">导师制升级通知配置</el-divider>
+
+        <el-form-item label="学发部接收人">
+          <el-input v-model="configForm.xuefa_notify_wxid" placeholder="微信wxid，留空则不通知" style="width: 320px" />
+          <span class="hint">谈话记录升级到「学发」时通知</span>
+        </el-form-item>
+
+        <el-form-item label="心理老师接收人">
+          <el-input v-model="configForm.psychology_notify_wxid" placeholder="微信wxid，留空则不通知" style="width: 320px" />
+          <span class="hint">谈话记录升级到「心理」时通知</span>
+        </el-form-item>
+
+        <el-form-item label="校领导接收人">
+          <el-input v-model="configForm.principal_notify_wxid" placeholder="微信wxid，留空则不通知" style="width: 320px" />
+          <span class="hint">谈话记录升级到「校领导」时通知；升级到「年级」自动通知年级主任，无需配置</span>
+        </el-form-item>
+
         <el-divider content-position="left">处罚类型配置</el-divider>
 
         <el-form-item label="处罚类型列表">
@@ -137,6 +154,9 @@ const configForm = reactive({
   evaluation_good_line: 75,
   evaluation_pass_line: 60,
   birthday_reminder_days: 3,
+  xuefa_notify_wxid: '',
+  psychology_notify_wxid: '',
+  principal_notify_wxid: '',
   punishment_types: []  // 从 punishment_period_config 动态读取
 })
 const configKeys = new Set(Object.keys(configForm))

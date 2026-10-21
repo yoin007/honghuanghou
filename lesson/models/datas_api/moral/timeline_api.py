@@ -135,7 +135,7 @@ async def get_student_timeline(
     student_id: str,
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
-    event_types: Optional[str] = Query(None, description="事件类型筛选：moment,daily,school,punishment,task,collective"),
+    event_types: Optional[str] = Query(None, description="事件类型筛选：moment,daily,school,punishment,task,collective,mentor"),
     include_archived: int = Query(0, description="1=允许查询已归档学生"),
     user: User = Depends(require_configured_api_permission(API_TIMELINE, "GET", allow_missing=False))
 ):
@@ -325,6 +325,39 @@ async def get_student_timeline(
                     "record_type": "collective_event"
                 })
 
+        # 7. 导师谈话
+        if not type_filter or 'mentor' in type_filter:
+            mentor_talks = db.query_all("""
+                SELECT mtr.record_id, mtr.talk_date, mtr.talk_category, mtr.subject,
+                       mtr.summary, mtr.diagnosis, mtr.risk_level, mtr.escalated,
+                       mtr.mentor_name, 'mentor' as source
+                FROM mentor_talk_record mtr
+                WHERE mtr.student_id = ? AND mtr.is_deleted = 0
+                  AND (? IS NULL OR mtr.talk_date >= ?)
+                  AND (? IS NULL OR mtr.talk_date <= ?)
+                ORDER BY mtr.talk_date DESC
+            """, (student_id, start_date, start_date, end_date, end_date) if start_date or end_date else (student_id, None, None, None, None))
+
+            for mt in mentor_talks:
+                content_parts = []
+                if mt['subject']:
+                    content_parts.append(f"主题：{mt['subject']}")
+                if mt['summary']:
+                    content_parts.append(mt['summary'])
+                timeline.append({
+                    "date": mt['talk_date'],
+                    "type": "mentor",
+                    "title": f"导师谈话 - {mt['talk_category']}",
+                    "content": "\n".join(content_parts),
+                    "score": None,
+                    "recorder": mt['mentor_name'],
+                    "source": "导师谈话",
+                    "risk_level": mt['risk_level'],
+                    "escalated": mt['escalated'],
+                    "record_id": mt['record_id'],
+                    "record_type": "mentor_talk_record"
+                })
+
         # 按日期排序
         timeline.sort(key=lambda x: x['date'] or '', reverse=True)
 
@@ -345,6 +378,7 @@ async def get_student_timeline(
             "punishment_count": len([x for x in timeline if x['type'] == 'punishment']),
             "task_count": len([x for x in timeline if x['type'] == 'task']),
             "collective_count": len([x for x in timeline if x['type'] == 'collective']),
+            "mentor_count": len([x for x in timeline if x['type'] == 'mentor']),
             "total": len(timeline)
         }
 
@@ -585,6 +619,36 @@ def _get_timeline_data(db, student_id: str, user: User):
             "record_type": "collective_event"
         })
 
+    # 7. 导师谈话
+    mentor_talks = db.query_all("""
+        SELECT mtr.record_id, mtr.talk_date, mtr.talk_category, mtr.subject,
+               mtr.summary, mtr.diagnosis, mtr.risk_level, mtr.escalated,
+               mtr.mentor_name, 'mentor' as source
+        FROM mentor_talk_record mtr
+        WHERE mtr.student_id = ? AND mtr.is_deleted = 0
+        ORDER BY mtr.talk_date DESC
+    """, (student_id,))
+
+    for mt in mentor_talks:
+        content_parts = []
+        if mt['subject']:
+            content_parts.append(f"主题：{mt['subject']}")
+        if mt['summary']:
+            content_parts.append(mt['summary'])
+        timeline.append({
+            "date": mt['talk_date'],
+            "type": "导师谈话",
+            "title": f"导师谈话 - {mt['talk_category']}",
+            "content": "\n".join(content_parts),
+            "score": None,
+            "recorder": mt['mentor_name'],
+            "source": "导师谈话",
+            "risk_level": mt['risk_level'],
+            "escalated": mt['escalated'],
+            "record_id": mt['record_id'],
+            "record_type": "mentor_talk_record",
+        })
+
     # 按日期排序
     timeline.sort(key=lambda x: x['date'] or '', reverse=True)
 
@@ -605,6 +669,7 @@ def _get_timeline_data(db, student_id: str, user: User):
         "处分记录": len([x for x in timeline if x['type'] == "处分记录"]),
         "德育任务": len([x for x in timeline if x['type'] == "德育任务"]),
         "集体事件": len([x for x in timeline if x['type'] == "集体事件"]),
+        "导师谈话": len([x for x in timeline if x['type'] == "导师谈话"]),
         "总计": len(timeline)
     }
 

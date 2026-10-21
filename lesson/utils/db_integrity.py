@@ -22,7 +22,8 @@ REQUIRED_TABLES = {
         "role", "grade_level_config", "moral_config", "moral_operation_log",
         "student_daily_record", "student_school_record", "grade_moral_task",
         "student_task_finish", "punishment_record", "collective_event",
-        "api_permission_config", "api_permission_module"
+        "api_permission_config", "api_permission_module",
+        "teacher_mentor_student", "mentor_talk_record"
     ],
     "member.db": ["permission"],
     "invigilation.db": ["exam_project", "invigilation_slot"],

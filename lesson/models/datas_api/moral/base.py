@@ -460,6 +460,8 @@ def get_user_data_scope_tabs(
         tabs.append({"key": "own_class", "label": "我的班级"})
     if scope.get("can_own_grade"):
         tabs.append({"key": "own_grade", "label": "我的年级"})
+    if scope.get("can_mentor"):
+        tabs.append({"key": "mentor_students", "label": "我的导生"})
     if scope.get("can_all"):
         tabs.append({"key": "all", "label": "全校记录"})
 
@@ -526,6 +528,7 @@ def _get_configured_data_scope(
     can_own_class = "own_class" in scopes or "managed_classes" in scopes
     can_teaching_classes = "teaching_classes" in scopes
     can_own_grade = "g_leader_grade" in scopes or "grade_students" in scopes or "managed_grades" in scopes
+    can_mentor = "mentor_students" in scopes
 
     my_grade_ids = get_teacher_grade_ids(user, db) if can_own_grade else []
     my_grade_class_ids = []
@@ -545,6 +548,8 @@ def _get_configured_data_scope(
         "my_grade_class_ids": my_grade_class_ids,
         "can_teaching_classes": can_teaching_classes,
         "teaching_class_ids": get_teacher_teaching_class_ids(user, db) if can_teaching_classes else [],
+        "can_mentor": can_mentor,
+        "mentor_student_ids": get_teacher_mentor_student_ids(user, db) if can_mentor else [],
         "can_own": bool({"own", "own_created", "self"} & scopes),
         "my_class_id": get_teacher_class_id(user, db) if can_own_class else None,
         "roles": roles,
@@ -595,6 +600,17 @@ def append_record_scope_condition(
             # 无任教班级，添加空结果条件
             parts.append("1 = 0")
 
+    # 导师范围：学生本人是导师的导生
+    mentor_student_ids = scope.get("mentor_student_ids") or []
+    if scope.get("can_mentor"):
+        if mentor_student_ids:
+            placeholders = ", ".join(["?"] * len(mentor_student_ids))
+            parts.append(f"{table_alias}.student_id IN ({placeholders})")
+            params.extend(mentor_student_ids)
+        else:
+            # 无导生，添加空结果条件
+            parts.append("1 = 0")
+
     if not parts:
         conditions.append("1 = 0")
     else:
@@ -631,6 +647,10 @@ def record_in_scope(
     if scope.get("can_teaching_classes"):
         teaching_class_ids = scope.get("teaching_class_ids") or []
         return not teaching_class_ids or record.get(class_field) in teaching_class_ids
+    # 导师范围：记录的学生是自己的导生
+    if scope.get("can_mentor"):
+        mentor_student_ids = scope.get("mentor_student_ids") or []
+        return record.get("student_id") in mentor_student_ids
     return False
 
 
@@ -723,6 +743,14 @@ def target_student_in_scope(
             return True
         if teaching_class_ids and student.get("class_id") in teaching_class_ids:
             return True
+
+    # 导师：检查当前学期导生范围（名单为空或学生不在名单 → 拒绝）
+    if "mentor_students" in scopes:
+        current_semester = get_current_semester(db)
+        mentor_student_ids = get_teacher_mentor_student_ids(
+            user, db, current_semester["semester_id"] if current_semester else None
+        )
+        return student.get("student_id") in mentor_student_ids
 
     return False
 
@@ -1208,6 +1236,59 @@ def get_teacher_teaching_class_ids(user: User, db: SQLiteMoralDatabase) -> List[
     return [int(row["class_id"]) for row in rows if row.get("class_id") is not None]
 
 
+def get_teacher_mentor_student_ids(
+    user: User,
+    db: SQLiteMoralDatabase,
+    semester_id: Optional[int] = None,
+) -> List[str]:
+    """获取教师作为导师负责的学生ID列表。
+
+    依赖 teacher_mentor_student 映射表（按学期管理）。没有维护名单时返回空列表。
+
+    Args:
+        user: 用户对象
+        db: 数据库连接
+        semester_id: 学期ID；None 表示全部学期（一生一册查看历史需要）
+
+    支持两种 teacher_id 格式匹配（同 get_teacher_teaching_class_ids）。
+    """
+    if not user:
+        return []
+
+    try:
+        table_exists = db.query_one(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'teacher_mentor_student'"
+        )
+    except Exception:
+        table_exists = None
+    if not table_exists:
+        return []
+
+    teacher_id_candidates, teacher_names = _teacher_identity_candidates(user, db)
+    if not teacher_id_candidates and not teacher_names:
+        return []
+
+    conditions = ["is_active = 1"]
+    teacher_id_match = " OR ".join(["teacher_id = ?" for _ in teacher_id_candidates])
+    teacher_name_match = " OR ".join(["teacher_name = ?" for _ in teacher_names])
+    identity_match = f"({teacher_id_match})" if teacher_id_candidates else "0 = 1"
+    if teacher_names:
+        identity_match = f"({identity_match} OR {teacher_name_match})" if teacher_id_candidates \
+            else f"({teacher_name_match})"
+    conditions.append(identity_match)
+    params = list(teacher_id_candidates) + list(teacher_names)
+
+    if semester_id is not None:
+        conditions.append("semester_id = ?")
+        params.append(semester_id)
+
+    rows = db.query_all(
+        f"SELECT DISTINCT student_id FROM teacher_mentor_student WHERE {' AND '.join(conditions)}",
+        tuple(params),
+    )
+    return [row["student_id"] for row in rows if row.get("student_id")]
+
+
 def require_permission(permission: str):
     """
     权限检查装饰器工厂函数
@@ -1505,6 +1586,7 @@ __all__ = [
     'get_scoped_role_permissions',
     'get_record_data_scope',
     'get_teacher_teaching_class_ids',
+    'get_teacher_mentor_student_ids',
     'append_record_scope_condition',
     'record_in_scope',
     'record_action_flags',

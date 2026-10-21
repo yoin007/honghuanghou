@@ -19,12 +19,12 @@ import moralApi from '@/api/modules/moral'
 const props = defineProps({
   /**
    * 模块名称，对应后端 API 路径
-   * 可选值: 'moment_records', 'daily_records'
+   * 可选值: 'moment_records', 'daily_records', 'mentor_talks'
    */
   module: {
     type: String,
     required: true,
-    validator: (val) => ['moment_records', 'daily_records'].includes(val)
+    validator: (val) => ['moment_records', 'daily_records', 'mentor_talks'].includes(val)
   }
 })
 

@@ -2344,7 +2344,11 @@ DEFAULT_CONFIG = {
         "punishment": -0.2
     },
     "birthday_reminder_days": 7,
-    "semester_start_month": 9
+    "semester_start_month": 9,
+    # 导师制升级通知接收人（微信 wxid，留空 = 未配置，通知静默跳过）
+    "xuefa_notify_wxid": "",
+    "psychology_notify_wxid": "",
+    "principal_notify_wxid": ""
     # punishment_types 已废弃，统一使用 punishment_period_config
 }
 
@@ -2423,6 +2427,9 @@ class ConfigUpdate(BaseModel):
     daily_record_roles: Optional[str] = Field(None, description="日常记录角色（逗号分隔）")
     student_profile_roles: Optional[str] = Field(None, description="学生画像角色（逗号分隔）")
     ai_consultation_roles: Optional[str] = Field(None, description="AI诊疗角色（逗号分隔）")
+    xuefa_notify_wxid: Optional[str] = Field(None, description="导师升级-学发部通知接收人wxid")
+    psychology_notify_wxid: Optional[str] = Field(None, description="导师升级-心理老师通知接收人wxid")
+    principal_notify_wxid: Optional[str] = Field(None, description="导师升级-校领导通知接收人wxid")
 
 
 @router.put("/config", summary="更新系统配置")

@@ -82,6 +82,7 @@
             <el-tag type="warning">校级 {{ stats.school_count }}</el-tag>
             <el-tag type="danger">处分 {{ stats.punishment_count }}</el-tag>
             <el-tag type="info">任务 {{ stats.task_count }}</el-tag>
+            <el-tag type="warning" effect="plain">导师 {{ stats.mentor_count || 0 }}</el-tag>
             <el-button type="success" size="small" @click="handleExportXlsx" :loading="exportLoading" style="margin-left: 12px">
               导出 Excel
             </el-button>
@@ -142,6 +143,7 @@
             <el-option label="校级事件" value="school" />
             <el-option label="处分记录" value="punishment" />
             <el-option label="德育任务" value="task" />
+            <el-option label="导师谈话" value="mentor" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -347,7 +349,8 @@ const getTagType = (type) => {
     daily: 'success',
     school: 'warning',
     punishment: 'danger',
-    task: 'info'
+    task: 'info',
+    mentor: 'warning'
   }
   return map[type] || ''
 }
@@ -610,6 +613,7 @@ onMounted(() => {
 .marker-school { background-color: #e6a23c; box-shadow: 0 0 0 2px #e6a23c; }
 .marker-punishment { background-color: #f56c6c; box-shadow: 0 0 0 2px #f56c6c; }
 .marker-task { background-color: #909399; box-shadow: 0 0 0 2px #909399; }
+.marker-mentor { background-color: #b88230; box-shadow: 0 0 0 2px #b88230; }
 
 .timeline-content {
   background: #f5f7fa;

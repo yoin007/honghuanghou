@@ -50,6 +50,7 @@ from .consultation import router as consultation_router
 from .admin import router as admin_router
 from .escalation_api import router as escalation_router
 from .moment_api import router as moment_router
+from .mentor_api import router as mentor_roster_router, talk_router as mentor_talk_router
 from .timeline_api import router as timeline_router
 from .api_permission import router as api_permission_router
 from .collective import router as collective_router
@@ -138,6 +139,11 @@ async def get_data_scope(user: User = Depends(get_current_user)):
             "own_class_permissions": ['moral_record_own_class', 'report_view_own_class'],
             "own_permissions": ['moral_record_input', 'moral_record_view_own'],
         },
+        "mentor-talks": {
+            "all_permissions": ['mentor_talk_manage'],
+            "own_class_permissions": [],
+            "own_permissions": ['mentor_talk_manage'],
+        },
     }
 
     with get_moral_db() as db:
@@ -168,6 +174,8 @@ router.include_router(consultation_router)
 router.include_router(admin_router)
 router.include_router(escalation_router)
 router.include_router(moment_router)
+router.include_router(mentor_roster_router)
+router.include_router(mentor_talk_router)
 router.include_router(timeline_router)
 router.include_router(api_permission_router)
 router.include_router(collective_router)

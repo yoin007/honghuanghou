@@ -1413,6 +1413,126 @@ export function getSemesterEvaluationDetail(recordId) {
 }
 
 // 导出所有 API
+// ===== 导师制 =====
+
+/**
+ * 获取导师名单
+ * @param {Object} params - {semester_id, grade_id, class_id, teacher_id, keyword, page, page_size}
+ */
+export function getMentorRoster(params = {}) {
+  return httpClient.get('/api/moral/mentor-roster', { params })
+}
+
+/**
+ * 分配/更换导师
+ * @param {Object} data - {teacher_id, student_ids, semester_id}
+ */
+export function assignMentor(data) {
+  return httpClient.post('/api/moral/mentor-roster/assign', data)
+}
+
+/**
+ * 批量导入导师名单（前端解析 Excel 后提交）
+ * @param {Object} data - {semester_id, items: [{teacher_id, teacher_name, student_id, student_name}]}
+ */
+export function batchImportMentorRoster(data) {
+  return httpClient.post('/api/moral/mentor-roster/batch', data)
+}
+
+/**
+ * 删除导师分配
+ * @param {number} assignmentId 分配记录ID
+ */
+export function removeMentorAssignment(assignmentId) {
+  return httpClient.delete(`/api/moral/mentor-roster/${assignmentId}`)
+}
+
+/**
+ * 下载导师名单导入模板
+ * 注意：响应拦截器对 Blob 不解包，返回完整 axios response，数据在 res.data
+ */
+export function getMentorRosterTemplate() {
+  return httpClient.get('/api/moral/mentor-roster/template', { responseType: 'blob' })
+}
+
+/**
+ * 我的导生列表（当前学期）
+ * @param {Object} params - {semester_id}
+ */
+export function getMentorMyStudents(params = {}) {
+  return httpClient.get('/api/moral/mentor-roster/my-students', { params })
+}
+
+/**
+ * 获取导师谈话记录列表
+ * @param {Object} params - {semester_id, student_id, risk_level, talk_category, need_follow_up, start_date, end_date, scope, page, page_size}
+ */
+export function getMentorTalks(params = {}) {
+  return httpClient.get('/api/moral/mentor-talks', { params })
+}
+
+/**
+ * 创建导师谈话记录
+ */
+export function createMentorTalk(data) {
+  return httpClient.post('/api/moral/mentor-talks', data)
+}
+
+/**
+ * 更新导师谈话记录
+ * @param {number} recordId 记录ID
+ */
+export function updateMentorTalk(recordId, data) {
+  return httpClient.put(`/api/moral/mentor-talks/${recordId}`, data)
+}
+
+/**
+ * 删除导师谈话记录
+ * @param {number} recordId 记录ID
+ */
+export function deleteMentorTalk(recordId) {
+  return httpClient.delete(`/api/moral/mentor-talks/${recordId}`)
+}
+
+/**
+ * 导师谈话工作量统计
+ * @param {Object} params - {semester_id, grade_id, month}
+ */
+export function getMentorTalkStatistics(params = {}) {
+  return httpClient.get('/api/moral/mentor-talks/statistics', { params })
+}
+
+/**
+ * 本月未谈话学生列表
+ * @param {Object} params - {semester_id, grade_id, month, page, page_size}
+ */
+export function getMentorNotTalked(params = {}) {
+  return httpClient.get('/api/moral/mentor-talks/not-talked', { params })
+}
+
+/**
+ * 获取谈话类别（可人工配置）
+ */
+export function getMentorTalkCategories() {
+  return httpClient.get('/api/moral/mentor-talks/categories')
+}
+
+/**
+ * 配置谈话类别（管理员/学发部/年级主任）
+ * @param {string[]} categories 类别列表
+ */
+export function updateMentorTalkCategories(categories) {
+  return httpClient.put('/api/moral/mentor-talks/categories', { categories })
+}
+
+/**
+ * 导生本月谈话状态名单
+ * @param {Object} params - {semester_id, grade_id, month}
+ */
+export function getMentorStudentStatus(params = {}) {
+  return httpClient.get('/api/moral/mentor-talks/student-status', { params })
+}
+
 export default {
   // 数据范围能力
   getDataScope,
@@ -1604,6 +1724,23 @@ export default {
   uploadAttachments,
   deleteAttachment,
   fetchAttachmentBlob,
+
+  // 导师制
+  getMentorRoster,
+  assignMentor,
+  batchImportMentorRoster,
+  removeMentorAssignment,
+  getMentorRosterTemplate,
+  getMentorMyStudents,
+  getMentorTalks,
+  createMentorTalk,
+  updateMentorTalk,
+  deleteMentorTalk,
+  getMentorTalkStatistics,
+  getMentorNotTalked,
+  getMentorTalkCategories,
+  updateMentorTalkCategories,
+  getMentorStudentStatus,
 
   // 集体事件
   getCollectiveEvents,
