@@ -51,6 +51,7 @@ require_configured_api_permission(API_KEY, "GET", allow_missing=False)
 - `teaching_classes`
 - `managed_classes`
 - `managed_grades`
+- `mentor_students`（导师制：我的导生，按 teacher_mentor_student 名单表解析）
 - `all`
 
 ### 目标范围
@@ -62,6 +63,7 @@ require_configured_api_permission(API_KEY, "GET", allow_missing=False)
 - `teaching_classes`
 - `managed_classes`
 - `managed_grades`
+- `mentor_students`（导师制：创建目标限自己的导生）
 - `all_students`
 
 ## 当前默认策略建议

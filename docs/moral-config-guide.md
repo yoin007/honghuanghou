@@ -399,6 +399,12 @@
 - 截至 2026-05-13，权限巡检结果为 `174` 条 API、`0` 条风险。
 - 前端页面配置会被后端实时读取并执行。
 
+**配置来源说明**：
+
+- 数据库 `api_permission_config` 表是唯一权威，本页面的修改只写库、实时生效
+- `lesson/config/api_permissions.yaml` 仅为新接口的种子默认值，修改页面配置不会回写 YAML；已落库的行为变更由启动迁移函数（如 `_merge_mentor_scope_rules`）做幂等修正
+- 数据范围/目标范围中的「我的导生」（`mentor_students`）为导师制 token，按 `teacher_mentor_student` 名单表实时解析，换导师即时生效
+
 ---
 
 ## 八、常见问题

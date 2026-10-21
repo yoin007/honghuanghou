@@ -35,6 +35,18 @@
 - `member.py` 的 `check_permission` 是微信消息命令体系，不应被 Web API 鉴权替代。
 - `wechat_auth.py` 是 HTTP API 的第二认证通道，不等于 `member.py`。
 
+### 配置来源与权威性（重要）
+
+**数据库 `api_permission_config` 表是唯一权威**。运行时鉴权（`check_configured_api_permission` / `is_api_allowed`）只读数据库，不读 YAML。
+
+`lesson/config/api_permissions.yaml` 与代码内 `DEFAULT_*_SCOPE_RULES` 字典的地位是**种子默认值**：
+
+- 启动时 `apply_permission_fix_on_startup` 对**缺失的行**执行 INSERT（取 yaml 条目 + DEFAULT 规则）
+- 对**已存在的行**只回填空 scope 规则（NULL/`''`/`'{}'`），绝不覆盖管理员在权限页的手工配置
+- 已落库的行为变更（如角色增减、min_level 调整）不能只改 yaml/DEFAULT——必须在启动迁移函数（如 `_merge_mentor_scope_rules`）中做幂等修正
+
+前端「API权限配置」页面（`/moral/config/api-permission`）只写数据库；改完即生效（每次鉴权实时读库）。
+
 ### L2 API 调用授权
 
 回答：你能不能调用这个接口。
@@ -71,13 +83,18 @@ require_configured_api_permission(API_PATH, METHOD, allow_missing=False)
 
 统一由 `data_scope_rules` 决定。
 
-推荐范围：
+推荐范围（scope token 语义目录，全系统统一解释，一个 token 一个含义）：
 
-- `own_created`
-- `teaching_classes`
-- `managed_classes`
-- `managed_grades`
-- `all`
+| token | 语义 | 判定维度 |
+| --- | --- | --- |
+| `own` / `own_created` / `self` | 我创建的记录 | `recorder = username`（创建人维度） |
+| `own_class` / `managed_classes` | 我管理的班级 | 班主任（class.leader_ids） |
+| `g_leader_grade` / `grade_students` / `managed_grades` | 我管理的年级 | 年级主任（grade.leader_ids） |
+| `teaching_classes` | 我任教的班级 | teacher_teaching_class 映射表 |
+| `mentor_students` | 我的导生 | teacher_mentor_student 名单表（师生关系维度，按学期管理） |
+| `all` | 全部 | 无过滤 |
+
+注意：`own` 与 `mentor_students` 是正交的两个维度（谁录的 vs 师生关系），页签二选一过滤、不叠加。`mentor_students` 由导师制引入，导师的数据范围不落在角色上而落在名单表上，换导师即时生效。
 
 示例：
 
@@ -187,6 +204,21 @@ require_configured_api_permission(API_PATH, METHOD, allow_missing=False)
 | 学生个人得分趋势 | 某学生趋势 | 管理班级学生 | 管理年级学生 | 全校 |
 | 班级趋势 | 某班级趋势 | 管理班级 | 视业务配置 | 全校 |
 | 年级趋势 | 某年级趋势 | 无 | 管理年级 | 全校 |
+
+### 4.8 导师制（2026-10 新增）
+
+导师是教师的一项职责（不新增角色值），数据范围来自 `teacher_mentor_student` 名单表 + `mentor_students` scope token。
+
+| API 组 | teacher（导师） | g_leader 年级主任 | xuefa/jiaowu/admin |
+| --- | --- | --- | --- |
+| 导师名单查看/配置 | 无权（名单页不可见，走 my-students 获取自己导生） | 管理年级学生的分配/导入/删除 | 全校 |
+| 我的导生列表（my-students） | 自己名下导生 | 自己名下导生 | 自己名下导生 |
+| 谈话记录查看 | 我的导生（`mentor_students`） | 管理年级（`managed_grades`） | 全校 |
+| 谈话记录创建 | 仅自己的导生（target_scope=`mentor_students`） | 本年级学生 | 全校学生 |
+| 谈话记录编辑/删除 | 仅自己创建的（`own_created`） | 管理年级 | 全校 |
+| 工作量统计 / 未谈话提醒 | 仅自己名下（端点内收敛） | 管理年级 | 全校 |
+
+风险联动：谈话记录红→严重预警（error）、黄→一般预警（warning），升级路径 grade/xuefa/psychology/principal 走 sendqueue 微信通知（后两者接收人配置于 moral_config 的 `psychology_notify_wxid` / `principal_notify_wxid`）。
 
 ## 5. 一个 API 应如何建模
 
