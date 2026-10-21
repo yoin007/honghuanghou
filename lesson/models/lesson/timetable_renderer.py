@@ -21,24 +21,26 @@ from utils.fonts import get_chinese_font_path
 # ---- 布局常量 ----
 CARD_PAD = 46        # 画布边缘到白色卡片的间距
 INNER_X = 85         # 卡片内边距
-INFO_H = 75          # 信息栏高度
-HEADER_H = 64        # 表头高度
-ROW_H = 104          # 行高
-GROUP_W = 120        # 上午/下午/晚上分组列宽
-PERIOD_W = 180       # 节次列宽
-DAY_W = 190          # 星期列宽 (列数自适应)
+INFO_H = 84          # 信息栏高度
+HEADER_H = 76        # 表头高度
+ROW_H = 156          # 行高 (单元格两行文字)
+GROUP_W = 134        # 上午/下午/晚上分组列宽
+PERIOD_W = 212       # 节次列宽
+DAY_W = 232          # 星期列宽 (列数自适应)
 
 FONT_TITLE = 68
 FONT_SUBTITLE = 25
-FONT_INFO = 27
-FONT_HEADER = 28
-FONT_PERIOD = 23
-FONT_TIME = 18
-FONT_GROUP = 32
-FONT_GROUP_COUNT = 20
-FONT_CELL = 21       # 单元格色块文字 (过长时自动缩到 13)
-FONT_LEGEND = 20
-FONT_FOOTER = 23
+FONT_INFO = 35
+FONT_HEADER = 38
+FONT_PERIOD = 32
+FONT_TIME = 24
+FONT_GROUP = 40
+FONT_GROUP_COUNT = 26
+FONT_CELL = 42       # 单元格班级行 (过长时自动缩到 22)
+FONT_CELL_MIN = 22   # 单元格班级行最小字号
+FONT_CELL_SUB = 34   # 单元格学科行
+FONT_LEGEND = 28
+FONT_FOOTER = 31
 
 WEEKDAY_NAMES = {1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六", 7: "周日"}
 
@@ -272,10 +274,10 @@ class TimetableRenderer:
             # 节次列 (两行: 节次标签 + 时间)
             draw.rectangle([grid_x + GROUP_W, y + 2, grid_x + GROUP_W + PERIOD_W, y + ROW_H - 2], fill=band)
             parts = label.split("\n")
-            draw.text((grid_x + GROUP_W + PERIOD_W // 2, y + ROW_H // 2 - 15), parts[0],
+            draw.text((grid_x + GROUP_W + PERIOD_W // 2, y + ROW_H // 2 - 18), parts[0],
                       font=_font(FONT_PERIOD, bold=True), fill=BLUE, anchor="mm")
             if len(parts) > 1:
-                draw.text((grid_x + GROUP_W + PERIOD_W // 2, y + ROW_H // 2 + 18), parts[1],
+                draw.text((grid_x + GROUP_W + PERIOD_W // 2, y + ROW_H // 2 + 22), parts[1],
                           font=_font(FONT_TIME), fill=MUTED, anchor="mm")
 
             for j, day in enumerate(df.columns):
@@ -321,7 +323,7 @@ class TimetableRenderer:
 
         value = value.strip()
         if value in EMPTY_MARKERS:
-            draw.text((x + DAY_W // 2, y + ROW_H // 2), "—", font=_font(23), fill=EMPTY_GRAY, anchor="mm")
+            draw.text((x + DAY_W // 2, y + ROW_H // 2), "—", font=_font(27), fill=EMPTY_GRAY, anchor="mm")
             return
 
         display = value.replace("-", " ")
@@ -330,15 +332,30 @@ class TimetableRenderer:
         if highlighted:
             fg = (20, 20, 20)  # 高亮: 仅字体黑色
 
-        # 色块内文字过长时自动缩小
+        # 班级/学科分两行: "高二2班-信息" -> 上行班级 下行学科; 无班级前缀 (如 "语文") 单行居中
+        if "-" in value:
+            class_line, subject_line = value.split("-", 1)
+        elif " " in value.strip():
+            class_line, subject_line = value.strip().split(None, 1)
+        else:
+            class_line, subject_line = value.strip(), ""
+
+        # 班级行过长时自动缩小
         size = FONT_CELL
         max_w = DAY_W - 2 * 9 - 12
-        while size > 13 and draw.textbbox((0, 0), display, font=_font(size, bold=True))[2] > max_w:
+        while size > FONT_CELL_MIN and draw.textbbox((0, 0), class_line, font=_font(size, bold=True))[2] > max_w:
             size -= 1
         pad = 9
-        draw.rounded_rectangle([x + pad, y + 23, x + DAY_W - pad, y + ROW_H - 23], radius=12, fill=bg)
-        draw.text((x + DAY_W // 2, y + ROW_H // 2), display, font=_font(size, bold=True),
-                  fill=fg, anchor="mm")
+        cy = y + ROW_H // 2
+        draw.rounded_rectangle([x + pad, y + 12, x + DAY_W - pad, y + ROW_H - 12], radius=12, fill=bg)
+        if subject_line:
+            draw.text((x + DAY_W // 2, cy - 27), class_line, font=_font(size, bold=True),
+                      fill=fg, anchor="mm")
+            draw.text((x + DAY_W // 2, cy + 29), subject_line, font=_font(FONT_CELL_SUB, bold=True),
+                      fill=fg, anchor="mm")
+        else:
+            draw.text((x + DAY_W // 2, cy), class_line, font=_font(size, bold=True),
+                      fill=fg, anchor="mm")
 
     @staticmethod
     def _scan_classes(df, grid_w):
@@ -360,7 +377,7 @@ class TimetableRenderer:
         f = _font(FONT_LEGEND, bold=True)
         limit = grid_w - 220
         for class_key in classes:
-            chip_w = f.getlength(class_key) + 38
+            chip_w = f.getlength(class_key) + 48
             if legend_x + chip_w > limit:
                 rows += 1
                 legend_x = 0
@@ -379,12 +396,12 @@ class TimetableRenderer:
             fg, bg = class_colors.get(class_key, FALLBACK_PALETTE[-1])
             f = _font(FONT_LEGEND, bold=True)
             text_w = draw.textbbox((0, 0), class_key, font=f)[2]
-            chip_w = text_w + 38
-            if legend_x + chip_w > grid_x + grid_w - 220:
+            chip_w = text_w + 48
+            if legend_x + chip_w > grid_x + grid_w - 240:
                 legend_x = grid_x
-                legend_y += 49
-            draw.rounded_rectangle([legend_x, legend_y, legend_x + chip_w, legend_y + 37], radius=17, fill=bg)
-            draw.text((legend_x + chip_w // 2, legend_y + 18), class_key, font=f, fill=fg, anchor="mm")
+                legend_y += 58
+            draw.rounded_rectangle([legend_x, legend_y, legend_x + chip_w, legend_y + 46], radius=21, fill=bg)
+            draw.text((legend_x + chip_w // 2, legend_y + 23), class_key, font=f, fill=fg, anchor="mm")
             legend_x += chip_w + 14
 
         # 合计课时
