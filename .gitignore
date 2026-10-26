@@ -9,8 +9,10 @@ venv/
 *.egg-info/
 dist/
 build/
+.claude/*
+frontend/.claude/
+!.claude/skills/
 release/
-.claude
 
 # Node
 node_modules/
