@@ -6,11 +6,12 @@
 import uvicorn
 import os
 import json
+from pathlib import Path
 import numpy as np
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import models
 import re
 from wxmsg import WxMsg, MessageDB
@@ -230,6 +231,19 @@ def _get_pending_upload_dir():
     return img_dir
 
 app.mount("/pending-uploads", StaticFiles(directory=_get_pending_upload_dir()), name="pending-uploads")
+
+# 托管前端构建产物（frontend/dist，npm run build 生成），生产环境由后端直接提供页面，
+# 无需单独的前端服务器；目录不存在时跳过，不影响纯后端运行
+frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if frontend_dist.is_dir():
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_frontend(full_path: str):
+        candidate = (frontend_dist / full_path).resolve()
+        # 防路径穿越：解析后必须仍位于 dist 内
+        if full_path and candidate.is_file() and str(candidate).startswith(str(frontend_dist)):
+            return FileResponse(candidate)
+        return FileResponse(frontend_dist / "index.html")
 
 
 
