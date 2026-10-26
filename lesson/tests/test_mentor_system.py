@@ -871,3 +871,17 @@ def test_batch_import_empty_rejected(roster_seeded):
             mentor_api.MentorTalkBatchImport(items=[]), _FakeRequest(), teacher,
         ))
     assert exc_info.value.status_code == 400
+
+
+def test_talk_routes_bind_to_real_endpoints():
+    """回归：装饰器必须挂在真正的端点上（曾经错挂到内部函数导致路由 422）"""
+    from models.datas_api.moral.mentor_api import talk_router
+
+    post_routes = [r for r in talk_router.routes if "POST" in getattr(r, "methods", set()) and r.path == "/mentor-talks"]
+    assert len(post_routes) == 1
+    assert post_routes[0].endpoint.__name__ == "create_mentor_talk"
+
+    # 每个路由端点必须是协程函数（内部辅助函数不带装饰器）
+    for r in talk_router.routes:
+        import inspect
+        assert inspect.iscoroutinefunction(r.endpoint), f"{r.path} 的端点不是协程: {r.endpoint.__name__}"

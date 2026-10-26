@@ -1035,7 +1035,6 @@ async def get_mentor_talks(
         }
 
 
-@talk_router.post("", summary="创建导师谈话记录")
 def _create_single_talk(db, data: MentorTalkCreate, user: User, ip_address: Optional[str]) -> int:
     """创建一条谈话记录的共享内核（单个创建与批量导入复用）。
 
@@ -1104,6 +1103,7 @@ def _create_single_talk(db, data: MentorTalkCreate, user: User, ip_address: Opti
     return record_id
 
 
+@talk_router.post("", summary="创建导师谈话记录")
 async def create_mentor_talk(
     data: MentorTalkCreate,
     request: Request,
