@@ -1,0 +1,2 @@
+# BAT 脚本保持原始字节（GBK+CRLF），禁止 git 做换行符转换
+*.bat -text
