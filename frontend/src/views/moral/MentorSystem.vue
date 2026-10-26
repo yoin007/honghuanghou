@@ -953,6 +953,10 @@ const handleSubmitTalk = async () => {
   try {
     const payload = { ...talkForm }
     delete payload.record_id
+    // 可选字段空串归一为 null（后端日期校验不接受 ""）
+    for (const k of ['subject', 'location', 'reason', 'student_statement', 'diagnosis', 'escalate_path', 'next_talk_date']) {
+      if (payload[k] === '') payload[k] = null
+    }
     const res = talkIsEdit.value
       ? await updateMentorTalk(talkForm.record_id, payload)
       : await createMentorTalk(payload)

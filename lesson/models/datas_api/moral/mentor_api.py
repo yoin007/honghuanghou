@@ -15,7 +15,7 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import date
 
 from .base import (
@@ -624,6 +624,15 @@ class MentorTalkCreate(BaseModel):
     escalated: int = Field(0, description="是否升级：1/0")
     escalate_path: Optional[str] = Field(None, description="升级路径：grade/xuefa/psychology/principal")
 
+    @field_validator("subject", "location", "reason", "student_statement", "diagnosis",
+                     "escalate_path", "next_talk_date", mode="before")
+    @classmethod
+    def _empty_str_to_none(cls, v):
+        """可选字段的空字符串归一为 None（前端清空日期/路径时可能传 ""）"""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
 
 class MentorTalkUpdate(BaseModel):
     """更新导师谈话记录"""
@@ -640,6 +649,14 @@ class MentorTalkUpdate(BaseModel):
     next_talk_date: Optional[date] = None
     escalated: Optional[int] = None
     escalate_path: Optional[str] = None
+
+    @field_validator("subject", "location", "reason", "student_statement", "diagnosis",
+                     "escalate_path", "next_talk_date", mode="before")
+    @classmethod
+    def _empty_str_to_none(cls, v):
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 def _validate_talk_fields(db, data) -> None:
