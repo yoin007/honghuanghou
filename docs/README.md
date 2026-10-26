@@ -19,7 +19,8 @@
 | [data-dashboard-implementation-plan.md](data-dashboard-implementation-plan.md) | 全系统数据驾驶舱建设方案，覆盖角色视图、指标、图表和分阶段落地 |
 | [invigilation-arrangement-implementation-plan.md](invigilation-arrangement-implementation-plan.md) | 监考安排功能方案，覆盖数据模型、导入导出、通知和 API 设计 |
 | [database-consolidation-report.md](database-consolidation-report.md) | `lesson/databases` 多库梳理与教师主表合并记录 |
-| [nginx-https-config.md](nginx-https-config.md) | Nginx HTTPS 反向代理和重定向配置说明 |
+| [deployment.md](deployment.md) | 生产部署说明：FastAPI 单服务架构（托管前端 dist）、端口/HTTPS 配置、deploy-pack 增量部署流程 |
+| [nginx-https-config.md](nginx-https-config.md) | Nginx HTTPS 反向代理和重定向配置说明（备用方案，当前生产未采用） |
 
 ## 推荐阅读顺序
 
@@ -31,7 +32,7 @@
 6. 德育相关读 [moral-evaluation-system.md](moral-evaluation-system.md) 和 [moral-config-guide.md](moral-config-guide.md)。
 7. 旧模块统一鉴权迁移读 [legacy-auth-unification-migration-plan.md](legacy-auth-unification-migration-plan.md)。
 8. 教师待办功能实现读 [teacher-todo-feature-plan.md](teacher-todo-feature-plan.md)。
-9. 监考、驾驶舱、数据库合并和 HTTPS 部署按专题阅读对应文档。
+9. 监考、驾驶舱、数据库合并和 HTTPS 部署按专题阅读对应文档；生产部署直接读 [deployment.md](deployment.md)。
 
 ## 整理记录
 

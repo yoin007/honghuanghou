@@ -403,16 +403,20 @@
 ## 七、系统访问信息
 
 ### 7.1 开发环境
-- **前端**：https://localhost:3333/
-- **后端**：http://localhost:8000/
-- **API文档**：http://localhost:8000/docs
+- **前端（vite dev）**：https://localhost:3333/
+- **后端**：http://localhost:14600/（lesson.yaml `server_port` 可配，生产默认 3333）
+- **API文档**：http://localhost:14600/docs
 
-### 7.2 数据库
+### 7.2 生产环境
+- **访问入口**：https://172.27.60.120:3333/（FastAPI 单服务，托管前端 dist，详见 [deployment.md](deployment.md)）
+- **校外**：经 frp 隧道访问公网地址
+
+### 7.3 数据库
 - **主存储**：SQLite
 - **德育数据库**：`lesson/databases/moral.db`
 - **其他业务库**：`lesson/databases/*.db`
 
-### 7.3 测试账号
+### 7.4 测试账号
 | 用户名 | 角色 |
 |--------|------|
 | 管理员 | admin |

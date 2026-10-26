@@ -138,13 +138,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, default_response_class=NumpyJSONResponse)
 
 # 配置CORS - 从环境变量读取允许的域名
-# 用逗号分隔多个域名，如: http://localhost:14600,https://example.com
-# 生产为前后端同源（14600 托管 dist），同源请求不走 CORS；此列表仅服务跨域调试场景
+# 用逗号分隔多个域名，如: http://localhost:3333,https://example.com
+# 生产为前后端同源（后端托管 dist），同源请求不走 CORS；此列表仅服务跨域调试场景
 cors_origins = os.getenv("CORS_ORIGINS", "")
 if cors_origins:
     allowed_origins = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
 else:
-    # 开发环境默认允许的源
+    # 开发环境默认允许的源（本地后端 14600 / vite dev 3333）
     allowed_origins = ["http://localhost:14600", "http://localhost:3333"]
 
 app.add_middleware(
@@ -387,18 +387,21 @@ def ai_content(content):
 
 if __name__ == "__main__":
     try:
-        # lesson.yaml 配 use_https: true 启用 HTTPS（自签名证书自动生成于 lesson/ssl/）
-        use_https = False
+        cfg = {}
         try:
-            use_https = bool(config.get_config_all("lesson.yaml").get("use_https", False))
+            cfg = config.get_config_all("lesson.yaml")
         except Exception as e:
-            log.warning(f"读取 use_https 配置失败，按 HTTP 启动: {e}")
+            log.warning(f"读取 lesson.yaml 失败，使用默认配置: {e}")
+        # 服务端口默认 3333（前后端统一入口）；与本地 vite dev 冲突时在 lesson.yaml 配 server_port 改开其他端口
+        server_port = int(cfg.get("server_port", 3333))
+        # use_https: true 启用 HTTPS（自签名证书自动生成于 lesson/ssl/）
+        use_https = bool(cfg.get("use_https", False))
         ssl_args = {}
         if use_https:
             from utils.ssl_cert import ensure_ssl_cert
             cert_file, key_file = ensure_ssl_cert()
             ssl_args = {"ssl_certfile": cert_file, "ssl_keyfile": key_file}
-            log.info("HTTPS 已启用，访问地址: https://<本机IP>:14600")
-        uvicorn.run("main:app", host="0.0.0.0", port=14600, reload=True, **ssl_args)  # dev
+            log.info(f"HTTPS 已启用，访问地址: https://<本机IP>:{server_port}")
+        uvicorn.run("main:app", host="0.0.0.0", port=server_port, reload=True, **ssl_args)  # dev
     except KeyboardInterrupt:
         log.info("Shutting down gracefully...")

@@ -1,5 +1,9 @@
 # Nginx HTTPS 重定向配置教程
 
+> **注意（2026-10-26）**：当前生产未使用 nginx——FastAPI 后端直接托管前端 dist 并原生支持
+> HTTPS（lesson.yaml 配 `use_https` / `server_port`），见 [deployment.md](deployment.md)。
+> 本文档保留作为将来需要 nginx（如多服务分流、正式证书）时的备用参考。
+
 ## 1. 安装 Nginx
 
 ### Windows
