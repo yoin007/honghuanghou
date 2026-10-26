@@ -675,6 +675,20 @@ DEFAULT_DATA_SCOPE_RULES = {
         "g_leader": ["managed_grades"],
         "teacher": ["mentor_students"],
     },
+    "/api/moral/mentor-talks/batch": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
+    },
+    "/api/moral/mentor-talks/template": {
+        "admin": ["all"],
+        "jiaowu": ["all"],
+        "xuefa": ["all"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
+    },
     "/api/moral/mentor-talks/categories": {
         "admin": ["all"],
         "jiaowu": ["all"],
@@ -1161,6 +1175,13 @@ DEFAULT_TARGET_SCOPE_RULES = {
         "g_leader": ["managed_grades"],
     },
     "/api/moral/mentor-talks/create": {
+        "admin": ["all_students"],
+        "jiaowu": ["all_students"],
+        "xuefa": ["all_students"],
+        "g_leader": ["managed_grades"],
+        "teacher": ["mentor_students"],
+    },
+    "/api/moral/mentor-talks/batch": {
         "admin": ["all_students"],
         "jiaowu": ["all_students"],
         "xuefa": ["all_students"],

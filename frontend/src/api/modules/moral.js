@@ -1533,6 +1533,22 @@ export function getMentorStudentStatus(params = {}) {
   return httpClient.get('/api/moral/mentor-talks/student-status', { params })
 }
 
+/**
+ * 批量导入导师谈话记录（前端解析 Excel 后提交）
+ * @param {Object} data - {items: [{student_id, talk_date, talk_category, summary, ...}]}
+ */
+export function batchImportMentorTalks(data) {
+  return httpClient.post('/api/moral/mentor-talks/batch', data)
+}
+
+/**
+ * 下载谈话记录导入模板
+ * 注意：响应拦截器对 Blob 不解包，返回完整 axios response，数据在 res.data
+ */
+export function getMentorTalkTemplate() {
+  return httpClient.get('/api/moral/mentor-talks/template', { responseType: 'blob' })
+}
+
 export default {
   // 数据范围能力
   getDataScope,
@@ -1741,6 +1757,8 @@ export default {
   getMentorTalkCategories,
   updateMentorTalkCategories,
   getMentorStudentStatus,
+  batchImportMentorTalks,
+  getMentorTalkTemplate,
 
   // 集体事件
   getCollectiveEvents,

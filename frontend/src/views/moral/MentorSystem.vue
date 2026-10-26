@@ -47,6 +47,8 @@
             <div class="card-header">
               <span>导师谈话记录</span>
               <div>
+                <el-button @click="handleDownloadTalkTemplate" v-if="canCreateTalk">下载导入模板</el-button>
+                <el-button @click="talkImportDialogVisible = true" v-if="canCreateTalk">批量导入</el-button>
                 <el-button @click="categoryDialogVisible = true" v-if="canManageCategories">类别配置</el-button>
                 <el-button type="primary" @click="handleAddTalk" v-if="canCreateTalk">新增记录</el-button>
               </div>
@@ -187,21 +189,21 @@
           <template #header><span>导师谈话覆盖率</span></template>
           <el-table :data="statsList" stripe v-loading="statsLoading">
             <el-table-column prop="teacher_name" label="导师" width="120" />
-            <el-table-column prop="assigned_count" label="应谈学生" width="110" align="center" />
-            <el-table-column prop="talked_count" label="已谈学生" width="110" align="center" />
-            <el-table-column label="覆盖率" width="200">
+            <el-table-column prop="assigned_count" label="应谈学生" width="110" align="center" sortable />
+            <el-table-column prop="talked_count" label="已谈学生" width="110" align="center" sortable />
+            <el-table-column prop="coverage_pct" label="覆盖率" width="200" sortable>
               <template #default="{ row }">
                 <el-progress :percentage="row.coverage_pct" :stroke-width="14"
                   :color="row.coverage_pct >= 100 ? '#67c23a' : row.coverage_pct >= 60 ? '#e6a23c' : '#f56c6c'" />
               </template>
             </el-table-column>
-            <el-table-column label="红色风险" width="100" align="center">
+            <el-table-column prop="red_count" label="红色风险" width="100" align="center" sortable>
               <template #default="{ row }">
                 <el-tag v-if="row.red_count" type="danger" effect="dark" size="small">{{ row.red_count }}</el-tag>
                 <span v-else>0</span>
               </template>
             </el-table-column>
-            <el-table-column label="黄色风险" width="100" align="center">
+            <el-table-column prop="yellow_count" label="黄色风险" width="100" align="center" sortable>
               <template #default="{ row }">
                 <el-tag v-if="row.yellow_count" type="warning" effect="dark" size="small">{{ row.yellow_count }}</el-tag>
                 <span v-else>0</span>
@@ -448,6 +450,30 @@
         <el-button type="primary" @click="handleSaveCategories" :loading="categorySaveLoading">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- ============ 谈话记录批量导入弹窗 ============ -->
+    <el-dialog v-model="talkImportDialogVisible" title="批量导入谈话记录" width="560px">
+      <el-alert type="info" :closable="false" style="margin-bottom: 16px">
+        <template #title>
+          只能导入自己导生的谈话记录，非导生该行失败。纪要必填；红/黄风险会触发预警，填写下次谈话时间会自动创建待办。建议先下载模板按格式填写。
+        </template>
+      </el-alert>
+      <el-upload
+        ref="talkUploadRef"
+        :auto-upload="false"
+        :limit="1"
+        accept=".xlsx,.xls"
+        :on-change="handleTalkImportFileChange"
+        drag
+      >
+        <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+        <div class="el-upload__text">拖拽文件至此处或 <em>点击上传</em></div>
+      </el-upload>
+      <template #footer>
+        <el-button @click="talkImportDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleTalkImportSubmit" :loading="talkImportLoading">导入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -462,6 +488,7 @@ import {
   getMentorRosterTemplate, getMentorMyStudents, getMentorTalkStatistics, getMentorNotTalked,
   getClasses, getStudents, getSemesters, getTeachers,
   getMentorTalkCategories, updateMentorTalkCategories, getMentorStudentStatus,
+  batchImportMentorTalks, getMentorTalkTemplate,
 } from '@/api/modules/moral'
 import { getGMT8DateString } from '@/utils/time'
 import { useApiPermission } from '@/composables/useApiPermission'
@@ -542,6 +569,129 @@ watch(() => talkForm.need_follow_up, (val) => {
 const riskLabel = (level) => ({ green: '绿', yellow: '黄', red: '红' }[level] || level)
 const riskTagType = (level) => ({ green: 'success', yellow: 'warning', red: 'danger' }[level] || 'info')
 const escalateLabel = (path) => ({ grade: '年级', xuefa: '学发', psychology: '心理', principal: '校领导' }[path] || path)
+
+// ============ 谈话记录批量导入 ============
+const talkImportDialogVisible = ref(false)
+const talkImportLoading = ref(false)
+const talkImportFile = ref(null)
+const talkUploadRef = ref(null)
+
+const RISK_MAP = { '绿': 'green', '黄': 'yellow', '红': 'red', green: 'green', yellow: 'yellow', red: 'red' }
+const ESCALATE_MAP = { '年级': 'grade', '学发': 'xuefa', '心理': 'psychology', '校领导': 'principal',
+  grade: 'grade', xuefa: 'xuefa', psychology: 'psychology', principal: 'principal' }
+
+const handleDownloadTalkTemplate = async () => {
+  try {
+    const res = await getMentorTalkTemplate()
+    const blob = new Blob([res.data])
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '导师谈话记录导入模板.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    ElMessage.error('下载模板失败')
+  }
+}
+
+const handleTalkImportFileChange = (file) => {
+  talkImportFile.value = file.raw
+}
+
+const fmtDate = (v) => {
+  if (!v) return ''
+  if (v instanceof Date) {
+    const y = v.getFullYear(), m = String(v.getMonth() + 1).padStart(2, '0'), d = String(v.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  return String(v).trim()
+}
+
+const parseTalkRows = async (file) => {
+  const buffer = await file.arrayBuffer()
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(buffer)
+  const worksheet = workbook.worksheets[0]
+  if (!worksheet) return []
+
+  const headerMap = {}
+  worksheet.getRow(1).eachCell((cell, colNumber) => {
+    const header = String(cell.value ?? '').trim()
+    if (header) headerMap[header] = colNumber
+  })
+  const valueOf = (row, names) => {
+    for (const name of names) {
+      const col = headerMap[name]
+      if (col) {
+        const v = row.getCell(col).value
+        if (v && typeof v === 'object' && v.text !== undefined) return String(v.text).trim()
+        return v
+      }
+    }
+    return ''
+  }
+
+  const yesNo = (v) => (['是', 'y', 'yes', '1', 1, true].includes(String(v).trim().toLowerCase()) ? 1 : 0)
+
+  const rows = []
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return
+    const studentId = String(valueOf(row, ['学号', 'student_id']) ?? '').replace(/\.0$/, '').trim()
+    if (!studentId) return
+    rows.push({
+      student_id: studentId,
+      talk_date: fmtDate(valueOf(row, ['谈话日期', 'talk_date'])),
+      talk_category: String(valueOf(row, ['谈话类别', 'talk_category']) ?? '').trim(),
+      summary: String(valueOf(row, ['谈话纪要', 'summary']) ?? '').trim(),
+      subject: String(valueOf(row, ['主题', 'subject']) ?? '').trim() || undefined,
+      location: String(valueOf(row, ['地点', 'location']) ?? '').trim() || undefined,
+      reason: String(valueOf(row, ['事由', 'reason']) ?? '').trim() || undefined,
+      student_statement: String(valueOf(row, ['学生自述', 'student_statement']) ?? '').trim() || undefined,
+      diagnosis: String(valueOf(row, ['导师诊断', 'diagnosis']) ?? '').trim() || undefined,
+      risk_level: RISK_MAP[String(valueOf(row, ['风险等级', 'risk_level']) ?? '').trim()] || 'green',
+      need_follow_up: yesNo(valueOf(row, ['继续跟进', 'need_follow_up'])),
+      next_talk_date: fmtDate(valueOf(row, ['下次谈话时间', 'next_talk_date'])) || undefined,
+      escalated: yesNo(valueOf(row, ['是否升级', 'escalated'])),
+      escalate_path: ESCALATE_MAP[String(valueOf(row, ['升级路径', 'escalate_path']) ?? '').trim()] || undefined,
+    })
+  })
+  return rows
+}
+
+const handleTalkImportSubmit = async () => {
+  if (!talkImportFile.value) {
+    ElMessage.warning('请先选择文件')
+    return
+  }
+  talkImportLoading.value = true
+  try {
+    const items = await parseTalkRows(talkImportFile.value)
+    if (items.length === 0) {
+      ElMessage.warning('文件中没有数据')
+      return
+    }
+    const res = await batchImportMentorTalks({ items })
+    if (res.success) {
+      const { success_count, failed_count, errors } = res.data
+      if (failed_count > 0 && errors?.length) {
+        const detail = errors.map(e => `第${e.row}行（${e.student_id}）：${e.reason}`).join('\n')
+        await ElMessageBox.alert(detail, `导入完成：成功 ${success_count} 条，失败 ${failed_count} 条`, {
+          type: 'warning',
+          confirmButtonText: '知道了',
+        })
+      } else {
+        ElMessage.success(`导入完成：成功 ${success_count} 条`)
+      }
+      talkImportDialogVisible.value = false
+      talkImportFile.value = null
+      talkUploadRef.value?.clearFiles()
+      fetchTalks()
+    }
+  } finally {
+    talkImportLoading.value = false
+  }
+}
 
 // ============ 谈话类别配置 ============
 const loadTalkCategories = async () => {

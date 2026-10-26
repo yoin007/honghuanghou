@@ -801,3 +801,73 @@ def test_student_status_talked_split(roster_seeded):
     result = asyncio.run(mentor_api.get_mentor_student_status(None, None, "2026-10", teacher))
     student_ids = {item["student_id"] for item in result["data"]["items"]}
     assert student_ids == {"S001", "S002"}
+
+
+# =============================================================================
+# 谈话记录批量导入
+# =============================================================================
+
+def _batch_item(student_id="S001", **overrides):
+    base = {
+        "student_id": student_id, "talk_date": "2026-10-21", "talk_category": "学业辅导",
+        "summary": "批量导入的谈话纪要", "risk_level": "green",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_batch_import_success_and_mixed_errors(roster_seeded):
+    db = roster_seeded
+    teacher = User(username="王老师", role="teacher")
+    items = [
+        _batch_item("S001"),
+        _batch_item("S002", summary="第二个人的纪要"),
+        _batch_item("S003"),  # 非自己导生 → 行级失败
+        _batch_item("S001", talk_category="不存在的类别"),  # 类别无效 → 行级失败
+    ]
+    result = asyncio.run(mentor_api.batch_import_mentor_talks(
+        mentor_api.MentorTalkBatchImport(items=items), _FakeRequest(), teacher,
+    ))
+    assert result["data"]["success_count"] == 2
+    assert result["data"]["failed_count"] == 2
+    reasons = {(e["row"], e["student_id"]) for e in result["data"]["errors"]}
+    assert (4, "S003") in {r for r in reasons}
+    # S001 只有一条（重复学号两条，一条成功一条失败）
+    assert db.query_value("SELECT COUNT(*) FROM mentor_talk_record WHERE student_id = 'S001'") == 1
+
+
+def test_batch_import_red_risk_triggers_warning(roster_seeded):
+    db = roster_seeded
+    teacher = User(username="王老师", role="teacher")
+    items = [_batch_item("S001", risk_level="red")]
+    result = asyncio.run(mentor_api.batch_import_mentor_talks(
+        mentor_api.MentorTalkBatchImport(items=items), _FakeRequest(), teacher,
+    ))
+    assert result["data"]["success_count"] == 1
+    warnings = db.query_all("SELECT warning_level FROM warning_log")
+    assert warnings == [{"warning_level": "error"}]
+
+
+def test_batch_import_next_talk_creates_todo(roster_seeded):
+    db = roster_seeded
+    teacher = User(username="王老师", role="teacher")
+    items = [_batch_item("S001", need_follow_up=1, next_talk_date="2026-11-01")]
+    result = asyncio.run(mentor_api.batch_import_mentor_talks(
+        mentor_api.MentorTalkBatchImport(items=items), _FakeRequest(), teacher,
+    ))
+    assert result["data"]["success_count"] == 1
+    record = db.query_one(
+        "SELECT * FROM mentor_talk_record WHERE student_id = 'S001'"
+    )
+    assert record["todo_series_id"] is not None
+    series = db.query_one("SELECT * FROM teacher_todo_series WHERE id = ?", (record["todo_series_id"],))
+    assert series["start_date"] == "2026-11-01"
+
+
+def test_batch_import_empty_rejected(roster_seeded):
+    teacher = User(username="王老师", role="teacher")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(mentor_api.batch_import_mentor_talks(
+            mentor_api.MentorTalkBatchImport(items=[]), _FakeRequest(), teacher,
+        ))
+    assert exc_info.value.status_code == 400

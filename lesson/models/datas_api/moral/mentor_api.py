@@ -51,6 +51,8 @@ API_TALK_UPDATE = "/api/moral/mentor-talks/update"
 API_TALK_DELETE = "/api/moral/mentor-talks/delete"
 API_TALK_STATISTICS = "/api/moral/mentor-talks/statistics"
 API_TALK_NOT_TALKED = "/api/moral/mentor-talks/not-talked"
+API_TALK_BATCH = "/api/moral/mentor-talks/batch"
+API_TALK_TEMPLATE = "/api/moral/mentor-talks/template"
 API_TALK_CATEGORIES = "/api/moral/mentor-talks/categories"
 API_TALK_CATEGORIES_UPDATE = "/api/moral/mentor-talks/categories/update"
 API_TALK_STUDENT_STATUS = "/api/moral/mentor-talks/student-status"
@@ -1017,6 +1019,74 @@ async def get_mentor_talks(
 
 
 @talk_router.post("", summary="创建导师谈话记录")
+def _create_single_talk(db, data: MentorTalkCreate, user: User, ip_address: Optional[str]) -> int:
+    """创建一条谈话记录的共享内核（单个创建与批量导入复用）。
+
+    返回 record_id；校验失败抛 HTTPException（批量导入按行捕获）。
+    """
+    _validate_talk_fields(db, data)
+
+    student = get_student_class_snapshot(db, data.student_id)
+    if not student:
+        raise HTTPException(404, f"学生 {data.student_id} 不存在或不在校")
+    student = {**student, "student_id": data.student_id}
+    if not target_student_in_scope(db, user, API_TALK_CREATE, student):
+        raise HTTPException(403, "只能给授权范围内（自己的导生）的学生创建谈话记录")
+
+    semester = get_current_semester(db)
+    if not semester:
+        raise HTTPException(400, "未配置当前学期")
+    semester_id = semester["semester_id"]
+
+    # 导师快照：优先取名单中的当前导师
+    roster = db.query_one(
+        "SELECT teacher_id, teacher_name FROM teacher_mentor_student WHERE student_id = ? AND semester_id = ?",
+        (data.student_id, semester_id),
+    )
+    if roster:
+        mentor_id, mentor_name = roster["teacher_id"], roster["teacher_name"]
+    else:
+        teacher_ids, teacher_names = _teacher_identity_candidates(user, db)
+        mentor_id = teacher_ids[0] if teacher_ids else user.username
+        mentor_name = teacher_names[0] if teacher_names else user.username
+        if not any(r in ("admin", "jiaowu", "xuefa", "g_leader") for r in (user.role or "").split("/")):
+            raise HTTPException(400, "该学生尚未分配导师，请先在导师名单中分配")
+
+    db.execute("""
+        INSERT INTO mentor_talk_record
+        (student_id, class_id, grade_id, semester_id, mentor_id, mentor_name,
+         talk_date, talk_category, subject, location, reason, student_statement,
+         summary, diagnosis, risk_level, need_follow_up, next_talk_date,
+         escalated, escalate_path, escalated_at, recorder)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data.student_id, student["class_id"], student["grade_id"], semester_id,
+        mentor_id, mentor_name, data.talk_date, data.talk_category,
+        data.subject, data.location, data.reason, data.student_statement,
+        data.summary, data.diagnosis, data.risk_level, data.need_follow_up,
+        data.next_talk_date, data.escalated, data.escalate_path,
+        date.today().isoformat() if data.escalated else None,
+        user.username,
+    ))
+    record_id = db.lastrowid()
+
+    record = db.query_one("SELECT * FROM mentor_talk_record WHERE record_id = ?", (record_id,))
+    _maybe_create_risk_warning(db, record)
+    _sync_next_talk_todo(db, record)
+    if data.escalated:
+        student_info = db.query_one(
+            "SELECT student_id, name, grade_id FROM student WHERE student_id = ?", (data.student_id,)
+        )
+        _send_mentor_escalation_notification(db, record, student_info)
+
+    log_operation(
+        db, user.username, user.role, 'CREATE', 'mentor_talk_record', record_id,
+        semester_id=semester_id, new_data=_model_dict(data),
+        ip_address=ip_address,
+    )
+    return record_id
+
+
 async def create_mentor_talk(
     data: MentorTalkCreate,
     request: Request,
@@ -1025,67 +1095,10 @@ async def create_mentor_talk(
     """创建导师谈话记录（导师快照取自名单；红/黄风险自动写入德育预警）"""
     with get_moral_db() as db:
         _ensure_schema(db)
-        _validate_talk_fields(db, data)
-
-        student = get_student_class_snapshot(db, data.student_id)
-        if not student:
-            raise HTTPException(404, f"学生 {data.student_id} 不存在或不在校")
-        student = {**student, "student_id": data.student_id}
-        if not target_student_in_scope(db, user, API_TALK_CREATE, student):
-            raise HTTPException(403, "只能给授权范围内的学生创建谈话记录")
-
-        semester = get_current_semester(db)
-        if not semester:
-            raise HTTPException(400, "未配置当前学期")
-        semester_id = semester["semester_id"]
-
-        # 导师快照：优先取名单中的当前导师
-        roster = db.query_one(
-            "SELECT teacher_id, teacher_name FROM teacher_mentor_student WHERE student_id = ? AND semester_id = ?",
-            (data.student_id, semester_id),
+        record_id = _create_single_talk(
+            db, data, user,
+            request.client.host if request.client else None,
         )
-        if roster:
-            mentor_id, mentor_name = roster["teacher_id"], roster["teacher_name"]
-        else:
-            teacher_ids, teacher_names = _teacher_identity_candidates(user, db)
-            mentor_id = teacher_ids[0] if teacher_ids else user.username
-            mentor_name = teacher_names[0] if teacher_names else user.username
-            if not any(r in ("admin", "jiaowu", "xuefa", "g_leader") for r in (user.role or "").split("/")):
-                raise HTTPException(400, "该学生尚未分配导师，请先在导师名单中分配")
-
-        db.execute("""
-            INSERT INTO mentor_talk_record
-            (student_id, class_id, grade_id, semester_id, mentor_id, mentor_name,
-             talk_date, talk_category, subject, location, reason, student_statement,
-             summary, diagnosis, risk_level, need_follow_up, next_talk_date,
-             escalated, escalate_path, escalated_at, recorder)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data.student_id, student["class_id"], student["grade_id"], semester_id,
-            mentor_id, mentor_name, data.talk_date, data.talk_category,
-            data.subject, data.location, data.reason, data.student_statement,
-            data.summary, data.diagnosis, data.risk_level, data.need_follow_up,
-            data.next_talk_date, data.escalated, data.escalate_path,
-            date.today().isoformat() if data.escalated else None,
-            user.username,
-        ))
-        record_id = db.lastrowid()
-
-        record = db.query_one("SELECT * FROM mentor_talk_record WHERE record_id = ?", (record_id,))
-        _maybe_create_risk_warning(db, record)
-        _sync_next_talk_todo(db, record)
-        if data.escalated:
-            student_info = db.query_one(
-                "SELECT student_id, name, grade_id FROM student WHERE student_id = ?", (data.student_id,)
-            )
-            _send_mentor_escalation_notification(db, record, student_info)
-
-        log_operation(
-            db, user.username, user.role, 'CREATE', 'mentor_talk_record', record_id,
-            semester_id=semester_id, new_data=_model_dict(data),
-            ip_address=request.client.host if request.client else None,
-        )
-
         return {"success": True, "message": "谈话记录创建成功", "data": {"record_id": record_id}}
 
 
@@ -1544,3 +1557,149 @@ async def get_mentor_student_status(
                 "semester_id": semester["semester_id"],
             },
         }
+
+
+class MentorTalkBatchItem(BaseModel):
+    """批量导入谈话记录行（前端解析 Excel 后提交）"""
+    student_id: str
+    talk_date: str = Field(..., description="谈话日期 YYYY-MM-DD")
+    talk_category: str
+    summary: str = Field(..., min_length=1, description="谈话纪要（必填）")
+    subject: Optional[str] = None
+    location: Optional[str] = None
+    reason: Optional[str] = None
+    student_statement: Optional[str] = None
+    diagnosis: Optional[str] = None
+    risk_level: str = Field("green", description="green/yellow/red")
+    need_follow_up: int = Field(0, description="1/0")
+    next_talk_date: Optional[str] = Field(None, description="下次谈话时间 YYYY-MM-DD")
+    escalated: int = Field(0, description="1/0")
+    escalate_path: Optional[str] = Field(None, description="grade/xuefa/psychology/principal")
+
+
+class MentorTalkBatchImport(BaseModel):
+    """批量导入导师谈话记录"""
+    items: List[MentorTalkBatchItem]
+
+
+@talk_router.post("/batch", summary="批量导入导师谈话记录")
+async def batch_import_mentor_talks(
+    data: MentorTalkBatchImport,
+    request: Request,
+    user: User = Depends(require_configured_api_permission(API_TALK_BATCH, "POST", allow_missing=False)),
+):
+    """批量导入谈话记录。
+
+    逐行校验：学生必须在导入人授权范围内（target_scope，导师即自己的导生），
+    超出范围的行记入失败明细，不影响其他行。
+    """
+    with get_moral_db() as db:
+        _ensure_schema(db)
+        if not data.items:
+            raise HTTPException(400, "导入数据为空")
+
+        ip = request.client.host if request.client else None
+        success_count = 0
+        errors = []
+        for index, item in enumerate(data.items, start=2):  # Excel 首行为表头
+            try:
+                talk_data = MentorTalkCreate(
+                    student_id=item.student_id,
+                    talk_date=item.talk_date,
+                    talk_category=item.talk_category,
+                    summary=item.summary,
+                    subject=item.subject,
+                    location=item.location,
+                    reason=item.reason,
+                    student_statement=item.student_statement,
+                    diagnosis=item.diagnosis,
+                    risk_level=item.risk_level,
+                    need_follow_up=item.need_follow_up,
+                    next_talk_date=item.next_talk_date,
+                    escalated=item.escalated,
+                    escalate_path=item.escalate_path,
+                )
+                _create_single_talk(db, talk_data, user, ip)
+                success_count += 1
+            except HTTPException as e:
+                errors.append({"row": index, "student_id": item.student_id, "reason": e.detail})
+            except Exception as e:
+                logger.exception("批量导入谈话记录第 %s 行失败", index)
+                errors.append({"row": index, "student_id": item.student_id, "reason": f"导入失败：{e}"})
+
+        log_operation(
+            db, user.username, user.role, 'BATCH_IMPORT', 'mentor_talk_record', 0,
+            new_data={"total": len(data.items), "inserted": success_count, "failed": len(errors)},
+            ip_address=ip,
+        )
+
+        return {
+            "success": True,
+            "message": f"导入完成：成功 {success_count} 条，失败 {len(errors)} 条",
+            "data": {"success_count": success_count, "failed_count": len(errors), "errors": errors},
+        }
+
+
+@talk_router.get("/template", summary="下载谈话记录导入模板")
+async def download_talk_template(
+    user: User = Depends(require_configured_api_permission(API_TALK_TEMPLATE, "GET", allow_missing=False)),
+):
+    """下载谈话记录 Excel 批量导入模板（含填写说明）"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from urllib.parse import quote
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "谈话记录"
+    headers = ["学号", "谈话日期", "谈话类别", "主题", "地点", "事由", "学生自述",
+               "谈话纪要", "导师诊断", "风险等级", "继续跟进", "下次谈话时间", "是否升级", "升级路径"]
+    header_font = Font(name="Arial", bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", start_color="4472C4")
+    center = Alignment(horizontal="center", vertical="center")
+    for col, title in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col, value=title)
+        c.font = header_font; c.fill = header_fill; c.alignment = center
+
+    example_rows = [
+        ["20240101", "2026-10-21", "学业辅导", "月考后学习状态", "办公室",
+         "月考成绩下滑", "最近上课走神", "学生表示最近熬夜玩手机导致上课困倦，已约定调整作息",
+         "需家长配合监督作息", "黄", "是", "2026-11-05", "否", ""],
+        ["20240102", "2026-10-21", "心理疏导", "考前焦虑", "心理辅导室",
+         "情绪波动", "考试前紧张失眠", "学生自述对排名过度在意，已进行情绪疏导，状态平稳",
+         "持续观察，两周后复谈", "绿", "是", "2026-11-04", "否", ""],
+    ]
+    for r, row in enumerate(example_rows, 2):
+        for c, val in enumerate(row, 1):
+            cell = ws.cell(row=r, column=c, value=val)
+            cell.font = Font(name="Arial")
+
+    info = wb.create_sheet("填写说明")
+    notes = [
+        "1. 学号：必填，学生在系统中的学号；只能导入自己导生的记录，非导生该行会失败",
+        "2. 谈话日期：必填，格式 YYYY-MM-DD",
+        "3. 谈话类别：必填，须与系统配置的类别一致（默认：思想引导/学业辅导/心理疏导/生活指导/生涯向导）",
+        "4. 谈话纪要：必填，其余字段选填",
+        "5. 风险等级：绿/黄/红（默认绿）；黄色触发一般预警，红色触发严重预警",
+        "6. 继续跟进/是否升级：填 是 或 否（默认否）",
+        "7. 下次谈话时间：填了会自动为导师创建待办提醒，格式 YYYY-MM-DD",
+        "8. 升级路径：是否升级为「是」时必填，可选 年级/学发/心理/校领导",
+        "9. 导师无需填写：系统自动取名单中该学生的当前导师",
+    ]
+    for r, note in enumerate(notes, 1):
+        c = info.cell(row=r, column=1, value=note)
+        c.font = Font(name="Arial")
+    info.column_dimensions['A'].width = 100
+    for col, w in zip("ABCDEFGHIJKLMN", [14, 12, 12, 18, 12, 16, 20, 40, 20, 10, 10, 14, 10, 10]):
+        ws.column_dimensions[col].width = w
+    ws.freeze_panes = 'A2'
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = quote("导师谈话记录导入模板.xlsx")
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
