@@ -46,3 +46,6 @@ lesson/storage/*
 setting.local.json
 .evolver
 .evolver/
+
+# 自签名 HTTPS 证书（机器本地生成，不入库）
+lesson/ssl/

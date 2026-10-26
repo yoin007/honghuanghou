@@ -602,6 +602,8 @@ const router = createRouter({
 const ensureProtocol = (to) => {
   if (typeof window === 'undefined') return null
   const isDev = import.meta.env.DEV
+  // 生产为后端单协议托管（http 或 https 由服务器 use_https 决定），协议不可切换，不做跳转
+  if (!isDev) return null
   const devHttpPort = isDev ? import.meta.env.VITE_DEV_HTTP_PORT : ''
   const devHttpsPort = isDev ? import.meta.env.VITE_DEV_HTTPS_PORT : ''
   const devUseHttps = isDev && import.meta.env.VITE_DEV_HTTPS === 'true'

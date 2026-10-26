@@ -138,13 +138,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, default_response_class=NumpyJSONResponse)
 
 # 配置CORS - 从环境变量读取允许的域名
-# 用逗号分隔多个域名，如: http://localhost:3333,https://example.com
+# 用逗号分隔多个域名，如: http://localhost:14600,https://example.com
+# 生产为前后端同源（14600 托管 dist），同源请求不走 CORS；此列表仅服务跨域调试场景
 cors_origins = os.getenv("CORS_ORIGINS", "")
 if cors_origins:
     allowed_origins = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
 else:
     # 开发环境默认允许的源
-    allowed_origins = ["http://localhost:3333", "https://localhost:3334", "http://localhost:14600", "http://172.31.24.235:3333"]
+    allowed_origins = ["http://localhost:14600", "http://localhost:3333"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -386,6 +387,18 @@ def ai_content(content):
 
 if __name__ == "__main__":
     try:
-        uvicorn.run("main:app", host="0.0.0.0", port=14600, reload=True)  # dev
+        # lesson.yaml 配 use_https: true 启用 HTTPS（自签名证书自动生成于 lesson/ssl/）
+        use_https = False
+        try:
+            use_https = bool(config.get_config_all("lesson.yaml").get("use_https", False))
+        except Exception as e:
+            log.warning(f"读取 use_https 配置失败，按 HTTP 启动: {e}")
+        ssl_args = {}
+        if use_https:
+            from utils.ssl_cert import ensure_ssl_cert
+            cert_file, key_file = ensure_ssl_cert()
+            ssl_args = {"ssl_certfile": cert_file, "ssl_keyfile": key_file}
+            log.info("HTTPS 已启用，访问地址: https://<本机IP>:14600")
+        uvicorn.run("main:app", host="0.0.0.0", port=14600, reload=True, **ssl_args)  # dev
     except KeyboardInterrupt:
         log.info("Shutting down gracefully...")
