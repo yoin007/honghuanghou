@@ -510,6 +510,12 @@ async def batch_import_roster(
             if not student:
                 errors.append({"row": row_no, "student_id": item.student_id, "reason": "学生不存在"})
                 continue
+            if item.student_name and item.student_name.strip() and item.student_name.strip() != student["name"]:
+                errors.append({
+                    "row": row_no, "student_id": item.student_id,
+                    "reason": f"学生姓名与学号不匹配（学号 {item.student_id} 对应：{student['name']}）",
+                })
+                continue
             if not target_student_in_scope(db, user, API_ROSTER_BATCH, student):
                 errors.append({"row": row_no, "student_id": item.student_id, "reason": "学生超出授权范围"})
                 continue
@@ -1579,6 +1585,7 @@ async def get_mentor_student_status(
 class MentorTalkBatchItem(BaseModel):
     """批量导入谈话记录行（前端解析 Excel 后提交）"""
     student_id: str
+    student_name: Optional[str] = Field(None, description="学生姓名（用于与学号核对）")
     talk_date: str = Field(..., description="谈话日期 YYYY-MM-DD")
     talk_category: str
     summary: str = Field(..., min_length=1, description="谈话纪要（必填）")
@@ -1620,6 +1627,17 @@ async def batch_import_mentor_talks(
         errors = []
         for index, item in enumerate(data.items, start=2):  # Excel 首行为表头
             try:
+                # 姓名-学号核对：填了姓名且与库中不一致 → 行级失败
+                if item.student_name and item.student_name.strip():
+                    stu = db.query_one(
+                        "SELECT name FROM student WHERE student_id = ?", (item.student_id,)
+                    )
+                    if stu and stu["name"] != item.student_name.strip():
+                        errors.append({
+                            "row": index, "student_id": item.student_id,
+                            "reason": f"学生姓名与学号不匹配（学号 {item.student_id} 对应：{stu['name']}）",
+                        })
+                        continue
                 talk_data = MentorTalkCreate(
                     student_id=item.student_id,
                     talk_date=item.talk_date,
@@ -1669,7 +1687,7 @@ async def download_talk_template(
     wb = Workbook()
     ws = wb.active
     ws.title = "谈话记录"
-    headers = ["学号", "谈话日期", "谈话类别", "主题", "地点", "事由", "学生自述",
+    headers = ["学号", "学生姓名", "谈话日期", "谈话类别", "主题", "地点", "事由", "学生自述",
                "谈话纪要", "导师诊断", "风险等级", "继续跟进", "下次谈话时间", "是否升级", "升级路径"]
     header_font = Font(name="Arial", bold=True, color="FFFFFF")
     header_fill = PatternFill("solid", start_color="4472C4")
@@ -1679,10 +1697,10 @@ async def download_talk_template(
         c.font = header_font; c.fill = header_fill; c.alignment = center
 
     example_rows = [
-        ["20240101", "2026-10-21", "学业辅导", "月考后学习状态", "办公室",
+        ["20240101", "李四", "2026-10-21", "学业辅导", "月考后学习状态", "办公室",
          "月考成绩下滑", "最近上课走神", "学生表示最近熬夜玩手机导致上课困倦，已约定调整作息",
          "需家长配合监督作息", "黄", "是", "2026-11-05", "否", ""],
-        ["20240102", "2026-10-21", "心理疏导", "考前焦虑", "心理辅导室",
+        ["20240102", "王五", "2026-10-21", "心理疏导", "考前焦虑", "心理辅导室",
          "情绪波动", "考试前紧张失眠", "学生自述对排名过度在意，已进行情绪疏导，状态平稳",
          "持续观察，两周后复谈", "绿", "是", "2026-11-04", "否", ""],
     ]
@@ -1701,13 +1719,14 @@ async def download_talk_template(
         "6. 继续跟进/是否升级：填 是 或 否（默认否）",
         "7. 下次谈话时间：填了会自动为导师创建待办提醒，格式 YYYY-MM-DD",
         "8. 升级路径：是否升级为「是」时必填，可选 年级/学发/心理/校领导",
-        "9. 导师无需填写：系统自动取名单中该学生的当前导师",
+        "9. 学生姓名：必填，须与学号一致，不一致该行失败并提示学号对应姓名",
+        "10. 导师无需填写：系统自动取名单中该学生的当前导师",
     ]
     for r, note in enumerate(notes, 1):
         c = info.cell(row=r, column=1, value=note)
         c.font = Font(name="Arial")
     info.column_dimensions['A'].width = 100
-    for col, w in zip("ABCDEFGHIJKLMN", [14, 12, 12, 18, 12, 16, 20, 40, 20, 10, 10, 14, 10, 10]):
+    for col, w in zip("ABCDEFGHIJKLMNO", [14, 12, 12, 18, 12, 16, 20, 40, 20, 10, 10, 14, 10, 10, 12]):
         ws.column_dimensions[col].width = w
     ws.freeze_panes = 'A2'
 

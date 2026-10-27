@@ -641,6 +641,7 @@ const parseTalkRows = async (file) => {
     if (!studentId) return
     rows.push({
       student_id: studentId,
+      student_name: String(valueOf(row, ['学生姓名', 'student_name']) ?? '').trim() || undefined,
       talk_date: fmtDate(valueOf(row, ['谈话日期', 'talk_date'])),
       talk_category: String(valueOf(row, ['谈话类别', 'talk_category']) ?? '').trim(),
       summary: String(valueOf(row, ['谈话纪要', 'summary']) ?? '').trim(),

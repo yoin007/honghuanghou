@@ -885,3 +885,37 @@ def test_talk_routes_bind_to_real_endpoints():
     for r in talk_router.routes:
         import inspect
         assert inspect.iscoroutinefunction(r.endpoint), f"{r.path} 的端点不是协程: {r.endpoint.__name__}"
+
+
+def test_talk_batch_name_mismatch_rejected(roster_seeded):
+    """谈话批量导入：姓名与学号不匹配 → 行级失败并提示学号对应姓名"""
+    db = roster_seeded
+    teacher = User(username="王老师", role="teacher")
+    items = [
+        _batch_item("S001", student_name="张小明"),   # 正确
+        _batch_item("S002", student_name="李小红 "),  # 带空格应归一后匹配
+        _batch_item("S001", student_name="错误名字"),  # 不匹配
+    ]
+    result = asyncio.run(mentor_api.batch_import_mentor_talks(
+        mentor_api.MentorTalkBatchImport(items=items), _FakeRequest(), teacher,
+    ))
+    assert result["data"]["success_count"] == 2
+    assert result["data"]["failed_count"] == 1
+    err = result["data"]["errors"][0]
+    assert "不匹配" in err["reason"] and "张小明" in err["reason"]
+
+
+def test_roster_batch_name_mismatch_rejected(mentor_db):
+    """名单批量导入：姓名与学号不匹配 → 行级失败（上次错名静默导入的教训）"""
+    db = mentor_db
+    mentor_api._ensure_schema(db)
+    admin = User(username="admin", role="admin")
+    result = asyncio.run(mentor_api.batch_import_roster(
+        mentor_api.MentorBatchImport(items=[
+            mentor_api.MentorBatchItem(teacher_id="T_王老师", student_id="S001", student_name="张小明"),
+            mentor_api.MentorBatchItem(teacher_id="T_王老师", student_id="S002", student_name="错误名字"),
+        ]), _FakeRequest(), admin,
+    ))
+    assert result["data"]["success_count"] == 1
+    assert len(result["data"]["errors"]) == 1
+    assert "不匹配" in result["data"]["errors"][0]["reason"]
