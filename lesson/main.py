@@ -6,6 +6,7 @@
 import uvicorn
 import os
 import json
+import time
 from pathlib import Path
 import numpy as np
 from fastapi import FastAPI, Request, WebSocket
@@ -34,7 +35,8 @@ from utils.db_integrity import check_database_integrity_on_startup
 from utils.paths import get_filegather_storage_root
 from models.api import bailian_req
 
-log = LogConfig().get_logger()
+log = LogConfig("app").get_logger()
+access_log = LogConfig("access").get_logger()
 config = Config()
 timer_random = config.get_config("queue_timer_random", "wechat.yaml")
 
@@ -154,6 +156,47 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
+
+# 访问日志中间件：记录 哪个用户(IP) 在什么时间 访问了什么页面/API、结果与耗时
+# 静态资源（js/css/附件）不记录；用户身份从 JWT payload 解出（仅记录用，不做鉴权）
+ACCESS_LOG_SKIP_PREFIXES = ("/assets/", "/static/", "/pending-uploads/")
+
+
+def _extract_access_user(request):
+    """从 Authorization: Bearer <jwt> 中解出用户名与角色（不验签，仅记录）"""
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return "-", "-"
+    try:
+        import base64
+        segment = auth.split(" ")[1].split(".")[1]
+        segment += "=" * (-len(segment) % 4)
+        data = json.loads(base64.urlsafe_b64decode(segment))
+        return str(data.get("sub") or "-"), str(data.get("role") or "-")
+    except Exception:
+        return "-", "-"
+
+
+@app.middleware("http")
+async def access_log_middleware(request, call_next):
+    path = request.url.path
+    if request.method == "OPTIONS" or path.startswith(ACCESS_LOG_SKIP_PREFIXES):
+        return await call_next(request)
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - start) * 1000
+    try:
+        username, role = _extract_access_user(request)
+        ip = (request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for")
+              or (request.client.host if request.client else "-"))
+        access_log.info(f"{ip} {username}({role}) {request.method} {path} {response.status_code} {duration_ms:.0f}ms")
+        from utils.access_log_db import record_access
+        record_access(username if username != "-" else "", role if role != "-" else "",
+                      ip, request.method, path, response.status_code, duration_ms)
+    except Exception:
+        pass  # 日志失败绝不影响请求
+    return response
+
 
 # HTTPS 强制重定向（生产环境）
 @app.middleware("http")

@@ -1,5 +1,4 @@
 import json
-import logging
 from datetime import datetime
 import os
 import time
@@ -15,8 +14,9 @@ def _get_sqlite_connection():
 
 # DB_DIR 由 utils.db_config 统一管理，demo_mode 开启时自动指向 databases/demo/
 from utils.db_config import DATABASES_DIR as DB_DIR
+from config.log import LogConfig
 
-logger = logging.getLogger(__name__)
+logger = LogConfig("wxbot").get_logger()
 
 
 def process_nested_dict(d):

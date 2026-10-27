@@ -1282,6 +1282,13 @@ export function getOperationLogs(params = {}) {
 }
 
 /**
+ * 获取访问日志（哪个用户/IP 在什么时间访问了哪个页面或 API）
+ */
+export function getAccessLogs(params = {}) {
+  return httpClient.get('/api/moral/admin/access-logs', { params })
+}
+
+/**
  * 获取系统配置
  */
 export function getSystemConfig() {
@@ -1683,6 +1690,7 @@ export default {
   exportLifebookXlsx,
   exportClassLifebooks,
   getOperationLogs,
+  getAccessLogs,
 
   // 大模型配置
   getAiModelConfigs,

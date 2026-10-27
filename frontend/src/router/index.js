@@ -531,6 +531,15 @@ const routes = [
     }
   },
   {
+    path: '/moral/config/access-log',
+    name: 'MoralConfigAccessLog',
+    component: () => import('../views/moral/config/AccessLog.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '访问日志'
+    }
+  },
+  {
     path: '/moral/config/database',
     name: 'MoralConfigDatabase',
     component: () => import('../views/moral/config/DatabaseManage.vue'),

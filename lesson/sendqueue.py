@@ -23,7 +23,7 @@ def _get_sqlite_connection():
     from models.datas_api.repositories.sqlite_base import get_sqlite_connection
     return get_sqlite_connection
 
-log = LogConfig().get_logger()
+log = LogConfig("wxbot").get_logger()
 config = Config()
 base_url = config.get_config("base_url", "wechat.yaml")
 static_url = config.get_config("static_url", "wechat.yaml")

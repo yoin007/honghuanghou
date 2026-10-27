@@ -32,6 +32,7 @@
 | `use_https` | `false` | `true` 时以 HTTPS 监听，证书自动生成；生产保持 false（微信机器人链路按明文设计） |
 | `wx_listen_port` | `0`（关闭） | 备用：若未来主服务必须开 HTTPS，配此端口起明文迷你服务专接微信机器人回传（见下节） |
 | `demo_mode` | `false` | `true` 时使用 `databases/demo/` 演示库（仅教程录制机） |
+| `log_retention_days` | `1095` | 日志保留天数（文件与 access.db 同用），启动时自动清理过期记录 |
 
 ### 微信机器人链路（与迁移前完全一致）
 
@@ -69,6 +70,12 @@ remote_port = 14600      # 公网 http://47.123.6.147:14600
 4. 回滚：备份目录里的 `restore.bat`
 
 ## 四、注意事项
+
+- **日志体系（2026-10-27 起）**：`lesson/logs/` 按模块分文件——`app_日期.log`（应用主文件）、
+  `wxbot_日期.log`（微信机器人）、`access_日期.log`（访问记录：IP/用户/路径/状态/耗时）、
+  `error_日期.log`（全模块错误汇聚）。保留 `log_retention_days` 天（lesson.yaml 配置，默认 1095），
+  启动时自动清理过期文件。访问日志同时入 `databases/access.db`，管理后台「访问日志」页可查（仅 admin）。
+  生产库需一次性执行权限/菜单 INSERT（见部署包说明）。
 
 - **数据库禁止覆盖**：`lesson/databases/` 严禁从开发机拷贝覆盖服务器；
   schema 变更靠启动自动迁移或手工 `ALTER TABLE`

@@ -122,6 +122,7 @@ API_SEMESTER_CREATE = "/api/moral/admin/semesters/create"
 API_SEMESTER_UPDATE = "/api/moral/admin/semesters/{semester_id}"
 API_SEMESTER_SET_CURRENT = "/api/moral/admin/semesters/{semester_id}/set-current"
 API_LOGS = "/api/moral/admin/logs"
+API_ACCESS_LOGS = "/api/moral/admin/access-logs"
 API_CONFIG = "/api/moral/admin/config"
 
 
@@ -2328,6 +2329,31 @@ async def get_operation_logs(
                 "total_pages": (total + page_size - 1) // page_size
             }
         }
+
+
+@router.get("/access-logs", summary="获取访问日志列表")
+async def get_access_logs(
+    username: Optional[str] = Query(None, description="用户名（模糊）"),
+    ip: Optional[str] = Query(None, description="IP（模糊）"),
+    path: Optional[str] = Query(None, description="路径关键词（模糊）"),
+    start_date: Optional[date] = Query(None, description="开始日期"),
+    end_date: Optional[date] = Query(None, description="结束日期"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user: User = Depends(require_configured_api_permission(API_ACCESS_LOGS, "*", allow_missing=False))
+):
+    """
+    获取访问日志列表（哪个用户/IP 在什么时间访问了哪个页面或 API）
+
+    权限要求：admin
+    """
+    from utils.access_log_db import query_access_logs
+    result = query_access_logs(
+        username=username, ip=ip, path=path,
+        start_date=start_date, end_date=end_date,
+        page=page, page_size=page_size,
+    )
+    return {"success": True, "data": result}
 
 
 # =============================================================================
