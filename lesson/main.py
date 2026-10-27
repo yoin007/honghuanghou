@@ -41,6 +41,16 @@ config = Config()
 timer_random = config.get_config("queue_timer_random", "wechat.yaml")
 
 
+def _proactor_reset_safe_handler(loop, context):
+    """Windows Proactor 已知噪音过滤：客户端 RST 后，连接丢失回调里对死 socket
+    调 shutdown 抛 WinError 10054（_call_connection_lost），与业务无关，静默。
+    其余异常仍走默认处理，正常落 error 日志。非 Windows 上该回调不存在，纯空转。"""
+    exc = context.get("exception")
+    if isinstance(exc, ConnectionResetError) and "_call_connection_lost" in str(context.get("handle", "")):
+        return
+    loop.default_exception_handler(context)
+
+
 class NumpyJSONResponse(JSONResponse):
     """处理 numpy 类型的 JSON 响应"""
 
@@ -80,6 +90,8 @@ async def consume_queue():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Windows Proactor 连接重置噪音过滤（双监听共享同一事件循环，装一次即可）
+    asyncio.get_running_loop().set_exception_handler(_proactor_reset_safe_handler)
     # 启动时初始化数据库优化
     init_db_optimization()
     # 启动时初始化监控
@@ -91,7 +103,7 @@ async def lifespan(app: FastAPI):
         from models.datas_api.moral.api_permission import apply_permission_fix_on_startup
         apply_permission_fix_on_startup()
     except Exception as e:
-        logger.warning(f"权限修复初始化失败（非致命）: {e}")
+        log.warning(f"权限修复初始化失败（非致命）: {e}")
 
     # 启动时执行数据库迁移（添加 leader_ids/leader_names 字段）
     try:
