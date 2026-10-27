@@ -392,16 +392,39 @@ if __name__ == "__main__":
             cfg = config.get_config_all("lesson.yaml")
         except Exception as e:
             log.warning(f"读取 lesson.yaml 失败，使用默认配置: {e}")
-        # 服务端口默认 3333（前后端统一入口）；与本地 vite dev 冲突时在 lesson.yaml 配 server_port 改开其他端口
-        server_port = int(cfg.get("server_port", 3333))
+        # 服务端口默认 14600（生产统一入口）；与本地 vite dev 冲突时在 lesson.yaml 配 server_port 避让
+        server_port = int(cfg.get("server_port", 14600))
         # use_https: true 启用 HTTPS（自签名证书自动生成于 lesson/ssl/）
         use_https = bool(cfg.get("use_https", False))
+        # 微信机器人回传兼容端口（plain HTTP）：云端机器人经 frp 公网口推送 POST / 与 /static 附件，
+        # 主服务是 HTTPS 无法接收 HTTP 明文，故另起一个迷你服务承载这两条明文链路；
+        # 经 frp 映射：公网 14601 → 本端口。不配置（默认 0）则单端口运行
+        wx_listen_port = int(cfg.get("wx_listen_port", 0))
         ssl_args = {}
         if use_https:
             from utils.ssl_cert import ensure_ssl_cert
             cert_file, key_file = ensure_ssl_cert()
             ssl_args = {"ssl_certfile": cert_file, "ssl_keyfile": key_file}
             log.info(f"HTTPS 已启用，访问地址: https://<本机IP>:{server_port}")
-        uvicorn.run("main:app", host="0.0.0.0", port=server_port, reload=True, **ssl_args)  # dev
+
+        if wx_listen_port and wx_listen_port != server_port:
+            from fastapi import FastAPI as _WxCompatApp
+            wx_compat_app = _WxCompatApp()
+            wx_compat_app.mount("/static", StaticFiles(directory=static_dir), name="wx-static")
+            wx_compat_app.mount("/pending-uploads", StaticFiles(directory=_get_pending_upload_dir()), name="wx-pending")
+
+            @wx_compat_app.post("/")
+            async def wx_compat(request: Request):
+                return await root(request)
+
+            async def _serve_both():
+                primary = uvicorn.Server(uvicorn.Config("main:app", host="0.0.0.0", port=server_port, **ssl_args))
+                compat = uvicorn.Server(uvicorn.Config(wx_compat_app, host="0.0.0.0", port=wx_listen_port))
+                log.info(f"微信机器人兼容监听已启用: http://<本机IP>:{wx_listen_port}/ (回传 POST / 与 /static)")
+                await asyncio.gather(primary.serve(), compat.serve())
+
+            asyncio.run(_serve_both())  # 双监听模式不支持热重载
+        else:
+            uvicorn.run("main:app", host="0.0.0.0", port=server_port, reload=True, **ssl_args)  # dev
     except KeyboardInterrupt:
         log.info("Shutting down gracefully...")
