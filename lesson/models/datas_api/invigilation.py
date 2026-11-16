@@ -153,6 +153,160 @@ _ensure_notification_log_schema()
 
 
 # ---------------------------------------------------------------------------
+# 监考提醒待办同步（写入教师待办体系，由每分钟轮询的调度任务自动发微信提醒）
+# ---------------------------------------------------------------------------
+# 提醒参数：考前10分钟首发，之后每5分钟重复一次，共2次（考前10分、考前5分）；
+# 到开考时间由调度任务自动关闭（不依赖老师手动点完成，也不产生逾期噪音）。
+TODO_REMIND_BEFORE_MINUTES = 10
+TODO_REMINDER_INTERVAL = 5
+TODO_REMINDER_COUNT = 2
+
+
+def _slot_todo_time(exam_date, start_time) -> tuple:
+    """归一出 (YYYY-MM-DD, HH:MM)，兼容历史遗留的脏格式（见 _norm_date_key/_norm_time_key）。"""
+    return _norm_date_key(exam_date), _norm_time_key(start_time)[:5]
+
+
+def _deactivate_project_todos(project_id: int) -> None:
+    """停用本项目联动的全部监考提醒待办（删除项目时调用）。"""
+    try:
+        from models.datas_api.moral.base import get_moral_db
+        from models.datas_api.teacher_todo import ensure_teacher_todo_schema
+
+        with get_moral_db() as db:
+            ensure_teacher_todo_schema(db)
+            db.execute(
+                """UPDATE teacher_todo_series
+                   SET is_active = 0, updated_at = datetime('now','localtime')
+                   WHERE id IN (SELECT todo_series_id FROM invigilation_todo_link WHERE project_id = ?)""",
+                (project_id,),
+            )
+            db.commit()
+    except Exception:
+        logger.exception(f"[invigilation] 停用监考提醒待办失败（非致命），project_id={project_id}")
+
+
+def _sync_project_todos(project_id: int) -> None:
+    """把当前项目的监考安排对账为教师待办（moral.db）。
+
+    对账键：(slot_key, role, teacher_id)——slot_key 与变更 diff 共用同一规范化逻辑，
+    覆盖式保存/Excel 导入后 slot 行重建也不会导致待办重复。
+    只为未来场次建待办（已过场次跳过，防服务重启后对历史补发提醒）。
+    任何失败只记日志，绝不影响监考保存主流程。
+    """
+    try:
+        from models.datas_api.moral.base import get_moral_db
+        from models.datas_api.teacher_todo import ensure_teacher_todo_schema
+
+        with get_invigilation_db() as inv_db:
+            slots = [dict(row) for row in inv_db.execute(
+                "SELECT * FROM invigilation_slot WHERE project_id = ? ORDER BY exam_date, start_time, room_order",
+                (project_id,),
+            ).fetchall()]
+
+        now = datetime.now()
+        desired: Dict[tuple, dict] = {}
+        for slot in slots:
+            date_key, hhmm = _slot_todo_time(slot.get('exam_date'), slot.get('start_time'))
+            if not date_key or len(hhmm) != 5:
+                continue
+            scheduled_at = f"{date_key} {hhmm}:00"
+            if datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M:%S") <= now:
+                continue
+            slot_key = _slot_change_key(slot)
+            end_hhmm = _norm_time_key(slot.get('end_time'))[:5]
+            for role in SLOT_ROLES:
+                t = _slot_role_teacher(slot, role)
+                if not t["teacher_id"]:
+                    continue
+                desired[(slot_key, role, t["teacher_id"])] = {
+                    "slot_key": slot_key,
+                    "role": role,
+                    "teacher_id": t["teacher_id"],
+                    "teacher_name": t["teacher_name"] or t["teacher_id"],
+                    "title": f"监考：{slot.get('subject') or ''} {slot.get('grade_name') or ''} {slot.get('room_name') or ''}".strip(),
+                    "description": f"时间：{date_key} {hhmm}-{end_hhmm}\n地点：{slot.get('room_name') or ''}".strip(),
+                    "occurrence_date": date_key,
+                    "time_of_day": hhmm,
+                    "scheduled_at": scheduled_at,
+                }
+
+        with get_moral_db() as db:
+            ensure_teacher_todo_schema(db)
+
+            links = db.query_all(
+                """SELECT l.todo_series_id, l.slot_key, l.role, l.teacher_id,
+                          s.is_active, s.title, s.description
+                   FROM invigilation_todo_link l
+                   JOIN teacher_todo_series s ON s.id = l.todo_series_id
+                   WHERE l.project_id = ?""",
+                (project_id,),
+            )
+            existing = {(l["slot_key"], l["role"], l["teacher_id"]): l for l in links}
+
+            # 多余（场次已取消/换人/已过）：停用
+            for key, link in existing.items():
+                if key not in desired and link["is_active"]:
+                    db.execute(
+                        """UPDATE teacher_todo_series
+                           SET is_active = 0, updated_at = datetime('now','localtime')
+                           WHERE id = ?""",
+                        (link["todo_series_id"],),
+                    )
+
+            for key, d in desired.items():
+                link = existing.get(key)
+                if link:
+                    # 已在库：停用则复活并校准；活跃但标题漂移（学科/年级名等）则修正
+                    if not link["is_active"] or link["title"] != d["title"] or link["description"] != d["description"]:
+                        db.execute(
+                            """UPDATE teacher_todo_series
+                               SET is_active = 1, title = ?, description = ?,
+                                   updated_at = datetime('now','localtime')
+                               WHERE id = ?""",
+                            (d["title"], d["description"], link["todo_series_id"]),
+                        )
+                        db.execute(
+                            """UPDATE teacher_todo_occurrence
+                               SET occurrence_date = ?, scheduled_at = ?
+                               WHERE todo_series_id = ? AND status = 'pending'""",
+                            (d["occurrence_date"], d["scheduled_at"], link["todo_series_id"]),
+                        )
+                    continue
+                # 新建：one_off，考前10分钟首发、每5分钟重复共2次，只提醒被指派人
+                db.execute(
+                    """INSERT INTO teacher_todo_series
+                       (title, description, creator_teacher_id, creator_name, todo_type,
+                        start_date, time_of_day, wechat_notify_enabled,
+                        remind_before_minutes, reminder_interval, reminder_count,
+                        notify_creator, notify_assignees, is_active)
+                       VALUES (?, ?, 'system', '监考安排', 'one_off', ?, ?, 1, ?, ?, ?, 0, 1, 1)""",
+                    (d["title"], d["description"], d["occurrence_date"], d["time_of_day"],
+                     TODO_REMIND_BEFORE_MINUTES, TODO_REMINDER_INTERVAL, TODO_REMINDER_COUNT),
+                )
+                series_id = db.lastrowid()
+                db.execute(
+                    """INSERT OR IGNORE INTO teacher_todo_assignee (todo_series_id, teacher_id, teacher_name)
+                       VALUES (?, ?, ?)""",
+                    (series_id, d["teacher_id"], d["teacher_name"]),
+                )
+                db.execute(
+                    """INSERT INTO teacher_todo_occurrence (todo_series_id, occurrence_date, scheduled_at, status)
+                       VALUES (?, ?, ?, 'pending')""",
+                    (series_id, d["occurrence_date"], d["scheduled_at"]),
+                )
+                db.execute(
+                    """INSERT INTO invigilation_todo_link
+                       (todo_series_id, project_id, slot_key, role, teacher_id)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (series_id, project_id, d["slot_key"], d["role"], d["teacher_id"]),
+                )
+            db.commit()
+    except Exception:
+        logger.exception(f"[invigilation] 同步监考提醒待办失败（非致命），project_id={project_id}")
+
+
+# ---------------------------------------------------------------------------
 # 导入用：日期/时间归一化
 # ---------------------------------------------------------------------------
 # Excel 单元格进来 pandas 时类型很杂：datetime.datetime、datetime.date、
@@ -619,6 +773,9 @@ async def delete_exam_project(
 
         db.commit()
 
+        # 停用本项目联动的监考提醒待办，失败不影响删除
+        _deactivate_project_todos(project_id)
+
         return {"success": True, "message": f"项目「{project['name']}」已删除"}
 
 
@@ -771,6 +928,9 @@ async def save_invigilation_slots(
 
         db.commit()
 
+        # 同步监考提醒待办（考前自动微信提醒），失败不影响保存
+        _sync_project_todos(project_id)
+
         return {"success": True, "message": "保存成功", "data": {"count": len(batch.slots)}}
 
 
@@ -847,6 +1007,9 @@ async def swap_teachers(
         )
 
         db.commit()
+
+        # 同步监考提醒待办（换监后旧提醒停用、新提醒建立），失败不影响交换
+        _sync_project_todos(project_id)
 
         return {"success": True, "message": "交换成功"}
 
@@ -1654,6 +1817,9 @@ async def import_invigilation(
             ))
 
         db.commit()
+
+        # 同步监考提醒待办（导入后按最新场次对账），失败不影响导入
+        _sync_project_todos(project_id)
 
         # 上报本次覆盖的年级，前端可给用户一个明确回执
         grade_names = sorted({slot['grade_name'] for slot in imported})

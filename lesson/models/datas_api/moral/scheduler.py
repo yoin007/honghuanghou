@@ -794,10 +794,11 @@ def teacher_todo_reminder_task():
     教师待办提醒任务（每分钟执行）
 
     流程：
-    1. 查询需要发送提醒的待办（scheduled_at - remind_before_minutes <= 当前时间）
-    2. 检查已发送次数和上次发送时间
-    3. 若次数 < 配置提醒次数且距上次 >= 间隔时间，发送微信提醒
-    4. 若次数达到配置提醒次数且仍 pending，标记为逾期
+    1. 到点自动关闭：scheduled_at 已过的 pending 实例统一置完成（completed_by='system'），
+       同时清理历史 is_overdue 脏数据——待办定位为「提醒」而非任务追踪，不产生逾期噪音
+    2. 查询需要发送提醒的待办（scheduled_at - remind_before_minutes <= 当前时间）
+    3. 检查已发送次数和上次发送时间
+    4. 若次数 < 配置提醒次数且距上次 >= 间隔时间，发送微信提醒
     5. 记录提醒日志
     """
     # logger.info("执行教师待办提醒任务")
@@ -810,6 +811,18 @@ def teacher_todo_reminder_task():
         ensure_teacher_todo_schema(db)
         ensure_future_occurrences(db)
         now = datetime.now()
+
+        # 到点自动关闭（含清理历史 is_overdue=1 的 pending 实例）
+        closed = db.execute(
+            """UPDATE teacher_todo_occurrence
+               SET status = 'completed', completed_by = 'system', is_overdue = 0,
+                   updated_at = datetime('now','localtime')
+               WHERE status = 'pending'
+                 AND scheduled_at IS NOT NULL AND scheduled_at != ''
+                 AND scheduled_at <= datetime('now','localtime')"""
+        )
+        if closed:
+            logger.info(f"自动关闭到点待办 {closed} 条")
 
         # 查询需要提醒的待办实例（pending 且未逾期）
         remindables = db.query_all(
@@ -871,13 +884,8 @@ def teacher_todo_reminder_task():
                 last_remind_time_str = reminder_stats['last_remind_time']
                 max_reminders = todo.get('reminder_count') or 2
 
-                # 检查是否已达到配置提醒次数，标记逾期
+                # 检查是否已达到配置提醒次数：发完即静默跳过（到点由 auto-close 统一关闭）
                 if sent_count >= max_reminders:
-                    db.execute(
-                        """UPDATE teacher_todo_occurrence SET is_overdue = 1 WHERE id = ?""",
-                        (todo['occurrence_id'],)
-                    )
-                    logger.info(f"待办 {todo['title']} 已发送{max_reminders}次提醒仍未完成，标记为逾期")
                     continue
 
                 # 检查距离上次提醒是否>=间隔时间
@@ -957,14 +965,6 @@ def teacher_todo_reminder_task():
                 )
 
                 logger.info(f"已发送待办提醒（第{next_sequence}次）：{title} → 教师 {teacher_id}")
-
-                # 如果达到配置提醒次数且发送成功，标记逾期
-                if is_sent == 1 and next_sequence >= max_reminders:
-                    db.execute(
-                        """UPDATE teacher_todo_occurrence SET is_overdue = 1 WHERE id = ?""",
-                        (todo['occurrence_id'],)
-                    )
-                    logger.info(f"待办 {title} 已发送{max_reminders}次提醒，标记为逾期")
 
 
 def semester_evaluation_task():

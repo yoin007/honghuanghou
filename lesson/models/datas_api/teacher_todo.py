@@ -995,6 +995,19 @@ def ensure_teacher_todo_schema(db):
             UNIQUE (group_id, teacher_id)
         )"""
     )
+    # 监考安排联动的待办回链表（invigilation.db 的场次 ↔ moral.db 的待办 series）
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS invigilation_todo_link (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            todo_series_id INTEGER NOT NULL,
+            project_id INTEGER NOT NULL,
+            slot_key TEXT NOT NULL,
+            role TEXT NOT NULL,
+            teacher_id TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            UNIQUE (project_id, slot_key, role, teacher_id)
+        )"""
+    )
 
     for table, column, ddl in [
         ("teacher_todo_series", "time_of_day", "ALTER TABLE teacher_todo_series ADD COLUMN time_of_day TEXT DEFAULT '08:00'"),
@@ -1035,6 +1048,7 @@ def ensure_teacher_todo_schema(db):
     db.execute("CREATE INDEX IF NOT EXISTS idx_todo_occurrence_series ON teacher_todo_occurrence(todo_series_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_todo_occurrence_scheduled ON teacher_todo_occurrence(scheduled_at)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_todo_group_owner ON teacher_todo_group(owner_teacher_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_invigilation_todo_link_project ON invigilation_todo_link(project_id)")
 
     # 移除 teacher_todo_reminder_log 的 UNIQUE 约束（支持多次提醒记录）
     # SQLite 不支持 ALTER 删除约束，需要重建表
