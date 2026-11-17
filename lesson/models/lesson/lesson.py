@@ -138,12 +138,14 @@ class Lesson:
         monday = today - timedelta(days=today.weekday())
         monday_timestamp = int(monday.timestamp())
         sunday_timestamp = int((monday + timedelta(days=7)).timestamp()) -1
-        current = [week_number, monday.strftime("%Y%m%d"), monday_timestamp, sunday_timestamp, 0] # 0 表示当前周
+        current_tag = "高二延时" if week_number % 2 == 1 else "高一延时"
+        current = [week_number, monday.strftime("%Y%m%d"), monday_timestamp, sunday_timestamp, 0, current_tag] # 0 表示当前周
         next_week_number = week_number + 1
         next_monday = monday + timedelta(days=7)
         next_monday_timestamp = int(next_monday.timestamp())
         next_sunday_timestamp = int((next_monday + timedelta(days=7)).timestamp()) -1
-        next = [next_week_number, next_monday.strftime("%Y%m%d"), next_monday_timestamp, next_sunday_timestamp, 1] # 1 表示下一周
+        next_tag = "高二延时" if next_week_number % 2 == 1 else "高一延时"
+        next = [next_week_number, next_monday.strftime("%Y%m%d"), next_monday_timestamp, next_sunday_timestamp, 1, next_tag] # 1 表示下一周
         week_info_list = [current, next]
         return week_info_list
     
