@@ -62,6 +62,14 @@ class QueueDB:
         self.retry_delay = 2
 
     def __enter__(self, db=os.path.join(DB_DIR, "queues.db")):
+        # 常驻线程本地连接：send_text 每次开/关连接是其毫秒级开销的来源，
+        # 事件循环线程上的群发循环会被放大成秒级页面卡顿；同路径随线程复用。
+        # 路径变化（如测试传入临时库）时关闭旧连接、按新路径重建。
+        if hasattr(self._local, "connection") and self._local.db_path != db:
+            self._local.connection.close()
+            del self._local.connection
+            del self._local.cursor
+            del self._local.db_path
         if not hasattr(self._local, "connection"):
             get_sqlite_connection = _get_sqlite_connection()
             self._local.connection = get_sqlite_connection(
@@ -70,14 +78,15 @@ class QueueDB:
                 row_factory=sqlite3.Row,
             )
             self._local.cursor = self._local.connection.cursor()
+            self._local.db_path = db
             self.__create_table__()
         return self
 
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
-        if hasattr(self._local, "connection"):
-            self._local.connection.close()
-            del self._local.connection
-            del self._local.cursor
+        # 连接不关闭（常驻复用）；异常时回滚残留事务，
+        # 避免脏事务让该线程后续写入报 "cannot start a transaction"。
+        if exc_type is not None and hasattr(self._local, "connection"):
+            self._local.connection.rollback()
 
     def __create_table__(self):
         """
@@ -139,6 +148,8 @@ class QueueDB:
             return self._local.cursor.lastrowid
         except Exception as e:
             log.error(f"生产消息队列失败: {e}")
+            # 常驻连接下必须回滚，否则残留事务会毒化该线程的后续写入
+            self._local.connection.rollback()
             return None
 
     def __is_message_expired__(self, record):
@@ -182,6 +193,7 @@ class QueueDB:
             return deleted_count
         except Exception as e:
             log.error(f"清理过期消息失败: {e}")
+            self._local.connection.rollback()
             return 0
 
     def __retry_failed_messages__(self):
@@ -204,6 +216,7 @@ class QueueDB:
             return retry_count
         except Exception as e:
             log.error(f"重试失败消息失败: {e}")
+            self._local.connection.rollback()
             return 0
 
     def get_queue_status(self):
@@ -269,6 +282,7 @@ class QueueDB:
             self._local.connection.commit()
         except Exception as e:
             log.error(f"更新消息状态失败: {e}")
+            self._local.connection.rollback()
 
     def __increment_retry_count__(self, msg_id):
         """
@@ -285,6 +299,7 @@ class QueueDB:
             self._local.connection.commit()
         except Exception as e:
             log.error(f"增加重试计数失败: {e}")
+            self._local.connection.rollback()
 
     def __consume__(self):
         """

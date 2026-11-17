@@ -9,7 +9,10 @@ REM 注意: 本文件为 ANSI/GBK 编码，请勿另存为 UTF-8
 REM ============================================================
 
 if "%~1"=="" (
-    set /p "PROJECT_ROOT=请输入服务器项目根目录（例如 D:\projects\honghuanghou）: "
+    REM 直接回车使用默认项目根目录
+    set "PROJECT_ROOT="
+    set /p "PROJECT_ROOT=请输入服务器项目根目录（直接回车默认 D:\projects\honghuanghou）: "
+    if not defined PROJECT_ROOT set "PROJECT_ROOT=D:\projects\honghuanghou"
 ) else (
     set "PROJECT_ROOT=%~1"
 )

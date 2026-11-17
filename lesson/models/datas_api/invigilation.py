@@ -84,8 +84,9 @@ class NotifyRequest(BaseModel):
 
 
 class NotifyRequestV2(BaseModel):
-    """发送通知请求V2 - 支持学科筛选"""
+    """发送通知请求V2 - 支持学科/年级筛选"""
     subjects: Optional[List[str]] = Field(None, description="筛选学科列表，空=全部")
+    grade_ids: Optional[List[int]] = Field(None, description="筛选年级ID列表，空=全部")
     notify_added: bool = Field(True, description="通知新增监考的老师")
     notify_changed: bool = Field(True, description="通知有变更的老师")
     notify_removed: bool = Field(True, description="通知被取消的老师")
@@ -155,10 +156,10 @@ _ensure_notification_log_schema()
 # ---------------------------------------------------------------------------
 # 监考提醒待办同步（写入教师待办体系，由每分钟轮询的调度任务自动发微信提醒）
 # ---------------------------------------------------------------------------
-# 提醒参数：考前10分钟首发，之后每5分钟重复一次，共2次（考前10分、考前5分）；
+# 提醒参数：开考前30分钟首发，之后每5分钟重复一次，共2次（考前30分、考前25分）；
 # 到开考时间由调度任务自动关闭（不依赖老师手动点完成，也不产生逾期噪音）。
-TODO_REMIND_BEFORE_MINUTES = 10
-TODO_REMINDER_INTERVAL = 5
+TODO_REMIND_BEFORE_MINUTES = 30
+TODO_REMINDER_INTERVAL = 10
 TODO_REMINDER_COUNT = 2
 
 
@@ -224,7 +225,8 @@ def _sync_project_todos(project_id: int) -> None:
                     "role": role,
                     "teacher_id": t["teacher_id"],
                     "teacher_name": t["teacher_name"] or t["teacher_id"],
-                    "title": f"监考：{slot.get('subject') or ''} {slot.get('grade_name') or ''} {slot.get('room_name') or ''}".strip(),
+                    "title": f"监考（{'主监' if role == 'primary' else '副监'}）："
+                             f"{slot.get('subject') or ''} {slot.get('grade_name') or ''} {slot.get('room_name') or ''}".strip(),
                     "description": f"时间：{date_key} {hhmm}-{end_hhmm}\n地点：{slot.get('room_name') or ''}".strip(),
                     "occurrence_date": date_key,
                     "time_of_day": hhmm,
@@ -413,12 +415,14 @@ def _compute_slot_changes(
     current_slots: List[dict],
     previous_slots: List[dict],
     subject_filter: Optional[List[str]] = None,
+    grade_filter: Optional[List[int]] = None,
 ):
     """
     对比两次快照，按 (slot_key, role) 二元组产出 added/removed/swaps/unchanged。
 
     主监与副监被视作独立的"位置"：同一场考试的主监换人或副监换人各自触发一条变更；
     swap 检测跨 slot、跨 role 都能配对（例：A 场主监 ↔ B 场副监）。
+    subject_filter / grade_filter 用于按学科/年级圈定通知范围，被过滤的场次完全跳过。
     """
     current_map = {_slot_change_key(s): s for s in current_slots}
     previous_map = {_slot_change_key(s): s for s in previous_slots}
@@ -438,6 +442,12 @@ def _compute_slot_changes(
         if subject_filter:
             slot_subject = (current_slot or previous_slot).get('subject', '')
             if slot_subject not in subject_filter:
+                continue
+
+        # 年级筛选
+        if grade_filter:
+            slot_grade = (current_slot or previous_slot).get('grade_id')
+            if slot_grade not in grade_filter:
                 continue
 
         for role in SLOT_ROLES:
@@ -544,9 +554,15 @@ def _compute_slot_changes(
                 'teacher_a_id': old_id,
                 'teacher_a_name': ch['old_teacher_name'],
                 'teacher_a_wxid': ch['old_teacher_wxid'],
+                # A：原在 slot_a 任 ch.old_role，换到 slot_b 任 ch2.new_role
+                'teacher_a_role_old': ch['old_role'],
+                'teacher_a_role_new': ch2['new_role'],
                 'teacher_b_id': new_id,
                 'teacher_b_name': ch['new_teacher_name'],
                 'teacher_b_wxid': ch['new_teacher_wxid'],
+                # B：原在 slot_b 任 ch2.old_role，换到 slot_a 任 ch.new_role
+                'teacher_b_role_old': ch2['old_role'],
+                'teacher_b_role_new': ch['new_role'],
                 'slot_a': ch['slot'],   # A 现在的位置（也是 B 原来的位置）
                 'slot_b': ch2['slot'],  # B 现在的位置（也是 A 原来的位置）
             })
@@ -1022,6 +1038,7 @@ async def swap_teachers(
 async def get_changes_preview(
     project_id: int,
     subjects: Optional[str] = Query(None, description="筛选学科，逗号分隔"),
+    grades: Optional[str] = Query(None, description="筛选年级ID，逗号分隔"),
     user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/changes", "GET"))
 ):
     """获取监考安排变更预览（对比上次通知版本）"""
@@ -1038,6 +1055,7 @@ async def get_changes_preview(
 
         # 获取当前安排
         subject_filter = subjects.split(',') if subjects else None
+        grade_filter = [int(g) for g in grades.split(',')] if grades else None
         cursor.execute("""
             SELECT * FROM invigilation_slot
             WHERE project_id = ?
@@ -1058,7 +1076,7 @@ async def get_changes_preview(
             previous_slots = json.loads(snapshot_row['slots_json'])
 
         added, removed, swaps, unchanged = _compute_slot_changes(
-            current_slots, previous_slots, subject_filter
+            current_slots, previous_slots, subject_filter, grade_filter
         )
 
         stats = {
@@ -1083,12 +1101,17 @@ async def get_changes_preview(
         }
 
 @router.post("/projects/{project_id}/notify", summary="发送监考通知")
-async def send_notifications(
+def send_notifications(
     project_id: int,
     user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/notify", "POST")),
     request: NotifyRequestV2 = Body(default=NotifyRequestV2())
 ):
-    """发送监考通知给老师（支持学科筛选和变更检测）"""
+    """发送监考通知给老师（支持学科筛选和变更检测）
+
+    同步 def：FastAPI 会把同步端点放到线程池执行，避免长耗时对库+逐人入队
+    独占事件循环导致全站页面卡顿（双监听共享同一 loop）。
+    每位老师合并为一条消息（场次编号列出），减少队列条数、加快整体送达。
+    """
     with get_invigilation_db() as db:
         cursor = db.cursor()
 
@@ -1102,8 +1125,9 @@ async def send_notifications(
         current_version = project['version_no']
         new_version = current_version + 1
 
-        # 获取变更数据
+        # 获取变更数据（学科/年级筛选圈定通知范围）
         subject_filter = request.subjects
+        grade_filter = request.grade_ids
 
         # 获取当前安排
         cursor.execute("""
@@ -1126,7 +1150,7 @@ async def send_notifications(
             previous_slots = json.loads(snapshot_row['slots_json'])
 
         added, removed, swaps, unchanged = _compute_slot_changes(
-            current_slots, previous_slots, subject_filter
+            current_slots, previous_slots, subject_filter, grade_filter
         )
 
         # 发送通知
@@ -1180,54 +1204,106 @@ async def send_notifications(
 
             logs.append(log_entry)
 
-        # 1. 发送新增通知
+        def _slot_time_key(slot):
+            return (_norm_date_key(slot.get('exam_date')),
+                    _norm_time_key(slot.get('start_time')),
+                    str(slot.get('room_name') or ''))
+
+        def _role_label(role):
+            return '主监' if role == 'primary' else '副监'
+
+        def _group_slots_by_teacher(items, slot_getter):
+            """把 (teacher, slot, role) 列表按老师聚合成 {tid: {teacher_name, teacher_wxid, entries: [(slot, role)]}}，
+            一位老师多场变更合并为一条消息（队列按条消费，条数直接决定整体送达时长）。
+            场次按时间排序——diff 来自 set 遍历，不排序的话消息内列表顺序不定。"""
+            grouped = {}
+            for item in items:
+                tid = item['teacher_id']
+                if tid not in grouped:
+                    grouped[tid] = {
+                        'teacher_name': item['teacher_name'],
+                        'teacher_wxid': item['teacher_wxid'],
+                        'entries': [],
+                    }
+                grouped[tid]['entries'].append((slot_getter(item), item.get('role')))
+            for data in grouped.values():
+                data['entries'].sort(key=lambda e: _slot_time_key(e[0]))
+            return grouped
+
+        def _lines_with_role(entries):
+            return '\n'.join([
+                f"{i+1}. 【{_role_label(role)}】{format_slot(s)}"
+                for i, (s, role) in enumerate(entries)
+            ])
+
+        # 1. 发送新增通知（按老师聚合，编号列出全部新增场次）
         if request.notify_added:
-            for item in added:
+            for tid, data in _group_slots_by_teacher(added, lambda it: it['slot']).items():
                 content = f"""【新增监考】
 考试：{project_name}
-{item['teacher_name']}老师，新增您的监考安排：
-{format_slot(item['slot'])}
+{data['teacher_name']}老师，新增您的监考安排：
+{_lines_with_role(data['entries'])}
 请准时到岗。"""
-                send_and_log(content, item['teacher_id'], item['teacher_name'],
-                           item['teacher_wxid'], 'added', [item['slot']])
+                send_and_log(content, tid, data['teacher_name'],
+                             data['teacher_wxid'], 'added', [s for s, _ in data['entries']])
 
-        # 2. 发送取消通知
+        # 2. 发送取消通知（按老师+原因聚合，同老师不同原因分开发）
         if request.notify_removed:
+            removed_by_reason = {}
             for item in removed:
+                key = (item['teacher_id'], item.get('reason', ''))
+                removed_by_reason.setdefault(key, []).append(item)
+            for (tid, reason), items in removed_by_reason.items():
+                items = sorted(items, key=lambda it: _slot_time_key(it['slot']))
+                entries = [(it['slot'], it.get('role')) for it in items]
+                data = {
+                    'teacher_name': items[0]['teacher_name'],
+                    'teacher_wxid': items[0]['teacher_wxid'],
+                }
                 content = f"""【取消监考】
 考试：{project_name}
-{item['teacher_name']}老师，您原定的监考安排已取消：
-{format_slot(item['slot'])}
-原因：{item['reason']}
+{data['teacher_name']}老师，您原定的监考安排已取消：
+{_lines_with_role(entries)}
+原因：{reason}
 感谢您的配合。"""
-                send_and_log(content, item['teacher_id'], item['teacher_name'],
-                           item['teacher_wxid'], 'removed', [item['slot']])
+                send_and_log(content, tid, data['teacher_name'],
+                             data['teacher_wxid'], 'removed', [s for s, _ in entries])
 
         # 3. 替换已通过removed+added通知，这里跳过
         # remaining_changed只用于交换检测的中间数据，不直接发通知
 
-        # 4. 发送交换通知（通知双方，不显示对方名字）
+        # 4. 发送交换通知（按老师聚合，一位老师多场调整合并为一条，不显示对方名字）
         if request.notify_changed:
+            swapped_teachers = {}
             for sw in swaps:
-                # 通知教师A
-                content_a = f"""【监考调整】
+                for party in (
+                    (sw['teacher_a_id'], sw['teacher_a_name'], sw['teacher_a_wxid'],
+                     sw['slot_a'], sw['slot_b'], sw['teacher_a_role_old'], sw['teacher_a_role_new']),
+                    (sw['teacher_b_id'], sw['teacher_b_name'], sw['teacher_b_wxid'],
+                     sw['slot_b'], sw['slot_a'], sw['teacher_b_role_old'], sw['teacher_b_role_new']),
+                ):
+                    tid, tname, wxid, old_slot, new_slot, old_role, new_role = party
+                    if tid not in swapped_teachers:
+                        swapped_teachers[tid] = {
+                            'teacher_name': tname, 'teacher_wxid': wxid, 'pairs': [],
+                        }
+                    swapped_teachers[tid]['pairs'].append((old_slot, new_slot, old_role, new_role))
+            for tid, data in swapped_teachers.items():
+                # 按新安排时间排序
+                data['pairs'].sort(key=lambda p: _slot_time_key(p[1]))
+                lines = [
+                    f"{i+1}. 原安排：【{_role_label(p[2])}】{format_slot(p[0])}\n"
+                    f"   新安排：【{_role_label(p[3])}】{format_slot(p[1])}"
+                    for i, p in enumerate(data['pairs'])
+                ]
+                content = f"""【监考调整】
 考试：{project_name}
-{sw['teacher_a_name']}老师，您的监考安排已调整：
-原安排：{format_slot(sw['slot_a'])}
-新安排：{format_slot(sw['slot_b'])}
+{data['teacher_name']}老师，您的监考安排已调整：
+{chr(10).join(lines)}
 请准时到岗。"""
-                send_and_log(content_a, sw['teacher_a_id'], sw['teacher_a_name'],
-                           sw['teacher_a_wxid'], 'swap', [sw['slot_a'], sw['slot_b']])
-
-                # 通知教师B
-                content_b = f"""【监考调整】
-考试：{project_name}
-{sw['teacher_b_name']}老师，您的监考安排已调整：
-原安排：{format_slot(sw['slot_b'])}
-新安排：{format_slot(sw['slot_a'])}
-请准时到岗。"""
-                send_and_log(content_b, sw['teacher_b_id'], sw['teacher_b_name'],
-                           sw['teacher_b_wxid'], 'swap', [sw['slot_a'], sw['slot_b']])
+                all_slots = [s for pair in data['pairs'] for s in pair[:2]]
+                send_and_log(content, tid, data['teacher_name'],
+                             data['teacher_wxid'], 'swap', all_slots)
 
         # 5. 发送提醒（无变化的教师）
         if request.notify_reminder:
@@ -1247,17 +1323,22 @@ async def send_notifications(
                 if slot_uid in teacher_unchanged[tid]['_slot_ids']:
                     continue
                 teacher_unchanged[tid]['_slot_ids'].add(slot_uid)
-                teacher_unchanged[tid]['slots'].append(slot)
+                teacher_unchanged[tid]['slots'].append((slot, item.get('role')))
 
             for tid, data in teacher_unchanged.items():
-                slots_str = '\n'.join([f"{i+1}. {format_slot(s)}" for i, s in enumerate(data['slots'])])
+                # diff 来自 set 遍历，需按时间排序
+                data['slots'].sort(key=lambda e: _slot_time_key(e[0]))
+                slots_str = '\n'.join([
+                    f"{i+1}. 【{_role_label(role)}】{format_slot(s)}"
+                    for i, (s, role) in enumerate(data['slots'])
+                ])
                 content = f"""【监考提醒】
 考试：{project_name}
 {data['teacher_name']}老师，您的监考安排：
 {slots_str}
 请准时到岗。"""
                 send_and_log(content, tid, data['teacher_name'],
-                           data['teacher_wxid'], 'reminder', data['slots'])
+                             data['teacher_wxid'], 'reminder', [s for s, _ in data['slots']])
 
         # 写入通知日志
         for log in logs:

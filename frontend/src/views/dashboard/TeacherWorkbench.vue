@@ -34,8 +34,11 @@
 
       <DashboardPanelSection eyebrow="UPCOMING TODOS" title="即将待办" :min-height="280" class="todo-panel">
         <div v-if="upcomingTodos.length" class="todo-list-mini">
-          <div v-for="todo in upcomingTodos" :key="todo.occurrence_id || todo.series_id" class="todo-item-mini" @click="go('/teacher/todo')">
-            <div class="todo-date-mini">{{ todo.occurrence_date }}</div>
+          <div v-for="todo in upcomingTodos" :key="todo.occurrence_id || todo.series_id" class="todo-item-mini" :class="{ 'todo-item-today': isToday(todo.occurrence_date) }" @click="go('/teacher/todo')">
+            <div class="todo-date-mini">
+              {{ todo.occurrence_date }}
+              <span v-if="isToday(todo.occurrence_date)" class="todo-today-tag">今日</span>
+            </div>
             <div class="todo-info-mini">
               <strong>{{ todo.title }}</strong>
               <span v-if="todo.todo_type !== 'one_off'" class="todo-type-tag">{{ todoTypeLabel(todo.todo_type) }}</span>
@@ -324,6 +327,11 @@ const todoTypeLabel = (type) => {
   return labels[type] || type
 }
 
+// 今日待办高亮：本地日期与 occurrence_date（YYYY-MM-DD）比对
+const _today = new Date()
+const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`
+const isToday = (dateStr) => dateStr === todayStr
+
 const fetchUpcomingTodos = async () => {
   try {
     const params = { days: 7, limit: 5 }
@@ -464,6 +472,27 @@ p {
 
 .todo-item-mini:hover {
   background: rgba(180, 83, 9, 0.25);
+}
+
+/* 今日待办：同色系递进高亮 + 左侧强调线 + "今日"标签 */
+.todo-item-today {
+  background: rgba(245, 158, 11, 0.32);
+  border-left: 3px solid #fbbf24;
+}
+
+.todo-item-today:hover {
+  background: rgba(245, 158, 11, 0.42);
+}
+
+.todo-today-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #fbbf24;
+  color: #78350f;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .todo-date-mini {

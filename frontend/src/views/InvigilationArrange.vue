@@ -243,12 +243,19 @@
 
     <!-- 发送通知弹窗 -->
     <el-dialog v-model="notifyDialogVisible" title="发送监考通知" width="800px">
-      <!-- 学科筛选 -->
+      <!-- 学科/年级筛选 -->
       <div class="notify-filter">
         <div class="filter-label">选择学科：</div>
         <el-checkbox-group v-model="selectedSubjects">
           <el-checkbox label="">全部</el-checkbox>
           <el-checkbox v-for="sub in allSubjects" :key="sub" :label="sub">{{ sub }}</el-checkbox>
+        </el-checkbox-group>
+      </div>
+      <div class="notify-filter">
+        <div class="filter-label">选择年级：</div>
+        <el-checkbox-group v-model="selectedGrades">
+          <el-checkbox label="">全部</el-checkbox>
+          <el-checkbox v-for="g in visibleGrades" :key="g.id" :label="g.id">{{ g.name }}</el-checkbox>
         </el-checkbox-group>
       </div>
 
@@ -269,7 +276,7 @@
             <el-table-column prop="teacher_name" label="教师" width="100" />
             <el-table-column label="安排">
               <template #default="{ row }">
-                {{ row.slot.exam_date }} {{ row.slot.start_time }}-{{ row.slot.end_time }} {{ row.slot.subject }} {{ row.slot.grade_name }} {{ row.slot.room_name }}
+                {{ roleLabel(row.role) ? `【${roleLabel(row.role)}】` : '' }}{{ row.slot.exam_date }} {{ row.slot.start_time }}-{{ row.slot.end_time }} {{ row.slot.subject }} {{ row.slot.grade_name }} {{ row.slot.room_name }}
               </template>
             </el-table-column>
             <el-table-column prop="teacher_wxid" label="wxid" width="120">
@@ -288,7 +295,7 @@
             <el-table-column prop="teacher_name" label="教师" width="100" />
             <el-table-column label="原安排">
               <template #default="{ row }">
-                {{ row.slot.exam_date }} {{ row.slot.start_time }}-{{ row.slot.end_time }} {{ row.slot.subject }} {{ row.slot.grade_name }} {{ row.slot.room_name }}
+                {{ roleLabel(row.role) ? `【${roleLabel(row.role)}】` : '' }}{{ row.slot.exam_date }} {{ row.slot.start_time }}-{{ row.slot.end_time }} {{ row.slot.subject }} {{ row.slot.grade_name }} {{ row.slot.room_name }}
               </template>
             </el-table-column>
             <el-table-column prop="reason" label="原因" width="80" />
@@ -303,15 +310,33 @@
             <el-table-column prop="teacher_b_name" label="教师B" width="100" />
             <el-table-column label="A原位置">
               <template #default="{ row }">
-                {{ row.slot_a.exam_date }} {{ row.slot_a.subject }} {{ row.slot_a.room_name }}
+                {{ roleLabel(row.teacher_a_role_old) ? `【${roleLabel(row.teacher_a_role_old)}】` : '' }}{{ row.slot_a.exam_date }} {{ row.slot_a.subject }} {{ row.slot_a.room_name }}
               </template>
             </el-table-column>
             <el-table-column label="B原位置">
               <template #default="{ row }">
-                {{ row.slot_b.exam_date }} {{ row.slot_b.subject }} {{ row.slot_b.room_name }}
+                {{ roleLabel(row.teacher_b_role_old) ? `【${roleLabel(row.teacher_b_role_old)}】` : '' }}{{ row.slot_b.exam_date }} {{ row.slot_b.subject }} {{ row.slot_b.room_name }}
               </template>
             </el-table-column>
           </el-table>
+        </div>
+
+        <!-- 无变化教师提醒名单（勾选"发送提醒给无变化教师"时展示：勾了就要发，管理员要看到发给谁） -->
+        <div v-if="notifyOptions.notify_reminder && changesPreview.unchanged && changesPreview.unchanged.length" class="change-section">
+          <div class="section-title">无变化教师（将发送提醒，共 {{ unchangedByTeacher.length }} 人）</div>
+          <el-table :data="unchangedByTeacher" size="small" border max-height="260">
+            <el-table-column prop="teacher_name" label="教师" width="110" />
+            <el-table-column label="监考安排">
+              <template #default="{ row }">
+                <div v-for="(s, i) in row.slots" :key="i">
+                  {{ roleLabel(s._role) ? `【${roleLabel(s._role)}】` : '' }}{{ s.exam_date }} {{ s.start_time }}-{{ s.end_time }} {{ s.subject }} {{ s.grade_name }} {{ s.room_name }}
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <div v-else-if="notifyOptions.notify_reminder" class="change-section">
+          <div class="section-title">无变化教师：0 人</div>
         </div>
       </div>
 
@@ -383,6 +408,7 @@ const notificationLogs = ref([])
 
 // 通知弹窗数据
 const selectedSubjects = ref([])
+const selectedGrades = ref([])
 const allSubjects = ref([])
 const changesPreview = ref(null)
 const previewLoading = ref(false)
@@ -393,6 +419,30 @@ const notifyOptions = reactive({
   notify_changed: true,
   notify_reminder: false
 })
+
+// 无变化教师按人聚合（预览展示用，与后端发送时的聚合口径一致）
+const unchangedByTeacher = computed(() => {
+  const list = changesPreview.value?.unchanged || []
+  const grouped = new Map()
+  for (const item of list) {
+    const tid = item.teacher_id
+    if (!grouped.has(tid)) {
+      grouped.set(tid, { teacher_name: item.teacher_name, teacher_id: tid, slots: [] })
+    }
+    const slots = grouped.get(tid).slots
+    const uid = item.slot.id || `${item.slot.exam_date}|${item.slot.start_time}|${item.slot.room_name}`
+    if (!slots.some(s => (s.id || `${s.exam_date}|${s.start_time}|${s.room_name}`) === uid)) {
+      slots.push({ ...item.slot, _role: item.role })
+    }
+  }
+  return Array.from(grouped.values()).map(g => ({
+    ...g,
+    slots: g.slots.slice().sort((a, b) =>
+      `${a.exam_date} ${a.start_time}`.localeCompare(`${b.exam_date} ${b.start_time}`))
+  }))
+})
+
+const roleLabel = (role) => (role === 'primary' ? '主监' : (role === 'assistant' ? '副监' : ''))
 
 // 表单
 const projectFormRef = ref(null)
@@ -731,6 +781,7 @@ function showNotifyDialog() {
   }
   allSubjects.value = Array.from(subjects)
   selectedSubjects.value = []
+  selectedGrades.value = []
   changesPreview.value = null
   notifyDialogVisible.value = true
 }
@@ -740,10 +791,14 @@ async function loadChangesPreview() {
 
   previewLoading.value = true
   try {
-    // 构建学科筛选参数
-    const params = selectedSubjects.value.length > 0
-      ? { subjects: selectedSubjects.value.join(',') }
-      : {}
+    // 构建学科/年级筛选参数
+    const params = {}
+    if (selectedSubjects.value.length > 0) {
+      params.subjects = selectedSubjects.value.join(',')
+    }
+    if (selectedGrades.value.length > 0) {
+      params.grades = selectedGrades.value.join(',')
+    }
 
     const res = await invigilationApi.getChanges(selectedProjectId.value, params)
     if (res.success) {
@@ -764,6 +819,7 @@ async function sendNotificationsV2() {
   try {
     const body = {
       subjects: selectedSubjects.value.length > 0 ? selectedSubjects.value : null,
+      grade_ids: selectedGrades.value.length > 0 ? selectedGrades.value : null,
       notify_added: notifyOptions.notify_added,
       notify_removed: notifyOptions.notify_removed,
       notify_changed: notifyOptions.notify_changed,
