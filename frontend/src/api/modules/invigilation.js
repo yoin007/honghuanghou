@@ -134,6 +134,23 @@ export const invigilationApi = {
   },
 
   /**
+   * 读取主副监权重配置
+   * @returns {Promise}
+   */
+  getWeightConfig() {
+    return httpClient.get('/api/invigilation/config')
+  },
+
+  /**
+   * 更新主副监权重配置
+   * @param {object} data { primary_weight, assistant_weight }
+   * @returns {Promise}
+   */
+  updateWeightConfig(data) {
+    return httpClient.put('/api/invigilation/config', data)
+  },
+
+  /**
    * 删除监考项目
    * @param {number} projectId 项目ID
    * @returns {Promise}

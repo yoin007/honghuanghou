@@ -93,6 +93,12 @@ class NotifyRequestV2(BaseModel):
     notify_reminder: bool = Field(False, description="发送提醒给无变化的老师")
 
 
+class WeightConfigUpdate(BaseModel):
+    """主副监权重配置"""
+    primary_weight: float = Field(..., description="主监权重，0~10")
+    assistant_weight: float = Field(..., description="副监权重，0~10")
+
+
 # =============================================================================
 # 数据库连接
 # =============================================================================
@@ -154,12 +160,60 @@ _ensure_notification_log_schema()
 
 
 # ---------------------------------------------------------------------------
+# 主副监考权重配置（报表工作量折算，由教务/管理员配置）
+# ---------------------------------------------------------------------------
+# 一张 key/value 小表存全局配置，不分项目。权重同时作用于报表的场次折算与时长折算：
+# 副监 0.5 即副监一场计 0.5 场、时长按 0.5 倍折算。默认均为 1.0（主副同权）。
+DEFAULT_PRIMARY_WEIGHT = 1.0
+DEFAULT_ASSISTANT_WEIGHT = 1.0
+WEIGHT_MIN, WEIGHT_MAX = 0.0, 10.0
+
+
+def _ensure_invigilation_config_schema():
+    """确保权重配置表存在（幂等，自动迁移）。"""
+    with get_invigilation_db() as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS invigilation_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        db.commit()
+
+
+_ensure_invigilation_config_schema()
+
+
+def get_invigilation_weights() -> tuple:
+    """读取 (primary_weight, assistant_weight)，缺失或非法时回落默认值。"""
+    primary, assistant = DEFAULT_PRIMARY_WEIGHT, DEFAULT_ASSISTANT_WEIGHT
+    try:
+        with get_invigilation_db() as db:
+            rows = db.execute(
+                "SELECT key, value FROM invigilation_config WHERE key IN ('primary_weight', 'assistant_weight')"
+            ).fetchall()
+    except sqlite3.Error as e:
+        logger.warning(f"[invigilation] 读取权重配置失败，使用默认值: {e}")
+        return primary, assistant
+    for row in rows:
+        try:
+            val = float(row['value'])
+        except (TypeError, ValueError):
+            continue
+        if row['key'] == 'primary_weight' and WEIGHT_MIN <= val <= WEIGHT_MAX:
+            primary = val
+        elif row['key'] == 'assistant_weight' and WEIGHT_MIN <= val <= WEIGHT_MAX:
+            assistant = val
+    return primary, assistant
+
+
+# ---------------------------------------------------------------------------
 # 监考提醒待办同步（写入教师待办体系，由每分钟轮询的调度任务自动发微信提醒）
 # ---------------------------------------------------------------------------
 # 提醒参数：开考前30分钟首发，之后每5分钟重复一次，共2次（考前30分、考前25分）；
 # 到开考时间由调度任务自动关闭（不依赖老师手动点完成，也不产生逾期噪音）。
 TODO_REMIND_BEFORE_MINUTES = 30
-TODO_REMINDER_INTERVAL = 10
+TODO_REMINDER_INTERVAL = 5
 TODO_REMINDER_COUNT = 2
 
 
@@ -238,7 +292,8 @@ def _sync_project_todos(project_id: int) -> None:
 
             links = db.query_all(
                 """SELECT l.todo_series_id, l.slot_key, l.role, l.teacher_id,
-                          s.is_active, s.title, s.description
+                          s.is_active, s.title, s.description,
+                          s.remind_before_minutes, s.reminder_interval, s.reminder_count
                    FROM invigilation_todo_link l
                    JOIN teacher_todo_series s ON s.id = l.todo_series_id
                    WHERE l.project_id = ?""",
@@ -259,14 +314,24 @@ def _sync_project_todos(project_id: int) -> None:
             for key, d in desired.items():
                 link = existing.get(key)
                 if link:
-                    # 已在库：停用则复活并校准；活跃但标题漂移（学科/年级名等）则修正
-                    if not link["is_active"] or link["title"] != d["title"] or link["description"] != d["description"]:
+                    # 已在库：停用则复活并校准；活跃但标题/描述/提醒参数漂移则修正
+                    # （提醒参数漂移：代码常量更新后，服务器上已建的旧参数待办在下一次对账时自动校正）
+                    params_drift = (
+                        link["remind_before_minutes"] != TODO_REMIND_BEFORE_MINUTES
+                        or link["reminder_interval"] != TODO_REMINDER_INTERVAL
+                        or link["reminder_count"] != TODO_REMINDER_COUNT
+                    )
+                    if (not link["is_active"] or link["title"] != d["title"]
+                            or link["description"] != d["description"] or params_drift):
                         db.execute(
                             """UPDATE teacher_todo_series
                                SET is_active = 1, title = ?, description = ?,
+                                   remind_before_minutes = ?, reminder_interval = ?, reminder_count = ?,
                                    updated_at = datetime('now','localtime')
                                WHERE id = ?""",
-                            (d["title"], d["description"], link["todo_series_id"]),
+                            (d["title"], d["description"],
+                             TODO_REMIND_BEFORE_MINUTES, TODO_REMINDER_INTERVAL, TODO_REMINDER_COUNT,
+                             link["todo_series_id"]),
                         )
                         db.execute(
                             """UPDATE teacher_todo_occurrence
@@ -275,7 +340,7 @@ def _sync_project_todos(project_id: int) -> None:
                             (d["occurrence_date"], d["scheduled_at"], link["todo_series_id"]),
                         )
                     continue
-                # 新建：one_off，考前10分钟首发、每5分钟重复共2次，只提醒被指派人
+                # 新建：one_off，考前30分钟首发、每5分钟重复共2次，只提醒被指派人
                 db.execute(
                     """INSERT INTO teacher_todo_series
                        (title, description, creator_teacher_id, creator_name, todo_type,
@@ -604,6 +669,50 @@ async def get_teachers_for_invigilation(user: User = Depends(require_invigilatio
             ORDER BY name"""
         )
     return {"success": True, "data": teachers_data}
+
+
+# =============================================================================
+# 主副监权重配置 API（教务/管理员）
+# =============================================================================
+
+@router.get("/config", summary="读取主副监权重配置")
+def get_weight_config(
+    user: User = Depends(require_invigilation_permission("/api/invigilation/config", "GET"))
+):
+    """读取当前主副监权重（报表折算用）。"""
+    primary, assistant = get_invigilation_weights()
+    return {"success": True, "data": {
+        "primary_weight": primary,
+        "assistant_weight": assistant,
+    }}
+
+
+@router.put("/config", summary="更新主副监权重配置")
+def update_weight_config(
+    request: WeightConfigUpdate,
+    user: User = Depends(require_invigilation_permission("/api/invigilation/config", "PUT"))
+):
+    """更新主副监权重。权重同时作用于报表场次折算与时长折算，允许 0~10。"""
+    for name, val in (("主监权重", request.primary_weight), ("副监权重", request.assistant_weight)):
+        if not isinstance(val, (int, float)) or isinstance(val, bool) \
+                or not (WEIGHT_MIN <= float(val) <= WEIGHT_MAX):
+            raise HTTPException(400, f"{name}必须在 {WEIGHT_MIN}~{WEIGHT_MAX} 之间")
+
+    _ensure_invigilation_config_schema()
+    with get_invigilation_db() as db:
+        for key, val in (("primary_weight", request.primary_weight), ("assistant_weight", request.assistant_weight)):
+            db.execute(
+                """INSERT INTO invigilation_config (key, value) VALUES (?, ?)
+                   ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+                (key, str(float(val))),
+            )
+        db.commit()
+
+    logger.info(f"[invigilation] 权重配置已更新：主监={request.primary_weight} 副监={request.assistant_weight}（操作人 {user.username}）")
+    return {"success": True, "data": {
+        "primary_weight": float(request.primary_weight),
+        "assistant_weight": float(request.assistant_weight),
+    }}
 
 
 # =============================================================================
@@ -1915,11 +2024,13 @@ async def import_invigilation(
 
 
 @router.get("/projects/{project_id}/export", summary="导出监考安排")
-async def export_invigilation(
+def export_invigilation(
     project_id: int,
     user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/export", "GET"))
 ):
-    """导出监考安排 Excel（横向布局，同一学科不同考场横向排列）"""
+    """导出监考安排 Excel（横向布局，同一学科不同考场横向排列）。
+
+    同步 def：SQL 查询与 openpyxl 写 Excel 在 anyio 线程池执行，避免阻塞事件循环。"""
     import pandas as pd
 
     with get_invigilation_db() as db:
@@ -2017,7 +2128,7 @@ async def export_invigilation(
 
 
 @router.get("/projects/{project_id}/report", summary="导出监考工作量报表")
-async def export_workload_report(
+def export_workload_report(
     project_id: int,
     user: User = Depends(require_invigilation_permission("/api/invigilation/projects/{project_id}/report", "GET"))
 ):
@@ -2025,10 +2136,19 @@ async def export_workload_report(
     导出监考工作量报表
 
     报表内容：
-    - Sheet1: 教师工作量汇总（场次数、监考时长）
+    - Sheet1: 教师工作量汇总（主监/副监场次分开、折算场次、折算监考时长）
     - Sheet2: 按年级细化统计
+    - Sheet3: 统计概览（含当前权重说明）
+
+    统计口径：
+    - 主副监权重可配置（见 /api/invigilation/config），同时作用于场次折算与时长折算
+    - 主监场次/副监场次为原始计数（不含权重），权重为 0 也照常统计；权重只作用于折算列
+    - 时长算不出来的场次（时间格式非法等脏数据）从所有场次和时长列中同时排除，保证口径一致
+    - 同步 def：SQL 与 openpyxl 写 Excel 在 anyio 线程池执行，避免阻塞事件循环
     """
     import pandas as pd
+
+    primary_weight, assistant_weight = get_invigilation_weights()
 
     with get_invigilation_db() as db:
         cursor = db.cursor()
@@ -2039,77 +2159,80 @@ async def export_workload_report(
         if not project:
             raise HTTPException(404, "考试项目不存在")
 
-        # Sheet1: 教师工作量汇总（主监、副监都算 1 场；同一教师若同时是主+副在不同场次，累加）
-        # 时长口径：以 exam_date + start_time/end_time 拼成完整时刻后取秒差 /60。
-        #   - exam_date 兼容 'YYYY-MM-DD' 与 'YYYY-MM-DD HH:MM:SS' 两种存法（date() 归一化）
-        #   - start_time/end_time 兼容 'HH:MM' 与 'HH:MM:SS' 两种存法（time() 归一化）
-        #   - 任一字段格式非法时 strftime 返回 NULL，该行不计入 SUM，避免脏数据污染统计
-        cursor.execute("""
+        # CTE 口径（Sheet1/Sheet2 共用，权重走参数占位）：
+        #   1) 每场按主监、副监各出一条人次记录，带 role 标记（主副场次分开统计、分别计权重）
+        #   2) duration_minutes 在行内先算一次：exam_date + start/end 拼成完整时刻取秒差/60，
+        #      格式非法时 NULL——NULL 行（脏数据）在后续 SUM 中同时不进场次、不进时长
+        #   3) weight 行内按角色取权重，只作用于折算列；原始场次列按 1 计数，权重为 0 也照常统计
+        SLOT_ROLE_CTE = """
             WITH slot_role AS (
                 SELECT teacher_id, teacher_name, grade_id, grade_name,
-                       exam_date, start_time, end_time
+                       exam_date, start_time, end_time,
+                       'primary' AS role,
+                       ? AS weight,
+                       ( strftime('%s', date(exam_date) || ' ' || time(end_time))
+                         - strftime('%s', date(exam_date) || ' ' || time(start_time)) ) / 60 AS duration_minutes
                 FROM invigilation_slot
                 WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
                 UNION ALL
                 SELECT assistant_teacher_id AS teacher_id,
                        assistant_teacher_name AS teacher_name,
                        grade_id, grade_name,
-                       exam_date, start_time, end_time
+                       exam_date, start_time, end_time,
+                       'assistant' AS role,
+                       ? AS weight,
+                       ( strftime('%s', date(exam_date) || ' ' || time(end_time))
+                         - strftime('%s', date(exam_date) || ' ' || time(start_time)) ) / 60 AS duration_minutes
                 FROM invigilation_slot
                 WHERE project_id = ? AND assistant_teacher_name IS NOT NULL AND assistant_teacher_name != ''
             )
+        """
+        # CTE 参数顺序：主监权重, 主监场次project_id, 副监权重, 副监场次project_id
+        cte_params = (primary_weight, project_id, assistant_weight, project_id)
+
+        # Sheet1: 教师工作量汇总
+        cursor.execute(SLOT_ROLE_CTE + """
             SELECT teacher_name,
-                   COUNT(*) AS slot_count,
-                   SUM(
-                       ( strftime('%s', date(exam_date) || ' ' || time(end_time))
-                       - strftime('%s', date(exam_date) || ' ' || time(start_time)) ) / 60
-                   ) AS duration_minutes
+                   SUM(CASE WHEN role = 'primary' AND duration_minutes IS NOT NULL THEN 1 ELSE 0 END) AS primary_count,
+                   SUM(CASE WHEN role = 'assistant' AND duration_minutes IS NOT NULL THEN 1 ELSE 0 END) AS assistant_count,
+                   SUM(CASE WHEN duration_minutes IS NULL THEN 0 ELSE weight END) AS slot_count,
+                   SUM(CASE WHEN duration_minutes IS NULL THEN 0 ELSE duration_minutes * weight END) AS duration_minutes
             FROM slot_role
             GROUP BY teacher_id, teacher_name
             ORDER BY slot_count DESC, duration_minutes DESC
-        """, (project_id, project_id))
+        """, cte_params)
 
         summary_data = []
         for row in cursor.fetchall():
             summary_data.append({
                 '教师姓名': row['teacher_name'],
-                '监考场次': row['slot_count'],
-                '监考时长(分钟)': int(row['duration_minutes'] or 0)
+                '主监场次': int(row['primary_count'] or 0),
+                '副监场次': int(row['assistant_count'] or 0),
+                '监考场次(折算)': round(row['slot_count'] or 0, 2),
+                '监考时长(分钟,折算)': int(round(row['duration_minutes'] or 0))
             })
 
-        # Sheet2: 按年级细化统计（同上，主副都算；时长口径与 Sheet1 一致）
-        cursor.execute("""
-            WITH slot_role AS (
-                SELECT teacher_id, teacher_name, grade_id, grade_name,
-                       exam_date, start_time, end_time
-                FROM invigilation_slot
-                WHERE project_id = ? AND teacher_name IS NOT NULL AND teacher_name != ''
-                UNION ALL
-                SELECT assistant_teacher_id AS teacher_id,
-                       assistant_teacher_name AS teacher_name,
-                       grade_id, grade_name,
-                       exam_date, start_time, end_time
-                FROM invigilation_slot
-                WHERE project_id = ? AND assistant_teacher_name IS NOT NULL AND assistant_teacher_name != ''
-            )
+        # Sheet2: 按年级细化统计（口径同 Sheet1）
+        cursor.execute(SLOT_ROLE_CTE + """
             SELECT teacher_name, grade_name,
-                   COUNT(*) AS slot_count,
-                   SUM(
-                       ( strftime('%s', date(exam_date) || ' ' || time(end_time))
-                       - strftime('%s', date(exam_date) || ' ' || time(start_time)) ) / 60
-                   ) AS duration_minutes
+                   SUM(CASE WHEN role = 'primary' AND duration_minutes IS NOT NULL THEN 1 ELSE 0 END) AS primary_count,
+                   SUM(CASE WHEN role = 'assistant' AND duration_minutes IS NOT NULL THEN 1 ELSE 0 END) AS assistant_count,
+                   SUM(CASE WHEN duration_minutes IS NULL THEN 0 ELSE weight END) AS slot_count,
+                   SUM(CASE WHEN duration_minutes IS NULL THEN 0 ELSE duration_minutes * weight END) AS duration_minutes
             FROM slot_role
             GROUP BY teacher_id, teacher_name, grade_id, grade_name
             ORDER BY teacher_name, grade_id
-        """, (project_id, project_id))
+        """, cte_params)
 
         grade_detail_data = []
         for row in cursor.fetchall():
             grade_detail_data.append({
                 '教师姓名': row['teacher_name'],
                 '年级': row['grade_name'],
-                '监考场次': row['slot_count'],
-                '监考时长(分钟)': int(row['duration_minutes'] or 0)
+                '主监场次': int(row['primary_count'] or 0),
+                '副监场次': int(row['assistant_count'] or 0),
+                '监考场次(折算)': round(row['slot_count'] or 0, 2),
+                '监考时长(分钟,折算)': int(round(row['duration_minutes'] or 0))
             })
 
         # 生成Excel
@@ -2120,7 +2243,8 @@ async def export_workload_report(
             if len(df_summary) > 0:
                 df_summary.to_excel(writer, index=False, sheet_name='工作量汇总')
             else:
-                pd.DataFrame(columns=['教师姓名', '监考场次', '监考时长(分钟)']).to_excel(
+                pd.DataFrame(columns=['教师姓名', '主监场次', '副监场次',
+                                      '监考场次(折算)', '监考时长(分钟,折算)']).to_excel(
                     writer, index=False, sheet_name='工作量汇总'
                 )
 
@@ -2129,21 +2253,28 @@ async def export_workload_report(
             if len(df_detail) > 0:
                 df_detail.to_excel(writer, index=False, sheet_name='年级细化')
             else:
-                pd.DataFrame(columns=['教师姓名', '年级', '监考场次', '监考时长(分钟)']).to_excel(
+                pd.DataFrame(columns=['教师姓名', '年级', '主监场次', '副监场次',
+                                      '监考场次(折算)', '监考时长(分钟,折算)']).to_excel(
                     writer, index=False, sheet_name='年级细化'
                 )
 
             # Sheet3: 统计概览
             total_teachers = len(summary_data)
-            total_slots = sum(d['监考场次'] for d in summary_data) if summary_data else 0
-            total_minutes = sum(d['监考时长(分钟)'] for d in summary_data) if summary_data else 0
+            total_primary = sum(d['主监场次'] for d in summary_data) if summary_data else 0
+            total_assistant = sum(d['副监场次'] for d in summary_data) if summary_data else 0
+            total_slots = sum(d['监考场次(折算)'] for d in summary_data) if summary_data else 0
+            total_minutes = sum(d['监考时长(分钟,折算)'] for d in summary_data) if summary_data else 0
 
             overview_data = [
+                {'统计项': '主监权重', '数值': primary_weight},
+                {'统计项': '副监权重', '数值': assistant_weight},
                 {'统计项': '参与监考教师数', '数值': total_teachers},
-                {'统计项': '总监考场次数', '数值': total_slots},
+                {'统计项': '主监总场次', '数值': total_primary},
+                {'统计项': '副监总场次', '数值': total_assistant},
+                {'统计项': '总监考人次(折算)', '数值': round(total_slots, 2)},
                 {'统计项': '总监考时长(分钟)', '数值': total_minutes},
                 {'统计项': '总监考时长(小时)', '数值': round(total_minutes / 60, 2)},
-                {'统计项': '人均监考场次', '数值': round(total_slots / total_teachers, 2) if total_teachers > 0 else 0},
+                {'统计项': '人均监考场次(折算)', '数值': round(total_slots / total_teachers, 2) if total_teachers > 0 else 0},
                 {'统计项': '人均监考时长(分钟)', '数值': round(total_minutes / total_teachers, 2) if total_teachers > 0 else 0}
             ]
             df_overview = pd.DataFrame(overview_data)

@@ -148,7 +148,7 @@ def test_sync_creates_todos_with_remind_params(sync_env):
     assert len(series) == 2  # 主监 + 副监各一条
     for s in series:
         assert s["todo_type"] == "one_off"
-        assert s["remind_before_minutes"] == 10
+        assert s["remind_before_minutes"] == 30
         assert s["reminder_interval"] == 5
         assert s["reminder_count"] == 2
         assert s["notify_assignees"] == 1

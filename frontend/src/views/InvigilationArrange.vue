@@ -17,6 +17,7 @@
           <el-button @click="showImportDialog" :disabled="!selectedProjectId">导入Excel</el-button>
           <el-button @click="exportExcel" :disabled="!selectedProjectId">导出Excel</el-button>
           <el-button @click="exportReport" :disabled="!selectedProjectId">导出报表</el-button>
+          <el-button @click="openWeightConfig">权重设置</el-button>
           <el-button type="success" @click="saveSlots" :disabled="!selectedProjectId || !hasChanges">保存</el-button>
           <el-button type="warning" @click="showNotifyDialog" :disabled="!selectedProjectId">发送通知</el-button>
           <el-button @click="showNotificationLogs" :disabled="!selectedProjectId">通知日志</el-button>
@@ -215,6 +216,27 @@
       </template>
     </el-dialog>
 
+    <!-- 权重设置弹窗 -->
+    <el-dialog v-model="weightConfigVisible" title="主副监权重设置" width="480px">
+      <el-alert type="info" :closable="false" style="margin-bottom: 16px">
+        <template #title>
+          权重用于「导出报表」的工作量折算：权重 × 场次、权重 × 时长。默认均为 1（主副同权）。
+        </template>
+      </el-alert>
+      <el-form label-width="110px">
+        <el-form-item label="主监权重">
+          <el-input-number v-model="weightForm.primary_weight" :min="0" :max="10" :step="0.1" :precision="2" />
+        </el-form-item>
+        <el-form-item label="副监权重">
+          <el-input-number v-model="weightForm.assistant_weight" :min="0" :max="10" :step="0.1" :precision="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="weightConfigVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveWeightConfig" :loading="weightSaving">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 通知日志弹窗 -->
     <el-dialog v-model="notificationLogsVisible" title="通知日志" width="800px">
       <el-table :data="notificationLogs" border stripe>
@@ -405,6 +427,40 @@ const notifyDialogVisible = ref(false)
 const importLoading = ref(false)
 const importFile = ref(null)
 const notificationLogs = ref([])
+
+// 权重设置弹窗
+const weightConfigVisible = ref(false)
+const weightSaving = ref(false)
+const weightForm = reactive({ primary_weight: 1, assistant_weight: 1 })
+
+async function openWeightConfig() {
+  try {
+    const res = await invigilationApi.getWeightConfig()
+    weightForm.primary_weight = res.data?.primary_weight ?? 1
+    weightForm.assistant_weight = res.data?.assistant_weight ?? 1
+    weightConfigVisible.value = true
+  } catch (e) {
+    console.error('读取权重配置失败:', e)
+    ElMessage.error('读取权重配置失败')
+  }
+}
+
+async function saveWeightConfig() {
+  weightSaving.value = true
+  try {
+    await invigilationApi.updateWeightConfig({
+      primary_weight: weightForm.primary_weight,
+      assistant_weight: weightForm.assistant_weight
+    })
+    ElMessage.success('权重已保存，之后导出的报表按新权重折算')
+    weightConfigVisible.value = false
+  } catch (e) {
+    console.error('保存权重失败:', e)
+    ElMessage.error('保存权重失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    weightSaving.value = false
+  }
+}
 
 // 通知弹窗数据
 const selectedSubjects = ref([])
