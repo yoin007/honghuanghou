@@ -4,6 +4,9 @@
 
 | 文档 | 用途 |
 |------|------|
+| [process/README.md](process/README.md) | **协作开发流程入口**：使用者提需求→设计→审核→AI 开发→验收的完整流程、轻量通道和 5 个模板 |
+| [user-guide/feature-catalog.md](user-guide/feature-catalog.md) | **已有功能清单（通俗版）**：面向老师/年级/校领导，按功能域说明系统能做什么，上线新功能须同步更新 |
+| [requirements/README.md](requirements/README.md) | **需求台账**：每个需求的全程记录与状态总览（待澄清/设计中/待审核/开发中/待验收/已上线） |
 | [project-optimization-upgrade-plan.md](project-optimization-upgrade-plan.md) | 文档整合入口，汇总当前系统架构、代码审阅发现和优化升级路线图 |
 | [ai-refactor-execution-playbook.md](ai-refactor-execution-playbook.md) | 面向其他 AI 工具的重构执行手册，包含批次、验收、重复函数合并规则和 Codex 复核流程 |
 | [function-level-audit-and-refactor-plan.md](function-level-audit-and-refactor-plan.md) | 函数级全量审计后的重构升级方案，按功能域说明保留要求、拆分方向和验收办法 |
@@ -24,6 +27,7 @@
 
 ## 推荐阅读顺序
 
+0. **要开发新功能 / 提需求**：先读 [process/README.md](process/README.md) 走协作流程；查已有功能看 [user-guide/feature-catalog.md](user-guide/feature-catalog.md)；需求状态看 [requirements/README.md](requirements/README.md)。
 1. 先读 [project-optimization-upgrade-plan.md](project-optimization-upgrade-plan.md)，了解项目现状和升级路线。
 2. 需要让其他 AI 执行重构时，直接使用 [ai-refactor-execution-playbook.md](ai-refactor-execution-playbook.md)。
 3. 需要做函数级核对时，读 [function-level-audit-and-refactor-plan.md](function-level-audit-and-refactor-plan.md)，并用 [function-inventory.md](function-inventory.md) 防止遗漏函数和功能。
@@ -36,6 +40,7 @@
 
 ## 整理记录
 
+- 2026-11-23：新增协作开发流程体系——`process/`（流程规范+5 个模板，含轻量通道）、`requirements/`（需求台账）、`user-guide/feature-catalog.md`（通俗功能清单），打通"使用者提需求→设计→审核→AI 开发→验收"全流程。
 - 2026-05-02：新增 `project-optimization-upgrade-plan.md`，整合 docs 现有文档定位和本次代码审阅后的优化升级方案。
 - 2026-05-02：新增 `function-inventory.md` 和 `function-level-audit-and-refactor-plan.md`，将函数级全量审计结果固化为重构防遗漏台账和详细重构方案。
 - 2026-05-02：新增 `ai-refactor-execution-playbook.md`，明确其他 AI 工具的执行批次、重复函数合并规则和 Codex 复核流程。
