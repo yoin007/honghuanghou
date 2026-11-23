@@ -12,13 +12,14 @@
                     placeholder="搜索功能，例：监考、请假、点名" class="catalog-search" />
           <div class="catalog-anchors">
             <button v-for="g in featureGroups" :key="g.key" type="button"
-                    class="anchor-chip" @click="scrollToGroup(g.key)">
+                    :class="['anchor-chip', `g-${g.key}`]" @click="scrollToGroup(g.key)">
               {{ anchorName(g.name) }}
             </button>
           </div>
         </div>
         <template v-if="filteredGroups.length">
-          <section v-for="g in filteredGroups" :key="g.key" :id="`catalog-${g.key}`" class="catalog-section">
+          <section v-for="g in filteredGroups" :key="g.key" :id="`catalog-${g.key}`"
+                   :class="['catalog-section', `g-${g.key}`]">
             <div class="section-title">
               {{ g.name }}
               <span class="group-count">（{{ g.features.length }} 个）</span>
@@ -353,26 +354,46 @@ onMounted(loadList)
   flex-wrap: wrap;
 }
 .anchor-chip {
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid transparent;
+  background: var(--accent-bg, #f8fafc);
   border-radius: 999px;
   padding: 4px 12px;
   font-size: 13px;
-  color: #475569;
+  font-weight: 500;
+  color: var(--accent, #475569);
   cursor: pointer;
 }
 .anchor-chip:hover {
-  border-color: #94a3b8;
-  color: #1e293b;
+  border-color: var(--accent, #94a3b8);
+  color: var(--accent, #1e293b);
 }
+/* 模块主题色：看数据蓝 / 德育紫 / 教学绿 / 监考橙 / 办公青 / 系统灰 */
+.g-dashboard { --accent: #2563eb; --accent-bg: #eff6ff; }
+.g-moral { --accent: #7c3aed; --accent-bg: #f5f3ff; }
+.g-teaching { --accent: #059669; --accent-bg: #ecfdf5; }
+.g-exam { --accent: #ea580c; --accent-bg: #fff7ed; }
+.g-office { --accent: #0891b2; --accent-bg: #ecfeff; }
+.g-system { --accent: #64748b; --accent-bg: #f1f5f9; }
 .catalog-section {
   margin-bottom: 22px;
   scroll-margin-top: 8px;
 }
 .section-title {
+  display: flex;
+  align-items: center;
   font-weight: 600;
   font-size: 15px;
   margin-bottom: 10px;
+  color: var(--accent);
+}
+.section-title::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 8px;
+  flex-shrink: 0;
 }
 .feature-grid {
   display: grid;
@@ -381,9 +402,10 @@ onMounted(loadList)
 }
 .feature-card {
   border: 1px solid #e2e8f0;
+  border-left: 3px solid var(--accent);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #f8fafc;
+  background: var(--accent-bg);
 }
 .feature-name {
   font-weight: 600;
