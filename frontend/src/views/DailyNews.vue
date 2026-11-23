@@ -7,6 +7,11 @@
         <div class="header-text">
           <h1>每日早报</h1>
           <p class="date-line">{{ displayDate }} · {{ displayWeekday }}</p>
+          <div v-if="weekInfo" class="week-line">
+            <span class="week-chip">第 {{ weekInfo.week_number }} 周</span>
+            <span class="week-chip">{{ weekInfo.parity }}</span>
+            <span class="week-chip week-chip-delay">{{ weekInfo.delay }}</span>
+          </div>
         </div>
       </div>
       <div class="header-actions">
@@ -112,7 +117,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import { dailyNewsApi } from '@/api/modules/dailyNews'
+import { dailyNewsApi, getWeekInfo } from '@/api/modules/dailyNews'
 
 const loading = ref(false)
 const refreshing = ref(false)
@@ -126,6 +131,19 @@ const selectedDate = ref(todayStr)
 const cachedDates = ref(new Set())
 
 const isToday = computed(() => selectedDate.value === todayStr)
+
+// 周次信息（跟随所选日期；接口失败时静默隐藏，不影响早报主流程）
+const weekInfo = ref(null)
+
+async function loadWeekInfo(date = selectedDate.value) {
+  try {
+    const res = await getWeekInfo(date ? { date } : {})
+    weekInfo.value = res?.success ? res.data : null
+  } catch (err) {
+    console.warn('周次信息加载失败:', err)
+    weekInfo.value = null
+  }
+}
 
 // —— 派生字段 ——
 const headImage = computed(() => data.value?.head_image || data.value?.image || '')
@@ -211,6 +229,7 @@ async function fetchData(date = selectedDate.value, { force = false } = {}) {
 function handleDateChange(val) {
   if (!val) return
   fetchData(val)
+  loadWeekInfo(val)
 }
 
 function handleRefresh() {
@@ -220,6 +239,7 @@ function handleRefresh() {
 function jumpToToday() {
   selectedDate.value = todayStr
   fetchData(todayStr)
+  loadWeekInfo(todayStr)
 }
 
 function onImgError(e) {
@@ -229,6 +249,7 @@ function onImgError(e) {
 onMounted(() => {
   loadCachedDates()
   fetchData()
+  loadWeekInfo()
 })
 </script>
 
@@ -280,6 +301,29 @@ onMounted(() => {
   margin: 4px 0 0;
   font-size: 13px;
   opacity: 0.85;
+}
+
+/* 周次信息行：第几周 / 单双周 / 延时年级 */
+.week-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.week-chip {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.week-chip-delay {
+  background: rgba(255, 255, 255, 0.88);
+  color: #6d28d9;
+  border-color: transparent;
+  font-weight: 600;
 }
 
 .header-actions {

@@ -46,6 +46,7 @@ export const FEATURE_GROUPS = [
     features: [
       { name: '课程表', desc: '查看班级/教师课表', audience: '全体老师' },
       { name: '实时课程', desc: '看当前正在上什么课', audience: '全体老师' },
+      { name: '总课表', desc: '查看全校总课表和各周课表文件', audience: '全体老师' },
       { name: '更新课表', desc: '上传/更新课表文件', audience: '教务' },
       { name: '班级作业', desc: '发布、查看班级作业', audience: '任课老师、班主任' },
       { name: '班级信息', desc: '维护班级基本信息', audience: '班主任' },
@@ -72,8 +73,9 @@ export const FEATURE_GROUPS = [
     key: 'office',
     name: '帮老师办公：个人事务',
     features: [
+      { name: '每日早报', desc: '每天的新闻要闻、微语和音频，顶部显示当前周次（单双周、延时年级）', audience: '全体老师' },
       { name: '我的待办', desc: '个人待办事项，到点微信提醒', audience: '全体老师' },
-      { name: '待办分组', desc: '按分组管理待办', audience: '全体老师' },
+      { name: '协作群组', desc: '待办按分组管理，可与同事协作', audience: '全体老师' },
       { name: '教师消息', desc: '接收系统/学校消息', audience: '全体老师' },
       { name: '文件上传/我的文件', desc: '上传、管理自己的文件', audience: '全体老师' },
       { name: '文件管理/已查阅', desc: '收齐并查阅老师提交的文件', audience: '教务' },
@@ -88,6 +90,7 @@ export const FEATURE_GROUPS = [
       { name: '成员管理', desc: '管理用户与角色', audience: '管理员' },
       { name: '权限管理', desc: '配置各角色能用哪些功能', audience: '管理员' },
       { name: '系统监控', desc: '查看系统运行与访问情况', audience: '管理员' },
+      { name: '数据库管理', desc: '数据库查看、备份与恢复', audience: '管理员' },
       { name: '系统设置', desc: '全局参数配置', audience: '管理员' }
     ]
   }

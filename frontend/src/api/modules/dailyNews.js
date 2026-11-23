@@ -16,11 +16,16 @@ export const dailyNewsApi = {
   /** 已缓存的日期列表 */
   listDates(limit = 90) {
     return httpClient.get('/api/daily-news/dates', { params: { limit } })
+  },
+  /** 周次信息（第几周/单双周/延时年级），params 支持 { date: 'YYYY-MM-DD' } */
+  getWeekInfo(params = {}) {
+    return httpClient.get('/api/week-info', { params })
   }
 }
 
 export const getDailyNews = dailyNewsApi.getDailyNews
 export const refreshDailyNews = dailyNewsApi.refresh
 export const listDailyNewsDates = dailyNewsApi.listDates
+export const getWeekInfo = dailyNewsApi.getWeekInfo
 
 export default dailyNewsApi

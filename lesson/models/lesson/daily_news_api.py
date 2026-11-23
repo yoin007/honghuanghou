@@ -4,25 +4,47 @@
 - GET  /api/daily-news             读取早报（默认今日；date=YYYY-MM-DD 查历史）
 - GET  /api/daily-news/dates       返回已缓存的日期列表（前端 DatePicker 标注）
 - POST /api/daily-news/refresh     强制刷新当日（忽略缓存）
+- GET  /api/week-info              周次信息：第几周、单双周、延时年级（与页面日期联动）
 """
 
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 
+from config.config import Config
 from models.api import daily_news
 from models.daily_news_db import get_cached, list_dates
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+config = Config()
+
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _today_str() -> str:
     return datetime.now().strftime("%Y-%m-%d")
+
+
+def _week_info_for(target: date) -> dict:
+    """按日历周次 + week_change 偏移算周次：奇数周=单周（高二延时），偶数周=双周（高一延时）。
+
+    口径与 Lesson.week_info / 周信息列表的延时标签一致（week_number % 2）。
+    """
+    week_change = int(config.get_config("week_change", "lesson.yaml") or 0)
+    week_number = target.isocalendar()[1] + week_change
+    is_odd = week_number % 2 == 1
+    monday = target - timedelta(days=target.weekday())
+    return {
+        "week_number": week_number,
+        "parity": "单周" if is_odd else "双周",
+        "delay": "高二延时" if is_odd else "高一延时",
+        "week_start": monday.strftime("%Y-%m-%d"),
+        "week_end": (monday + timedelta(days=6)).strftime("%Y-%m-%d"),
+    }
 
 
 @router.get("/daily-news")
@@ -68,3 +90,12 @@ async def get_daily_news(
 async def get_daily_news_dates(limit: int = Query(90, ge=1, le=365)):
     """已缓存的日期列表（新→旧），供前端 DatePicker 标注可选项。"""
     return {"success": True, "data": list_dates(limit)}
+
+
+@router.get("/week-info")
+async def get_week_info(date: str | None = Query(None, description="日期 YYYY-MM-DD，缺省=今日")):
+    """周次信息（公开接口，与每日早报页面的日期联动）：第几周、单双周、延时年级。"""
+    target = date or _today_str()
+    if not _DATE_RE.match(target):
+        raise HTTPException(status_code=400, detail="日期格式应为 YYYY-MM-DD")
+    return {"success": True, "data": _week_info_for(datetime.strptime(target, "%Y-%m-%d").date())}
