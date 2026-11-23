@@ -114,6 +114,12 @@ const routes = [
     meta: { requiresAuth: true, title: '协作群组' }
   },
   {
+    path: '/requirements',
+    name: 'RequirementCenter',
+    component: () => import('../views/RequirementCenter.vue'),
+    meta: { requiresAuth: true, title: '需求中心' }
+  },
+  {
     path: '/homework',
     name: 'Homework',
     component: () => import('../views/Homework.vue'),

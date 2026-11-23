@@ -56,6 +56,9 @@ from .invigilation import router as invigilation_router
 # 导入教师待办模块
 from .teacher_todo import router as teacher_todo_router
 
+# 导入需求中心模块
+from .requirements_api import router as requirements_router
+
 # 导入工具函数
 from .utils import (
     refresh_teacher_cache,
@@ -87,6 +90,8 @@ router.include_router(moral_router)
 router.include_router(invigilation_router)
 # 包含教师待办路由
 router.include_router(teacher_todo_router)
+# 包含需求中心路由
+router.include_router(requirements_router)
 # 包含旧模块中尚未迁移的路由
 router.include_router(legacy_router)
 
@@ -103,6 +108,7 @@ __all__ = [
     'moral_router',
     'invigilation_router',
     'teacher_todo_router',
+    'requirements_router',
     # 认证相关
     'Token',
     'TokenData',
