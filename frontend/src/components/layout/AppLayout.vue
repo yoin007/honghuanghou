@@ -125,7 +125,7 @@ const showChangePassword = ref(false)
 
 .app-main {
   flex: 1;
-  padding: 5rem 1rem 1rem;
+  padding: 2rem 1rem 1rem;
   overflow-y: auto;
   background-color: var(--background-color);
   position: relative;
