@@ -8,9 +8,14 @@
           <h1>每日早报</h1>
           <p class="date-line">{{ displayDate }} · {{ displayWeekday }}</p>
           <div v-if="weekInfo" class="week-line">
-            <span class="week-chip">第 {{ weekInfo.week_number }} 周</span>
-            <span class="week-chip">{{ weekInfo.parity }}</span>
-            <span class="week-chip week-chip-delay">{{ weekInfo.delay }}</span>
+            <span class="week-chip week-chip-num">第 {{ weekInfo.week_number }} 周</span>
+            <span
+              class="week-chip week-chip-parity"
+              :class="weekInfo.parity === '单周' ? 'parity-odd' : 'parity-even'"
+            >
+              {{ weekInfo.parity }}
+            </span>
+            <span class="week-chip week-chip-delay">🕘 {{ weekInfo.delay }}</span>
           </div>
         </div>
       </div>
@@ -303,27 +308,54 @@ onMounted(() => {
   opacity: 0.85;
 }
 
-/* 周次信息行：第几周 / 单双周 / 延时年级 */
+/* 周次信息行：第几周（弱）/ 单双周（实色强调）/ 延时年级（最醒目） */
 .week-line {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .week-chip {
-  padding: 2px 10px;
+  padding: 5px 14px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* 第几周：玻璃质感，次要信息 */
+.week-chip-num {
   background: rgba(255, 255, 255, 0.18);
   border: 1px solid rgba(255, 255, 255, 0.35);
 }
 
+/* 单双周：实色高对比，单周暖橙、双周晴空蓝，一眼可辨 */
+.week-chip-parity {
+  color: #fff;
+  border: 1px solid transparent;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.parity-odd {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+}
+
+.parity-even {
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+}
+
+/* 延时年级：反白大胶囊，整行视觉重心 */
 .week-chip-delay {
-  background: rgba(255, 255, 255, 0.88);
+  padding: 6px 16px;
+  font-size: 14.5px;
+  font-weight: 700;
   color: #6d28d9;
-  border-color: transparent;
-  font-weight: 600;
+  background: #fff;
+  border: 1px solid transparent;
+  box-shadow: 0 4px 12px rgba(109, 40, 217, 0.35);
 }
 
 .header-actions {
