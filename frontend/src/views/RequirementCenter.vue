@@ -7,22 +7,35 @@
           <span class="catalog-tip">系统已有 {{ totalFeatures }} 个功能，看看你要的是不是已经有了？</span>
           <el-button type="primary" @click="openSubmitDialog">我要提需求</el-button>
         </div>
-        <el-collapse v-model="openGroups">
-          <el-collapse-item v-for="group in featureGroups" :key="group.key" :name="group.key">
-            <template #title>
-              <span class="group-title">{{ group.name }}</span>
-              <span class="group-count">（{{ group.features.length }} 个）</span>
-            </template>
+        <div class="catalog-toolbar">
+          <el-input v-model="catalogSearch" clearable
+                    placeholder="搜索功能，例：监考、请假、点名" class="catalog-search" />
+          <div class="catalog-anchors">
+            <button v-for="g in featureGroups" :key="g.key" type="button"
+                    class="anchor-chip" @click="scrollToGroup(g.key)">
+              {{ anchorName(g.name) }}
+            </button>
+          </div>
+        </div>
+        <template v-if="filteredGroups.length">
+          <section v-for="g in filteredGroups" :key="g.key" :id="`catalog-${g.key}`" class="catalog-section">
+            <div class="section-title">
+              {{ g.name }}
+              <span class="group-count">（{{ g.features.length }} 个）</span>
+            </div>
             <div class="feature-grid">
-              <div v-for="f in group.features" :key="f.name" class="feature-card">
+              <div v-for="f in g.features" :key="f.name" class="feature-card">
                 <div class="feature-name">{{ f.name }}</div>
                 <div class="feature-desc">{{ f.desc }}</div>
                 <el-tag size="small" type="info" class="feature-audience">{{ f.audience }}</el-tag>
               </div>
             </div>
-          </el-collapse-item>
-        </el-collapse>
-        <div class="catalog-footer">清单更新日期：{{ catalogUpdated }}。没有找到想要的？点右上角「我要提需求」。</div>
+          </section>
+        </template>
+        <el-empty v-else description="没找到相关的功能？可能系统还没有——提个需求吧">
+          <el-button type="primary" @click="openSubmitDialog">我要提需求</el-button>
+        </el-empty>
+        <div class="catalog-footer">清单更新日期：{{ catalogUpdated }}。没有找到想要的？点「我要提需求」。</div>
       </el-tab-pane>
 
       <!-- 需求列表 -->
@@ -144,7 +157,28 @@ const activeTab = ref('catalog')
 const featureGroups = FEATURE_GROUPS
 const catalogUpdated = FEATURE_CATALOG_UPDATED
 const totalFeatures = featureGroups.reduce((n, g) => n + g.features.length, 0)
-const openGroups = ref(featureGroups.map(g => g.key))
+
+// 功能大厅：常驻展开 + 搜索过滤 + 锚点跳转
+const catalogSearch = ref('')
+const filteredGroups = computed(() => {
+  const kw = catalogSearch.value.trim().toLowerCase()
+  if (!kw) return featureGroups
+  return featureGroups
+    .map(g => ({
+      ...g,
+      features: g.features.filter(f =>
+        [f.name, f.desc, f.audience].some(t => t.toLowerCase().includes(kw)))
+    }))
+    .filter(g => g.features.length)
+})
+
+function anchorName(name) {
+  return name.split('：')[0]
+}
+
+function scrollToGroup(key) {
+  document.getElementById(`catalog-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 // 需求列表
 const requirements = ref([])
@@ -297,13 +331,48 @@ onMounted(loadList)
   color: #64748b;
   font-size: 14px;
 }
-.group-title {
-  font-weight: 600;
-}
 .group-count {
   color: #94a3b8;
   font-size: 12px;
+  font-weight: normal;
   margin-left: 6px;
+}
+.catalog-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.catalog-search {
+  width: 260px;
+}
+.catalog-anchors {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.anchor-chip {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: #475569;
+  cursor: pointer;
+}
+.anchor-chip:hover {
+  border-color: #94a3b8;
+  color: #1e293b;
+}
+.catalog-section {
+  margin-bottom: 22px;
+  scroll-margin-top: 8px;
+}
+.section-title {
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 10px;
 }
 .feature-grid {
   display: grid;
