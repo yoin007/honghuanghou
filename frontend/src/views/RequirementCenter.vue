@@ -32,7 +32,12 @@
         </div>
         <el-table :data="requirements" v-loading="listLoading" @row-click="openDetail" class="req-table">
           <el-table-column prop="requirement_no" label="编号" width="140" />
-          <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
+          <el-table-column label="标题" min-width="200" show-overflow-tooltip>
+            <template #default="{ row }">
+              <el-tag v-if="row.is_example" size="small" type="info" effect="plain" style="margin-right: 6px">示例</el-tag>
+              {{ row.title }}
+            </template>
+          </el-table-column>
           <el-table-column label="状态" width="110">
             <template #default="{ row }">
               <el-tag :type="statusTagType(row.status)" size="small">{{ row.status_label }}</el-tag>

@@ -50,7 +50,8 @@ TABLE_SQL = [
         submitter_id TEXT NOT NULL,
         submitter_name TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        is_example INTEGER NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS requirement_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,13 +65,89 @@ TABLE_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_requirement_log_req ON requirement_log(requirement_id)",
 ]
 
+# 置 False 可关闭历史需求补录种子（测试环境用）
+SEED_EXAMPLE_REQUIREMENTS = True
+
+# 历史需求补录（与 docs/requirements/ 台账一致）。仅空表时插入，
+# 行 id 1-3 对应 REQ-2026-001~003；is_example=1 对全体可见、不可改状态。
+SEED_REQUIREMENTS = [
+    {
+        "title": "监考工作量按主副监权重折算",
+        "problem": "监考报表把主监和副监都按 1 场统计，副监也拿整场时长，主副监考的付出差异体现不出来，老师对工作量口径有异议。",
+        "scenario": "教务在期中、期末考试后统计监考工作量时",
+        "expectation": "主监/副监权重可由教务配置，报表按权重折算，同时保留主副监原始场次分别统计",
+        "status": "accepting",
+        "logs": [
+            ("Tech_T", "submit", "教务反映工作量口径问题，代提需求", "2026-11-15 10:00:00"),
+            ("Tech_T", "status", "状态更新为「设计中」", "2026-11-15 10:05:00"),
+            ("Tech_T", "status", "设计稿已与教务确认：权重人工配置 + 主副监场次分列", "2026-11-15 11:30:00"),
+            ("Tech_T", "status", "状态更新为「开发中」", "2026-11-16 09:00:00"),
+            ("Tech_T", "status", "开发完成并部署，待教务用真实报表验收", "2026-11-17 15:57:00"),
+        ],
+    },
+    {
+        "title": "监考提醒改到考前30分钟开始",
+        "problem": "原提醒开考前10分钟才发，老师来不及赶到考场。",
+        "scenario": "监考老师考试当天收提醒",
+        "expectation": "考前30分钟发第一次提醒，之后每隔几分钟再提醒，直到开考",
+        "status": "done",
+        "logs": [
+            ("Tech_T", "submit", "教务反馈赶考场时间不够，代提需求（轻量通道）", "2026-11-16 14:00:00"),
+            ("Tech_T", "status", "状态更新为「开发中」", "2026-11-16 14:05:00"),
+            ("Tech_T", "status", "已上线：考前30分钟首发，每5分钟一次共2次", "2026-11-17 15:57:00"),
+        ],
+    },
+    {
+        "title": "需求中心页面（功能大厅+需求提交跟踪）",
+        "problem": "老师不清楚系统已有哪些功能，提需求只能口头找技术负责人，进度也不透明。",
+        "scenario": "全体老师想找功能或提功能建议时",
+        "expectation": "页面展示已有功能清单，支持在线提交需求并跟踪处理进度",
+        "status": "accepting",
+        "logs": [
+            ("Tech_T", "submit", "协作开发流程产品化的第一步", "2026-11-21 09:00:00"),
+            ("Tech_T", "status", "设计决策已确认：功能大厅内置前端数据；老师只看自己的需求；v1 不做微信提醒", "2026-11-21 15:00:00"),
+            ("Tech_T", "status", "状态更新为「开发中」", "2026-11-23 10:00:00"),
+            ("Tech_T", "status", "开发完成，待验收", "2026-11-23 11:39:00"),
+        ],
+    },
+]
+
 
 def _ensure_requirements_schema():
-    """幂等建表（自动迁移）。"""
+    """幂等建表（自动迁移），空表时补录历史需求示例。"""
     with get_moral_db() as db:
         for sql in TABLE_SQL:
             db.execute(sql)
+        cols = [r["name"] for r in db.query_all("PRAGMA table_info(requirement)")]
+        if "is_example" not in cols:
+            db.execute("ALTER TABLE requirement ADD COLUMN is_example INTEGER NOT NULL DEFAULT 0")
         db.commit()
+        if SEED_EXAMPLE_REQUIREMENTS:
+            _seed_example_requirements(db)
+
+
+def _seed_example_requirements(db):
+    """空表时补录历史需求（REQ-2026-001~003），表非空即跳过，幂等。"""
+    if db.query_one("SELECT COUNT(*) AS n FROM requirement")["n"]:
+        return
+    for spec in SEED_REQUIREMENTS:
+        db.execute(
+            """INSERT INTO requirement
+               (title, problem, scenario, expectation, status,
+                submitter_id, submitter_name, created_at, updated_at, is_example)
+               VALUES (?, ?, ?, ?, ?, 'Tech_T', 'Tech_T（技术负责人）', ?, ?, 1)""",
+            (spec["title"], spec["problem"], spec["scenario"], spec["expectation"],
+             spec["status"], spec["logs"][0][3], spec["logs"][-1][3]),
+        )
+        requirement_id = db.lastrowid()
+        for actor, action, note, ts in spec["logs"]:
+            db.execute(
+                """INSERT INTO requirement_log (requirement_id, actor_name, action, note, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (requirement_id, actor, action, note, ts),
+            )
+    db.commit()
+    logger.info(f"[requirements] 已补录 {len(SEED_REQUIREMENTS)} 条历史需求示例（空表种子）")
 
 
 def _is_manager(user: User) -> bool:
@@ -82,14 +159,14 @@ def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _requirement_no(row_id: int) -> str:
-    return f"REQ-{datetime.now().year}-{row_id:03d}"
+def _requirement_no(row_id: int, year: int) -> str:
+    return f"REQ-{year}-{row_id:03d}"
 
 
 def _row_to_dict(row: dict) -> dict:
     return {
         "id": row["id"],
-        "requirement_no": _requirement_no(row["id"]),
+        "requirement_no": _requirement_no(row["id"], int(row["created_at"][:4])),
         "title": row["title"],
         "problem": row["problem"],
         "scenario": row["scenario"],
@@ -97,6 +174,7 @@ def _row_to_dict(row: dict) -> dict:
         "status": row["status"],
         "status_label": REQUIREMENT_STATUSES.get(row["status"], row["status"]),
         "submitter_name": row["submitter_name"],
+        "is_example": bool(row["is_example"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -154,10 +232,10 @@ def submit_requirement(
         _add_log(db, requirement_id, user.username, "submit", "提交需求")
         db.commit()
 
-    logger.info(f"[requirements] 新需求 {_requirement_no(requirement_id)}：{request.title}（{user.username}）")
+    logger.info(f"[requirements] 新需求 {_requirement_no(requirement_id, datetime.now().year)}：{request.title}（{user.username}）")
     return {"success": True, "data": {
         "id": requirement_id,
-        "requirement_no": _requirement_no(requirement_id),
+        "requirement_no": _requirement_no(requirement_id, datetime.now().year),
         "status": "pending",
         "status_label": REQUIREMENT_STATUSES["pending"],
     }}
@@ -175,7 +253,8 @@ def list_requirements(
             raise HTTPException(403, "只有教务或管理员可以查看全部需求")
         where, params = "", ()
     else:
-        where, params = "WHERE submitter_id = ?", (user.username,)
+        # 自己的需求 + 历史示例（is_example 对全体可见）
+        where, params = "WHERE submitter_id = ? OR is_example = 1", (user.username,)
 
     with get_moral_db() as db:
         rows = db.query_all(
@@ -195,7 +274,7 @@ def get_requirement_detail(
         row = _get_requirement(db, requirement_id)
         if not row:
             raise HTTPException(404, "需求不存在")
-        if row["submitter_id"] != user.username and not _is_manager(user):
+        if row["submitter_id"] != user.username and not _is_manager(user) and not row["is_example"]:
             raise HTTPException(403, "只能查看自己提交的需求")
         logs = db.query_all(
             "SELECT * FROM requirement_log WHERE requirement_id = ? ORDER BY created_at DESC, id DESC",

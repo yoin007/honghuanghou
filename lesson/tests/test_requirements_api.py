@@ -31,6 +31,8 @@ def req_env(monkeypatch):
         yield db
 
     monkeypatch.setattr(requirements_api, "get_moral_db", fake_moral_db)
+    # 关闭历史需求种子，避免干扰各用例的行数断言（种子本身单独测）
+    monkeypatch.setattr(requirements_api, "SEED_EXAMPLE_REQUIREMENTS", False)
 
     def _submit(title="希望监考通知能按学科筛选", submitter="T_甲", **kwargs):
         payload = {
@@ -45,6 +47,52 @@ def req_env(monkeypatch):
         )
 
     yield db, _submit
+    conn.close()
+
+
+def test_seed_examples_on_empty_table(monkeypatch):
+    """空表时自动补录 3 条历史需求示例（REQ-2026-001~003），非空则跳过；示例对普通老师可见。"""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    db = MiniMoralDB(conn)
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def fake_moral_db():
+        yield db
+
+    monkeypatch.setattr(requirements_api, "get_moral_db", fake_moral_db)
+
+    requirements_api._ensure_requirements_schema()
+    rows = db.query_all("SELECT * FROM requirement ORDER BY id")
+    assert len(rows) == 3
+    assert all(r["is_example"] == 1 for r in rows)
+    assert [r["status"] for r in rows] == ["accepting", "done", "accepting"]
+    # 编号按 created_at 年份生成，与 docs 台账一致
+    nos = [requirements_api._row_to_dict(r)["requirement_no"] for r in rows]
+    assert nos == ["REQ-2026-001", "REQ-2026-002", "REQ-2026-003"]
+    # 每条示例都有完整流转日志
+    logs = db.query_all("SELECT requirement_id FROM requirement_log GROUP BY requirement_id")
+    assert len(logs) == 3
+
+    # 幂等：再次调用不重复插入
+    requirements_api._ensure_requirements_schema()
+    assert len(db.query_all("SELECT * FROM requirement")) == 3
+
+    # 示例对普通老师可见（mine 范围内），可看详情
+    res = requirements_api.list_requirements("mine", user=User(username="T_甲", role="teacher"))
+    assert len(res["data"]) == 3
+    detail = requirements_api.get_requirement_detail(rows[0]["id"], user=User(username="T_甲", role="teacher"))
+    assert detail["data"]["is_example"] is True
+
+    # 表非空后提交新需求，不触发再次补录
+    requirements_api.submit_requirement(
+        requirements_api.RequirementCreate(
+            title="新需求", problem="测试提交不触发种子重复插入。",
+            expectation="提交成功且总数为 4。"),
+        user=User(username="T_甲", role="teacher"))
+    assert len(db.query_all("SELECT * FROM requirement")) == 4
     conn.close()
 
 
