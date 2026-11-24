@@ -244,9 +244,9 @@ async def create_punishment(
             level_score_map = {1: 5, 2: 10, 3: 20, 4: 30}
             score = abs(punishment.score_deduct) if punishment.score_deduct else level_score_map.get(punishment.punishment_level, 10)
             db.execute(
-                """INSERT INTO school_event_type (event_name, event_type, score, is_active)
-                VALUES (?, 2, ?, 1)""",
-                (punishment.punishment_type, score)
+                """INSERT INTO school_event_type (event_name, event_type, event_level, score, is_active)
+                VALUES (?, 2, '校级', ?, 1)""",
+                (punishment.punishment_type, -score)
             )
             event_id = db.lastrowid()
         else:
